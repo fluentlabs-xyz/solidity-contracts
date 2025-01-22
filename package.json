@@ -1,0 +1,14 @@
+{
+  "name": "@fluent.xyz/solidity-contracts",
+  "version": "1.0.0",
+  "description": "A collection of reusable Solidity contracts and libraries for Ethereum development.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fluentlabs-xyz/solidity-contracts"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "hardhat": "^2.22.18",
+    "chai": "^5.1.2"
+  }
+}
