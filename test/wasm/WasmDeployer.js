@@ -9,7 +9,7 @@ describe("Deployment", function () {
         const WasmDeployer = await ethers.getContractFactory("WasmDeployer");
         const contract = await WasmDeployer.deploy();
         await contract.waitForDeployment();
-        const wasmFilename = "./binaries/greeting.wasm";
+        const wasmFilename = "./assets/greeting.wasm";
         const wasmBytecode = "0x" + readFileSync(join(dirname(import.meta.filename), wasmFilename)).toString("hex");
         const constructorParams = "0x"; // empty constructor
         const transaction = await contract.deploy(wasmBytecode, constructorParams, { gasLimit: 30000000 })
@@ -26,7 +26,7 @@ describe("Deployment", function () {
         const WasmDeployer = await ethers.getContractFactory("WasmDeployer");
         const contract = await WasmDeployer.deploy();
         await contract.waitForDeployment();
-        const wasmFilename = "./binaries/constructor-params.wasm";
+        const wasmFilename = "./assets/constructor-params.wasm";
         const wasmBytecode = "0x" + readFileSync(join(dirname(import.meta.filename), wasmFilename)).toString("hex");
         const constructorParams = "0x12345678ffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
         console.log("executing \"deploy(bytecode, params)\" of WasmDeployer.sol...");
