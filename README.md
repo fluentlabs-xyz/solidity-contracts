@@ -1,13 +1,37 @@
-# Sample Hardhat Project
+# Fluent Solidity Libraries
 
-This project demonstrates a basic Hardhat use case. It comes with a sample contract, a test for that contract, and a Hardhat Ignition module that deploys that contract.
+This project contains Solidity contracts and libraries designed to interact with the Fluent blockchain, allowing you to leverage Fluent-specific functionalities.
 
-Try running some of the following tasks:
+## Installation
 
-```shell
-npx hardhat help
-npx hardhat test
-REPORT_GAS=true npx hardhat test
-npx hardhat node
-npx hardhat ignition deploy ./ignition/modules/Lock.js
-```
+1. Clone the repository:
+
+   ```bash
+   git clone <repository-url>
+   ```
+
+2. Install dependencies:
+
+   ```bash
+   npm install
+   ```
+
+## Testing
+
+To run tests, use the following commands:
+
+- For testing against a local fluent node:
+
+  ```bash
+  npx hardhat test --local
+  ```
+
+- To skip tests requiring Fluent features:
+
+  ```bash
+  npx hardhat test
+  ```
+
+## Usage
+
+Integrate these contracts and libraries into your projects to access and utilize functionalities specific to the Fluent blockchain.
