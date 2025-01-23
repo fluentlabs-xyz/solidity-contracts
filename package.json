@@ -1,7 +1,7 @@
 {
   "name": "@fluent.xyz/solidity-contracts",
-  "version": "1.0.0",
-  "description": "A collection of reusable Solidity contracts and libraries for Ethereum development.",
+  "version": "0.0.1",
+  "description": "A collection of Solidity libraries to leverage Fluent-specific features",
   "repository": {
     "type": "git",
     "url": "https://github.com/fluentlabs-xyz/solidity-contracts"
