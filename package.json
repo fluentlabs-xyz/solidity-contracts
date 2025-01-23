@@ -8,7 +8,6 @@
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
-    "hardhat": "^2.22.18",
-    "chai": "^5.1.2"
+    "hardhat": "^2.22.18"
   }
 }
