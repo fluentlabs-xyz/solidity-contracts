@@ -34,6 +34,10 @@ describe("ComputationVerifier", function () {
     });
 
     it("should verify computation of echo.wasm", async function () {
+        if (network.name === 'hardhat') {
+            console.warn('⚠️  WASM tests require a Fluent-compatible network');
+            this.skip();
+        }
         const wasmBytecode = utils.readBytecode("./assets/echo.wasm");
         const wasmHash = ethers.keccak256(wasmBytecode);
         const input = "0x12345678ffff"
