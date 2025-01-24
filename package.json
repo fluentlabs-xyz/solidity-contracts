@@ -6,7 +6,6 @@
     "type": "git",
     "url": "https://github.com/fluentlabs-xyz/solidity-contracts"
   },
-  "type": "module",
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
     "hardhat": "^2.22.18"
