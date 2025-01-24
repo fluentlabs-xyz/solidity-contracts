@@ -26,21 +26,22 @@ contract ComputationVerifier {
 
     function verifyComputation(uint256 challengeID, bytes memory wasmBytecode, bytes memory input) external {
         Challenge storage challenge = challenges[challengeID];
-        require(challenge.exists, "challenge does not exist");
-        require(!challenge.verified, "challenge already verified");
-        require(keccak256(wasmBytecode) == challenge.wasmHash, "challenge wasm binary does is not good");
-        require(keccak256(input) == challenge.inputHash, "input is not good");
+
+        require(challenge.exists, "Verification Error: Challenge ID does not exist.");
+        require(!challenge.verified, "Verification Error: Challenge has already been verified.");
+
+        require(keccak256(wasmBytecode) == challenge.wasmHash, "Verification Error: Provided Wasm bytecode does not match the stored hash for this challenge.");
+        require(keccak256(input) == challenge.inputHash, "Verification Error: Provided input does not match the stored input hash for this challenge.");
+
         address newContract = WasmDeployerLib.deploy(wasmBytecode, "");
+
         (bool success, bytes memory output) = newContract.call(input);
-        require(success, "wasm contract execution failed");
-        require(keccak256(output) == challenge.outputHash, "computation output does not match expected result");
+
+        require(success, "Execution Error: Failed to execute the Wasm contract.");
+
+        require(keccak256(output) == challenge.outputHash, "Output Error: Computation output does not match the expected output hash.");
 
         challenge.verified = true;
         emit ChallengeVerified(challengeID, msg.sender);
-    }
-
-    function isChallengeVerified(uint256 challengeID) external view returns (bool) {
-        require(challenges[challengeID].exists, "Challenge does not exist");
-        return challenges[challengeID].verified;
     }
 }

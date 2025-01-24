@@ -2,7 +2,6 @@ require('@nomicfoundation/hardhat-toolbox'); // Toolbox for testing, debugging, 
 require('@nomicfoundation/hardhat-ignition');
 
 module.exports = {
-  // defaultNetwork: 'local', // Set default network for commands that don't specify --network
   defaultNetwork: 'hardhat',
   networks: {
     local: {

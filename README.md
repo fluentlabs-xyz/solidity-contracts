@@ -4,17 +4,9 @@ This project contains Solidity contracts and libraries designed to interact with
 
 ## Installation
 
-1. Clone the repository:
-
-   ```bash
-   git clone <repository-url>
-   ```
-
-2. Install dependencies:
-
-   ```bash
-   npm install
-   ```
+```bash
+npm install @fluent.xyz/solidity-contracts
+```
 
 ## Testing
 

@@ -1,4 +1,5 @@
-import { expect } from "chai";
+const expect = require("chai").expect;
+const utils = require("./utils");
 
 
 describe("Deployment", function () {
@@ -7,7 +8,7 @@ describe("Deployment", function () {
         const WasmDeployer = await ethers.getContractFactory("WasmDeployer");
         const contract = await WasmDeployer.deploy();
         await contract.waitForDeployment();
-        const wasmBytecode = readBytecodeFromFile("./assets/greeting.wasm");
+        const wasmBytecode = utils.readBytecode("./assets/greeting.wasm");
         const constructorParams = "0x"; // empty constructor
         const transaction = await contract.deploy(wasmBytecode, constructorParams, { gasLimit: 30000000 })
         const receipt = await transaction.wait();
@@ -23,7 +24,7 @@ describe("Deployment", function () {
         const WasmDeployer = await ethers.getContractFactory("WasmDeployer");
         const contract = await WasmDeployer.deploy();
         await contract.waitForDeployment();
-        const wasmBytecode = readBytecodeFromFile("./assets/constructor-params.wasm");
+        const wasmBytecode = utils.readBytecode("./assets/constructor-params.wasm");
         const constructorParams = "0x12345678ffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
         console.log("executing \"deploy(bytecode, params)\" of WasmDeployer.sol...");
         const transaction = await contract.deploy(wasmBytecode, constructorParams, { gasLimit: 30000000 })
