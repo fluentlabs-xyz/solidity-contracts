@@ -29,8 +29,11 @@ describe("ComputationVerifier", function () {
         expect(challenge.wasmHash).to.equal(wasmHash);
         expect(challenge.inputHash).to.equal(inputHash);
         expect(challenge.outputHash).to.equal(outputHash);
-        expect(challenge.exists).to.be.true;
         expect(challenge.verified).to.be.false;
+    });
+
+    it("should fail when verifying non-existing challenge", async function () {
+        await expect(computationVerifier.verifyComputation(999, "0x00", "0x00")).to.be.revertedWithCustomError(computationVerifier, "ChallengeDoesNotExist");
     });
 
     it("should verify computation of echo.wasm", async function () {
@@ -43,6 +46,7 @@ describe("ComputationVerifier", function () {
         const input = "0x12345678ffff"
         const inputHash = ethers.keccak256(input);
         const outputHash = ethers.keccak256(input);
+
 
         let transaction = await computationVerifier.createChallenge(wasmHash, inputHash, outputHash)
         let receipt = await transaction.wait();
@@ -65,7 +69,6 @@ describe("ComputationVerifier", function () {
         expect(challenge.wasmHash).to.equal(wasmHash);
         expect(challenge.inputHash).to.equal(inputHash);
         expect(challenge.outputHash).to.equal(outputHash);
-        expect(challenge.exists).to.be.true;
         expect(challenge.verified).to.be.true;
     });
 
