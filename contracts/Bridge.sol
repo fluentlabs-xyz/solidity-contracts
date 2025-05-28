@@ -47,7 +47,7 @@ contract Bridge is ReentrancyGuard {
 
     /// @notice Queue of sent messages awaiting confirmation.
     /// @dev This is used only on the L1 side to track outbound messages for potential rollback.
-    Queue private sentMessageQueue;
+    Queue.QueueStorage private sentMessageQueue;
 
     /// @notice Address authorized to send direct messages.
     address public bridgeAuthority;
@@ -116,14 +116,14 @@ contract Bridge is ReentrancyGuard {
         rollup = _rollup;
         receiveMessageDeadline = _receiveMessageDeadline;
         if (rollup != address(0)) {
-            sentMessageQueue = new Queue();
+            Queue.initialize(sentMessageQueue);
         }
     }
 
     /// @notice Returns the size of the sent message queue.
     function getQueueSize() external view returns (uint256) {
-        if (address(sentMessageQueue) != address(0)) {
-            return sentMessageQueue.size();
+        if (rollup != address(0)) {
+            return Queue.size(sentMessageQueue);
         }
         return 0;
     }
@@ -132,7 +132,7 @@ contract Bridge is ReentrancyGuard {
     /// @notice Dequeues a message for rollup processing.
     /// @dev Callable only by the Rollup contract.
     function popSentMessage() public onlyRollup returns (bytes32) {
-        return sentMessageQueue.dequeue();
+        return Queue.dequeue(sentMessageQueue);
     }
 
 
@@ -161,8 +161,8 @@ contract Bridge is ReentrancyGuard {
 
         bytes32 messageHash = keccak256(encodedMessage);
 
-        if (address(sentMessageQueue) != address(0)) {
-            sentMessageQueue.enqueue(messageHash);
+        if (rollup != address(0)) {
+            Queue.enqueue(sentMessageQueue, messageHash);
         }
 
         emit SentMessage(
@@ -502,7 +502,7 @@ contract Bridge is ReentrancyGuard {
         bytes32 _messageHash
     ) private {
         if (_to == address(this)) revert ForbiddenSelfCall();
-        if (_messageHash != sentMessageQueue.dequeue())
+        if (_messageHash != Queue.dequeue(sentMessageQueue))
             revert RollbackMessageMismatch();
 
         (bool success, bytes memory data) = _from.call{value: _value}("");
