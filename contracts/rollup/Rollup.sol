@@ -624,16 +624,18 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer {
     function _getPublicValuesFromCommitment(
         BlockCommitment calldata _commitment
     ) internal pure returns (bytes memory) {
-        bytes memory publicValues = new bytes(136); // 4 * 32 bytes + 8 bytes for length
+        bytes memory publicValues = new bytes(160); // 4 * 32 bytes + 4 * 8 bytes for length
 
-        publicValues[0] = 0x80; // Length of data (128 bytes = 4 * 32)
+        publicValues[0] = 0x20;
+        publicValues[40] = 0x20;
+        publicValues[80] = 0x20;
+        publicValues[120] = 0x20;
 
-        //TODO: Check this scheme by stf
         for (uint256 i = 0; i < 32; i++) {
             publicValues[8 + i] = _commitment.previousBlockHash[i];
-            publicValues[40 + i] = _commitment.blockHash[i];
-            publicValues[72 + i] = _commitment.withdrawalHash[i];
-            publicValues[104 + i] = _commitment.depositHash[i];
+            publicValues[48 + i] = _commitment.blockHash[i];
+            publicValues[88 + i] = _commitment.withdrawalHash[i];
+            publicValues[128 + i] = _commitment.depositHash[i];
         }
 
         return publicValues;
