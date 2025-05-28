@@ -53,8 +53,9 @@ describe("Rollup.sol", function () {
       "0x0000000000000000000000000000000000000000",
       0,
     );
-
+    const accounts = await hre.ethers.getSigners();
     rollup = await RollupContract.deploy(
+      accounts[0],
       10000,
       0,
       1,

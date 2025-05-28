@@ -55,7 +55,7 @@ describe("Accept Batch Tests", () => {
 
     const rollupContract = await rollupFactory
       .connect(owner)
-      .deploy(0, 0, 0, verifier.target, vkKey, genesisHash, 
+      .deploy(owner.address, 0, 0, 0, verifier.target, vkKey, genesisHash,
         "0x0000000000000000000000000000000000000000", batchSize, 1000, 0);
     
     const receipt = await rollupContract.deploymentTransaction().wait();

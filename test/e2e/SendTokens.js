@@ -127,6 +127,7 @@ class BridgeTestContext {
     const rollup = await rollupFactory
       .connect(owner)
       .deploy(
+        owner.address,
         0, 0, 0,
         verifier.target,
         MOCK_ROLLUP_CONFIG.vkKey,
@@ -219,7 +220,8 @@ class BridgeTestContext {
       sendReceipt.blockNumber
     );
     expect(sentEvents.length).to.equal(1);
-    
+    console.log("Send from L2 to L1 events: ", sentEvents);
+
     // Process message on L1
     await this.processMessageOnL1(sentEvents[0]);
 
@@ -276,6 +278,7 @@ class BridgeTestContext {
       l2ToL1Events[0].blockNumber
     );
     expect(sentEvents.length).to.equal(1);
+    console.log("Send from L1 to L2 enents: ", sentEvents);
 
     // Process message on L2 with proof
     await this.processMessageOnL2WithProof(sentEvents[0], l2ToL1Events[0], sendReceipt);

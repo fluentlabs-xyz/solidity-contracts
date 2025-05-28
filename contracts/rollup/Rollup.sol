@@ -38,6 +38,14 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer {
     error NotEnoughValueIncentiveFee(uint256 value, uint256 incentiveFee);
     error InvalidBlockProof();
 
+    modifier onlySequencer() {
+        require(msg.sender == sequencer, "call only from bridge");
+        _;
+    }
+
+    /// @notice Address of the sequencer. Responsible for accepting new batches.
+    address public sequencer;
+
     /// @notice Address of the Bridge contract. Responsible for exchanging messages between L1 and L2.
     address public bridge;
 
@@ -158,6 +166,7 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer {
      * @dev Initializes the Rollup contract with initial configuration.
      */
     constructor(
+        address _sequencer,
         uint256 _challengeDepositAmount,
         uint256 _challengeBlockCount,
         uint256 _approveBlockCount,
@@ -169,6 +178,7 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer {
         uint256 _acceptDepositDeadline,
         uint256 _incentiveFee
     ) Ownable(msg.sender) {
+        sequencer = _sequencer;
         challengeDepositAmount = _challengeDepositAmount;
         challengeBlockCount = _challengeBlockCount;
         approveBlockCount = _approveBlockCount;
@@ -312,7 +322,7 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer {
         uint256 _batchIndex,
         BlockCommitment[] calldata _commitmentBatch,
         DepositsInBlock[] calldata depositsInBlocks
-    ) external payable {
+    ) external payable onlySequencer {
         if (_rollupCorrupted()) {
             revert RollupCorrupted();
         }

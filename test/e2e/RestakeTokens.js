@@ -428,6 +428,7 @@ describe("Contract deployment and interaction", function () {
       rollupContract = await rollupFactory
         .connect(owner)
         .deploy(
+          owner.address,
           0,
           0,
           0,

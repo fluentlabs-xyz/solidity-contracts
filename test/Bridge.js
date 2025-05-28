@@ -11,13 +11,14 @@ describe("Bridge", function () {
     const VerifierContract = await ethers.getContractFactory("VerifierMock");
 
     let verifier = await VerifierContract.deploy();
-
+    const accounts = await hre.ethers.getSigners();
     const RollupContract = await ethers.getContractFactory("Rollup");
     const vkKey =
       "0x00612f9d5a388df116872ff70e36bcb86c7e73b1089f32f68fc8e0d0ba7861b7";
     const genesisHash =
       "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470";
     rollup = await RollupContract.deploy(
+      accounts[0],
       0,
       0,
       0,
@@ -31,7 +32,7 @@ describe("Bridge", function () {
     );
 
     const BridgeContract = await ethers.getContractFactory("Bridge");
-    const accounts = await hre.ethers.getSigners();
+
 
     bridge = await BridgeContract.deploy(
       accounts[0].address,
