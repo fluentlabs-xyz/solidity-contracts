@@ -25,6 +25,7 @@ contract Bridge is ReentrancyGuard {
 
     error OnlyBridgeAuthority();
     error OnlyRollupAuthority();
+    error OnlyWhenRollupInited();
     error MessageAlreadyReceived();
     error MessageReceivedOutOfOrder();
     error MessageNotFailed();
@@ -282,6 +283,9 @@ contract Bridge is ReentrancyGuard {
         MerkleTree.MerkleProof calldata _rollback_proof,
         MerkleTree.MerkleProof calldata _block_proof
     ) external payable nonReentrant {
+        if(rollup == address(0))
+            revert OnlyWhenRollupInited();
+
         if (!Rollup(rollup).approvedBatch(_batchIndex))
             revert InvalidBlockProof();
 
