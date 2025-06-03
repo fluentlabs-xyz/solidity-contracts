@@ -142,7 +142,7 @@ contract ERC20Gateway is Ownable, IERC20Gateway {
                 (_token, peggedToken, _sender, _to, _amount, rawTokenMetadata)
             );
         } else {
-            (address originGateway, address originAddress) = ERC20PeggedToken(
+            (, address originAddress) = ERC20PeggedToken(
                 _token
             ).getOrigin();
             require(tokenMapping[_token] == originAddress);
