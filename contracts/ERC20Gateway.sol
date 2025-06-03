@@ -35,9 +35,9 @@ contract ERC20Gateway is Ownable, IERC20Gateway {
 
     event ReceivedTokens(address source, address target, uint256 amount);
     event UpdateTokenMapping(
-        address indexed _originToken,
-        address indexed _oldPeggedToken,
-        address indexed _newPeggedToken
+        address indexed _peggedToken,
+        address indexed _oldOriginToken,
+        address indexed _newOriginToken
     );
 
     constructor(
@@ -201,10 +201,10 @@ contract ERC20Gateway is Ownable, IERC20Gateway {
     ) external onlyOwner {
         require(_peggedToken != address(0), "token address cannot be 0");
 
-        address _oldPeggedToken = tokenMapping[_originToken];
-        tokenMapping[_originToken] = _peggedToken;
+        address _oldOriginToken = tokenMapping[_peggedToken];
+        tokenMapping[_peggedToken] = _originToken;
 
-        emit UpdateTokenMapping(_originToken, _oldPeggedToken, _peggedToken);
+        emit UpdateTokenMapping(_peggedToken, _oldOriginToken, _originToken);
     }
 
     function _deployL2Token(
