@@ -24,6 +24,7 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer {
     error BlockCommitmentAlreadyProofed(bytes32 commitmentHash);
     error BatchAlreadyChallenged(uint256 batchIndex);
     error InsufficientChallengeDeposit(uint256 required, uint256 provided);
+    error ExcessiveChallengeDeposit(uint256 required, uint256 provided);
     error EthTransferFailed(address recipient, uint256 amount);
     error InvalidRevertIndex(uint256 index);
     error BlockHashMismatch(bytes32 expected, bytes32 provided);
@@ -60,7 +61,7 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer {
     uint256 public approveBlockCount;
 
     /// @notice Required ETH deposit for a challenge.
-    uint256 public challengeDepositAmount;
+    uint256 public immutable challengeDepositAmount;
 
     /// @notice Incentive fee for successful challengers.
     uint256 public incentiveFee;
@@ -571,6 +572,12 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer {
 
         if (msg.value < challengeDepositAmount) {
             revert InsufficientChallengeDeposit(
+                challengeDepositAmount,
+                msg.value
+            );
+        }
+        if (msg.value > challengeDepositAmount) {
+            revert ExcessiveChallengeDeposit(
                 challengeDepositAmount,
                 msg.value
             );
