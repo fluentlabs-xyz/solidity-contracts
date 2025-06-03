@@ -88,8 +88,6 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer {
     /// @notice Mapping from batch index to the block number when it was accepted.
     mapping(uint256 => uint256) public acceptedBlock;
 
-    /// @notice Mapping to track proofed batches.
-    mapping(uint256 => bool) public proofedBatch;
 
     /// @notice Mapping to track proofed block commitments.
     mapping(bytes32 => bool) public proofedBlockCommitment;
@@ -485,11 +483,19 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer {
      *           the batch has already been proven via zk-SNARK proof.
      */
     function _approvedBatch(uint256 _batchIndex) internal view returns (bool) {
-        uint256 blockAcceptBlockNumber = acceptedBlock[_batchIndex];
-
-        return
-            _acceptedBatch(_batchIndex) &&
-            (block.number - blockAcceptBlockNumber > approveBlockCount);
+        if (!_acceptedBatch(_batchIndex)) {
+            return false;
+        }    
+    
+        bytes32[] storage challengedCommitments = batchChallengedCommitments[_batchIndex];
+        for (uint256 j = 0; j < challengedCommitments.length; j++) {
+            bytes32 commitmentHash = challengedCommitments[j];
+            if (blockCommitmentChallenger[commitmentHash] != address(0)) {
+                return false;
+            }
+        }
+    
+        return block.number - acceptedBlock[_batchIndex] > approveBlockCount;
     }
 
     /**
