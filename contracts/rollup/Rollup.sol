@@ -597,7 +597,7 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer {
         BlockCommitment calldata _commitmentBatch,
         bytes calldata _proof,
         MerkleTree.MerkleProof calldata _block_proof
-    ) external nonReentrant {
+    ) external payable nonReentrant {
         bytes32 batchHash = acceptedBatchHash[_batchIndex];
         bytes32 commitmentHash = keccak256(
             abi.encodePacked(
@@ -630,10 +630,11 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer {
         if (challenger != address(0)) {
             blockCommitmentChallenger[commitmentHash] = address(0);
             if (challengerDeposit[challenger] >= challengeDepositAmount) {
+                // Slash the challenger's deposit
                 challengerDeposit[challenger] -= challengeDepositAmount;
-                challengerReadyForWithdrawal[
-                    challenger
-                ] += challengeDepositAmount;
+                // Transfer the slashed deposit to the proof provider
+                (bool success, ) = payable(msg.sender).call{value: challengeDepositAmount}("");
+                if (!success) revert EthTransferFailed(msg.sender, challengeDepositAmount);
             }
 
             for (uint256 i = 0; i < challengeQueue.length; i++) {
