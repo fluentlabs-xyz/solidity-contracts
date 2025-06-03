@@ -33,11 +33,11 @@ describe("Bridge", function () {
 
     const BridgeContract = await ethers.getContractFactory("Bridge");
 
-
     bridge = await BridgeContract.deploy(
       accounts[0].address,
       rollup.target,
       10,
+      "0x0000000000000000000000000000000000000000" // Initially set to zero address
     );
     bridge = await bridge.waitForDeployment();
 
@@ -522,5 +522,65 @@ describe("Bridge", function () {
         proof: hashes[1],
       },
     );
+  });
+
+  it("Should prevent sending message to current Bridge contract", async function () {
+    const accounts = await hre.ethers.getSigners();
+    const contractWithSigner = bridge.connect(accounts[0]);
+
+    try {
+      await contractWithSigner.sendMessage(
+        bridge.target,
+        "0x0102030405",
+        { value: 2000 }
+      )
+
+    } catch (error) {
+      expect(error.message).to.include("revert");
+    }
+  });
+
+  it("Should prevent sending message to other Bridge contract", async function () {
+    const accounts = await hre.ethers.getSigners();
+    const contractWithSigner = bridge.connect(accounts[0]);
+
+    const BridgeContract = await ethers.getContractFactory("Bridge");
+    const otherBridge = await BridgeContract.deploy(
+      accounts[0].address,
+      rollup.target,
+      10,
+      bridge.target
+    );
+    await otherBridge.waitForDeployment();
+
+    await bridge.setOtherBridge(otherBridge.target);
+
+    try {
+      await contractWithSigner.sendMessage(
+        otherBridge.target,
+        "0x0102030405",
+        { value: 2000 }
+      )
+    } catch (error) {
+      expect(error.message).to.include("revert");
+    }
+  });
+
+  it("Should allow sending message to non-Bridge contract", async function () {
+    const accounts = await hre.ethers.getSigners();
+    const contractWithSigner = bridge.connect(accounts[0]);
+    const receiverAddress = await accounts[1].getAddress();
+
+    const tx = await contractWithSigner.sendMessage(
+      receiverAddress,
+      "0x0102030405",
+      { value: 2000 }
+    );
+
+    await tx.wait();
+
+    const events = await bridge.queryFilter("SentMessage", tx.blockNumber);
+    expect(events.length).to.equal(1);
+    expect(events[0].args.to).to.equal(receiverAddress);
   });
 });

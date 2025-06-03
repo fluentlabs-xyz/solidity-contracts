@@ -2,6 +2,7 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 import "./libraries/Queue.sol";
 import {IERC20Gateway} from "./interfaces/IERC20Gateway.sol";
 import {MerkleTree} from "./libraries/MerkleTree.sol";
@@ -18,7 +19,7 @@ import {Rollup} from "./rollup/Rollup.sol";
  * @dev This contract is deployed on both L1 and L2, with different configurations on each side.
  *      It supports message rollback logic in case messages are not processed within a deadline.
  */
-contract Bridge is ReentrancyGuard {
+contract Bridge is ReentrancyGuard, Ownable {
     uint256 public nonce;
     uint256 public receivedNonce;
     uint256 public receiveMessageDeadline;
@@ -33,6 +34,10 @@ contract Bridge is ReentrancyGuard {
     error RollbackMessageMismatch();
     error InvalidBlockProof();
     error InvalidWithdrawalProof();
+    error InvalidDestinationAddress();
+
+    /// @notice Address of the Bridge contract on the other chain
+    address public otherBridge;
 
     /// @notice Enum describing status of a message: None, Failed, or Success.
     enum MessageStatus {
@@ -107,18 +112,29 @@ contract Bridge is ReentrancyGuard {
      * @param _receiveMessageDeadline Number of blocks after which a message becomes eligible for rollback.
      *        - On L2: should be set to a non-zero value to enable rollback after timeout.
      *        - On L1: should be set to 0, as rollback is not applicable.
+     * @param _otherBridge Address of the Bridge contract on the other chain.
      */
     constructor(
         address _bridgeAuthority,
         address _rollup,
-        uint256 _receiveMessageDeadline
-    ) {
+        uint256 _receiveMessageDeadline,
+        address _otherBridge
+    ) Ownable(msg.sender) {
         bridgeAuthority = _bridgeAuthority;
         rollup = _rollup;
         receiveMessageDeadline = _receiveMessageDeadline;
+        otherBridge = _otherBridge;
         if (rollup != address(0)) {
             Queue.initialize(sentMessageQueue);
         }
+    }
+
+    /**
+     * @notice Sets the address of the Bridge contract on the other chain.
+     * @param _otherBridge The address of the Bridge contract on the other chain.
+     */
+    function setOtherBridge(address _otherBridge) external onlyOwner {
+        otherBridge = _otherBridge;
     }
 
     /// @notice Returns the size of the sent message queue.
@@ -146,6 +162,8 @@ contract Bridge is ReentrancyGuard {
         address _to,
         bytes calldata _message
     ) external payable {
+        if (_to == address(this) || _to == otherBridge) revert InvalidDestinationAddress();
+        
         address from = msg.sender;
         uint256 value = msg.value;
         uint256 messageNonce = _takeNextNonce();
