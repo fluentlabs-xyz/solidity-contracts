@@ -583,4 +583,47 @@ describe("Bridge", function () {
     expect(events.length).to.equal(1);
     expect(events[0].args.to).to.equal(receiverAddress);
   });
+
+  it("Should handle return bomb attack gracefully", async function () {
+    const accounts = await hre.ethers.getSigners();
+    const contractWithSigner = bridge.connect(accounts[0]);
+
+    // Deploy a malicious contract that returns a large amount of data
+    const MaliciousContract = await ethers.getContractFactory("MaliciousContract");
+    const maliciousContract = await MaliciousContract.deploy();
+    await maliciousContract.waitForDeployment();
+
+    // Send a message to the malicious contract
+    const tx = await contractWithSigner.sendMessage(
+      maliciousContract.target,
+      "0x0102030405",
+      { value: 2000 }
+    );
+    await tx.wait();
+
+    // Get the message hash and nonce from the SentMessage event
+    const events = await bridge.queryFilter("SentMessage", tx.blockNumber);
+    const messageHash = events[0].args.messageHash;
+    const nonce = events[0].args.nonce;
+    const value = events[0].args.value;
+    const chainId = events[0].args.chainId;
+
+    // Try to receive the message using the correct nonce
+    const receiveTx = await contractWithSigner.receiveMessage(
+      accounts[0].address,
+      maliciousContract.target,
+      value,
+      chainId,
+      tx.blockNumber,
+      nonce,
+      "0x0102030405"
+    );
+    await receiveTx.wait();
+
+    // Verify that the message was marked as failed but didn't cause a revert
+    const receivedEvents = await bridge.queryFilter("ReceivedMessage", receiveTx.blockNumber);
+    expect(receivedEvents.length).to.equal(1);
+    expect(receivedEvents[0].args.messageHash).to.equal(messageHash);
+    expect(receivedEvents[0].args.successfulCall).to.equal(false);
+  });
 });

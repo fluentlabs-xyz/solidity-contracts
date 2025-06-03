@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "../interfaces/IRollupVerifier.sol";
@@ -5,8 +8,6 @@ import "../interfaces/IVerifier.sol";
 import "../restaker/libraries/BlobHashGetter.sol";
 import {Bridge} from "../Bridge.sol";
 import {MerkleTree} from "../libraries/MerkleTree.sol";
-
-pragma solidity ^0.8.0;
 
 /**
  * @title Rollup Contract

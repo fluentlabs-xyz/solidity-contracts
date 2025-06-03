@@ -7,6 +7,7 @@ import "./libraries/Queue.sol";
 import {IERC20Gateway} from "./interfaces/IERC20Gateway.sol";
 import {MerkleTree} from "./libraries/MerkleTree.sol";
 import {Rollup} from "./rollup/Rollup.sol";
+import {ExcessivelySafeCall} from "./libraries/ExcessivelySafeCall.sol";
 
 /**
  * @title Bridge
@@ -506,7 +507,11 @@ contract Bridge is ReentrancyGuard, Ownable {
             return;
         }
 
-        (bool success, bytes memory data) = _to.call{value: _value}(_message);
+        (bool success, bytes memory data) = ExcessivelySafeCall.excessivelySafeCall(
+            _to,
+            _value,
+            _message
+        );
 
         receivedMessage[_messageHash] = success
             ? MessageStatus.Success
@@ -527,7 +532,12 @@ contract Bridge is ReentrancyGuard, Ownable {
         if (_messageHash != Queue.dequeue(sentMessageQueue))
             revert RollbackMessageMismatch();
 
-        (bool success, bytes memory data) = _from.call{value: _value}("");
+        (bool success, bytes memory data) = ExcessivelySafeCall.excessivelySafeCall(
+            _from,
+            _value,
+            ""
+        );
+        
         rollbackMessage[_messageHash] = success
             ? MessageStatus.Success
             : MessageStatus.Failed;
