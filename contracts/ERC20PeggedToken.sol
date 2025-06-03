@@ -64,4 +64,8 @@ contract ERC20PeggedToken is ERC20 {
     function symbol() public view override returns (string memory) {
         return _symbol;
     }
+
+    function decimals() public view override returns (uint8) {
+        return _decimals;
+    }
 }
