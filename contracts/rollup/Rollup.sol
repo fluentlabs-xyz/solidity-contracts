@@ -152,6 +152,9 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer {
     /// @notice Mapping from batch index to array of challenged block commitment hashes.
     mapping(uint256 => bytes32[]) public batchChallengedCommitments;
 
+    /// @notice Mapping from batch index to array of proofed block commitment hashes.
+    mapping(uint256 => bytes32[]) public proofedCommitmentInBatch;
+
     /// @notice Emitted when the verifier is updated.
     event UpdateVerifier(address oldVerifier, address newVerifier);
 
@@ -160,6 +163,10 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer {
 
     /// @notice Emitted when a batch is proven.
     event BatchProofed(uint256 batchIndex);
+
+    /// @notice Emitted when a batch is force reverted.
+    /// @param batchIndex The index of the batch that was reverted to.
+    event ForceRevertBatch(uint256 batchIndex);
 
     /**
      * @dev Initializes the Rollup contract with initial configuration.
@@ -220,6 +227,8 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer {
 
     /**
      * @notice Forces reversion of batches starting from a given index.
+     * @dev This function should be called only in emergency situations where the rollup needs to be reverted to a previous valid state.
+     *      It will clean up all state variables associated with the reverted batches to ensure the system can continue operating correctly.
      * @param _revertedBatchIndex The batch index to revert from.
      */
     function forceRevertBatch(
@@ -231,9 +240,11 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer {
         if (_revertedBatchIndex == 0) {
             revert InvalidRevertIndex(_revertedBatchIndex);
         }
+
         uint256 incentiveFees = 0;
+
+        // Clean up state for all reverted batches
         for (uint256 i = _revertedBatchIndex; i < nextBatchIndex; i++) {
-            bytes32 batchHash = acceptedBatchHash[i];
             // Handle challenged commitments for this batch
             bytes32[] storage challengedCommitments = batchChallengedCommitments[i];
             for (uint256 j = 0; j < challengedCommitments.length; j++) {
@@ -243,9 +254,7 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer {
                     blockCommitmentChallenger[commitmentHash] = address(0);
                     if (challengerDeposit[challenger] >= challengeDepositAmount) {
                         challengerDeposit[challenger] -= challengeDepositAmount;
-                        challengerReadyForWithdrawal[
-                            challenger
-                        ] += challengeDepositAmount + incentiveFee;
+                        challengerReadyForWithdrawal[challenger] += challengeDepositAmount + incentiveFee;
                         incentiveFees += incentiveFee;
                     }
                 }
@@ -255,17 +264,32 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer {
                         delete challengeQueue[k];
                     }
                 }
+
+                delete challengeDeadline[commitmentHash];
             }
-            // Clear the batch's challenged commitments
+
+            // Clean up proofed commitments for this batch
+            bytes32[] storage proofedCommitments = proofedCommitmentInBatch[i];
+            for (uint256 j = 0; j < proofedCommitments.length; j++) {
+                delete proofedBlockCommitment[proofedCommitments[j]];
+            }
+
+            delete acceptedBatchHash[i];
+            delete proofedCommitmentInBatch[i];
+            delete acceptedBlock[i];
             delete batchChallengedCommitments[i];
         }
+
         if (msg.value < incentiveFees) {
             revert NotEnoughValueIncentiveFee(msg.value, incentiveFees);
         }
+
         _cleanQueue();
 
+        // Update the next batch index
         nextBatchIndex = _revertedBatchIndex;
-        acceptedBlock[_revertedBatchIndex] = 0;
+
+        emit ForceRevertBatch(_revertedBatchIndex);
     }
 
     /**
@@ -600,6 +624,7 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer {
         );
 
         proofedBlockCommitment[commitmentHash] = true;
+        proofedCommitmentInBatch[_batchIndex].push(commitmentHash);
         address challenger = blockCommitmentChallenger[commitmentHash];
 
         if (challenger != address(0)) {
