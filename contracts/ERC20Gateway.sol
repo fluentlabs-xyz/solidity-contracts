@@ -39,6 +39,14 @@ contract ERC20Gateway is Ownable, IERC20Gateway {
         address indexed _oldOriginToken,
         address indexed _newOriginToken
     );
+    event OtherSideUpdated(
+        address indexed _oldOtherSide,
+        address indexed _newOtherSide,
+        address indexed _oldImplementation,
+        address _newImplementation,
+        address _oldFactory,
+        address _newFactory
+    );
 
     constructor(
         address _bridgeContract,
@@ -53,9 +61,22 @@ contract ERC20Gateway is Ownable, IERC20Gateway {
         address _otherSideTokenImplementation,
         address _otherSideFactory
     ) external payable onlyOwner {
+        address oldOtherSide = otherSide;
+        address oldImplementation = otherSideTokenImplementation;
+        address oldFactory = otherSideFactory;
+        
         otherSide = _otherSide;
         otherSideTokenImplementation = _otherSideTokenImplementation;
         otherSideFactory = _otherSideFactory;
+
+        emit OtherSideUpdated(
+            oldOtherSide,
+            _otherSide,
+            oldImplementation,
+            _otherSideTokenImplementation,
+            oldFactory,
+            _otherSideFactory
+        );
     }
 
     function computePeggedTokenAddress(

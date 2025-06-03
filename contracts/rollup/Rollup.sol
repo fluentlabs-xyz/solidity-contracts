@@ -169,6 +169,21 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer {
     /// @param batchIndex The index of the batch that was reverted to.
     event ForceRevertBatch(uint256 batchIndex);
 
+    event ChallengeDepositWithdrawn(
+        address indexed challenger,
+        uint256 amount
+    );
+
+    event DaCheckUpdated(
+        bool oldValue,
+        bool newValue
+    );
+
+    event BridgeUpdated(
+        address indexed oldBridge,
+        address indexed newBridge
+    );
+
     /**
      * @dev Initializes the Rollup contract with initial configuration.
      */
@@ -204,7 +219,9 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer {
      * @param isCheck Whether to enable the check.
      */
     function setDaCheck(bool isCheck) external payable onlyOwner {
+        bool oldValue = daCheck;
         daCheck = isCheck;
+        emit DaCheckUpdated(oldValue, isCheck);
     }
 
     /**
@@ -212,7 +229,9 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer {
      * @param _bridge The new bridge address.
      */
     function setBridge(address _bridge) external payable onlyOwner {
+        address oldBridge = bridge;
         bridge = _bridge;
+        emit BridgeUpdated(oldBridge, _bridge);
     }
 
     /**
@@ -706,6 +725,7 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer {
         challengerReadyForWithdrawal[challenger] = 0;
 
         challenger.transfer(amount);
+        emit ChallengeDepositWithdrawn(challenger, amount);
     }
 
     function _checkDeposit(
