@@ -25,7 +25,7 @@ describe("TokenFactory", function () {
       "0x2222222222222222222222222222222222222222",
     );
 
-    expect(computeAddress).equal("0xa03D3edfEE41B1d6e7C60Bba459dDdCecb1683fe");
+    expect(computeAddress).equal("0xE1b95cFfa83Fd3AB6b2d0a746e1fB9316474bedD");
   });
 
   it("deployPeggedToken", async function () {

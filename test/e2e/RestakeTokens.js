@@ -438,6 +438,7 @@ describe("Contract deployment and interaction", function () {
           "0x0000000000000000000000000000000000000000",
           1,
           100,
+          0,
         );
       rollupAddress = rollupContract.target;
       log("rollupAddress:", rollupAddress);
@@ -446,7 +447,7 @@ describe("Contract deployment and interaction", function () {
     await sleep(1000);
     let bridgeContract = await bridgeFactory
       .connect(owner)
-      .deploy(ownerAddresses[0], rollupAddress, 100);
+      .deploy(ownerAddresses[0], rollupAddress, 100, "0x0000000000000000000000000000000000000000");
     bridgeContract = await bridgeContract.waitForDeployment();
     log("bridgeContract.address:", bridgeContract.target);
 

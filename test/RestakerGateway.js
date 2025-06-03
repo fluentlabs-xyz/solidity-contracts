@@ -21,6 +21,7 @@ describe("RestakerGateway", function () {
       accounts[0].address,
       accounts[1].address,
       0,
+      "0x0000000000000000000000000000000000000001"
     );
     bridge = await bridge.waitForDeployment();
 
@@ -177,7 +178,7 @@ describe("RestakerGateway", function () {
     const hash = ethers.keccak256(inputBytes);
 
     expect(hash).to.equal(
-      "0x524a11ee291a8a0bfda35bda70be1b75a57c2b094758beaf35bde8b55f976511",
+      "0x194546d7f1700a574578c1e4e0afa5640f25883db91e3d43479aebbab0c95deb",
     );
 
     const receive_tx = await contractWithSigner.receiveMessage(
@@ -278,7 +279,7 @@ describe("RestakerGateway", function () {
     const hash = ethers.keccak256(inputBytes);
 
     expect(hash).to.equal(
-      "0xeeb5602a5f697188216d0046ff9218b126d294e795732907764a4f301f41e73c",
+      "0x62f577ac94c69f072e325f3a7fad0d23c8a1f53ad993fd259641dd1621bbbfb8",
     );
 
     const receive_tx = await contractWithSigner.receiveMessage(
@@ -300,7 +301,7 @@ describe("RestakerGateway", function () {
 
     expect(events.length).to.equal(1);
     expect(events[0].args.messageHash).to.equal(
-      "0x941940bad2bf058276d6cea44c098a1dff3188c803815912d73ea388f68264ac",
+      "0x838529f9dfbb63a4d323ca87c40e63b051d84c8e43cd7a30e4e8425772e34611",
     );
     expect(events[0].args.successfulCall).to.equal(true);
 
