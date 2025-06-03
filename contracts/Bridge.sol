@@ -230,8 +230,6 @@ contract Bridge is ReentrancyGuard, Ownable {
         MerkleTree.MerkleProof calldata _withdrawal_proof,
         MerkleTree.MerkleProof calldata _block_proof
     ) external payable nonReentrant {
-        if (_nonce != _takeNextReceivedNonce())
-            revert MessageReceivedOutOfOrder();
         if (!Rollup(rollup).approvedBatch(_batchIndex))
             revert InvalidBlockProof();
 
