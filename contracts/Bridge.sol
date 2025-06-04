@@ -33,6 +33,7 @@ contract Bridge is ReentrancyGuard, Ownable {
     error MessageReceivedOutOfOrder();
     error MessageNotFailed();
     error ForbiddenSelfCall();
+    error ForbiddenReceiveRollbackedMessage();
     error RollbackMessageMismatch();
     error InvalidBlockProof();
     error InvalidWithdrawalProof();
@@ -233,6 +234,9 @@ contract Bridge is ReentrancyGuard, Ownable {
     ) external payable nonReentrant {
         if (!Rollup(rollup).approvedBatch(_batchIndex))
             revert InvalidBlockProof();
+
+        if (_chainId == block.chainid)
+            revert ForbiddenReceiveRollbackedMessage();
 
         bytes32 messageHash = keccak256(
             _encodeMessage(
