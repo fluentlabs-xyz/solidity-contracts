@@ -423,7 +423,7 @@ describe("Bridge", function () {
     console.log("With event: ", events);
     expect(events.length).to.equal(1);
     expect(events[0].args.messageHash).to.equal(
-      "0x80286cf205ed88deff46a298b6aaf81050edb80f0d97aa555c4f3e4ae4e310c3",
+      "0xa0ce643f041dd582302ee8a73fa43ec9e24ba03f07910d115675b0c10ba1533d",
     );
     expect(events[0].args.blockNumber).to.equal(14n);
 
@@ -566,24 +566,6 @@ describe("Bridge", function () {
     }
   });
 
-  it("Should allow sending message to non-Bridge contract", async function () {
-    const accounts = await hre.ethers.getSigners();
-    const contractWithSigner = bridge.connect(accounts[0]);
-    const receiverAddress = await accounts[1].getAddress();
-
-    const tx = await contractWithSigner.sendMessage(
-      receiverAddress,
-      "0x0102030405",
-      { value: 2000 }
-    );
-
-    await tx.wait();
-
-    const events = await bridge.queryFilter("SentMessage", tx.blockNumber);
-    expect(events.length).to.equal(1);
-    expect(events[0].args.to).to.equal(receiverAddress);
-  });
-
   it("Should handle return bomb attack gracefully", async function () {
     const accounts = await hre.ethers.getSigners();
     const contractWithSigner = bridge.connect(accounts[0]);
@@ -625,5 +607,23 @@ describe("Bridge", function () {
     expect(receivedEvents.length).to.equal(1);
     expect(receivedEvents[0].args.messageHash).to.equal(messageHash);
     expect(receivedEvents[0].args.successfulCall).to.equal(false);
+  });
+
+  it("Should allow sending message to non-Bridge contract", async function () {
+    const accounts = await hre.ethers.getSigners();
+    const contractWithSigner = bridge.connect(accounts[0]);
+    const receiverAddress = await accounts[1].getAddress();
+
+    const tx = await contractWithSigner.sendMessage(
+        receiverAddress,
+        "0x0102030405",
+        { value: 2000 }
+    );
+
+    await tx.wait();
+
+    const events = await bridge.queryFilter("SentMessage", tx.blockNumber);
+    expect(events.length).to.equal(1);
+    expect(events[0].args.to).to.equal(receiverAddress);
   });
 });

@@ -2,7 +2,6 @@
 
 pragma solidity ^0.8.0;
 
-import {IBridge} from "./interfaces/IBridge.sol";
 import {IERC20Gateway} from "./interfaces/IERC20Gateway.sol";
 import {ERC20PeggedToken} from "./ERC20PeggedToken.sol";
 import {ERC20TokenFactory} from "./ERC20TokenFactory.sol";
@@ -11,6 +10,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {RestakingPool} from "./restaker/RestakingPool.sol";
 import {IRestakingPool} from "./restaker/interfaces/IRestakingPool.sol";
+import {Bridge} from "./Bridge.sol";
 
 contract ERC20Gateway is Ownable, IERC20Gateway {
     struct TokenMetadata {
@@ -155,7 +155,7 @@ contract ERC20Gateway is Ownable, IERC20Gateway {
             );
         }
 
-        IBridge(bridgeContract).sendMessage{value: _value}(otherSide, _message);
+        Bridge(bridgeContract).sendMessage{value: _value}(otherSide, _message);
     }
 
     function receivePeggedTokens(
@@ -166,6 +166,9 @@ contract ERC20Gateway is Ownable, IERC20Gateway {
         uint256 _amount,
         bytes calldata _tokenMetadata
     ) external payable onlyBridgeSender {
+
+        require(Bridge(msg.sender).nativeSender() == otherSide, "Message provide from wrong gateway");
+
         require(msg.value == 0, "Message value have to equal zero");
 
         require(_originToken != address(0), "Origin token can't be equal zero");
@@ -201,6 +204,8 @@ contract ERC20Gateway is Ownable, IERC20Gateway {
         address _to,
         uint256 _amount
     ) external payable onlyBridgeSender {
+        require(Bridge(msg.sender).nativeSender() == otherSide, "Message provide from wrong gateway");
+
         _receiveNativeTokens(_nativeToken, _from, _to, _amount);
     }
 

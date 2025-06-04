@@ -24,6 +24,7 @@ contract Bridge is ReentrancyGuard, Ownable {
     uint256 public nonce;
     uint256 public receivedNonce;
     uint256 public receiveMessageDeadline;
+    address public nativeSender;
 
     error OnlyBridgeAuthority();
     error OnlyRollupAuthority();
@@ -505,11 +506,13 @@ contract Bridge is ReentrancyGuard, Ownable {
             return;
         }
 
+        nativeSender = _from;
         (bool success, bytes memory data) = ExcessivelySafeCall.excessivelySafeCall(
             _to,
             _value,
             _message
         );
+        nativeSender = address(0);
 
         receivedMessage[_messageHash] = success
             ? MessageStatus.Success

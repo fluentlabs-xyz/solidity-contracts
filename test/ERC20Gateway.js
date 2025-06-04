@@ -53,6 +53,8 @@ describe("ERC20Gateway", function () {
     token = await token.waitForDeployment();
 
     erc20Gateway = await erc20Gateway.waitForDeployment();
+
+    await erc20Gateway.setOtherSide("0x1111111111111111111111111111111111111111", "0x0000000000000000000000000000000000000000", "0x0000000000000000000000000000000000000000");
   });
 
   it("Send tokens test", async function () {

@@ -69,6 +69,8 @@ describe("RestakerGateway", function () {
 
     const authTx = await tokenFactory.transferOwnership(restakerGateway.target);
     await authTx.wait();
+
+    await restakerGateway.setOtherSide("0x1111111111111111111111111111111111111111", "0x0000000000000000000000000000000000000000", "0x0000000000000000000000000000000000000000");
   });
 
   it("Stake tokens test", async function () {
@@ -178,7 +180,7 @@ describe("RestakerGateway", function () {
     const hash = ethers.keccak256(inputBytes);
 
     expect(hash).to.equal(
-      "0x194546d7f1700a574578c1e4e0afa5640f25883db91e3d43479aebbab0c95deb",
+      "0x18bcf778f0df97941d2e1a4342862a35145cc767daeb4462d3e8a262cc10fcab",
     );
 
     const receive_tx = await contractWithSigner.receiveMessage(
@@ -279,7 +281,7 @@ describe("RestakerGateway", function () {
     const hash = ethers.keccak256(inputBytes);
 
     expect(hash).to.equal(
-      "0x62f577ac94c69f072e325f3a7fad0d23c8a1f53ad993fd259641dd1621bbbfb8",
+      "0x15835aaa4491a0478744617b2ac5ba65603056da9bc852a1137d56a8d29e8dd7",
     );
 
     const receive_tx = await contractWithSigner.receiveMessage(
@@ -301,7 +303,7 @@ describe("RestakerGateway", function () {
 
     expect(events.length).to.equal(1);
     expect(events[0].args.messageHash).to.equal(
-      "0x838529f9dfbb63a4d323ca87c40e63b051d84c8e43cd7a30e4e8425772e34611",
+      "0xc21a756b45f713e8b7d05fcb2c8f5ff2842fe007eb7adaea2824296a4de265b0",
     );
     expect(events[0].args.successfulCall).to.equal(true);
 
