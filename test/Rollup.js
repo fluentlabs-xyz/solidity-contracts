@@ -78,7 +78,7 @@ describe("Rollup.sol", function () {
     const rollupContractWithSigner = rollup.connect(accounts[0]);
     const currentBatchIndex = await rollupContractWithSigner.nextBatchIndex();
     if (currentBatchIndex > 1) {
-      await rollupContractWithSigner.forceRevertBatch(1, {value: 1000});
+      await rollupContractWithSigner.forceRevertBatch(0, {value: 1000});
     }
   });
 

@@ -257,9 +257,6 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer {
         if (!_acceptedBatch(_revertedBatchIndex)) {
             revert BatchNotAccepted(_revertedBatchIndex);
         }
-        if (_revertedBatchIndex == 0) {
-            revert InvalidRevertIndex(_revertedBatchIndex);
-        }
 
         uint256 incentiveFees = 0;
 
