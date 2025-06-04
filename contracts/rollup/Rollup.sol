@@ -493,7 +493,7 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer {
     function _rollupCorrupted() internal view returns (bool) {
         return
             challengeQueue.length != 0 &&
-            challengeDeadline[challengeQueue[0]] < block.number;
+            challengeDeadline[challengeQueue[challengeQueueStart]] < block.number;
     }
 
     /**
