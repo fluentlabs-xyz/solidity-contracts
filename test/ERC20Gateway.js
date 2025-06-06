@@ -20,7 +20,8 @@ describe("ERC20Gateway", function () {
       accounts[0].address,
       accounts[1].address,
       0,
-      "0x0000000000000000000000000000000000000001"
+      "0x0000000000000000000000000000000000000001",
+      0
     );
     bridge = await bridge.waitForDeployment();
 

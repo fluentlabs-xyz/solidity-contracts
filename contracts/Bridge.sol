@@ -25,6 +25,7 @@ contract Bridge is ReentrancyGuard, Ownable, Pausable {
     uint256 public nonce;
     uint256 public receivedNonce;
     uint256 public receiveMessageDeadline;
+    uint256 public blockDifference;
     address public nativeSender;
 
     error OnlyBridgeAuthority();
@@ -117,17 +118,20 @@ contract Bridge is ReentrancyGuard, Ownable, Pausable {
      *        - On L2: should be set to a non-zero value to enable rollback after timeout.
      *        - On L1: should be set to 0, as rollback is not applicable.
      * @param _otherBridge Address of the Bridge contract on the other chain.
+     * @param _blockDifference The difference in block numbers between L1 and L2 chains.
      */
     constructor(
         address _bridgeAuthority,
         address _rollup,
         uint256 _receiveMessageDeadline,
-        address _otherBridge
+        address _otherBridge,
+        uint256 _blockDifference
     ) Ownable(msg.sender) {
         bridgeAuthority = _bridgeAuthority;
         rollup = _rollup;
         receiveMessageDeadline = _receiveMessageDeadline;
         otherBridge = _otherBridge;
+        blockDifference = _blockDifference;
         if (rollup != address(0)) {
             Queue.initialize(sentMessageQueue);
         }
@@ -139,6 +143,14 @@ contract Bridge is ReentrancyGuard, Ownable, Pausable {
      */
     function setOtherBridge(address _otherBridge) external onlyOwner {
         otherBridge = _otherBridge;
+    }
+
+    /**
+     * @notice Updates the block difference between L1 and L2 chains
+     * @param _blockDifference The new block difference value
+     */
+    function updateBlockDifference(uint256 _blockDifference) external onlyOwner {
+        blockDifference = _blockDifference;
     }
 
     /**
@@ -520,7 +532,7 @@ contract Bridge is ReentrancyGuard, Ownable, Pausable {
 
         if (
             receiveMessageDeadline != 0 &&
-            _blockNumber + receiveMessageDeadline < block.number
+            _blockNumber + receiveMessageDeadline < block.number + blockDifference
         ) {
             emit RollbackMessage(_messageHash, block.number);
             emit ReceivedMessage(_messageHash, true, "");
