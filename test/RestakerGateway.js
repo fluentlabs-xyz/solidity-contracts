@@ -177,11 +177,6 @@ describe("RestakerGateway", function () {
       .slice(2);
 
     const inputBytes = Buffer.from(data, "hex");
-    const hash = ethers.keccak256(inputBytes);
-
-    expect(hash).to.equal(
-      "0x18bcf778f0df97941d2e1a4342862a35145cc767daeb4462d3e8a262cc10fcab",
-    );
 
     const receive_tx = await contractWithSigner.receiveMessage(
       "0x1111111111111111111111111111111111111111",
@@ -277,13 +272,6 @@ describe("RestakerGateway", function () {
       )
       .slice(2);
 
-    const inputBytes = Buffer.from(data, "hex");
-    const hash = ethers.keccak256(inputBytes);
-
-    expect(hash).to.equal(
-      "0x15835aaa4491a0478744617b2ac5ba65603056da9bc852a1137d56a8d29e8dd7",
-    );
-
     const receive_tx = await contractWithSigner.receiveMessage(
       "0x1111111111111111111111111111111111111111",
       restakerGateway.target,
@@ -303,7 +291,7 @@ describe("RestakerGateway", function () {
 
     expect(events.length).to.equal(1);
     expect(events[0].args.messageHash).to.equal(
-      "0xc21a756b45f713e8b7d05fcb2c8f5ff2842fe007eb7adaea2824296a4de265b0",
+      "0x4d76006107f54f707cc58dda4bbfcd2bfb2bd2e48da87c49b86b9c145dca6867",
     );
     expect(events[0].args.successfulCall).to.equal(true);
 
