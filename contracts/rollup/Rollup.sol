@@ -3,6 +3,7 @@ pragma solidity ^0.8.0;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
 import "../interfaces/IRollupVerifier.sol";
 import "../interfaces/IVerifier.sol";
 import "../restaker/libraries/BlobHashGetter.sol";
@@ -14,7 +15,7 @@ import {MerkleTree} from "../libraries/MerkleTree.sol";
  * @dev This contract implements a rollup system with features such as batch acceptance, deposit verification,
  * proof submission, and challenge mechanisms. It interacts with a Bridge contract and a verifier for zk-SNARK proof validation.
  */
-contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer {
+contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer, Pausable {
     error RollupCorrupted();
     error WrongPreviousBlockHash(bytes32 expected, bytes32 provided);
     error DepositVerificationFailed(bytes32 blockHash);
@@ -39,6 +40,7 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer {
     error NothingToWithdraw();
     error NotEnoughValueIncentiveFee(uint256 value, uint256 incentiveFee);
     error InvalidBlockProof();
+    error ContractPaused();
 
     modifier onlySequencer() {
         require(msg.sender == sequencer, "call only from bridge");
@@ -246,6 +248,22 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer {
     }
 
     /**
+     * @notice Pauses the contract, preventing all non-owner functions from being called
+     * @dev Only callable by the owner
+     */
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    /**
+     * @notice Unpauses the contract, allowing all functions to be called again
+     * @dev Only callable by the owner
+     */
+    function unpause() external onlyOwner {
+        _unpause();
+    }
+
+    /**
      * @notice Forces reversion of batches starting from a given index.
      * @dev This function should be called only in emergency situations where the rollup needs to be reverted to a previous valid state.
      *      It will clean up all state variables associated with the reverted batches to ensure the system can continue operating correctly.
@@ -362,7 +380,7 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer {
         uint256 _batchIndex,
         BlockCommitment[] calldata _commitmentBatch,
         DepositsInBlock[] calldata depositsInBlocks
-    ) external payable onlySequencer {
+    ) external payable onlySequencer whenNotPaused {
         if (_rollupCorrupted()) {
             revert RollupCorrupted();
         }
@@ -552,7 +570,7 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer {
         uint256 _batchIndex,
         BlockCommitment calldata _commitmentBatch,
         MerkleTree.MerkleProof calldata _block_proof
-    ) external payable nonReentrant {
+    ) external payable nonReentrant whenNotPaused {
         if (!_acceptedBatch(_batchIndex)) {
             revert BatchNotAccepted(_batchIndex);
         }
@@ -620,7 +638,7 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer {
         BlockCommitment calldata _commitmentBatch,
         bytes calldata _proof,
         MerkleTree.MerkleProof calldata _block_proof
-    ) external payable nonReentrant {
+    ) external payable nonReentrant whenNotPaused {
         bytes32 batchHash = acceptedBatchHash[_batchIndex];
         bytes32 commitmentHash = keccak256(
             abi.encodePacked(
@@ -714,7 +732,7 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer {
      */
     function withdrawChallengeDeposit(
         address payable challenger
-    ) external payable nonReentrant {
+    ) external payable nonReentrant whenNotPaused {
         uint256 amount = challengerReadyForWithdrawal[challenger];
 
         if (amount == 0) revert NothingToWithdraw();

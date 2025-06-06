@@ -3,6 +3,7 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/Pausable.sol";
 import "./libraries/Queue.sol";
 import {IERC20Gateway} from "./interfaces/IERC20Gateway.sol";
 import {MerkleTree} from "./libraries/MerkleTree.sol";
@@ -20,7 +21,7 @@ import {ExcessivelySafeCall} from "./libraries/ExcessivelySafeCall.sol";
  * @dev This contract is deployed on both L1 and L2, with different configurations on each side.
  *      It supports message rollback logic in case messages are not processed within a deadline.
  */
-contract Bridge is ReentrancyGuard, Ownable {
+contract Bridge is ReentrancyGuard, Ownable, Pausable {
     uint256 public nonce;
     uint256 public receivedNonce;
     uint256 public receiveMessageDeadline;
@@ -38,6 +39,7 @@ contract Bridge is ReentrancyGuard, Ownable {
     error InvalidBlockProof();
     error InvalidWithdrawalProof();
     error InvalidDestinationAddress();
+    error ContractPaused();
 
     /// @notice Address of the Bridge contract on the other chain
     address public otherBridge;
@@ -106,7 +108,6 @@ contract Bridge is ReentrancyGuard, Ownable {
         bytes returnData
     );
 
-
     /**
      * @param _bridgeAuthority Address permitted to send authorized messages (usually a trusted relayer or bridge controller).
      * @param _rollup Address of the rollup contract.
@@ -140,6 +141,22 @@ contract Bridge is ReentrancyGuard, Ownable {
         otherBridge = _otherBridge;
     }
 
+    /**
+     * @notice Pauses the contract, preventing all non-owner functions from being called
+     * @dev Only callable by the owner
+     */
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    /**
+     * @notice Unpauses the contract, allowing all functions to be called again
+     * @dev Only callable by the owner
+     */
+    function unpause() external onlyOwner {
+        _unpause();
+    }
+
     /// @notice Returns the size of the sent message queue.
     function getQueueSize() external view returns (uint256) {
         if (rollup != address(0)) {
@@ -147,7 +164,6 @@ contract Bridge is ReentrancyGuard, Ownable {
         }
         return 0;
     }
-
 
     /// @notice Dequeues a message for rollup processing.
     /// @dev Callable only by the Rollup contract.
@@ -164,7 +180,7 @@ contract Bridge is ReentrancyGuard, Ownable {
     function sendMessage(
         address _to,
         bytes calldata _message
-    ) external payable {
+    ) external payable whenNotPaused {
         if (_to == address(this) || _to == otherBridge) revert InvalidDestinationAddress();
         
         address from = msg.sender;
@@ -231,7 +247,7 @@ contract Bridge is ReentrancyGuard, Ownable {
         bytes calldata _message,
         MerkleTree.MerkleProof calldata _withdrawal_proof,
         MerkleTree.MerkleProof calldata _block_proof
-    ) external payable nonReentrant {
+    ) external payable nonReentrant whenNotPaused {
         if (!Rollup(rollup).approvedBatch(_batchIndex))
             revert InvalidBlockProof();
 
@@ -304,7 +320,7 @@ contract Bridge is ReentrancyGuard, Ownable {
         bytes calldata _message,
         MerkleTree.MerkleProof calldata _rollback_proof,
         MerkleTree.MerkleProof calldata _block_proof
-    ) external payable nonReentrant {
+    ) external payable nonReentrant whenNotPaused {
         if(rollup == address(0))
             revert OnlyWhenRollupInited();
 
@@ -378,7 +394,7 @@ contract Bridge is ReentrancyGuard, Ownable {
         uint256 _blockNumber,
         uint256 _nonce,
         bytes calldata _message
-    ) external payable onlyBridgeSender nonReentrant {
+    ) external payable onlyBridgeSender nonReentrant whenNotPaused {
         if (_nonce != _takeNextReceivedNonce())
             revert MessageReceivedOutOfOrder();
 
@@ -437,7 +453,7 @@ contract Bridge is ReentrancyGuard, Ownable {
         uint256 _blockNumber,
         uint256 _nonce,
         bytes calldata _message
-    ) external payable nonReentrant {
+    ) external payable nonReentrant whenNotPaused {
         bytes memory encodedMessage = _encodeMessage(
             _from,
             _to,

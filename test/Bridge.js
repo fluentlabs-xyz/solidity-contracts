@@ -6,6 +6,10 @@ const { ethers } = require("hardhat");
 describe("Bridge", function () {
   let bridge;
   let rollup;
+  let owner;
+  let user;
+  let bridgeAuthority;
+  let otherBridge;
 
   before(async function () {
     const VerifierContract = await ethers.getContractFactory("VerifierMock");
@@ -37,11 +41,13 @@ describe("Bridge", function () {
       accounts[0].address,
       rollup.target,
       10,
-      "0x0000000000000000000000000000000000000000" // Initially set to zero address
+      accounts[1].address
     );
     bridge = await bridge.waitForDeployment();
 
     rollup.setBridge(bridge.target);
+
+    [owner, user, bridgeAuthority, otherBridge] = await ethers.getSigners();
   });
 
   it("Send message test", async function () {
@@ -625,5 +631,38 @@ describe("Bridge", function () {
     const events = await bridge.queryFilter("SentMessage", tx.blockNumber);
     expect(events.length).to.equal(1);
     expect(events[0].args.to).to.equal(receiverAddress);
+  });
+
+  it("Test not allow to send and receive when pause", async function () {
+    const accounts = await hre.ethers.getSigners();
+    const contractWithSigner = bridge.connect(accounts[0]);
+    const receiverAddress = await accounts[1].getAddress();
+
+    let paused = await bridge.paused();
+    expect(paused).to.equal(false);
+
+    const pauseTx = await contractWithSigner.pause();
+
+    await pauseTx.wait();
+
+    paused = await bridge.paused();
+    expect(paused).to.equal(true);
+
+    try {
+      await contractWithSigner.sendMessage(
+          receiverAddress,
+          "0x0102030405",
+          { value: 2000 }
+      );
+    } catch (error) {
+      expect(error.message).to.include("EnforcedPause");
+    }
+
+    const unpauseTx = await contractWithSigner.unpause();
+
+    await unpauseTx.wait();
+
+    paused = await bridge.paused();
+    expect(paused).to.equal(false);
   });
 });

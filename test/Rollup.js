@@ -217,5 +217,48 @@ describe("Rollup.sol", function () {
     expect(await rollupContractWithSigner.rollupCorrupted()).to.eq(false);
   });
 
+  it("Test not allow to accept batch when pause", async function () {
+    const accounts = await hre.ethers.getSigners();
+    const contractWithSigner = rollup.connect(accounts[0]);
+
+    let paused = await rollup.paused();
+    expect(paused).to.equal(false);
+
+    const pauseTx = await contractWithSigner.pause();
+
+    await pauseTx.wait();
+
+    paused = await rollup.paused();
+    expect(paused).to.equal(true);
+
+    try {
+      const commitmentBatch = [
+        {
+          previousBlockHash: "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          blockHash: "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          withdrawalHash: "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          depositHash: "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+        },
+        {
+          previousBlockHash: "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          blockHash: "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          withdrawalHash: "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+          depositHash: "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470",
+        },
+      ];
+
+      await contractWithSigner.acceptNextBatch(0, commitmentBatch, []);
+    } catch (error) {
+      expect(error.message).to.include("EnforcedPause");
+    }
+
+    const unpauseTx = await contractWithSigner.unpause();
+
+    await unpauseTx.wait();
+
+    paused = await rollup.paused();
+    expect(paused).to.equal(false);
+  });
+
 
 });
