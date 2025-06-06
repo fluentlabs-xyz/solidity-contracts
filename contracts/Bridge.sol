@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "./libraries/Queue.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
-import "./libraries/Queue.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {ExcessivelySafeCall} from "./libraries/ExcessivelySafeCall.sol";
 import {IERC20Gateway} from "./interfaces/IERC20Gateway.sol";
 import {MerkleTree} from "./libraries/MerkleTree.sol";
 import {Rollup} from "./rollup/Rollup.sol";
-import {ExcessivelySafeCall} from "./libraries/ExcessivelySafeCall.sol";
 
 /**
  * @title Bridge
@@ -523,6 +523,7 @@ contract Bridge is ReentrancyGuard, Ownable, Pausable {
             _blockNumber + receiveMessageDeadline < block.number
         ) {
             emit RollbackMessage(_messageHash, block.number);
+            emit ReceivedMessage(_messageHash, true, "");
             return;
         }
 
@@ -550,8 +551,6 @@ contract Bridge is ReentrancyGuard, Ownable, Pausable {
         bytes32 _messageHash
     ) private {
         if (_to == address(this)) revert ForbiddenSelfCall();
-        if (_messageHash != Queue.dequeue(sentMessageQueue))
-            revert RollbackMessageMismatch();
 
         (bool success, bytes memory data) = ExcessivelySafeCall.excessivelySafeCall(
             _from,
