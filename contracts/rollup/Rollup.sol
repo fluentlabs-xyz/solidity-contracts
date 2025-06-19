@@ -665,6 +665,7 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer, Pausable {
         );
 
         proofedBlockCommitment[commitmentHash] = true;
+        delete challengeDeadline[commitmentHash];
         proofedCommitmentInBatch[_batchIndex].push(commitmentHash);
         address challenger = blockCommitmentChallenger[commitmentHash];
 
@@ -684,6 +685,7 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer, Pausable {
                 }
             }
             _cleanQueue();
+
 
             // Remove from batch challenged commitments
             bytes32[] storage challengedCommitments = batchChallengedCommitments[_batchIndex];
