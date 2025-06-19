@@ -43,7 +43,7 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer, Pausable {
     error ContractPaused();
 
     modifier onlySequencer() {
-        require(msg.sender == sequencer, "call only from bridge");
+        require(msg.sender == sequencer, "call only by sequencer");
         _;
     }
 
