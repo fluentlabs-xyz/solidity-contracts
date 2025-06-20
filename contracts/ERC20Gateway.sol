@@ -225,6 +225,7 @@ contract ERC20Gateway is Ownable, IERC20Gateway {
         address _originToken,
         address _peggedToken
     ) external onlyOwner {
+        require(_originToken != address(0), "token address cannot be 0");
         require(_peggedToken != address(0), "token address cannot be 0");
 
         address _oldOriginToken = tokenMapping[_peggedToken];
