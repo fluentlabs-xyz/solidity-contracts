@@ -36,6 +36,7 @@ contract Bridge is ReentrancyGuard, Ownable, Pausable {
     error MessageNotFailed();
     error ForbiddenSelfCall();
     error ForbiddenReceiveRollbackedMessage();
+    error ForbiddenRollbackReceivedMessage();
     error RollbackMessageMismatch();
     error InvalidBlockProof();
     error InvalidWithdrawalProof();
@@ -335,6 +336,9 @@ contract Bridge is ReentrancyGuard, Ownable, Pausable {
     ) external payable nonReentrant whenNotPaused {
         if(rollup == address(0))
             revert OnlyWhenRollupInited();
+
+        if (_chainId != block.chainid)
+            revert ForbiddenRollbackReceivedMessage();
 
         if (!Rollup(rollup).ensureBatchApproved(_batchIndex))
             revert InvalidBlockProof();
