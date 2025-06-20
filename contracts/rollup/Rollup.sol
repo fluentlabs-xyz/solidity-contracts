@@ -89,9 +89,12 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer, Pausable {
     /// @notice Mapping from batch index to batch root hash.
     mapping(uint256 => bytes32) public acceptedBatchHash;
 
+    /// @notice Tracks whether a batch has been explicitly marked as approved.
+    /// @dev Used to cache approval status after conditions are met in `_approvedBatch`.
+    mapping(uint256 => bool) public alreadyApprovedBatch;
+
     /// @notice Mapping from batch index to the block number when it was accepted.
     mapping(uint256 => uint256) public acceptedBlock;
-
 
     /// @notice Mapping to track proofed block commitments.
     mapping(bytes32 => bool) public proofedBlockCommitment;
@@ -545,8 +548,23 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer, Pausable {
     function _approvedBatch(uint256 _batchIndex) internal view returns (bool) {
         if (!_acceptedBatch(_batchIndex)) {
             return false;
-        }    
-    
+        }
+
+        if (alreadyApprovedBatch[_batchIndex]) {
+            return true;
+        }
+
+        uint256 idx = _batchIndex;
+        while (idx > 0 && !alreadyApprovedBatch[_batchIndex]) {
+            bytes32[] storage challengedCommitments = batchChallengedCommitments[idx];
+            for (uint256 j = 0; j < challengedCommitments.length; j++) {
+                if (blockCommitmentChallenger[challengedCommitments[j]] != address(0)) {
+                    return false;
+                }
+            }
+            idx--;
+        }
+
         bytes32[] storage challengedCommitments = batchChallengedCommitments[_batchIndex];
         for (uint256 j = 0; j < challengedCommitments.length; j++) {
             bytes32 commitmentHash = challengedCommitments[j];
@@ -554,8 +572,33 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer, Pausable {
                 return false;
             }
         }
-    
+
         return block.number - acceptedBlock[_batchIndex] > approveBlockCount;
+    }
+
+    /**
+     * @notice Ensures a batch is marked as approved if eligible.
+     * @dev Calls `_approvedBatch` to determine eligibility, and if true,
+     *      sets the approval flag in `alreadyApprovedBatch` for caching.
+     * @param _batchIndex The index of the batch to evaluate.
+     * @return True if the batch is approved (either previously or by this call); false otherwise.
+     */
+    function ensureBatchApproved(uint256 _batchIndex) external returns (bool) {
+        return _ensureBatchApproved(_batchIndex);
+    }
+
+    /**
+     * @dev Internal version of `ensureBatchApproved`.
+     *      Caches the result of `_approvedBatch` by updating `alreadyApprovedBatch` if approved.
+     * @param _batchIndex The index of the batch.
+     * @return True if the batch is approved and cached; false otherwise.
+     */
+    function _ensureBatchApproved(uint256 _batchIndex) internal returns (bool) {
+        if (_approvedBatch(_batchIndex)) {
+            alreadyApprovedBatch[_batchIndex] = true;
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -594,7 +637,7 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer, Pausable {
         );
         if (!blockValid) revert InvalidBlockProof();
 
-        if (_approvedBatch(_batchIndex)) {
+        if (_ensureBatchApproved(_batchIndex)) {
             revert BatchAlreadyApproved(_batchIndex);
         }
         if (proofedBlockCommitment[commitmentHash]) {

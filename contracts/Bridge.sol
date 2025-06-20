@@ -260,7 +260,7 @@ contract Bridge is ReentrancyGuard, Ownable, Pausable {
         MerkleTree.MerkleProof calldata _withdrawal_proof,
         MerkleTree.MerkleProof calldata _block_proof
     ) external payable nonReentrant whenNotPaused {
-        if (!Rollup(rollup).approvedBatch(_batchIndex))
+        if (!Rollup(rollup).ensureBatchApproved(_batchIndex))
             revert InvalidBlockProof();
 
         if (_chainId == block.chainid)
@@ -336,7 +336,7 @@ contract Bridge is ReentrancyGuard, Ownable, Pausable {
         if(rollup == address(0))
             revert OnlyWhenRollupInited();
 
-        if (!Rollup(rollup).approvedBatch(_batchIndex))
+        if (!Rollup(rollup).ensureBatchApproved(_batchIndex))
             revert InvalidBlockProof();
 
         bytes32 messageHash = keccak256(
