@@ -784,7 +784,9 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer, Pausable {
 
         challengerReadyForWithdrawal[challenger] = 0;
 
-        challenger.transfer(amount);
+        (bool success, ) = challenger.call{value: amount}("");
+        require(success, "ETH transfer to challenger failed");
+
         emit ChallengeDepositWithdrawn(challenger, amount);
     }
 
