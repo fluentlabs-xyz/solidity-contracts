@@ -5,15 +5,16 @@ pragma solidity ^0.8.0;
 import {ERC20PeggedToken} from "./ERC20PeggedToken.sol";
 import {ERC20TokenFactory} from "./ERC20TokenFactory.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {RestakingPool} from "./restaker/RestakingPool.sol";
 import {IRestakingPool} from "./restaker/interfaces/IRestakingPool.sol";
 import {Bridge} from "./Bridge.sol";
 
-contract ERC20Gateway is Ownable {
 contract ERC20Gateway is Ownable2Step {
+    using SafeERC20 for IERC20;
+
     struct TokenMetadata {
         string symbol;
         string name;
@@ -121,7 +122,7 @@ contract ERC20Gateway is Ownable2Step {
 
         if (tokenMapping[_token] == address(0)) {
             if (_from != address(this)) {
-                IERC20(_token).transferFrom(_from, address(this), _amount);
+                IERC20(_token).safeTransferFrom(_from, address(this), _amount);
             }
 
             bytes memory rawTokenMetadata = abi.encode(
@@ -217,7 +218,7 @@ contract ERC20Gateway is Ownable2Step {
     ) internal {
         require(msg.value == 0, "Message value have to equal zero");
 
-        IERC20(_nativeToken).transfer(_to, _amount);
+        IERC20(_nativeToken).safeTransfer(_to, _amount);
         emit ReceivedTokens(_from, _to, _amount);
     }
 
