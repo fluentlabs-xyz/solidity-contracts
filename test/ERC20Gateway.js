@@ -44,6 +44,9 @@ describe("ERC20Gateway", function () {
     const authTx = await tokenFactory.transferOwnership(erc20Gateway.target);
     await authTx.wait();
 
+    const acceptTx = await erc20Gateway.acceptTokenFactory();
+    await acceptTx.wait();
+
     const Token = await ethers.getContractFactory("MockERC20Token");
     token = await Token.deploy(
       "Mock Token",

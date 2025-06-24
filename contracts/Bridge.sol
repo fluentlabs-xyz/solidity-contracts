@@ -2,7 +2,7 @@
 pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "./libraries/Queue.sol";
 import {MerkleTree} from "./libraries/MerkleTree.sol";
@@ -21,7 +21,7 @@ import {IL1BlockOracle} from "./interfaces/IL1BlockOracle.sol";
  * @dev This contract is deployed on both L1 and L2, with different configurations on each side.
  *      It supports message rollback logic in case messages are not processed within a deadline.
  */
-contract Bridge is ReentrancyGuard, Ownable, Pausable {
+contract Bridge is ReentrancyGuard, Ownable2Step, Pausable {
     uint256 public nonce;
     uint256 public receivedNonce;
     uint256 public receiveMessageDeadline;

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "../interfaces/IVerifier.sol";
@@ -14,7 +14,7 @@ import {MerkleTree} from "../libraries/MerkleTree.sol";
  * @dev This contract implements a rollup system with features such as batch acceptance, deposit verification,
  * proof submission, and challenge mechanisms. It interacts with a Bridge contract and a verifier for zk-SNARK proof validation.
  */
-contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer, Pausable {
+contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausable {
     error RollupCorrupted();
     error WrongPreviousBlockHash(bytes32 expected, bytes32 provided);
     error DepositVerificationFailed(bytes32 blockHash);

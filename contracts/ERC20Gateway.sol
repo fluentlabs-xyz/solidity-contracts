@@ -6,12 +6,14 @@ import {ERC20PeggedToken} from "./ERC20PeggedToken.sol";
 import {ERC20TokenFactory} from "./ERC20TokenFactory.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {RestakingPool} from "./restaker/RestakingPool.sol";
 import {IRestakingPool} from "./restaker/interfaces/IRestakingPool.sol";
 import {Bridge} from "./Bridge.sol";
 
 contract ERC20Gateway is Ownable {
+contract ERC20Gateway is Ownable2Step {
     struct TokenMetadata {
         string symbol;
         string name;
@@ -230,6 +232,10 @@ contract ERC20Gateway is Ownable {
         tokenMapping[_peggedToken] = _originToken;
 
         emit UpdateTokenMapping(_peggedToken, _oldOriginToken, _originToken);
+    }
+
+    function acceptTokenFactory() external onlyOwner {
+        ERC20TokenFactory(tokenFactory).acceptOwnership();
     }
 
     function _deployL2Token(

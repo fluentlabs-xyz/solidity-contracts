@@ -71,6 +71,9 @@ describe("RestakerGateway", function () {
     const authTx = await tokenFactory.transferOwnership(restakerGateway.target);
     await authTx.wait();
 
+    const acceptTx = await restakerGateway.acceptTokenFactory();
+    await acceptTx.wait();
+
     await restakerGateway.setOtherSide("0x1111111111111111111111111111111111111111", "0x0000000000000000000000000000000000000000", "0x0000000000000000000000000000000000000000");
   });
 
@@ -292,7 +295,7 @@ describe("RestakerGateway", function () {
 
     expect(events.length).to.equal(1);
     expect(events[0].args.messageHash).to.equal(
-      "0xe0f4250ed68f9215528b2221f908be4c980cad18ecd7184a842c2478564f80c1",
+      "0xbf3d756d2c6c8c2760a83493d7a395bdf5d96acac0289bb8adcc248bc143dfbc",
     );
     expect(events[0].args.successfulCall).to.equal(true);
 

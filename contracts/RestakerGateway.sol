@@ -6,14 +6,13 @@ import {IBridge} from "./interfaces/IBridge.sol";
 import {ERC20PeggedToken} from "./ERC20PeggedToken.sol";
 import {ERC20TokenFactory} from "./ERC20TokenFactory.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IRestakingPool} from "./restaker/interfaces/IRestakingPool.sol";
 import {ILiquidityToken} from "./restaker/interfaces/ILiquidityToken.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {ERC20Gateway} from "./ERC20Gateway.sol";
 
-contract RestakerGateway is Ownable, ERC20Gateway {
+contract RestakerGateway is ERC20Gateway {
     address public restakerPool;
     address public liquidityToken;
 

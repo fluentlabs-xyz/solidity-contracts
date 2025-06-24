@@ -3,9 +3,9 @@
 pragma solidity ^0.8.0;
 
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 
-contract ERC20TokenFactory is Ownable {
+contract ERC20TokenFactory is Ownable2Step {
     address public implementation;
 
     event TokenDeployed(
