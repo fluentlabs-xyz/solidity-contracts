@@ -217,6 +217,7 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer, Pausable {
         batchSize = _batchSize;
         acceptDepositDeadline = _acceptDepositDeadline;
         incentiveFee = _incentiveFee;
+        nextBatchIndex = 1;
     }
 
     /**
@@ -277,6 +278,9 @@ contract Rollup is Ownable, ReentrancyGuard, BlobHashGetterDeployer, Pausable {
     ) external payable onlyOwner nonReentrant {
         if (!_acceptedBatch(_revertedBatchIndex)) {
             revert BatchNotAccepted(_revertedBatchIndex);
+        }
+        if (_revertedBatchIndex == 0) {
+            revert InvalidRevertIndex(_revertedBatchIndex);
         }
 
         uint256 incentiveFees = 0;
