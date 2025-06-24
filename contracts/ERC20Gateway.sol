@@ -2,7 +2,6 @@
 
 pragma solidity ^0.8.0;
 
-import {IERC20Gateway} from "./interfaces/IERC20Gateway.sol";
 import {ERC20PeggedToken} from "./ERC20PeggedToken.sol";
 import {ERC20TokenFactory} from "./ERC20TokenFactory.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -12,7 +11,7 @@ import {RestakingPool} from "./restaker/RestakingPool.sol";
 import {IRestakingPool} from "./restaker/interfaces/IRestakingPool.sol";
 import {Bridge} from "./Bridge.sol";
 
-contract ERC20Gateway is Ownable, IERC20Gateway {
+contract ERC20Gateway is Ownable {
     struct TokenMetadata {
         string symbol;
         string name;
@@ -27,7 +26,6 @@ contract ERC20Gateway is Ownable, IERC20Gateway {
     mapping(address => address) private tokenMapping;
 
     address public bridgeContract;
-    address public gatewayAuthority;
     address public tokenFactory;
     address public otherSide;
     address public otherSideTokenImplementation;

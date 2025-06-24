@@ -4,7 +4,6 @@ pragma solidity ^0.8.0;
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
-import "../interfaces/IRollupVerifier.sol";
 import "../interfaces/IVerifier.sol";
 import "../restaker/libraries/BlobHashGetter.sol";
 import {Bridge} from "../Bridge.sol";

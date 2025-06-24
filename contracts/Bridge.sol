@@ -5,7 +5,6 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "./libraries/Queue.sol";
-import {IERC20Gateway} from "./interfaces/IERC20Gateway.sol";
 import {MerkleTree} from "./libraries/MerkleTree.sol";
 import {Rollup} from "./rollup/Rollup.sol";
 import {ExcessivelySafeCall} from "./libraries/ExcessivelySafeCall.sol";
