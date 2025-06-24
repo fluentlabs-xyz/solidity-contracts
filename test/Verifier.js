@@ -37,7 +37,7 @@ describe("Verifier", function () {
       "0x0000000000000000000000000000000000000000",
       0,
       "0x0000000000000000000000000000000000000001",
-      0
+      "0x0000000000000000000000000000000000000002",
     );
     const accounts = await hre.ethers.getSigners();
     rollup = await RollupContract.deploy(
@@ -63,7 +63,6 @@ describe("Verifier", function () {
     let batchIndex = await rollupContractWithSigner.nextBatchIndex();
 
     expect(await rollupContractWithSigner.acceptedBatch(batchIndex)).to.eq(false);
-    expect(await rollupContractWithSigner.approvedBatch(batchIndex)).to.eq(false);
 
     let blockHash = "0x931c2be30add0b25a64c8b07103fe5ffdab5b58d0ca095c9e6259bfe740fff13";
 

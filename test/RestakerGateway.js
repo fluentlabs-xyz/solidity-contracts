@@ -22,7 +22,7 @@ describe("RestakerGateway", function () {
       accounts[1].address,
       0,
       "0x0000000000000000000000000000000000000001",
-      0
+      "0x0000000000000000000000000000000000000002",
     );
     bridge = await bridge.waitForDeployment();
 
@@ -292,7 +292,7 @@ describe("RestakerGateway", function () {
 
     expect(events.length).to.equal(1);
     expect(events[0].args.messageHash).to.equal(
-      "0x22925ae3a5fbce53acb5d0ddafcdb6571afdf1893d674300c06832647a390a1e",
+      "0xe0f4250ed68f9215528b2221f908be4c980cad18ecd7184a842c2478564f80c1",
     );
     expect(events[0].args.successfulCall).to.equal(true);
 

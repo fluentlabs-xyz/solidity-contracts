@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "./libraries/Queue.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {ExcessivelySafeCall} from "./libraries/ExcessivelySafeCall.sol";
+import "./libraries/Queue.sol";
 import {IERC20Gateway} from "./interfaces/IERC20Gateway.sol";
 import {MerkleTree} from "./libraries/MerkleTree.sol";
 import {Rollup} from "./rollup/Rollup.sol";
+import {ExcessivelySafeCall} from "./libraries/ExcessivelySafeCall.sol";
+import {IL1BlockOracle} from "./interfaces/IL1BlockOracle.sol";
 
 /**
  * @title Bridge
@@ -25,7 +26,6 @@ contract Bridge is ReentrancyGuard, Ownable, Pausable {
     uint256 public nonce;
     uint256 public receivedNonce;
     uint256 public receiveMessageDeadline;
-    uint256 public blockDifference;
     address public nativeSender;
 
     error OnlyBridgeAuthority();
@@ -68,6 +68,9 @@ contract Bridge is ReentrancyGuard, Ownable, Pausable {
     /// @notice The associated rollup contract.
     /// @dev Used only on the L1 side to verify batch approvals and validate Merkle proofs.
     address public rollup;
+
+    /// @notice Address for L1 block number lookups
+    address public l1BlockOracle;
 
     /// @dev Restricts function to be called only by the rollup contract.
     modifier onlyRollup() {
@@ -119,20 +122,20 @@ contract Bridge is ReentrancyGuard, Ownable, Pausable {
      *        - On L2: should be set to a non-zero value to enable rollback after timeout.
      *        - On L1: should be set to 0, as rollback is not applicable.
      * @param _otherBridge Address of the Bridge contract on the other chain.
-     * @param _blockDifference The difference in block numbers between L1 and L2 chains.
+     * @param _l1BlockOracle Address for L1 block number lookups
      */
     constructor(
         address _bridgeAuthority,
         address _rollup,
         uint256 _receiveMessageDeadline,
         address _otherBridge,
-        uint256 _blockDifference
+        address _l1BlockOracle
     ) Ownable(msg.sender) {
         bridgeAuthority = _bridgeAuthority;
         rollup = _rollup;
         receiveMessageDeadline = _receiveMessageDeadline;
         otherBridge = _otherBridge;
-        blockDifference = _blockDifference;
+        l1BlockOracle = _l1BlockOracle;
         if (rollup != address(0)) {
             Queue.initialize(sentMessageQueue);
         }
@@ -144,14 +147,6 @@ contract Bridge is ReentrancyGuard, Ownable, Pausable {
      */
     function setOtherBridge(address _otherBridge) external onlyOwner {
         otherBridge = _otherBridge;
-    }
-
-    /**
-     * @notice Updates the block difference between L1 and L2 chains
-     * @param _blockDifference The new block difference value
-     */
-    function updateBlockDifference(uint256 _blockDifference) external onlyOwner {
-        blockDifference = _blockDifference;
     }
 
     /**
@@ -534,13 +529,13 @@ contract Bridge is ReentrancyGuard, Ownable, Pausable {
     ) private {
         if (_to == address(this)) revert ForbiddenSelfCall();
 
-        if (
-            receiveMessageDeadline != 0 &&
-            _blockNumber + receiveMessageDeadline < block.number + blockDifference
-        ) {
-            emit RollbackMessage(_messageHash, block.number);
-            emit ReceivedMessage(_messageHash, true, "");
-            return;
+        if (receiveMessageDeadline != 0) {
+            uint256 l1BlockNumber = IL1BlockOracle(l1BlockOracle).getL1BlockNumber();
+            if (_blockNumber + receiveMessageDeadline < l1BlockNumber) {
+                emit RollbackMessage(_messageHash, block.number);
+                emit ReceivedMessage(_messageHash, true, "");
+                return;
+            }
         }
 
         nativeSender = _from;
