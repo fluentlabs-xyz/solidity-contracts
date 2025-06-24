@@ -40,6 +40,8 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
     error NotEnoughValueIncentiveFee(uint256 value, uint256 incentiveFee);
     error InvalidBlockProof();
     error ContractPaused();
+    error ZeroAddressNotAllowed(string field);
+    error ZeroValueNotAllowed(string field);
 
     modifier onlySequencer() {
         require(msg.sender == sequencer, "call only by sequencer");
@@ -204,6 +206,12 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
         uint256 _acceptDepositDeadline,
         uint256 _incentiveFee
     ) Ownable(msg.sender) {
+        if (_sequencer == address(0)) revert ZeroAddressNotAllowed("sequencer");
+        if (_verifier == address(0)) revert ZeroAddressNotAllowed("verifier");
+        if (_programVKey == bytes32(0)) revert ZeroValueNotAllowed("programVKey");
+        if (_genesisHash == bytes32(0)) revert ZeroValueNotAllowed("genesisHash");
+        if (_batchSize == 0) revert ZeroValueNotAllowed("batchSize");
+
         sequencer = _sequencer;
         challengeDepositAmount = _challengeDepositAmount;
         challengeBlockCount = _challengeBlockCount;
@@ -244,6 +252,7 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
      * @param _newVerifier The address of the new verifier.
      */
     function updateVerifier(address _newVerifier) external onlyOwner {
+        if (_newVerifier == address(0)) revert ZeroAddressNotAllowed("verifier");
         address _oldVerifier = address(verifier);
         verifier = IVerifier(_newVerifier);
 
