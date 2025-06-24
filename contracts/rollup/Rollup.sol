@@ -387,6 +387,10 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
         BlockCommitment[] calldata _commitmentBatch,
         DepositsInBlock[] calldata depositsInBlocks
     ) external payable onlySequencer whenNotPaused {
+        if (depositsInBlocks.length > _commitmentBatch.length) {
+            revert("depositsInBlocks length cannot exceed commitmentBatch length");
+        }
+
         if (_rollupCorrupted()) {
             revert RollupCorrupted();
         }
