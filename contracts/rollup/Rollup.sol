@@ -95,8 +95,8 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
     /// @notice Mapping from batch index to the block number when it was accepted.
     mapping(uint256 => uint256) public acceptedBlock;
 
-    /// @notice Mapping to track proofed block commitments.
-    mapping(bytes32 => bool) public proofedBlockCommitment;
+    /// @notice Mapping to track proven block commitments.
+    mapping(bytes32 => bool) public provenBlockCommitment;
 
     /// @notice Mapping from address to their challenge deposit.
     mapping(address => uint256) public challengerDeposit;
@@ -157,8 +157,8 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
     /// @notice Mapping from batch index to array of challenged block commitment hashes.
     mapping(uint256 => bytes32[]) public batchChallengedCommitments;
 
-    /// @notice Mapping from batch index to array of proofed block commitment hashes.
-    mapping(uint256 => bytes32[]) public proofedCommitmentInBatch;
+    /// @notice Mapping from batch index to array of proven block commitment hashes.
+    mapping(uint256 => bytes32[]) public provenCommitmentInBatch;
 
     /// @notice Emitted when the verifier is updated.
     event UpdateVerifier(address oldVerifier, address newVerifier);
@@ -309,14 +309,14 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
                 delete challengeDeadline[commitmentHash];
             }
 
-            // Clean up proofed commitments for this batch
-            bytes32[] storage proofedCommitments = proofedCommitmentInBatch[i];
-            for (uint256 j = 0; j < proofedCommitments.length; j++) {
-                delete proofedBlockCommitment[proofedCommitments[j]];
+            // Clean up proven commitments for this batch
+            bytes32[] storage provenCommitments = provenCommitmentInBatch[i];
+            for (uint256 j = 0; j < provenCommitments.length; j++) {
+                delete provenBlockCommitment[provenCommitments[j]];
             }
 
             delete acceptedBatchHash[i];
-            delete proofedCommitmentInBatch[i];
+            delete provenCommitmentInBatch[i];
             delete acceptedBlock[i];
             delete batchChallengedCommitments[i];
         }
@@ -643,7 +643,7 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
         if (_ensureBatchApproved(_batchIndex)) {
             revert BatchAlreadyApproved(_batchIndex);
         }
-        if (proofedBlockCommitment[commitmentHash]) {
+        if (provenBlockCommitment[commitmentHash]) {
             revert BlockCommitmentAlreadyProofed(commitmentHash);
         }
         if (blockCommitmentChallenger[commitmentHash] != address(0)) {
@@ -710,9 +710,9 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
             _proof
         );
 
-        proofedBlockCommitment[commitmentHash] = true;
+        provenBlockCommitment[commitmentHash] = true;
         delete challengeDeadline[commitmentHash];
-        proofedCommitmentInBatch[_batchIndex].push(commitmentHash);
+        provenCommitmentInBatch[_batchIndex].push(commitmentHash);
         address challenger = blockCommitmentChallenger[commitmentHash];
 
         if (challenger != address(0)) {

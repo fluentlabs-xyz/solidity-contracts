@@ -114,6 +114,6 @@ describe("Verifier", function () {
     expect(challengeQueue.length).to.eq(0);
 
     // Verify block commitment is proven
-    expect(await rollupContractWithSigner.proofedBlockCommitment(commitmentHash)).to.eq(true);
+    expect(await rollupContractWithSigner.provenBlockCommitment(commitmentHash)).to.eq(true);
   });
 });

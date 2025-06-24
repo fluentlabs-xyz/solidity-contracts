@@ -156,7 +156,7 @@ describe("Rollup.sol", function () {
     expect(challengeQueue.length).to.eq(0);
 
     // Verify block commitment is proven
-    expect(await rollupContractWithSigner.proofedBlockCommitment(commitmentHash)).to.eq(true);
+    expect(await rollupContractWithSigner.provenBlockCommitment(commitmentHash)).to.eq(true);
   });
 
   it("Revert check with block commitments", async function () {
