@@ -570,15 +570,13 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
             return true;
         }
 
-        uint256 idx = _batchIndex;
-        while (idx > 0 && !alreadyApprovedBatch[_batchIndex]) {
+        for (uint256 idx = _batchIndex; idx > 0 && !alreadyApprovedBatch[idx]; --idx) {
             bytes32[] storage challengedCommitments = batchChallengedCommitments[idx];
             for (uint256 j = 0; j < challengedCommitments.length; j++) {
                 if (blockCommitmentChallenger[challengedCommitments[j]] != address(0)) {
                     return false;
                 }
             }
-            idx--;
         }
 
         bytes32[] storage challengedCommitments = batchChallengedCommitments[_batchIndex];
