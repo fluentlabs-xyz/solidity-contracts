@@ -11,25 +11,46 @@ library ExcessivelySafeCall {
 
     /**
      * @notice Makes an external call with a maximum return data size limit.
-     * @param target The address to call.
-     * @param value The amount of ETH to send with the call.
-     * @param data The calldata to send.
+     * @param _target The address to call.
+     * @param _value The amount of ETH to send with the call.
+     * @param _calldata The calldata to send.
      * @return success Whether the call was successful.
      * @return returnData The return data, truncated to _MAX_RETURN_SIZE if necessary.
      */
     function excessivelySafeCall(
-        address target,
-        uint256 value,
-        bytes memory data
+        address _target,
+        uint256 _value,
+        bytes memory _calldata
     ) internal returns (bool success, bytes memory returnData) {
-        // solhint-disable-next-line avoid-low-level-calls
-        (success, returnData) = target.call{value: value}(data);
-        
-        if (success && returnData.length > _MAX_RETURN_SIZE) {
-            // Truncate the return data to the maximum allowed size
-            assembly {
-                mstore(returnData, _MAX_RETURN_SIZE)
+        // set up for assembly call
+        uint256 _toCopy;
+        bool _success;
+        bytes memory _returnData = new bytes(_MAX_RETURN_SIZE);
+        // dispatch message to recipient
+        // by assembly calling "handle" function
+        // we call via assembly to avoid memcopying a very large returndata
+        // returned by a malicious contract
+        assembly {
+            _success := call(
+                gas(), // gas
+                _target, // recipient
+                _value, // ether value
+                add(_calldata, 0x20), // inloc
+                mload(_calldata), // inlen
+                0, // outloc
+                0 // outlen
+            )
+        // limit our copy to 256 bytes
+            _toCopy := returndatasize()
+            if gt(_toCopy, _MAX_RETURN_SIZE) {
+                _toCopy := _MAX_RETURN_SIZE
             }
+        // Store the length of the copied bytes
+            mstore(_returnData, _toCopy)
+        // copy the bytes from returndata[0:_toCopy]
+            returndatacopy(add(_returnData, 0x20), 0, _toCopy)
         }
+        return (_success, _returnData);
+
     }
 } 
