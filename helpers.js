@@ -9,6 +9,7 @@ module.exports = {
 
 function fluent_provider_url() {
     return `http://${module.exports.FLUENT_HOST}:${module.exports.FLUENT_NODE_PORT}`
+    // return `https://rpc.dev1.fluentlabs.xyz/`
 }
 
 function evm_provider_url() {
