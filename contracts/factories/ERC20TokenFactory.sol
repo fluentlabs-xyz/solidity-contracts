@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.0;
+pragma solidity 0.8.30;
 
 import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
-import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
+import {
+    Ownable2Step,
+    Ownable
+} from "@openzeppelin/contracts/access/Ownable2Step.sol";
+import "../interfaces/ITokenFactory.sol";
 
-contract ERC20TokenFactory is Ownable2Step {
+contract ERC20TokenFactory is Ownable2Step, ITokenFactory {
     address public implementation;
 
     event TokenDeployed(
@@ -24,7 +28,7 @@ contract ERC20TokenFactory is Ownable2Step {
         address _originToken,
         address _implementation,
         address _factory
-    ) external view returns (address) {
+    ) external view override returns (address) {
         bytes32 _salt = _calculateSalt(_gateway, _originToken);
 
         return
@@ -38,16 +42,16 @@ contract ERC20TokenFactory is Ownable2Step {
     function computePeggedTokenAddress(
         address _gateway,
         address _originToken
-    ) external view returns (address) {
+    ) external view override returns (address) {
         bytes32 _salt = _calculateSalt(_gateway, _originToken);
 
         return Clones.predictDeterministicAddress(implementation, _salt);
     }
 
-    function deployPeggedToken(
+    function deployToken(
         address _gateway,
         address _originToken
-    ) external onlyOwner returns (address) {
+    ) external override onlyOwner returns (address) {
         bytes32 salt = _calculateSalt(_gateway, _originToken);
 
         address peggedToken = Clones.cloneDeterministic(implementation, salt);

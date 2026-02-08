@@ -1,16 +1,19 @@
 // SPDX-License-Identifier: MIT
+pragma solidity 0.8.30;
 
-pragma solidity ^0.8.0;
-
-import {ERC20PeggedToken} from "./ERC20PeggedToken.sol";
-import {ERC20TokenFactory} from "./ERC20TokenFactory.sol";
+import {ERC20PeggedToken} from "./tokens/ERC20PeggedToken.sol";
+import {ERC20TokenFactory} from "./factories/ERC20TokenFactory.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
+import {
+    SafeERC20
+} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {
+    Ownable2Step,
+    Ownable
+} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {RestakingPool} from "./restaker/RestakingPool.sol";
-import {IRestakingPool} from "./restaker/interfaces/IRestakingPool.sol";
-import {Bridge} from "./Bridge.sol";
+
+import {FluentBridge} from "./FluentBridge.sol";
 
 contract ERC20Gateway is Ownable2Step {
     using SafeERC20 for IERC20;
@@ -65,7 +68,7 @@ contract ERC20Gateway is Ownable2Step {
         address oldOtherSide = otherSide;
         address oldImplementation = otherSideTokenImplementation;
         address oldFactory = otherSideFactory;
-        
+
         otherSide = _otherSide;
         otherSideTokenImplementation = _otherSideTokenImplementation;
         otherSideFactory = _otherSideFactory;
@@ -143,9 +146,7 @@ contract ERC20Gateway is Ownable2Step {
                 (_token, peggedToken, _sender, _to, _amount, rawTokenMetadata)
             );
         } else {
-            (, address originAddress) = ERC20PeggedToken(
-                _token
-            ).getOrigin();
+            (, address originAddress) = ERC20PeggedToken(_token).getOrigin();
             require(tokenMapping[_token] == originAddress);
 
             ERC20PeggedToken(_token).burn(_from, _amount);
@@ -156,7 +157,10 @@ contract ERC20Gateway is Ownable2Step {
             );
         }
 
-        Bridge(bridgeContract).sendMessage{value: _value}(otherSide, _message);
+        FluentBridge(bridgeContract).sendMessage{value: _value}(
+            otherSide,
+            _message
+        );
     }
 
     function receivePeggedTokens(
@@ -167,13 +171,13 @@ contract ERC20Gateway is Ownable2Step {
         uint256 _amount,
         bytes calldata _tokenMetadata
     ) external payable onlyBridgeSender {
-
-        require(Bridge(msg.sender).nativeSender() == otherSide, "Message provide from wrong gateway");
+        require(
+            FluentBridge(msg.sender).nativeSender() == otherSide,
+            "Message provide from wrong gateway"
+        );
 
         require(msg.value == 0, "Message value have to equal zero");
-
         require(_originToken != address(0), "Origin token can't be equal zero");
-        uint256 l = _peggedToken.code.length;
 
         if (_peggedToken.code.length == 0) {
             address new_pegged_token = _deployL2Token(
@@ -205,7 +209,10 @@ contract ERC20Gateway is Ownable2Step {
         address _to,
         uint256 _amount
     ) external payable onlyBridgeSender {
-        require(Bridge(msg.sender).nativeSender() == otherSide, "Message provide from wrong gateway");
+        require(
+            FluentBridge(msg.sender).nativeSender() == otherSide,
+            "Message provide from wrong gateway"
+        );
 
         _receiveNativeTokens(_nativeToken, _from, _to, _amount);
     }
@@ -243,8 +250,10 @@ contract ERC20Gateway is Ownable2Step {
         bytes memory _tokenMetadata,
         address _originToken
     ) internal returns (address) {
-        address _peggedToken = ERC20TokenFactory(tokenFactory)
-            .deployPeggedToken(address(this), _originToken);
+        address _peggedToken = ERC20TokenFactory(tokenFactory).deployToken(
+            address(this),
+            _originToken
+        );
 
         (string memory _symbol, string memory _name, uint8 _decimals) = abi
             .decode(_tokenMetadata, (string, string, uint8));

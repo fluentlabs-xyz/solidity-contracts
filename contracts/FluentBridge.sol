@@ -1,46 +1,39 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity 0.8.30;
 
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
-import "@openzeppelin/contracts/utils/Pausable.sol";
-import "./libraries/Queue.sol";
-import {MerkleTree} from "./libraries/MerkleTree.sol";
+import {
+    ReentrancyGuard
+} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {
+    Ownable2Step,
+    Ownable
+} from "@openzeppelin/contracts/access/Ownable2Step.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+
 import {Rollup} from "./rollup/Rollup.sol";
+import {Queue} from "./libraries/Queue.sol";
+import {MerkleTree} from "./libraries/MerkleTree.sol";
 import {ExcessivelySafeCall} from "./libraries/ExcessivelySafeCall.sol";
+
+import {IFluentBridge} from "./interfaces/IFluentBridge.sol";
 import {IL1BlockOracle} from "./interfaces/IL1BlockOracle.sol";
 
 /**
- * @title Bridge
- * @notice A contract that handles sending, receiving cross-chain messages between L1 and L2 using rollup validation.
- * @dev Works in conjunction with a Rollup contract and supports message rollback logic.
- */
-/**
- * @title Bridge
+ * @title FluentBridge
  * @notice A contract that handles sending and receiving cross-chain messages between L1 and L2 using rollup validation.
  * @dev This contract is deployed on both L1 and L2, with different configurations on each side.
  *      It supports message rollback logic in case messages are not processed within a deadline.
  */
-contract Bridge is ReentrancyGuard, Ownable2Step, Pausable {
+contract FluentBridge is
+    IFluentBridge,
+    ReentrancyGuard,
+    Ownable2Step,
+    Pausable
+{
     uint256 public nonce;
     uint256 public receivedNonce;
     uint256 public receiveMessageDeadline;
     address public nativeSender;
-
-    error OnlyBridgeAuthority();
-    error OnlyRollupAuthority();
-    error OnlyWhenRollupInited();
-    error MessageAlreadyReceived();
-    error MessageReceivedOutOfOrder();
-    error MessageNotFailed();
-    error ForbiddenSelfCall();
-    error ForbiddenReceiveRollbackedMessage();
-    error ForbiddenRollbackReceivedMessage();
-    error RollbackMessageMismatch();
-    error InvalidBlockProof();
-    error InvalidWithdrawalProof();
-    error InvalidDestinationAddress();
-    error ContractPaused();
 
     /// @notice Address of the Bridge contract on the other chain
     address public otherBridge;
@@ -178,7 +171,6 @@ contract Bridge is ReentrancyGuard, Ownable2Step, Pausable {
         return Queue.dequeue(sentMessageQueue);
     }
 
-
     /**
      * @notice Sends a cross-chain message.
      * @param _to Destination address on target chain.
@@ -188,8 +180,9 @@ contract Bridge is ReentrancyGuard, Ownable2Step, Pausable {
         address _to,
         bytes calldata _message
     ) external payable whenNotPaused {
-        if (_to == address(this) || _to == otherBridge) revert InvalidDestinationAddress();
-        
+        if (_to == address(this) || _to == otherBridge)
+            revert InvalidDestinationAddress();
+
         address from = msg.sender;
         uint256 value = msg.value;
         uint256 messageNonce = _takeNextNonce();
@@ -328,8 +321,7 @@ contract Bridge is ReentrancyGuard, Ownable2Step, Pausable {
         MerkleTree.MerkleProof calldata _rollback_proof,
         MerkleTree.MerkleProof calldata _block_proof
     ) external payable nonReentrant whenNotPaused {
-        if(rollup == address(0))
-            revert OnlyWhenRollupInited();
+        if (rollup == address(0)) revert OnlyWhenRollupInited();
 
         if (_chainId != block.chainid)
             revert ForbiddenRollbackReceivedMessage();
@@ -529,7 +521,8 @@ contract Bridge is ReentrancyGuard, Ownable2Step, Pausable {
         if (_to == address(this)) revert ForbiddenSelfCall();
 
         if (receiveMessageDeadline != 0) {
-            uint256 l1BlockNumber = IL1BlockOracle(l1BlockOracle).getL1BlockNumber();
+            uint256 l1BlockNumber = IL1BlockOracle(l1BlockOracle)
+                .getL1BlockNumber();
             if (_blockNumber + receiveMessageDeadline < l1BlockNumber) {
                 emit RollbackMessage(_messageHash, block.number);
                 emit ReceivedMessage(_messageHash, true, "");
@@ -538,11 +531,8 @@ contract Bridge is ReentrancyGuard, Ownable2Step, Pausable {
         }
 
         nativeSender = _from;
-        (bool success, bytes memory data) = ExcessivelySafeCall.excessivelySafeCall(
-            _to,
-            _value,
-            _message
-        );
+        (bool success, bytes memory data) = ExcessivelySafeCall
+            .excessivelySafeCall(_to, _value, _message);
         nativeSender = address(0);
 
         receivedMessage[_messageHash] = success
@@ -555,19 +545,16 @@ contract Bridge is ReentrancyGuard, Ownable2Step, Pausable {
         address _from,
         address _to,
         uint256 _value,
-        uint256 _blockNumber,
+        uint256 /*_blockNumber*/,
         uint256 _nonce,
         bytes calldata _message,
         bytes32 _messageHash
     ) private {
         if (_to == address(this)) revert ForbiddenSelfCall();
 
-        (bool success, bytes memory data) = ExcessivelySafeCall.excessivelySafeCall(
-            _from,
-            _value,
-            ""
-        );
-        
+        (bool success, bytes memory data) = ExcessivelySafeCall
+            .excessivelySafeCall(_from, _value, "");
+
         rollbackMessage[_messageHash] = success
             ? MessageStatus.Success
             : MessageStatus.Failed;
@@ -604,7 +591,6 @@ contract Bridge is ReentrancyGuard, Ownable2Step, Pausable {
         );
         if (!withdrawalValid) revert InvalidWithdrawalProof();
     }
-
 
     function _takeNextNonce() internal returns (uint256) {
         return nonce++;

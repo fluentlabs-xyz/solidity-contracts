@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
+import {
+    Ownable2Step,
+    Ownable
+} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "../interfaces/IVerifier.sol";
-import "../restaker/libraries/BlobHashGetter.sol";
-import {Bridge} from "../Bridge.sol";
+import "../libraries/BlobHashGetter.sol";
+import {FluentBridge} from "../FluentBridge.sol";
 import {MerkleTree} from "../libraries/MerkleTree.sol";
 
 /**
@@ -14,7 +17,12 @@ import {MerkleTree} from "../libraries/MerkleTree.sol";
  * @dev This contract implements a rollup system with features such as batch acceptance, deposit verification,
  * proof submission, and challenge mechanisms. It interacts with a Bridge contract and a verifier for zk-SNARK proof validation.
  */
-contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausable {
+contract Rollup is
+    Ownable2Step,
+    ReentrancyGuard,
+    BlobHashGetterDeployer,
+    Pausable
+{
     error RollupCorrupted();
     error WrongPreviousBlockHash(bytes32 expected, bytes32 provided);
     error DepositVerificationFailed(bytes32 blockHash);
@@ -132,15 +140,12 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
     struct BlockCommitment {
         /// @dev The hash of the previous block in the batch. Enforces correct block sequencing.
         bytes32 previousBlockHash;
-
         /// @dev The hash of the current block's contents (e.g., state transition data).
         bytes32 blockHash;
-
         /// @dev The Merkle root of all withdrawal operations in the current block.
         /// A withdrawal represents a message sent from the bridge on the L2 side.
         /// Each leaf in the Merkle tree is the message hash, calculated individually for each message.
         bytes32 withdrawalHash;
-
         /// @dev The Merkle root of all deposit operations included in the current block.
         /// A deposit represents a message received on L2 from L1 via the bridge.
         /// Each deposit is hashed individually to form a message hash.
@@ -151,7 +156,6 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
     struct DepositsInBlock {
         /// @notice The hash of the block containing the deposits.
         bytes32 blockHash;
-
         /// @notice The number of deposit entries in the block.
         uint256 depositCount;
     }
@@ -175,20 +179,11 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
     /// @param batchIndex The index of the batch that was reverted to.
     event ForceRevertBatch(uint256 batchIndex);
 
-    event ChallengeDepositWithdrawn(
-        address indexed challenger,
-        uint256 amount
-    );
+    event ChallengeDepositWithdrawn(address indexed challenger, uint256 amount);
 
-    event DaCheckUpdated(
-        bool oldValue,
-        bool newValue
-    );
+    event DaCheckUpdated(bool oldValue, bool newValue);
 
-    event BridgeUpdated(
-        address indexed oldBridge,
-        address indexed newBridge
-    );
+    event BridgeUpdated(address indexed oldBridge, address indexed newBridge);
 
     /**
      * @dev Initializes the Rollup contract with initial configuration.
@@ -208,8 +203,10 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
     ) Ownable(msg.sender) {
         if (_sequencer == address(0)) revert ZeroAddressNotAllowed("sequencer");
         if (_verifier == address(0)) revert ZeroAddressNotAllowed("verifier");
-        if (_programVKey == bytes32(0)) revert ZeroValueNotAllowed("programVKey");
-        if (_genesisHash == bytes32(0)) revert ZeroValueNotAllowed("genesisHash");
+        if (_programVKey == bytes32(0))
+            revert ZeroValueNotAllowed("programVKey");
+        if (_genesisHash == bytes32(0))
+            revert ZeroValueNotAllowed("genesisHash");
         if (_batchSize == 0) revert ZeroValueNotAllowed("batchSize");
 
         sequencer = _sequencer;
@@ -252,7 +249,8 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
      * @param _newVerifier The address of the new verifier.
      */
     function updateVerifier(address _newVerifier) external onlyOwner {
-        if (_newVerifier == address(0)) revert ZeroAddressNotAllowed("verifier");
+        if (_newVerifier == address(0))
+            revert ZeroAddressNotAllowed("verifier");
         address _oldVerifier = address(verifier);
         verifier = IVerifier(_newVerifier);
 
@@ -296,15 +294,20 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
         // Clean up state for all reverted batches
         for (uint256 i = _revertedBatchIndex; i < nextBatchIndex; i++) {
             // Handle challenged commitments for this batch
-            bytes32[] storage challengedCommitments = batchChallengedCommitments[i];
+            bytes32[]
+                storage challengedCommitments = batchChallengedCommitments[i];
             for (uint256 j = 0; j < challengedCommitments.length; j++) {
                 bytes32 commitmentHash = challengedCommitments[j];
                 address challenger = blockCommitmentChallenger[commitmentHash];
                 if (challenger != address(0)) {
                     blockCommitmentChallenger[commitmentHash] = address(0);
-                    if (challengerDeposit[challenger] >= challengeDepositAmount) {
+                    if (
+                        challengerDeposit[challenger] >= challengeDepositAmount
+                    ) {
                         challengerDeposit[challenger] -= challengeDepositAmount;
-                        challengerReadyForWithdrawal[challenger] += challengeDepositAmount + incentiveFee;
+                        challengerReadyForWithdrawal[challenger] +=
+                            challengeDepositAmount +
+                            incentiveFee;
                         incentiveFees += incentiveFee;
                     }
                 }
@@ -384,7 +387,7 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
 
         return _calculateMerkleRoot(leafs);
     }
-    
+
     /**
      * @notice Accepts the next batch of block commitments.
      * @param _batchIndex The batch index.
@@ -397,7 +400,9 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
         DepositsInBlock[] calldata depositsInBlocks
     ) external payable onlySequencer whenNotPaused {
         if (depositsInBlocks.length > _commitmentBatch.length) {
-            revert("depositsInBlocks length cannot exceed commitmentBatch length");
+            revert(
+                "depositsInBlocks length cannot exceed commitmentBatch length"
+            );
         }
 
         if (_rollupCorrupted()) {
@@ -413,7 +418,10 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
         }
 
         if (_batchIndex > 0) {
-            if (_commitmentBatch[0].previousBlockHash != lastBlockHashInBatch[_batchIndex - 1]) {
+            if (
+                _commitmentBatch[0].previousBlockHash !=
+                lastBlockHashInBatch[_batchIndex - 1]
+            ) {
                 revert WrongPreviousBlockHash(
                     lastBlockHashInBatch[_batchIndex - 1],
                     _commitmentBatch[0].previousBlockHash
@@ -422,7 +430,7 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
         }
 
         uint256 depositIndex = 0;
-        uint256 queueSize = Bridge(bridge).getQueueSize();
+        uint256 queueSize = FluentBridge(bridge).getQueueSize();
 
         for (uint256 i = 0; i < batchSize - 1; ++i) {
             if (
@@ -462,10 +470,10 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
             }
         }
 
-        if (Bridge(bridge).getQueueSize() == 0) {
+        if (FluentBridge(bridge).getQueueSize() == 0) {
             lastDepositAcceptedBlockNumber = 0;
         } else if (
-            queueSize > Bridge(bridge).getQueueSize() ||
+            queueSize > FluentBridge(bridge).getQueueSize() ||
             (queueSize != 0 && lastDepositAcceptedBlockNumber == 0)
         ) {
             lastDepositAcceptedBlockNumber = block.number;
@@ -496,7 +504,8 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
         bytes32 batchRoot = calculateBatchRoot(_commitmentBatch);
         acceptedBatchHash[_batchIndex] = batchRoot;
         nextBatchIndex = _batchIndex + 1;
-        lastBlockHashInBatch[_batchIndex] = _commitmentBatch[batchSize - 1].blockHash;
+        lastBlockHashInBatch[_batchIndex] = _commitmentBatch[batchSize - 1]
+            .blockHash;
         acceptedBlock[_batchIndex] = block.number;
 
         emit BatchAccepted(_batchIndex, batchRoot);
@@ -527,7 +536,8 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
     function _rollupCorrupted() internal view returns (bool) {
         return
             challengeQueue.length != 0 &&
-            challengeDeadline[challengeQueue[challengeQueueStart]] < block.number;
+            challengeDeadline[challengeQueue[challengeQueueStart]] <
+            block.number;
     }
 
     /**
@@ -570,16 +580,26 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
             return true;
         }
 
-        for (uint256 idx = _batchIndex; idx > 0 && !alreadyApprovedBatch[idx]; --idx) {
-            bytes32[] storage challengedCommitments = batchChallengedCommitments[idx];
+        for (
+            uint256 idx = _batchIndex;
+            idx > 0 && !alreadyApprovedBatch[idx];
+            --idx
+        ) {
+            bytes32[]
+                storage challengedCommitments = batchChallengedCommitments[idx];
             for (uint256 j = 0; j < challengedCommitments.length; j++) {
-                if (blockCommitmentChallenger[challengedCommitments[j]] != address(0)) {
+                if (
+                    blockCommitmentChallenger[challengedCommitments[j]] !=
+                    address(0)
+                ) {
                     return false;
                 }
             }
         }
 
-        bytes32[] storage challengedCommitments = batchChallengedCommitments[_batchIndex];
+        bytes32[] storage challengedCommitments = batchChallengedCommitments[
+            _batchIndex
+        ];
         for (uint256 j = 0; j < challengedCommitments.length; j++) {
             bytes32 commitmentHash = challengedCommitments[j];
             if (blockCommitmentChallenger[commitmentHash] != address(0)) {
@@ -668,10 +688,7 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
             );
         }
         if (msg.value > challengeDepositAmount) {
-            revert ExcessiveChallengeDeposit(
-                challengeDepositAmount,
-                msg.value
-            );
+            revert ExcessiveChallengeDeposit(challengeDepositAmount, msg.value);
         }
 
         challengerDeposit[msg.sender] += msg.value;
@@ -705,7 +722,7 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
                 _commitmentBatch.depositHash
             )
         );
-        
+
         // Verify block commitment is part of the batch
         bool blockValid = MerkleTree.verifyMerkleProof(
             batchHash,
@@ -716,7 +733,7 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
         if (!blockValid) revert InvalidBlockProof();
 
         verifier.verifyProof(
-            programVKey, 
+            programVKey,
             _getPublicValuesFromCommitment(_commitmentBatch),
             _proof
         );
@@ -732,8 +749,14 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
                 // Slash the challenger's deposit
                 challengerDeposit[challenger] -= challengeDepositAmount;
                 // Transfer the slashed deposit to the proof provider
-                (bool success, ) = payable(msg.sender).call{value: challengeDepositAmount}("");
-                if (!success) revert EthTransferFailed(msg.sender, challengeDepositAmount);
+                (bool success, ) = payable(msg.sender).call{
+                    value: challengeDepositAmount
+                }("");
+                if (!success)
+                    revert EthTransferFailed(
+                        msg.sender,
+                        challengeDepositAmount
+                    );
             }
 
             for (uint256 i = 0; i < challengeQueue.length; i++) {
@@ -743,13 +766,17 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
             }
             _cleanQueue();
 
-
             // Remove from batch challenged commitments
-            bytes32[] storage challengedCommitments = batchChallengedCommitments[_batchIndex];
+            bytes32[]
+                storage challengedCommitments = batchChallengedCommitments[
+                    _batchIndex
+                ];
             for (uint256 i = 0; i < challengedCommitments.length; i++) {
                 if (challengedCommitments[i] == commitmentHash) {
                     // Replace with last element and pop
-                    challengedCommitments[i] = challengedCommitments[challengedCommitments.length - 1];
+                    challengedCommitments[i] = challengedCommitments[
+                        challengedCommitments.length - 1
+                    ];
                     challengedCommitments.pop();
                     break;
                 }
@@ -819,7 +846,7 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
             depositInBlock.depositCount
         );
         for (uint256 i = 0; i < depositInBlock.depositCount; ++i) {
-            bytes32 depositId = Bridge(bridge).popSentMessage();
+            bytes32 depositId = FluentBridge(bridge).popSentMessage();
             depositIds[i] = depositId;
         }
 

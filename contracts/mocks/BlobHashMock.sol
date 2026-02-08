@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 
-pragma solidity ^0.8.7;
+pragma solidity ^0.8.30;
 
-import "../restaker/libraries/BlobHashGetter.sol";
+import "../libraries/BlobHashGetter.sol";
 
 contract BlobHashMock is BlobHashGetterDeployer {
     address public blobHashGetter;
