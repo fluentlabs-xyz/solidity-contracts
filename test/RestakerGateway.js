@@ -1,6 +1,7 @@
 const { expect } = require("chai");
 const { BigNumber, AbiCoder } = require("ethers");
 const { deployFluentBridgeProxy } = require("./helpers/FluentBridgeProxy");
+const { deployERC20TokenFactoryProxy } = require("./helpers/ERC20TokenFactoryProxy");
 
 describe("RestakerGateway", function () {
   let bridge;
@@ -28,10 +29,12 @@ describe("RestakerGateway", function () {
     );
     bridge = bridgeProxy;
 
-    const TokenFactoryContract =
-      await ethers.getContractFactory("ERC20TokenFactory");
-    tokenFactory = await TokenFactoryContract.deploy(peggedToken.target);
-    tokenFactory = await tokenFactory.waitForDeployment();
+    const { tokenFactory: factory } = await deployERC20TokenFactoryProxy(
+      ethers,
+      accounts[0].address,
+      peggedToken.target,
+    );
+    tokenFactory = factory;
 
     const Token = await ethers.getContractFactory("MockERC20Token");
     token = await Token.deploy(

@@ -20,13 +20,7 @@ contract ERC20PeggedToken is ERC20 {
 
     constructor() ERC20("", "") {}
 
-    function initialize(
-        string memory name_,
-        string memory symbol_,
-        uint8 decimals_,
-        address gateway,
-        address originAddress
-    ) public emptyOwner {
+    function initialize(string memory name_, string memory symbol_, uint8 decimals_, address gateway, address originAddress) public emptyOwner {
         _owner = msg.sender;
         _symbol = symbol_;
         _name = name_;
