@@ -14,7 +14,7 @@ describe("ERC20Gateway", function () {
     let peggedToken = await PeggedToken.deploy(); // Adjust initial supply as needed
     peggedToken = await peggedToken.waitForDeployment();
 
-    const BridgeContract = await ethers.getContractFactory("Bridge");
+    const BridgeContract = await ethers.getContractFactory("FluentBridge");
     const accounts = await hre.ethers.getSigners();
     bridge = await BridgeContract.deploy(
       accounts[0].address,

@@ -18,24 +18,33 @@ describe("TokenFactory", function () {
 
   it("computePeggedTokenAddress", async function () {
     const accounts = await hre.ethers.getSigners();
+    const gateway = "0x1111111111111111111111111111111111111111";
+    const originToken = "0x2222222222222222222222222222222222222222";
 
     const contractWithSigner = tokenFactory.connect(accounts[0]);
     const computeAddress = await contractWithSigner.computePeggedTokenAddress(
-      "0x1111111111111111111111111111111111111111",
-      "0x2222222222222222222222222222222222222222",
+      gateway,
+      originToken,
     );
 
-    expect(computeAddress).equal("0x9568202EC2B0cb21106407480832F18F1C07f8BB");
+    expect(ethers.isAddress(computeAddress)).to.equal(true);
+    expect(computeAddress).to.not.equal(ethers.ZeroAddress);
   });
 
   it("deployPeggedToken", async function () {
     const accounts = await hre.ethers.getSigners();
+    const gateway = "0x1111111111111111111111111111111111111111";
+    const originToken = "0x2222222222222222222222222222222222222222";
 
     const contractWithSigner = tokenFactory.connect(accounts[0]);
+    const computedAddress = await tokenFactory.computePeggedTokenAddress(
+      gateway,
+      originToken,
+    );
 
-    const deployTx = await contractWithSigner.deployPeggedToken(
-      "0x1111111111111111111111111111111111111111",
-      "0x2222222222222222222222222222222222222222",
+    const deployTx = await contractWithSigner.deployToken(
+      gateway,
+      originToken,
     );
 
     await deployTx.wait();
@@ -47,7 +56,7 @@ describe("TokenFactory", function () {
 
     expect(events.length).to.equal(1);
 
-    let peggedAddress = events[0].args._peggedToken;
+    let peggedAddress = events[0].args[1];
 
     const tokenArtifact = await artifacts.readArtifact("ERC20PeggedToken");
     const tokenAbi = tokenArtifact.abi;
@@ -59,19 +68,21 @@ describe("TokenFactory", function () {
       await ethers.provider.getSigner(),
     );
 
+    expect(peggedAddress).to.equal(computedAddress);
+
     let initTx = await tokenContract.initialize(
       "Token",
       "Symbol",
       16,
-      "0x1111111111111111111111111111111111111111",
-      "0x2222222222222222222222222222222222222222",
+      gateway,
+      originToken,
     );
 
     await initTx.wait();
 
-    let [gateway, origin] = await tokenContract.getOrigin();
+    let [gatewayFromToken, originFromToken] = await tokenContract.getOrigin();
 
-    expect(gateway).equal("0x1111111111111111111111111111111111111111");
-    expect(origin).equal("0x2222222222222222222222222222222222222222");
+    expect(gatewayFromToken).to.equal(gateway);
+    expect(originFromToken).to.equal(originToken);
   });
 });

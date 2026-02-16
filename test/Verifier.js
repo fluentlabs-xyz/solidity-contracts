@@ -31,7 +31,7 @@ describe("Verifier", function () {
     const RollupContract = await ethers.getContractFactory("Rollup");
     const vkKey = "0x00440704be87894021b2b5673900bf717ec670dcfde36f7bf371f9ae1a02f46e";
 
-    const BridgeContract = await ethers.getContractFactory("Bridge");
+    const BridgeContract = await ethers.getContractFactory("FluentBridge");
     let bridge = await BridgeContract.deploy(
       "0x0000000000000000000000000000000000000000",
       "0x0000000000000000000000000000000000000000",

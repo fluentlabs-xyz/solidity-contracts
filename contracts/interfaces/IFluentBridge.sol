@@ -46,10 +46,6 @@ interface IFluentBridge is IBridgeErrorCodes {
         bytes data
     );
 
-    event SentMessage(address indexed sender, address indexed to, uint256 value, bytes32 messageHash);
-
-    event ReceivedMessage(bytes32 messageHash, bool successfulCall);
-
     /// @notice Emitted after message is successfully received and executed.
     event ReceivedMessage(bytes32 messageHash, bool successfulCall, bytes returnData);
 
@@ -58,14 +54,4 @@ interface IFluentBridge is IBridgeErrorCodes {
 
     /// @notice Emitted after a rollback is executed.
     event ReceivedMessageRollback(bytes32 messageHash, bool successfulCall, bytes returnData);
-
-    // function sendMessage(address _to, bytes calldata _message) external payable;
-
-    // function receiveMessage(
-    //     address _from,
-    //     address payable _to,
-    //     uint256 _value,
-    //     uint256 _nonce,
-    //     bytes calldata _message
-    // ) external payable;
 }
