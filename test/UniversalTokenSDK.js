@@ -1,5 +1,10 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
+const {
+  deployUniversalToken,
+  computeTokenAddress,
+  getDeployHelper,
+} = require("./helpers/UniversalTokenHelper");
 
 describe("UniversalTokenSDK", function () {
   let deployer;
@@ -14,13 +19,74 @@ describe("UniversalTokenSDK", function () {
     factory = await Factory.connect(deployer).deploy();
     await factory.waitForDeployment();
 
-    // Allow Hardhat network chain ID for testing (31337)
-    const hardhatChainId = 31337n;
-    await factory.setAllowedChainId(hardhatChainId, true);
-
     // Note: We can't directly test internal library functions from JS
     // So we'll test through the factory which uses the SDK
     // For pure functions, we can verify correctness through factory methods
+  });
+
+  describe("UniversalTokenDeployHelper", function () {
+    it("should deploy a token", async function () {
+      // Compute salt the same way as the SDK
+      const salt = ethers.keccak256(
+        ethers.AbiCoder.defaultAbiCoder().encode(
+          ["string", "address", "uint256"],
+          ["BRIDGE_TOKEN", deployer.address, 1337]
+        )
+      );
+      const name = "Test Token";
+      const symbol = "TEST";
+      const decimals = 18;
+      const initialSupply = 0n;
+      const minter = deployer.address;
+      const pauser = ethers.ZeroAddress;
+
+      // Get the deploy helper to compute the address
+      const helper = await getDeployHelper();
+      const helperAddress = await helper.getAddress();
+
+      // Compute the predicted address
+      const predictedAddress = await computeTokenAddress(
+        helperAddress,
+        salt,
+        name,
+        symbol,
+        decimals,
+        initialSupply,
+        minter,
+        pauser
+      );
+
+      // Deploy the token
+      const { address, contract } = await deployUniversalToken(
+        salt,
+        name,
+        symbol,
+        decimals,
+        initialSupply,
+        minter,
+        pauser
+      );
+
+      // Verify the address matches prediction
+      expect(address).to.equal(predictedAddress);
+      expect(address).to.not.equal(ethers.ZeroAddress);
+
+      // Verify token properties
+      expect(await contract.name()).to.equal(name);
+      expect(await contract.symbol()).to.equal(symbol);
+      expect(await contract.decimals()).to.equal(BigInt(decimals));
+      expect(await contract.totalSupply()).to.equal(initialSupply);
+
+      // Test minting (if minter is set)
+      if (minter !== ethers.ZeroAddress) {
+        const mintAmount = 1000n;
+        await contract.connect(deployer).mint(deployer.address, mintAmount);
+        expect(await contract.balanceOf(deployer.address)).to.equal(
+          mintAmount
+        );
+        expect(await contract.totalSupply()).to.equal(mintAmount);
+      }
+    });
   });
 
   describe("Constants", function () {
