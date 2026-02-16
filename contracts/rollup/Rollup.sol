@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity 0.8.30;
 
-import {
-    Ownable2Step,
-    Ownable
-} from "@openzeppelin/contracts/access/Ownable2Step.sol";
+import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
 import "../interfaces/IVerifier.sol";
@@ -17,12 +14,7 @@ import {MerkleTree} from "../libraries/MerkleTree.sol";
  * @dev This contract implements a rollup system with features such as batch acceptance, deposit verification,
  * proof submission, and challenge mechanisms. It interacts with a Bridge contract and a verifier for zk-SNARK proof validation.
  */
-contract Rollup is
-    Ownable2Step,
-    ReentrancyGuard,
-    BlobHashGetterDeployer,
-    Pausable
-{
+contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausable {
     error RollupCorrupted();
     error WrongPreviousBlockHash(bytes32 expected, bytes32 provided);
     error DepositVerificationFailed(bytes32 blockHash);
@@ -38,11 +30,7 @@ contract Rollup is
     error BlockHashMismatch(bytes32 expected, bytes32 provided);
     error InvalidBatchIndex(uint256 expected, uint256 provided);
     error InvalidBatchSize(uint256 expected, uint256 provided);
-    error InvalidBlockSequence(
-        uint256 index,
-        bytes32 currentHash,
-        bytes32 nextPrevHash
-    );
+    error InvalidBlockSequence(uint256 index, bytes32 currentHash, bytes32 nextPrevHash);
     error NoLeavesProvided();
     error NothingToWithdraw();
     error NotEnoughValueIncentiveFee(uint256 value, uint256 incentiveFee);
@@ -130,8 +118,7 @@ contract Rollup is
     bool private daCheck;
 
     /// @dev Constant representing an empty deposit hash.
-    bytes32 public constant ZERO_BYTES_HASH =
-        0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
+    bytes32 public constant ZERO_BYTES_HASH = 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
 
     /// @dev zk-SNARK verifier instance.
     IVerifier private verifier;
@@ -203,10 +190,8 @@ contract Rollup is
     ) Ownable(msg.sender) {
         if (_sequencer == address(0)) revert ZeroAddressNotAllowed("sequencer");
         if (_verifier == address(0)) revert ZeroAddressNotAllowed("verifier");
-        if (_programVKey == bytes32(0))
-            revert ZeroValueNotAllowed("programVKey");
-        if (_genesisHash == bytes32(0))
-            revert ZeroValueNotAllowed("genesisHash");
+        if (_programVKey == bytes32(0)) revert ZeroValueNotAllowed("programVKey");
+        if (_genesisHash == bytes32(0)) revert ZeroValueNotAllowed("genesisHash");
         if (_batchSize == 0) revert ZeroValueNotAllowed("batchSize");
 
         sequencer = _sequencer;
@@ -249,8 +234,7 @@ contract Rollup is
      * @param _newVerifier The address of the new verifier.
      */
     function updateVerifier(address _newVerifier) external onlyOwner {
-        if (_newVerifier == address(0))
-            revert ZeroAddressNotAllowed("verifier");
+        if (_newVerifier == address(0)) revert ZeroAddressNotAllowed("verifier");
         address _oldVerifier = address(verifier);
         verifier = IVerifier(_newVerifier);
 
@@ -279,9 +263,7 @@ contract Rollup is
      *      It will clean up all state variables associated with the reverted batches to ensure the system can continue operating correctly.
      * @param _revertedBatchIndex The batch index to revert from.
      */
-    function forceRevertBatch(
-        uint256 _revertedBatchIndex
-    ) external payable onlyOwner nonReentrant {
+    function forceRevertBatch(uint256 _revertedBatchIndex) external payable onlyOwner nonReentrant {
         if (!_acceptedBatch(_revertedBatchIndex)) {
             revert BatchNotAccepted(_revertedBatchIndex);
         }
@@ -294,20 +276,15 @@ contract Rollup is
         // Clean up state for all reverted batches
         for (uint256 i = _revertedBatchIndex; i < nextBatchIndex; i++) {
             // Handle challenged commitments for this batch
-            bytes32[]
-                storage challengedCommitments = batchChallengedCommitments[i];
+            bytes32[] storage challengedCommitments = batchChallengedCommitments[i];
             for (uint256 j = 0; j < challengedCommitments.length; j++) {
                 bytes32 commitmentHash = challengedCommitments[j];
                 address challenger = blockCommitmentChallenger[commitmentHash];
                 if (challenger != address(0)) {
                     blockCommitmentChallenger[commitmentHash] = address(0);
-                    if (
-                        challengerDeposit[challenger] >= challengeDepositAmount
-                    ) {
+                    if (challengerDeposit[challenger] >= challengeDepositAmount) {
                         challengerDeposit[challenger] -= challengeDepositAmount;
-                        challengerReadyForWithdrawal[challenger] +=
-                            challengeDepositAmount +
-                            incentiveFee;
+                        challengerReadyForWithdrawal[challenger] += challengeDepositAmount + incentiveFee;
                         incentiveFees += incentiveFee;
                     }
                 }
@@ -366,9 +343,7 @@ contract Rollup is
      * @param commitmentBatch An array of BlockCommitment structs representing the batch.
      * @return The Merkle root (batch root) derived from the block commitments.
      */
-    function calculateBatchRoot(
-        BlockCommitment[] calldata commitmentBatch
-    ) public view returns (bytes32) {
+    function calculateBatchRoot(BlockCommitment[] calldata commitmentBatch) public view returns (bytes32) {
         bytes memory leafs = new bytes(commitmentBatch.length * 32);
 
         for (uint256 i = 0; i < commitmentBatch.length; ++i) {
@@ -400,9 +375,7 @@ contract Rollup is
         DepositsInBlock[] calldata depositsInBlocks
     ) external payable onlySequencer whenNotPaused {
         if (depositsInBlocks.length > _commitmentBatch.length) {
-            revert(
-                "depositsInBlocks length cannot exceed commitmentBatch length"
-            );
+            revert("depositsInBlocks length cannot exceed commitmentBatch length");
         }
 
         if (_rollupCorrupted()) {
@@ -418,14 +391,8 @@ contract Rollup is
         }
 
         if (_batchIndex > 0) {
-            if (
-                _commitmentBatch[0].previousBlockHash !=
-                lastBlockHashInBatch[_batchIndex - 1]
-            ) {
-                revert WrongPreviousBlockHash(
-                    lastBlockHashInBatch[_batchIndex - 1],
-                    _commitmentBatch[0].previousBlockHash
-                );
+            if (_commitmentBatch[0].previousBlockHash != lastBlockHashInBatch[_batchIndex - 1]) {
+                revert WrongPreviousBlockHash(lastBlockHashInBatch[_batchIndex - 1], _commitmentBatch[0].previousBlockHash);
             }
         }
 
@@ -433,58 +400,28 @@ contract Rollup is
         uint256 queueSize = FluentBridge(bridge).getQueueSize();
 
         for (uint256 i = 0; i < batchSize - 1; ++i) {
-            if (
-                _commitmentBatch[i].blockHash !=
-                _commitmentBatch[i + 1].previousBlockHash
-            ) {
-                revert InvalidBlockSequence(
-                    i,
-                    _commitmentBatch[i].blockHash,
-                    _commitmentBatch[i + 1].previousBlockHash
-                );
+            if (_commitmentBatch[i].blockHash != _commitmentBatch[i + 1].previousBlockHash) {
+                revert InvalidBlockSequence(i, _commitmentBatch[i].blockHash, _commitmentBatch[i + 1].previousBlockHash);
             }
             if (_commitmentBatch[i].depositHash != ZERO_BYTES_HASH) {
-                if (
-                    !_checkDeposit(
-                        _commitmentBatch[i],
-                        depositsInBlocks[depositIndex]
-                    )
-                ) {
-                    revert DepositVerificationFailed(
-                        _commitmentBatch[i].blockHash
-                    );
+                if (!_checkDeposit(_commitmentBatch[i], depositsInBlocks[depositIndex])) {
+                    revert DepositVerificationFailed(_commitmentBatch[i].blockHash);
                 }
                 depositIndex += 1;
             }
         }
         if (_commitmentBatch[batchSize - 1].depositHash != ZERO_BYTES_HASH) {
-            if (
-                !_checkDeposit(
-                    _commitmentBatch[batchSize - 1],
-                    depositsInBlocks[depositIndex]
-                )
-            ) {
-                revert DepositVerificationFailed(
-                    _commitmentBatch[batchSize - 1].blockHash
-                );
+            if (!_checkDeposit(_commitmentBatch[batchSize - 1], depositsInBlocks[depositIndex])) {
+                revert DepositVerificationFailed(_commitmentBatch[batchSize - 1].blockHash);
             }
         }
 
         if (FluentBridge(bridge).getQueueSize() == 0) {
             lastDepositAcceptedBlockNumber = 0;
-        } else if (
-            queueSize > FluentBridge(bridge).getQueueSize() ||
-            (queueSize != 0 && lastDepositAcceptedBlockNumber == 0)
-        ) {
+        } else if (queueSize > FluentBridge(bridge).getQueueSize() || (queueSize != 0 && lastDepositAcceptedBlockNumber == 0)) {
             lastDepositAcceptedBlockNumber = block.number;
-        } else if (
-            lastDepositAcceptedBlockNumber + acceptDepositDeadline <
-            block.number
-        ) {
-            revert AcceptDepositDeadlineExceeded(
-                lastDepositAcceptedBlockNumber + acceptDepositDeadline,
-                block.number
-            );
+        } else if (lastDepositAcceptedBlockNumber + acceptDepositDeadline < block.number) {
+            revert AcceptDepositDeadlineExceeded(lastDepositAcceptedBlockNumber + acceptDepositDeadline, block.number);
         }
 
         //        TODO: NOT IMPLEMENTED YET
@@ -504,8 +441,7 @@ contract Rollup is
         bytes32 batchRoot = calculateBatchRoot(_commitmentBatch);
         acceptedBatchHash[_batchIndex] = batchRoot;
         nextBatchIndex = _batchIndex + 1;
-        lastBlockHashInBatch[_batchIndex] = _commitmentBatch[batchSize - 1]
-            .blockHash;
+        lastBlockHashInBatch[_batchIndex] = _commitmentBatch[batchSize - 1].blockHash;
         acceptedBlock[_batchIndex] = block.number;
 
         emit BatchAccepted(_batchIndex, batchRoot);
@@ -534,10 +470,7 @@ contract Rollup is
      * - The current block number has exceeded the challenge deadline for the first challenged batch in queue.
      */
     function _rollupCorrupted() internal view returns (bool) {
-        return
-            challengeQueue.length != 0 &&
-            challengeDeadline[challengeQueue[challengeQueueStart]] <
-            block.number;
+        return challengeQueue.length != 0 && challengeDeadline[challengeQueue[challengeQueueStart]] < block.number;
     }
 
     /**
@@ -580,26 +513,16 @@ contract Rollup is
             return true;
         }
 
-        for (
-            uint256 idx = _batchIndex;
-            idx > 0 && !alreadyApprovedBatch[idx];
-            --idx
-        ) {
-            bytes32[]
-                storage challengedCommitments = batchChallengedCommitments[idx];
+        for (uint256 idx = _batchIndex; idx > 0 && !alreadyApprovedBatch[idx]; --idx) {
+            bytes32[] storage challengedCommitments = batchChallengedCommitments[idx];
             for (uint256 j = 0; j < challengedCommitments.length; j++) {
-                if (
-                    blockCommitmentChallenger[challengedCommitments[j]] !=
-                    address(0)
-                ) {
+                if (blockCommitmentChallenger[challengedCommitments[j]] != address(0)) {
                     return false;
                 }
             }
         }
 
-        bytes32[] storage challengedCommitments = batchChallengedCommitments[
-            _batchIndex
-        ];
+        bytes32[] storage challengedCommitments = batchChallengedCommitments[_batchIndex];
         for (uint256 j = 0; j < challengedCommitments.length; j++) {
             bytes32 commitmentHash = challengedCommitments[j];
             if (blockCommitmentChallenger[commitmentHash] != address(0)) {
@@ -663,12 +586,7 @@ contract Rollup is
         );
 
         // Verify block commitment is part of the batch
-        bool blockValid = MerkleTree.verifyMerkleProof(
-            batchHash,
-            commitmentHash,
-            _block_proof.nonce,
-            _block_proof.proof
-        );
+        bool blockValid = MerkleTree.verifyMerkleProof(batchHash, commitmentHash, _block_proof.nonce, _block_proof.proof);
         if (!blockValid) revert InvalidBlockProof();
 
         if (_ensureBatchApproved(_batchIndex)) {
@@ -682,10 +600,7 @@ contract Rollup is
         }
 
         if (msg.value < challengeDepositAmount) {
-            revert InsufficientChallengeDeposit(
-                challengeDepositAmount,
-                msg.value
-            );
+            revert InsufficientChallengeDeposit(challengeDepositAmount, msg.value);
         }
         if (msg.value > challengeDepositAmount) {
             revert ExcessiveChallengeDeposit(challengeDepositAmount, msg.value);
@@ -724,19 +639,10 @@ contract Rollup is
         );
 
         // Verify block commitment is part of the batch
-        bool blockValid = MerkleTree.verifyMerkleProof(
-            batchHash,
-            commitmentHash,
-            _block_proof.nonce,
-            _block_proof.proof
-        );
+        bool blockValid = MerkleTree.verifyMerkleProof(batchHash, commitmentHash, _block_proof.nonce, _block_proof.proof);
         if (!blockValid) revert InvalidBlockProof();
 
-        verifier.verifyProof(
-            programVKey,
-            _getPublicValuesFromCommitment(_commitmentBatch),
-            _proof
-        );
+        verifier.verifyProof(programVKey, _getPublicValuesFromCommitment(_commitmentBatch), _proof);
 
         provenBlockCommitment[commitmentHash] = true;
         delete challengeDeadline[commitmentHash];
@@ -749,14 +655,8 @@ contract Rollup is
                 // Slash the challenger's deposit
                 challengerDeposit[challenger] -= challengeDepositAmount;
                 // Transfer the slashed deposit to the proof provider
-                (bool success, ) = payable(msg.sender).call{
-                    value: challengeDepositAmount
-                }("");
-                if (!success)
-                    revert EthTransferFailed(
-                        msg.sender,
-                        challengeDepositAmount
-                    );
+                (bool success, ) = payable(msg.sender).call{value: challengeDepositAmount}("");
+                if (!success) revert EthTransferFailed(msg.sender, challengeDepositAmount);
             }
 
             for (uint256 i = 0; i < challengeQueue.length; i++) {
@@ -767,16 +667,11 @@ contract Rollup is
             _cleanQueue();
 
             // Remove from batch challenged commitments
-            bytes32[]
-                storage challengedCommitments = batchChallengedCommitments[
-                    _batchIndex
-                ];
+            bytes32[] storage challengedCommitments = batchChallengedCommitments[_batchIndex];
             for (uint256 i = 0; i < challengedCommitments.length; i++) {
                 if (challengedCommitments[i] == commitmentHash) {
                     // Replace with last element and pop
-                    challengedCommitments[i] = challengedCommitments[
-                        challengedCommitments.length - 1
-                    ];
+                    challengedCommitments[i] = challengedCommitments[challengedCommitments.length - 1];
                     challengedCommitments.pop();
                     break;
                 }
@@ -791,9 +686,7 @@ contract Rollup is
      * @param _commitment The block commitment structure.
      * @return The encoded public values.
      */
-    function _getPublicValuesFromCommitment(
-        BlockCommitment calldata _commitment
-    ) internal pure returns (bytes memory) {
+    function _getPublicValuesFromCommitment(BlockCommitment calldata _commitment) internal pure returns (bytes memory) {
         bytes memory publicValues = new bytes(160); // 4 * 32 bytes + 4 * 8 bytes for length
 
         publicValues[0] = 0x20;
@@ -816,9 +709,7 @@ contract Rollup is
      * @dev Only withdraws if the challenger has a non-zero withdrawable balance. Resets the balance after transfer.
      * @param challenger The address of the challenger requesting the withdrawal.
      */
-    function withdrawChallengeDeposit(
-        address payable challenger
-    ) external payable nonReentrant whenNotPaused {
+    function withdrawChallengeDeposit(address payable challenger) external payable nonReentrant whenNotPaused {
         uint256 amount = challengerReadyForWithdrawal[challenger];
 
         if (amount == 0) revert NothingToWithdraw();
@@ -831,35 +722,22 @@ contract Rollup is
         emit ChallengeDepositWithdrawn(challenger, amount);
     }
 
-    function _checkDeposit(
-        BlockCommitment calldata _commitmentBatch,
-        DepositsInBlock calldata depositInBlock
-    ) private returns (bool) {
+    function _checkDeposit(BlockCommitment calldata _commitmentBatch, DepositsInBlock calldata depositInBlock) private returns (bool) {
         if (_commitmentBatch.blockHash != depositInBlock.blockHash) {
-            revert BlockHashMismatch(
-                _commitmentBatch.blockHash,
-                depositInBlock.blockHash
-            );
+            revert BlockHashMismatch(_commitmentBatch.blockHash, depositInBlock.blockHash);
         }
 
-        bytes32[] memory depositIds = new bytes32[](
-            depositInBlock.depositCount
-        );
+        bytes32[] memory depositIds = new bytes32[](depositInBlock.depositCount);
         for (uint256 i = 0; i < depositInBlock.depositCount; ++i) {
             bytes32 depositId = FluentBridge(bridge).popSentMessage();
             depositIds[i] = depositId;
         }
 
-        return
-            keccak256(abi.encodePacked(depositIds)) ==
-            _commitmentBatch.depositHash;
+        return keccak256(abi.encodePacked(depositIds)) == _commitmentBatch.depositHash;
     }
 
     function _cleanQueue() internal {
-        while (
-            challengeQueue.length != 0 &&
-            challengeQueue[challengeQueueStart] == bytes32(0)
-        ) {
+        while (challengeQueue.length != 0 && challengeQueue[challengeQueueStart] == bytes32(0)) {
             ++challengeQueueStart;
             if (challengeQueueStart >= challengeQueue.length) {
                 challengeQueueStart = 0;
@@ -869,9 +747,7 @@ contract Rollup is
         }
     }
 
-    function _calculateMerkleRoot(
-        bytes memory _leafs
-    ) internal pure returns (bytes32) {
+    function _calculateMerkleRoot(bytes memory _leafs) internal pure returns (bytes32) {
         uint256 count = _leafs.length / 32;
 
         if (count == 0) {
@@ -885,9 +761,7 @@ contract Rollup is
             for (uint256 i = 0; i < count / 2; i++) {
                 assembly {
                     left := mload(add(add(_leafs, 32), mul(mul(i, 2), 32)))
-                    right := mload(
-                        add(add(_leafs, 32), mul(add(mul(i, 2), 1), 32))
-                    )
+                    right := mload(add(add(_leafs, 32), mul(add(mul(i, 2), 1), 32)))
                 }
                 hash = _efficientHash(left, right);
                 assembly {
@@ -902,10 +776,7 @@ contract Rollup is
                 hash = _efficientHash(left, left);
 
                 assembly {
-                    mstore(
-                        add(add(_leafs, 32), mul(div(sub(count, 1), 2), 32)),
-                        hash
-                    )
+                    mstore(add(add(_leafs, 32), mul(div(sub(count, 1), 2), 32)), hash)
                 }
                 count += 1;
             }
@@ -920,10 +791,7 @@ contract Rollup is
         return root;
     }
 
-    function _efficientHash(
-        bytes32 a,
-        bytes32 b
-    ) private pure returns (bytes32 value) {
+    function _efficientHash(bytes32 a, bytes32 b) private pure returns (bytes32 value) {
         assembly {
             mstore(0x00, a)
             mstore(0x20, b)

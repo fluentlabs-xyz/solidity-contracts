@@ -1,6 +1,9 @@
 const { expect } = require("chai");
 const { AbiCoder, BigNumber } = require("ethers");
 const { address } = require("hardhat/internal/core/config/config-validation");
+const { deployFluentBridgeProxy } = require("./helpers/FluentBridgeProxy");
+const { deployERC20TokenFactoryProxy } = require("./helpers/ERC20TokenFactoryProxy");
+const { deployERC20GatewayProxy } = require("./helpers/ERC20GatewayProxy");
 
 describe("ERC20Gateway", function () {
   let bridge;
@@ -14,32 +17,34 @@ describe("ERC20Gateway", function () {
     let peggedToken = await PeggedToken.deploy(); // Adjust initial supply as needed
     peggedToken = await peggedToken.waitForDeployment();
 
-    const BridgeContract = await ethers.getContractFactory("FluentBridge");
     const accounts = await hre.ethers.getSigners();
-    bridge = await BridgeContract.deploy(
+    const { bridge: bridgeProxy } = await deployFluentBridgeProxy(
+      ethers,
+      accounts[0].address,
       accounts[0].address,
       accounts[1].address,
       0,
       "0x0000000000000000000000000000000000000001",
       "0x0000000000000000000000000000000000000002",
     );
-    bridge = await bridge.waitForDeployment();
+    bridge = bridgeProxy;
 
-    const TokenFactoryContract =
-      await ethers.getContractFactory("ERC20TokenFactory");
-    tokenFactory = await TokenFactoryContract.deploy(peggedToken.target);
-    tokenFactory = await tokenFactory.waitForDeployment();
+    const { tokenFactory: factory } = await deployERC20TokenFactoryProxy(
+      ethers,
+      accounts[0].address,
+      peggedToken.target,
+    );
+    tokenFactory = factory;
 
-    const ERC20GatewayContract =
-      await ethers.getContractFactory("ERC20Gateway");
+    const ERC20GatewayContract = await ethers.getContractFactory("ERC20Gateway");
     erc20GatewayAbi = ERC20GatewayContract.interface.format();
-    erc20Gateway = await ERC20GatewayContract.deploy(
+    const { gateway } = await deployERC20GatewayProxy(
+      ethers,
+      accounts[0].address,
       bridge.target,
       tokenFactory.target,
-      {
-        value: ethers.parseEther("1000"),
-      },
     );
+    erc20Gateway = gateway;
 
     const authTx = await tokenFactory.transferOwnership(erc20Gateway.target);
     await authTx.wait();
@@ -53,10 +58,13 @@ describe("ERC20Gateway", function () {
       "TKN",
       ethers.parseEther("1000000"),
       accounts[0].address,
-    ); // Adjust initial supply as needed
+    );
     token = await token.waitForDeployment();
 
-    erc20Gateway = await erc20Gateway.waitForDeployment();
+    await accounts[0].sendTransaction({
+      to: erc20Gateway.target,
+      value: ethers.parseEther("1000"),
+    });
 
     await erc20Gateway.setOtherSide("0x1111111111111111111111111111111111111111", "0x0000000000000000000000000000000000000000", "0x0000000000000000000000000000000000000000");
   });

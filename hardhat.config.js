@@ -1,6 +1,7 @@
 /** @type import('hardhat/config').HardhatUserConfig */
 require("@nomiclabs/hardhat-ethers");
 require("@nomiclabs/hardhat-solhint");
+require("@openzeppelin/hardhat-upgrades");
 require('hardhat-abi-exporter');
 require("@nomicfoundation/hardhat-ignition-ethers");
 const { vars } = require("hardhat/config");

@@ -1,5 +1,7 @@
 const { expect } = require("chai");
 const { BigNumber, AbiCoder } = require("ethers");
+const { deployFluentBridgeProxy } = require("./helpers/FluentBridgeProxy");
+const { deployERC20TokenFactoryProxy } = require("./helpers/ERC20TokenFactoryProxy");
 
 describe("RestakerGateway", function () {
   let bridge;
@@ -15,21 +17,24 @@ describe("RestakerGateway", function () {
     let peggedToken = await PeggedToken.deploy(); // Adjust initial supply as needed
     peggedToken = await peggedToken.waitForDeployment();
 
-    const BridgeContract = await ethers.getContractFactory("FluentBridge");
     const accounts = await hre.ethers.getSigners();
-    bridge = await BridgeContract.deploy(
+    const { bridge: bridgeProxy } = await deployFluentBridgeProxy(
+      ethers,
+      accounts[0].address,
       accounts[0].address,
       accounts[1].address,
       0,
       "0x0000000000000000000000000000000000000001",
       "0x0000000000000000000000000000000000000002",
     );
-    bridge = await bridge.waitForDeployment();
+    bridge = bridgeProxy;
 
-    const TokenFactoryContract =
-      await ethers.getContractFactory("ERC20TokenFactory");
-    tokenFactory = await TokenFactoryContract.deploy(peggedToken.target);
-    tokenFactory = await tokenFactory.waitForDeployment();
+    const { tokenFactory: factory } = await deployERC20TokenFactoryProxy(
+      ethers,
+      accounts[0].address,
+      peggedToken.target,
+    );
+    tokenFactory = factory;
 
     const Token = await ethers.getContractFactory("MockERC20Token");
     token = await Token.deploy(

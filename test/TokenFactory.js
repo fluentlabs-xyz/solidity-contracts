@@ -1,19 +1,23 @@
 const { expect } = require("chai");
 const { BigNumber } = require("ethers");
 const { address } = require("hardhat/internal/core/config/config-validation");
+const { deployERC20TokenFactoryProxy } = require("./helpers/ERC20TokenFactoryProxy");
 
 describe("TokenFactory", function () {
   let tokenFactory;
 
   before(async function () {
     const Token = await ethers.getContractFactory("ERC20PeggedToken");
-    let token = await Token.deploy(); // Adjust initial supply as needed
+    let token = await Token.deploy();
     token = await token.waitForDeployment();
 
-    const TokenFactoryContract =
-      await ethers.getContractFactory("ERC20TokenFactory");
-    tokenFactory = await TokenFactoryContract.deploy(token.target);
-    tokenFactory = await tokenFactory.waitForDeployment();
+    const accounts = await hre.ethers.getSigners();
+    const { tokenFactory: factory } = await deployERC20TokenFactoryProxy(
+      ethers,
+      accounts[0].address,
+      token.target,
+    );
+    tokenFactory = factory;
   });
 
   it("computePeggedTokenAddress", async function () {
