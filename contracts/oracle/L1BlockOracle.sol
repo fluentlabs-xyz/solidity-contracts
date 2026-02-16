@@ -19,4 +19,4 @@ contract L1BlockOracle is IL1BlockOracle, Ownable {
     function getL1BlockNumber() external view override returns (uint256) {
         return l1BlockNumber;
     }
-} 
+}

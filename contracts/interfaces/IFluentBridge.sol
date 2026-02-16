@@ -54,4 +54,17 @@ interface IFluentBridge is IBridgeErrorCodes {
 
     /// @notice Emitted after a rollback is executed.
     event ReceivedMessageRollback(bytes32 messageHash, bool successfulCall, bytes returnData);
+
+    // ---------- Storage getters ----------
+    function nonce() external view returns (uint256);
+    function receivedNonce() external view returns (uint256);
+    function receiveMessageDeadline() external view returns (uint256);
+    function nativeSender() external view returns (address);
+    function otherBridge() external view returns (address);
+    function receivedMessage(bytes32 key) external view returns (MessageStatus);
+    function rollbackMessage(bytes32 key) external view returns (MessageStatus);
+    function bridgeAuthority() external view returns (address);
+    function rollup() external view returns (address);
+    function l1BlockOracle() external view returns (address);
+    function getQueueSize() external view returns (uint256);
 }

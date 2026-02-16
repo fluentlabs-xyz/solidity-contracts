@@ -2,6 +2,7 @@ const { expect } = require("chai");
 const { sleep } = require("@nomicfoundation/hardhat-verify/internal/utilities");
 const { ethers } = require("hardhat");
 const { MerkleTree } = require("merkletreejs");
+const { deployFluentBridgeProxy } = require("./helpers/FluentBridgeProxy");
 
 describe("Rollup.sol", function () {
   let rollup;
@@ -47,15 +48,17 @@ describe("Rollup.sol", function () {
     const RollupContract = await ethers.getContractFactory("Rollup");
     const vkKey = "0x00612f9d5a388df116872ff70e36bcb86c7e73b1089f32f68fc8e0d0ba7861b7";
     const genesisHash = "0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470";
-    const BridgeContract = await ethers.getContractFactory("FluentBridge");
-    let bridge = await BridgeContract.deploy(
+    const accounts = await hre.ethers.getSigners();
+    const { bridge: bridgeProxy } = await deployFluentBridgeProxy(
+      ethers,
+      accounts[0].address,
       "0x0000000000000000000000000000000000000000",
       "0x0000000000000000000000000000000000000000",
       0,
       "0x0000000000000000000000000000000000000001",
       "0x0000000000000000000000000000000000000002",
     );
-    const accounts = await hre.ethers.getSigners();
+    const bridge = bridgeProxy;
     rollup = await RollupContract.deploy(
       accounts[0],
       10000,

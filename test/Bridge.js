@@ -2,6 +2,7 @@ const { expect } = require("chai");
 const { BigNumber, AbiCoder } = require("ethers");
 const { network } = require("hardhat");
 const { ethers } = require("hardhat");
+const { deployFluentBridgeProxy } = require("./helpers/FluentBridgeProxy");
 
 describe("Bridge", function () {
   let bridge;
@@ -41,18 +42,18 @@ describe("Bridge", function () {
     await l1BlockOracle.waitForDeployment();
     await l1BlockOracle.updateL1BlockNumber(0);
 
-    const BridgeContract = await ethers.getContractFactory("FluentBridge");
-
-    bridge = await BridgeContract.deploy(
+    const { bridge: bridgeProxy } = await deployFluentBridgeProxy(
+        ethers,
+        accounts[0].address,
         accounts[0].address,
         rollup.target,
         10,
         accounts[1].address,
         l1BlockOracle.target
     );
-    bridge = await bridge.waitForDeployment();
+    bridge = bridgeProxy;
 
-    rollup.setBridge(bridge.target);
+    await rollup.setBridge(bridge.target);
 
     [owner, user, bridgeAuthority, otherBridge] = await ethers.getSigners();
   });
@@ -561,19 +562,20 @@ describe("Bridge", function () {
     const accounts = await hre.ethers.getSigners();
     const contractWithSigner = bridge.connect(accounts[0]);
 
-    const BridgeContract = await ethers.getContractFactory("FluentBridge");
     const L1BlockOracle = await ethers.getContractFactory("L1BlockOracle");
     const otherOracle = await L1BlockOracle.deploy();
     await otherOracle.waitForDeployment();
     await otherOracle.updateL1BlockNumber(0);
-    const otherBridge = await BridgeContract.deploy(
+    const { bridge: otherBridgeProxy } = await deployFluentBridgeProxy(
+        ethers,
+        accounts[0].address,
         accounts[0].address,
         rollup.target,
         10,
         bridge.target,
         otherOracle.target,
     );
-    await otherBridge.waitForDeployment();
+    const otherBridge = otherBridgeProxy;
 
     await bridge.setOtherBridge(otherBridge.target);
 
@@ -692,16 +694,17 @@ describe("Bridge", function () {
 
     // Set a deadline of 5 blocks
     const receiveMessageDeadline = 5;
-    // Deploy a new bridge with this deadline
-    const BridgeContract = await ethers.getContractFactory("FluentBridge");
-    const testBridge = await BridgeContract.deploy(
+    // Deploy a new bridge with this deadline (via proxy)
+    const { bridge: testBridgeProxy } = await deployFluentBridgeProxy(
+      ethers,
+      accounts[0].address,
       accounts[0].address,
       rollup.target,
       receiveMessageDeadline,
       accounts[1].address,
       l1BlockOracle.target
     );
-    await testBridge.waitForDeployment();
+    const testBridge = testBridgeProxy;
 
     // Try to receive the message before deadline (should succeed)
     let nonce = await testBridge.receivedNonce();
