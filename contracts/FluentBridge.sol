@@ -67,58 +67,6 @@ contract FluentBridge is IFluentBridge, Initializable, ReentrancyGuardUpgradeabl
         }
     }
 
-    // ---------- Public getters ----------
-
-    /// @inheritdoc IFluentBridge
-    function nonce() public view returns (uint256) {
-        return _getFluentBridgeStorage().nonce;
-    }
-
-    /// @inheritdoc IFluentBridge
-    function receivedNonce() public view returns (uint256) {
-        return _getFluentBridgeStorage().receivedNonce;
-    }
-
-    /// @inheritdoc IFluentBridge
-    function receiveMessageDeadline() public view returns (uint256) {
-        return _getFluentBridgeStorage().receiveMessageDeadline;
-    }
-
-    /// @inheritdoc IFluentBridge
-    function nativeSender() public view returns (address) {
-        return _getFluentBridgeStorage().nativeSender;
-    }
-
-    /// @inheritdoc IFluentBridge
-    function otherBridge() public view returns (address) {
-        return _getFluentBridgeStorage().otherBridge;
-    }
-
-    /// @inheritdoc IFluentBridge
-    function receivedMessage(bytes32 key) public view returns (MessageStatus) {
-        return _getFluentBridgeStorage().receivedMessage[key];
-    }
-
-    /// @inheritdoc IFluentBridge
-    function rollbackMessage(bytes32 key) public view returns (MessageStatus) {
-        return _getFluentBridgeStorage().rollbackMessage[key];
-    }
-
-    /// @inheritdoc IFluentBridge
-    function bridgeAuthority() public view returns (address) {
-        return _getFluentBridgeStorage().bridgeAuthority;
-    }
-
-    /// @inheritdoc IFluentBridge
-    function rollup() public view returns (address) {
-        return _getFluentBridgeStorage().rollup;
-    }
-
-    /// @inheritdoc IFluentBridge
-    function l1BlockOracle() public view returns (address) {
-        return _getFluentBridgeStorage().l1BlockOracle;
-    }
-
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -156,7 +104,7 @@ contract FluentBridge is IFluentBridge, Initializable, ReentrancyGuardUpgradeabl
         uint256 _receiveMessageDeadline,
         address _otherBridge,
         address _l1BlockOracle
-    ) public initializer {
+    ) external initializer {
         __ReentrancyGuard_init();
         __Ownable_init(_initialOwner);
         __Ownable2Step_init();
@@ -328,6 +276,58 @@ contract FluentBridge is IFluentBridge, Initializable, ReentrancyGuardUpgradeabl
         require(_getFluentBridgeStorage().receivedMessage[messageHash] == MessageStatus.Failed, MessageNotFailed());
 
         _receiveMessage(_from, _to, _value, _chainId, _blockNumber, _nonce, _message, messageHash);
+    }
+
+    // ---------- Public getters ----------
+
+    /// @inheritdoc IFluentBridge
+    function nonce() public view returns (uint256) {
+        return _getFluentBridgeStorage().nonce;
+    }
+
+    /// @inheritdoc IFluentBridge
+    function receivedNonce() public view returns (uint256) {
+        return _getFluentBridgeStorage().receivedNonce;
+    }
+
+    /// @inheritdoc IFluentBridge
+    function receiveMessageDeadline() public view returns (uint256) {
+        return _getFluentBridgeStorage().receiveMessageDeadline;
+    }
+
+    /// @inheritdoc IFluentBridge
+    function nativeSender() public view returns (address) {
+        return _getFluentBridgeStorage().nativeSender;
+    }
+
+    /// @inheritdoc IFluentBridge
+    function otherBridge() public view returns (address) {
+        return _getFluentBridgeStorage().otherBridge;
+    }
+
+    /// @inheritdoc IFluentBridge
+    function receivedMessage(bytes32 key) public view returns (MessageStatus) {
+        return _getFluentBridgeStorage().receivedMessage[key];
+    }
+
+    /// @inheritdoc IFluentBridge
+    function rollbackMessage(bytes32 key) public view returns (MessageStatus) {
+        return _getFluentBridgeStorage().rollbackMessage[key];
+    }
+
+    /// @inheritdoc IFluentBridge
+    function bridgeAuthority() public view returns (address) {
+        return _getFluentBridgeStorage().bridgeAuthority;
+    }
+
+    /// @inheritdoc IFluentBridge
+    function rollup() public view returns (address) {
+        return _getFluentBridgeStorage().rollup;
+    }
+
+    /// @inheritdoc IFluentBridge
+    function l1BlockOracle() public view returns (address) {
+        return _getFluentBridgeStorage().l1BlockOracle;
     }
 
     function _receiveMessage(

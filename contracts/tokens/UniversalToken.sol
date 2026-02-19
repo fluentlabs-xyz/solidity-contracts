@@ -190,6 +190,17 @@ contract UniversalToken is IUniversalToken {
     }
 
     /**
+     * @notice Burns tokens from an address (only if minter is set)
+     * @param from Source address
+     * @param amount Amount to burn
+     * @return success True if burn succeeded
+     */
+    function burn(address from, uint256 amount) external onlyMinter whenNotPaused returns (bool success) {
+        _burn(from, amount);
+        return true;
+    }
+
+    /**
      * @notice Pauses token transfers (only if pauser is set)
      * @return success True if pause succeeded
      */
@@ -247,5 +258,13 @@ contract UniversalToken is IUniversalToken {
             _balances[to] += amount;
         }
         emit Transfer(address(0), to, amount);
+    }
+
+    function _burn(address from, uint256 amount) internal {
+        require(from != address(0), InvalidSender(from));
+        require(_balances[from] >= amount, InsufficientBalance(from, _balances[from], amount));
+        _totalSupply -= amount;
+        _balances[from] = _balances[from] - amount;
+        emit Transfer(from, address(0), amount);
     }
 }

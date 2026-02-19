@@ -5,6 +5,19 @@ const {
   computeTokenAddress,
   getDeployHelper,
 } = require("./helpers/UniversalTokenHelper");
+const {
+  deployUniversalTokenFactoryWithLinking,
+} = require("./helpers/UniversalTokenFactoryHelper");
+
+// Default params for computeTokenAddressString
+const defaultTokenParams = (deployer) => [
+  "Test Token",
+  "TEST",
+  18,
+  0n,
+  deployer.address,
+  ethers.ZeroAddress,
+];
 
 describe("UniversalTokenSDK", function () {
   let deployer;
@@ -14,10 +27,9 @@ describe("UniversalTokenSDK", function () {
   before(async function () {
     [deployer] = await ethers.getSigners();
 
-    // Deploy UniversalTokenFactory for integration tests
-    const Factory = await ethers.getContractFactory("UniversalTokenFactory");
-    factory = await Factory.connect(deployer).deploy();
-    await factory.waitForDeployment();
+    // Deploy UniversalTokenFactory with library linking (SDK has public functions)
+    const { factory: f } = await deployUniversalTokenFactoryWithLinking();
+    factory = f;
 
     // Note: We can't directly test internal library functions from JS
     // So we'll test through the factory which uses the SDK
@@ -114,9 +126,10 @@ describe("UniversalTokenSDK", function () {
 
       // We'll verify through actual deployment
       const chainId = 1337;
-      const predictedAddress = await factory.computeTokenAddress(
+      const predictedAddress = await factory.computeTokenAddressString(
         deployer.address,
-        chainId
+        chainId,
+        ...defaultTokenParams(deployer)
       );
 
       expect(predictedAddress).to.not.equal(ethers.ZeroAddress);
@@ -139,29 +152,38 @@ describe("UniversalTokenSDK", function () {
     it("should compute deterministic salt for given token and chain ID", async function () {
       const l1Token = "0x1111111111111111111111111111111111111111";
       const chainId = 1337;
+      const params = defaultTokenParams(deployer);
 
-      // Compute salt manually
-      const expectedSalt = ethers.keccak256(
-        ethers.AbiCoder.defaultAbiCoder().encode(
-          ["string", "address", "uint256"],
-          ["BRIDGE_TOKEN", l1Token, chainId]
-        )
+      // Test through factory's computeTokenAddressString which uses the salt
+      const address1 = await factory.computeTokenAddressString(
+        l1Token,
+        chainId,
+        ...params
       );
 
-      // Test through factory's computeTokenAddress which uses the salt
-      const address1 = await factory.computeTokenAddress(l1Token, chainId);
-
       // Same inputs should give same address
-      const address2 = await factory.computeTokenAddress(l1Token, chainId);
+      const address2 = await factory.computeTokenAddressString(
+        l1Token,
+        chainId,
+        ...params
+      );
       expect(address1).to.equal(address2);
 
       // Different chain ID should give different address
-      const address3 = await factory.computeTokenAddress(l1Token, 1338);
+      const address3 = await factory.computeTokenAddressString(
+        l1Token,
+        1338,
+        ...params
+      );
       expect(address1).to.not.equal(address3);
 
       // Different token should give different address
       const l1Token2 = "0x2222222222222222222222222222222222222222";
-      const address4 = await factory.computeTokenAddress(l1Token2, chainId);
+      const address4 = await factory.computeTokenAddressString(
+        l1Token2,
+        chainId,
+        ...params
+      );
       expect(address1).to.not.equal(address4);
     });
   });
@@ -170,9 +192,18 @@ describe("UniversalTokenSDK", function () {
     it("should compute deterministic CREATE2 addresses", async function () {
       const l1Token = "0x1111111111111111111111111111111111111111";
       const chainId = 1337;
+      const params = defaultTokenParams(deployer);
 
-      const address1 = await factory.computeTokenAddress(l1Token, chainId);
-      const address2 = await factory.computeTokenAddress(l1Token, chainId);
+      const address1 = await factory.computeTokenAddressString(
+        l1Token,
+        chainId,
+        ...params
+      );
+      const address2 = await factory.computeTokenAddressString(
+        l1Token,
+        chainId,
+        ...params
+      );
 
       // Should be deterministic
       expect(address1).to.equal(address2);
@@ -183,9 +214,18 @@ describe("UniversalTokenSDK", function () {
       const l1Token1 = "0x1111111111111111111111111111111111111111";
       const l1Token2 = "0x2222222222222222222222222222222222222222";
       const chainId = 1337;
+      const params = defaultTokenParams(deployer);
 
-      const address1 = await factory.computeTokenAddress(l1Token1, chainId);
-      const address2 = await factory.computeTokenAddress(l1Token2, chainId);
+      const address1 = await factory.computeTokenAddressString(
+        l1Token1,
+        chainId,
+        ...params
+      );
+      const address2 = await factory.computeTokenAddressString(
+        l1Token2,
+        chainId,
+        ...params
+      );
 
       expect(address1).to.not.equal(address2);
     });
@@ -278,16 +318,19 @@ describe("UniversalTokenSDK", function () {
       const decimals = 18;
       const chainId = 1337;
       const l1Token = "0x5555555555555555555555555555555555555555";
+      const params = [name, symbol, decimals, 0n, deployer.address, ethers.ZeroAddress];
 
-      const predictedAddress = await factory.computeTokenAddress(
+      const predictedAddress = await factory.computeTokenAddressString(
         l1Token,
-        chainId
+        chainId,
+        ...params
       );
 
       // Verify address is deterministic
-      const predictedAddress2 = await factory.computeTokenAddress(
+      const predictedAddress2 = await factory.computeTokenAddressString(
         l1Token,
-        chainId
+        chainId,
+        ...params
       );
       expect(predictedAddress).to.equal(predictedAddress2);
       expect(predictedAddress).to.not.equal(ethers.ZeroAddress);
@@ -305,10 +348,12 @@ describe("UniversalTokenSDK", function () {
       const decimals = 18;
       const chainId = 1337;
       const l1Token = "0x6666666666666666666666666666666666666666";
+      const params = [name, symbol, decimals, 0n, deployer.address, ethers.ZeroAddress];
 
-      const predictedAddress = await factory.computeTokenAddress(
+      const predictedAddress = await factory.computeTokenAddressString(
         l1Token,
-        chainId
+        chainId,
+        ...params
       );
 
       // Verify address has no code before deployment
@@ -316,9 +361,10 @@ describe("UniversalTokenSDK", function () {
       expect(codeBefore).to.equal("0x");
 
       // Verify address is deterministic
-      const predictedAddress2 = await factory.computeTokenAddress(
+      const predictedAddress2 = await factory.computeTokenAddressString(
         l1Token,
-        chainId
+        chainId,
+        ...params
       );
       expect(predictedAddress).to.equal(predictedAddress2);
 
@@ -333,16 +379,19 @@ describe("UniversalTokenSDK", function () {
       const decimals = 18;
       const chainId = 1337;
       const l1Token = "0x7777777777777777777777777777777777777777";
+      const params = [name, symbol, decimals, 0n, deployer.address, ethers.ZeroAddress];
 
-      const predictedAddress = await factory.computeTokenAddress(
+      const predictedAddress = await factory.computeTokenAddressString(
         l1Token,
-        chainId
+        chainId,
+        ...params
       );
 
       // Verify address computation is consistent
-      const predictedAddress2 = await factory.computeTokenAddress(
+      const predictedAddress2 = await factory.computeTokenAddressString(
         l1Token,
-        chainId
+        chainId,
+        ...params
       );
       expect(predictedAddress).to.equal(predictedAddress2);
 
@@ -359,17 +408,20 @@ describe("UniversalTokenSDK", function () {
       const decimals = 18;
       const chainId = 1337;
       const l1Token = "0x8888888888888888888888888888888888888888";
+      const params = [name, symbol, decimals, 0n, deployer.address, ethers.ZeroAddress];
 
-      const predictedAddress = await factory.computeTokenAddress(
+      const predictedAddress = await factory.computeTokenAddressString(
         l1Token,
-        chainId
+        chainId,
+        ...params
       );
 
       // getOrDeployToken should compute same address
       // (actual deployment requires Fluent precompile)
-      const computedAddress = await factory.computeTokenAddress(
+      const computedAddress = await factory.computeTokenAddressString(
         l1Token,
-        chainId
+        chainId,
+        ...params
       );
       expect(computedAddress).to.equal(predictedAddress);
 
@@ -384,9 +436,18 @@ describe("UniversalTokenSDK", function () {
       const chainId = 1337;
       const l1Token1 = "0x9999999999999999999999999999999999999999";
       const l1Token2 = "0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+      const params = [name, symbol, decimals, 0n, deployer.address, ethers.ZeroAddress];
 
-      const address1 = await factory.computeTokenAddress(l1Token1, chainId);
-      const address2 = await factory.computeTokenAddress(l1Token2, chainId);
+      const address1 = await factory.computeTokenAddressString(
+        l1Token1,
+        chainId,
+        ...params
+      );
+      const address2 = await factory.computeTokenAddressString(
+        l1Token2,
+        chainId,
+        ...params
+      );
 
       expect(address1).to.not.equal(address2);
     });
@@ -396,15 +457,18 @@ describe("UniversalTokenSDK", function () {
     it("should compute deterministic addresses consistently", async function () {
       const l1Token = "0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
       const chainId = 1337;
+      const params = defaultTokenParams(deployer);
 
       // Compute through factory (uses SDK internally)
-      const factoryAddress1 = await factory.computeTokenAddress(
+      const factoryAddress1 = await factory.computeTokenAddressString(
         l1Token,
-        chainId
+        chainId,
+        ...params
       );
-      const factoryAddress2 = await factory.computeTokenAddress(
+      const factoryAddress2 = await factory.computeTokenAddressString(
         l1Token,
-        chainId
+        chainId,
+        ...params
       );
 
       // Should be deterministic
@@ -412,16 +476,29 @@ describe("UniversalTokenSDK", function () {
       expect(factoryAddress1).to.not.equal(ethers.ZeroAddress);
 
       // Test with different chain IDs
-      const addressChain1 = await factory.computeTokenAddress(l1Token, 1337);
-      const addressChain2 = await factory.computeTokenAddress(l1Token, 1338);
+      const addressChain1 = await factory.computeTokenAddressString(
+        l1Token,
+        1337,
+        ...params
+      );
+      const addressChain2 = await factory.computeTokenAddressString(
+        l1Token,
+        1338,
+        ...params
+      );
       expect(addressChain1).to.not.equal(addressChain2);
 
       // Test with different tokens, same chain
       const l1Token2 = "0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
-      const addressToken1 = await factory.computeTokenAddress(l1Token, chainId);
-      const addressToken2 = await factory.computeTokenAddress(
+      const addressToken1 = await factory.computeTokenAddressString(
+        l1Token,
+        chainId,
+        ...params
+      );
+      const addressToken2 = await factory.computeTokenAddressString(
         l1Token2,
-        chainId
+        chainId,
+        ...params
       );
       expect(addressToken1).to.not.equal(addressToken2);
 

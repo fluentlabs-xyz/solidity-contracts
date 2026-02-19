@@ -1,192 +1,190 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.30;
+pragma solidity ^0.8.0;
 
-import {UniversalTokenSDK} from "../libraries/UniversalTokenSDK.sol";
-import {IUniversalToken} from "../interfaces/IUniversalToken.sol";
-import {ITokenFactory} from "../interfaces/ITokenFactory.sol";
-import {GenericTokenFactory} from "./GenericTokenFactory.sol";
+import "../libraries/UniversalTokenSDK.sol";
 
 /**
  * @title UniversalTokenFactory
  * @notice Factory contract for deploying Universal Tokens
  * @dev Provides deterministic token deployment for bridge integration
- *      Implements ITokenFactory interface to match ERC20TokenFactory pattern
  */
-contract UniversalTokenFactory is GenericTokenFactory, ITokenFactory {
+contract UniversalTokenFactory {
     using UniversalTokenSDK for *;
 
-    /// @notice Error thrown when chainId is not set for a gateway+token pair
-    error ChainIdNotSet(address gateway, address originToken);
-    /// @notice Error thrown when token metadata is not set
-    error TokenMetadataNotSet(address gateway, address originToken);
+    /// @notice Mapping from L1 token address to L2 Universal Token address
+    mapping(address => address) public bridgedTokens;
 
-    /// @notice Mapping from (gateway, originToken) to chainId
-    mapping(address => mapping(address => uint256)) public originChainIds;
-    /// @notice Mapping from (gateway, originToken) to token metadata
-    mapping(address => mapping(address => TokenMetadata)) public tokenMetadata;
+    /// @notice Mapping from token address to deployment info
+    mapping(address => TokenInfo) public tokenInfo;
 
-    /// @notice Token metadata structure
-    struct TokenMetadata {
-        string name;
-        string symbol;
-        uint8 decimals;
-        address minter;
-        address pauser;
+    /// @notice Token deployment information
+    struct TokenInfo {
+        address l1Token;
+        uint256 chainId;
+        bool deployed;
+    }
+
+    /// @notice Emitted when a new Universal Token is deployed
+    event TokenDeployed(address indexed l1Token, address indexed l2Token, string name, string symbol, uint8 decimals);
+
+    /**
+     * @notice Computes the address of a Universal Token for a given L1 token
+     * @dev Uses CREATE2 semantics with the same salt and init code as
+     *      `deployBridgedTokenCreate2`. This allows deterministic address
+     *      prediction from inputs alone.
+     */
+    function computeTokenAddress(
+        address l1Token,
+        uint256 chainId,
+        bytes32 name,
+        bytes32 symbol,
+        uint8 decimals,
+        uint256 initialSupply,
+        address minter,
+        address pauser
+    ) public view returns (address tokenAddress) {
+        bytes memory deploymentData = UniversalTokenSDK.createDeploymentDataBytes32(name, symbol, decimals, initialSupply, minter, pauser);
+
+        bytes32 salt = UniversalTokenSDK.computeBridgeTokenSalt(l1Token, chainId);
+        bytes32 initCodeHash = keccak256(deploymentData);
+
+        // Standard CREATE2 address formula:
+        // address = keccak256(0xff ++ deployingAddr ++ salt ++ keccak256(init_code))[12:]
+        bytes32 hash = keccak256(abi.encodePacked(bytes1(0xff), address(this), salt, initCodeHash));
+        tokenAddress = address(uint160(uint256(hash)));
     }
 
     /**
-     * @notice Sets token metadata for a gateway+token pair
-     * @param _gateway Gateway address
-     * @param _originToken Origin token address
-     * @param _name Token name
-     * @param _symbol Token symbol
-     * @param _decimals Number of decimals
-     * @param _minter Minter address
-     * @param _pauser Pauser address
+     * @notice Computes the address of a Universal Token for a given L1 token (string version)
+     * @param l1Token L1 token address
+     * @param chainId Chain ID of the L1 chain
+     * @param name Token name
+     * @param symbol Token symbol
+     * @param decimals Number of decimals
+     * @param initialSupply Initial supply
+     * @param minter Minter address
+     * @param pauser Pauser address
+     * @return tokenAddress Predicted Universal Token address
      */
-    function setTokenMetadata(
-        address _gateway,
-        address _originToken,
-        string memory _name,
-        string memory _symbol,
-        uint8 _decimals,
-        address _minter,
-        address _pauser
-    ) external onlyOwner {
-        tokenMetadata[_gateway][_originToken] = TokenMetadata({
-            name: _name,
-            symbol: _symbol,
-            decimals: _decimals,
-            minter: _minter,
-            pauser: _pauser
-        });
-    }
-
-    /**
-     * @notice Computes the salt for a gateway+token pair
-     * @param _gateway Gateway address (not used for Universal Tokens, but kept for interface compatibility)
-     * @param _originToken Origin token address
-     * @return salt Computed salt
-     * @dev For Universal Tokens, salt is based on (originToken, chainId), not gateway
-     */
-    function _calculateSalt(
-        address _gateway,
-        address _originToken
-    ) internal view returns (bytes32 salt) {
-        uint256 chainId = originChainIds[_gateway][_originToken];
-        if (chainId == 0) revert ChainIdNotSet(_gateway, _originToken);
-        return UniversalTokenSDK.computeBridgeTokenSalt(_originToken, chainId);
-    }
-
-    /**
-     * @notice Computes the address of a pegged token for a given gateway and origin token
-     * @param _gateway Gateway address
-     * @param _originToken Origin token address
-     * @return Predicted pegged token address
-     */
-    function computePeggedTokenAddress(
-        address _gateway,
-        address _originToken
-    ) external view override returns (address) {
-        uint256 chainId = originChainIds[_gateway][_originToken];
-        if (chainId == 0) revert ChainIdNotSet(_gateway, _originToken);
+    function computeTokenAddressString(
+        address l1Token,
+        uint256 chainId,
+        string memory name,
+        string memory symbol,
+        uint8 decimals,
+        uint256 initialSupply,
+        address minter,
+        address pauser
+    ) public view returns (address tokenAddress) {
         return
-            UniversalTokenSDK.computeBridgedTokenAddress(
-                address(this),
-                _originToken,
-                chainId
+            computeTokenAddress(
+                l1Token,
+                chainId,
+                UniversalTokenSDK.stringToBytes32(name),
+                UniversalTokenSDK.stringToBytes32(symbol),
+                decimals,
+                initialSupply,
+                minter,
+                pauser
             );
     }
 
     /**
-     * @notice Computes the address of a pegged token on the other side
-     * @param _gateway Other side gateway address
-     * @param _originToken Origin token address
-     * @param _implementation Token implementation address (not used for Universal Tokens)
-     * @param _factory Factory address (not used for Universal Tokens)
-     * @return Predicted pegged token address
+     * @notice Debug function to get the deployment data and bytecode hash
+     * @dev This helps verify the encoding matches between Solidity and Rust
      */
-    function computeOtherSidePeggedTokenAddress(
-        address _gateway,
-        address _originToken,
-        address _implementation,
-        address _factory
-    ) external view override returns (address) {
-        // For Universal Tokens, the address is the same regardless of gateway
-        // We use the factory address to compute, but need chainId
-        uint256 chainId = originChainIds[_gateway][_originToken];
-        if (chainId == 0) revert ChainIdNotSet(_gateway, _originToken);
-        // Use the provided factory address (other side factory) instead of address(this)
-        return
-            UniversalTokenSDK.computeBridgedTokenAddress(
-                _factory,
-                _originToken,
-                chainId
-            );
+    function getDeploymentDataAndHash(
+        bytes32 name,
+        bytes32 symbol,
+        uint8 decimals,
+        uint256 initialSupply,
+        address minter,
+        address pauser
+    ) public pure returns (bytes memory deploymentData, bytes32 bytecodeHash) {
+        deploymentData = UniversalTokenSDK.createDeploymentDataBytes32(name, symbol, decimals, initialSupply, minter, pauser);
+        bytecodeHash = keccak256(deploymentData);
     }
 
     /**
-     * @notice Deploys a pegged token for a given gateway and origin token
-     * @param _gateway Gateway address
-     * @param _originToken Origin token address
-     * @return Address of the deployed pegged token
+     * @notice Debug function to check what abi.encode produces
      */
-    function deployToken(
-        address _gateway,
-        address _originToken
-    ) external override returns (address) {
-        uint256 chainId = originChainIds[_gateway][_originToken];
-        if (chainId == 0) revert ChainIdNotSet(_gateway, _originToken);
+    function debugAbiEncode(
+        bytes32 name,
+        bytes32 symbol,
+        uint8 decimals,
+        uint256 initialSupply,
+        address minter,
+        address pauser
+    ) public pure returns (bytes memory encoded, uint256 encodedLength) {
+        encoded = abi.encode(name, symbol, decimals, initialSupply, minter, pauser);
+        encodedLength = encoded.length;
+    }
 
-        TokenMetadata memory metadata = tokenMetadata[_gateway][_originToken];
-        if (bytes(metadata.name).length == 0)
-            revert TokenMetadataNotSet(_gateway, _originToken);
+    /**
+     * @notice EXPERIMENTAL: Try deploying with raw deployment data to test format
+     * @dev This allows us to test if the deployment data format is correct
+     */
+    function deployBridgedTokenRaw(address l1Token, uint256 chainId, bytes memory deploymentData) public returns (address tokenAddress) {
+        require(l1Token != address(0), "UniversalTokenFactory: invalid L1 token");
+        require(chainId > 0, "UniversalTokenFactory: invalid chain ID");
+        require(bridgedTokens[l1Token] == address(0), "UniversalTokenFactory: token already deployed");
 
-        // Compute deterministic address
-        bytes32 salt = _calculateSalt(_gateway, _originToken);
-        address predictedAddress = UniversalTokenSDK.computeBridgedTokenAddress(
-            address(this),
-            _originToken,
-            chainId
-        );
-
-        // Check if already deployed
-        if (predictedAddress.code.length != 0) {
-            return predictedAddress;
+        // Try deploying with the raw deployment data
+        assembly {
+            tokenAddress := create(0, add(deploymentData, 0x20), mload(deploymentData))
+            if iszero(tokenAddress) {
+                revert(0, 0)
+            }
         }
 
-        // Deploy token with zero initial supply (will be minted by bridge)
-        address tokenAddress = UniversalTokenSDK.deployToken(
-            salt,
-            metadata.name,
-            metadata.symbol,
-            metadata.decimals,
-            0, // initialSupply
-            metadata.minter,
-            metadata.pauser
-        );
-
-        require(
-            tokenAddress == predictedAddress,
-            "UniversalTokenFactory: address mismatch"
-        );
-
         // Record deployment
-        bridgedTokens[_originToken] = tokenAddress;
-        tokenInfo[tokenAddress] = TokenInfo({
-            l1Token: _originToken,
-            chainId: chainId,
-            deployed: true
-        });
+        // bridgedTokens[l1Token] = tokenAddress;
+        tokenInfo[tokenAddress] = TokenInfo({l1Token: l1Token, chainId: chainId, deployed: true});
 
-        emit TokenDeployed(
-            _originToken,
-            tokenAddress,
-            metadata.name,
-            metadata.symbol,
-            metadata.decimals
-        );
+        emit TokenDeployed(l1Token, tokenAddress, "", "", 0);
+    }
 
-        return tokenAddress;
+    /**
+     * @notice Deploys a Universal Token for a bridged L1 token using CREATE2
+     * @param l1Token Original L1 token address (cannot be zero)
+     * @param chainId Chain ID of the L1 chain (must be > 0)
+     * @param name Token name (will be truncated to 32 bytes if longer)
+     * @param symbol Token symbol (will be truncated to 32 bytes if longer)
+     * @param decimals Number of decimals (typically 18)
+     * @param initialSupply Initial supply to mint
+     * @param minter Minter address (address(0) if not mintable)
+     * @param pauser Pauser address (address(0) if not pausable)
+     * @return tokenAddress Address of the deployed Universal Token
+     * @dev Uses CREATE2 for deterministic deployment; address is
+     *      keccak256(0xff ++ factory ++ salt ++ keccak256(init_code))[12:].
+     */
+    function deployBridgedTokenCreate2(
+        address l1Token,
+        uint256 chainId,
+        string memory name,
+        string memory symbol,
+        uint8 decimals,
+        uint256 initialSupply,
+        address minter,
+        address pauser
+    ) public returns (address tokenAddress) {
+        require(l1Token != address(0), "UniversalTokenFactory: invalid L1 token");
+        require(chainId > 0, "UniversalTokenFactory: invalid chain ID");
+        require(bridgedTokens[l1Token] == address(0), "UniversalTokenFactory: token already deployed");
+
+        bytes memory deploymentData = UniversalTokenSDK.createDeploymentData(name, symbol, decimals, initialSupply, minter, pauser);
+        bytes32 salt = UniversalTokenSDK.computeBridgeTokenSalt(l1Token, chainId);
+
+        assembly {
+            tokenAddress := create2(0, add(deploymentData, 0x20), mload(deploymentData), salt)
+            if iszero(tokenAddress) {
+                revert(0, 0)
+            }
+        }
+
+        bridgedTokens[l1Token] = tokenAddress;
+        tokenInfo[tokenAddress] = TokenInfo({l1Token: l1Token, chainId: chainId, deployed: true});
+
+        emit TokenDeployed(l1Token, tokenAddress, name, symbol, decimals);
     }
 }
