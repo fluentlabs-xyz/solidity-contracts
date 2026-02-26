@@ -40,17 +40,16 @@ library ExcessivelySafeCall {
                 0, // outloc
                 0 // outlen
             )
-        // limit our copy to 256 bytes
+            // limit our copy to 256 bytes
             _toCopy := returndatasize()
             if gt(_toCopy, _MAX_RETURN_SIZE) {
                 _toCopy := _MAX_RETURN_SIZE
             }
-        // Store the length of the copied bytes
+            // Store the length of the copied bytes
             mstore(_returnData, _toCopy)
-        // copy the bytes from returndata[0:_toCopy]
+            // copy the bytes from returndata[0:_toCopy]
             returndatacopy(add(_returnData, 0x20), 0, _toCopy)
         }
         return (_success, _returnData);
-
     }
-} 
+}

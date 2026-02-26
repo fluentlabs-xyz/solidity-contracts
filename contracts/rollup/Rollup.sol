@@ -611,6 +611,8 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
         challengeDeadline[commitmentHash] = block.number + challengeBlockCount;
         challengeQueue.push(commitmentHash);
         batchChallengedCommitments[_batchIndex].push(commitmentHash);
+
+        /// emit event
     }
 
     /**

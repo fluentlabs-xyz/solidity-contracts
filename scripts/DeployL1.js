@@ -65,16 +65,16 @@ async function deployL1(provider, signer) {
   // let bridge = await BridgeContract.connect(signer).attach("0xf70f7cADD71591e96BD696716A4A2bA6286c82e8");
   console.log("Bridge: ", bridge.target);
 
+  const hre = require("hardhat");
   const TokenFactoryContract =
     await ethers.getContractFactory("ERC20TokenFactory");
 
-  let tokenFactory = await TokenFactoryContract.connect(signer).deploy(
-    peggedToken.target,
-    {
-      gasLimit: 2000000,
-    },
+  let tokenFactory = await hre.upgrades.deployProxy(
+    TokenFactoryContract,
+    [address, peggedToken.target],
+    { kind: "transparent", initializer: "initialize" },
   );
-  tokenFactory = await tokenFactory.waitForDeployment();
+  await tokenFactory.waitForDeployment();
   console.log("TokenFactory: ", tokenFactory.target);
 
   const ERC20GatewayContract = await ethers.getContractFactory("ERC20Gateway");

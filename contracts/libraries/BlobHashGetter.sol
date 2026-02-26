@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
-
-pragma solidity ^0.8.11;
+pragma solidity ^0.8.30;
 
 contract ContractFactory {
     constructor(bytes memory code) payable {
@@ -20,10 +19,7 @@ contract BlobHashGetterDeployer {
 }
 
 library BlobHashGetter {
-    function getBlobHash(
-        address getter,
-        uint256 idx
-    ) internal view returns (bytes32) {
+    function getBlobHash(address getter, uint256 idx) internal view returns (bytes32) {
         bool success;
         bytes32 blobHash;
         assembly {

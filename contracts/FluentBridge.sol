@@ -60,7 +60,7 @@ contract FluentBridge is IFluentBridge, Initializable, ReentrancyGuardUpgradeabl
 
     /// @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.FluentBridgeStorage")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant FLUENT_BRIDGE_STORAGE_LOCATION = 0xe2e0b7768cb35928615964d328c094191301065845ac8cd8ffc433ff2eae9300;
-
+    /// @dev returns the storage pointer for the FluentBridgeStorage struct.
     function _getFluentBridgeStorage() private pure returns (FluentBridgeStorage storage $) {
         assembly {
             $.slot := FLUENT_BRIDGE_STORAGE_LOCATION
@@ -116,9 +116,8 @@ contract FluentBridge is IFluentBridge, Initializable, ReentrancyGuardUpgradeabl
         $.receiveMessageDeadline = _receiveMessageDeadline;
         $.otherBridge = _otherBridge;
         $.l1BlockOracle = _l1BlockOracle;
-        if ($.rollup != address(0)) {
-            Queue.initialize($.sentMessageQueue);
-        }
+
+        if ($.rollup != address(0)) Queue.initialize($.sentMessageQueue);
     }
 
     /**
@@ -173,7 +172,7 @@ contract FluentBridge is IFluentBridge, Initializable, ReentrancyGuardUpgradeabl
 
     /**
      * @notice Receives and executes a cross-chain message using Merkle proofs for verification.
-     * @dev Can only be used on the **L1 side** to process messages originating from L2.
+     * @dev Can only be used on the L1 side to process messages originating from L2.
      */
     /// @inheritdoc IFluentBridge
     function receiveMessageWithProof(
@@ -204,7 +203,7 @@ contract FluentBridge is IFluentBridge, Initializable, ReentrancyGuardUpgradeabl
 
     /**
      * @notice Processes a rollback message with accompanying Merkle proofs.
-     * @dev Can only be used on the **L1 side** to refund the original sender when a message was not successfully received on L2.
+     * @dev Can only be used on the L1 side to refund the original sender when a message was not successfully received on L2.
      */
     /// @inheritdoc IFluentBridge
     function rollbackMessageWithProof(
@@ -235,7 +234,7 @@ contract FluentBridge is IFluentBridge, Initializable, ReentrancyGuardUpgradeabl
 
     /**
      * @notice Receives and executes a cross-chain message sent directly by the trusted bridge authority.
-     * @dev This method is used **only on the L2 side**, where messages are delivered by an off-chain relayer.
+     * @dev This method is used only on the _L2_ side, where messages are delivered by an off-chain relayer.
      */
     /// @inheritdoc IFluentBridge
     function receiveMessage(
@@ -276,58 +275,6 @@ contract FluentBridge is IFluentBridge, Initializable, ReentrancyGuardUpgradeabl
         require(_getFluentBridgeStorage().receivedMessage[messageHash] == MessageStatus.Failed, MessageNotFailed());
 
         _receiveMessage(_from, _to, _value, _chainId, _blockNumber, _nonce, _message, messageHash);
-    }
-
-    // ---------- Public getters ----------
-
-    /// @inheritdoc IFluentBridge
-    function nonce() public view returns (uint256) {
-        return _getFluentBridgeStorage().nonce;
-    }
-
-    /// @inheritdoc IFluentBridge
-    function receivedNonce() public view returns (uint256) {
-        return _getFluentBridgeStorage().receivedNonce;
-    }
-
-    /// @inheritdoc IFluentBridge
-    function receiveMessageDeadline() public view returns (uint256) {
-        return _getFluentBridgeStorage().receiveMessageDeadline;
-    }
-
-    /// @inheritdoc IFluentBridge
-    function nativeSender() public view returns (address) {
-        return _getFluentBridgeStorage().nativeSender;
-    }
-
-    /// @inheritdoc IFluentBridge
-    function otherBridge() public view returns (address) {
-        return _getFluentBridgeStorage().otherBridge;
-    }
-
-    /// @inheritdoc IFluentBridge
-    function receivedMessage(bytes32 key) public view returns (MessageStatus) {
-        return _getFluentBridgeStorage().receivedMessage[key];
-    }
-
-    /// @inheritdoc IFluentBridge
-    function rollbackMessage(bytes32 key) public view returns (MessageStatus) {
-        return _getFluentBridgeStorage().rollbackMessage[key];
-    }
-
-    /// @inheritdoc IFluentBridge
-    function bridgeAuthority() public view returns (address) {
-        return _getFluentBridgeStorage().bridgeAuthority;
-    }
-
-    /// @inheritdoc IFluentBridge
-    function rollup() public view returns (address) {
-        return _getFluentBridgeStorage().rollup;
-    }
-
-    /// @inheritdoc IFluentBridge
-    function l1BlockOracle() public view returns (address) {
-        return _getFluentBridgeStorage().l1BlockOracle;
     }
 
     function _receiveMessage(
@@ -409,13 +356,11 @@ contract FluentBridge is IFluentBridge, Initializable, ReentrancyGuardUpgradeabl
     }
 
     function _takeNextNonce() internal returns (uint256) {
-        FluentBridgeStorage storage $ = _getFluentBridgeStorage();
-        return $.nonce++;
+        return _getFluentBridgeStorage().nonce++;
     }
 
     function _takeNextReceivedNonce() internal returns (uint256) {
-        FluentBridgeStorage storage $ = _getFluentBridgeStorage();
-        return $.receivedNonce++;
+        return _getFluentBridgeStorage().receivedNonce++;
     }
 
     function _encodeMessage(
@@ -430,21 +375,71 @@ contract FluentBridge is IFluentBridge, Initializable, ReentrancyGuardUpgradeabl
         return abi.encode(_from, _to, _value, _chainId, _blockNumber, _nonce, _message);
     }
 
-    /**
-     * @notice Pauses the contract, preventing all non-owner functions from being called
-     * @dev Only callable by the owner
-     */
+    /**********
+     *** Pauser functions
+     ********************/
+
     /// @inheritdoc IFluentBridge
     function pause() external onlyOwner {
         _pause();
     }
 
-    /**
-     * @notice Unpauses the contract, allowing all functions to be called again
-     * @dev Only callable by the owner
-     */
     /// @inheritdoc IFluentBridge
     function unpause() external onlyOwner {
         _unpause();
+    }
+
+    /**********
+     *** Public getters
+     ******************/
+
+    /// @inheritdoc IFluentBridge
+    function nonce() public view returns (uint256) {
+        return _getFluentBridgeStorage().nonce;
+    }
+
+    /// @inheritdoc IFluentBridge
+    function receivedNonce() public view returns (uint256) {
+        return _getFluentBridgeStorage().receivedNonce;
+    }
+
+    /// @inheritdoc IFluentBridge
+    function receiveMessageDeadline() public view returns (uint256) {
+        return _getFluentBridgeStorage().receiveMessageDeadline;
+    }
+
+    /// @inheritdoc IFluentBridge
+    function nativeSender() public view returns (address) {
+        return _getFluentBridgeStorage().nativeSender;
+    }
+
+    /// @inheritdoc IFluentBridge
+    function otherBridge() public view returns (address) {
+        return _getFluentBridgeStorage().otherBridge;
+    }
+
+    /// @inheritdoc IFluentBridge
+    function receivedMessage(bytes32 key) public view returns (MessageStatus) {
+        return _getFluentBridgeStorage().receivedMessage[key];
+    }
+
+    /// @inheritdoc IFluentBridge
+    function rollbackMessage(bytes32 key) public view returns (MessageStatus) {
+        return _getFluentBridgeStorage().rollbackMessage[key];
+    }
+
+    /// @inheritdoc IFluentBridge
+    function bridgeAuthority() public view returns (address) {
+        return _getFluentBridgeStorage().bridgeAuthority;
+    }
+
+    /// @inheritdoc IFluentBridge
+    function rollup() public view returns (address) {
+        return _getFluentBridgeStorage().rollup;
+    }
+
+    /// @inheritdoc IFluentBridge
+    function l1BlockOracle() public view returns (address) {
+        return _getFluentBridgeStorage().l1BlockOracle;
     }
 }

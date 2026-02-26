@@ -9,10 +9,21 @@ pragma solidity ^0.8.0;
  *      Implements ITokenFactory interface to match ERC20TokenFactory pattern
  */
 interface ITokenFactory {
-    // ===== Event =====
+    /****
+     * Events
+     ***********
+     */
+
+    /// @dev Emitted when a pegged token is deployed
     event TokenDeployed(address indexed _originToken, address indexed _peggedToken);
 
-    // ===== Errors =====
+    /****
+     * Errors
+     ***********
+     */
+
+    /// @dev Thrown when the beacon implementation address is zero
+    /// @dev signature: 0xd02c623d
     error ZeroImplementationAddress();
 
     /// @custom:storage-location erc7201:fluent.storage.ERC20TokenFactoryStorage

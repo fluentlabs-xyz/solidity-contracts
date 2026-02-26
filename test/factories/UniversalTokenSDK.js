@@ -4,10 +4,10 @@ const {
   deployUniversalToken,
   computeTokenAddress,
   getDeployHelper,
-} = require("./helpers/UniversalTokenHelper");
+} = require("../helpers/UniversalTokenHelper");
 const {
   deployUniversalTokenFactoryWithLinking,
-} = require("./helpers/UniversalTokenFactoryHelper");
+} = require("../helpers/UniversalTokenFactoryHelper");
 
 // Default params for computeTokenAddressString
 const defaultTokenParams = (deployer) => [

@@ -24,12 +24,15 @@ async function deployRestakerL2(provider, l2Signer, bridgeAddress) {
 
   console.log("Pegged token: ", peggedToken.target);
 
+  const hre = require("hardhat");
   const TokenFactoryContract =
     await ethers.getContractFactory("ERC20TokenFactory");
-  let tokenFactory = await TokenFactoryContract.connect(l2Signer).deploy(
-    peggedToken.target,
+  let tokenFactory = await hre.upgrades.deployProxy(
+    TokenFactoryContract,
+    [await l2Signer.getAddress(), peggedToken.target],
+    { kind: "transparent", initializer: "initialize" },
   );
-  tokenFactory = await tokenFactory.waitForDeployment();
+  await tokenFactory.waitForDeployment();
 
   console.log("Token factory: ", tokenFactory.target);
   const RestakerGateway = await ethers.getContractFactory("RestakerGateway");

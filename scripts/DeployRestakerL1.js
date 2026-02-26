@@ -131,13 +131,13 @@ async function deployRestakerL1(provider, signer, bridgeAddress) {
   awaiting.push(peggedToken.waitForDeployment());
   console.log("ERC20PeggedToken: ", peggedToken.target);
 
+  const hre = require("hardhat");
   const TokenFactoryContract =
     await ethers.getContractFactory("ERC20TokenFactory");
-  let tokenFactory = await TokenFactoryContract.connect(signer).deploy(
-    peggedToken.target,
-    {
-      nonce: nonce++,
-    },
+  let tokenFactory = await hre.upgrades.deployProxy(
+    TokenFactoryContract,
+    [await signer.getAddress(), peggedToken.target],
+    { kind: "transparent", initializer: "initialize" },
   );
   awaiting.push(tokenFactory.waitForDeployment());
   console.log("ERC20TokenFactory: ", tokenFactory.target);

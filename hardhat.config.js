@@ -4,6 +4,7 @@ require("@nomiclabs/hardhat-solhint");
 require("@openzeppelin/hardhat-upgrades");
 require("hardhat-abi-exporter");
 require("@nomicfoundation/hardhat-ignition-ethers");
+require("@nomicfoundation/hardhat-verify");
 require("dotenv").config();
 const { vars } = require("hardhat/config");
 
@@ -46,7 +47,7 @@ module.exports = {
             accounts,
         },
         sepoliaEth: {
-            url: process.env.RPC_URL_SEPOLIA_ETH || "https://rpc.ankr.com/eth_sepolia",
+            url: process.env.RPC_URL_SEPOLIA_ETH || "https://ethereum-sepolia-rpc.publicnode.com",
             chainId: 11155111,
             gas: 8000000,
             gasPrice,
@@ -59,6 +60,24 @@ module.exports = {
             gasPrice,
             accounts,
         },
+    },
+    // Etherscan verification: https://docs.etherscan.io/contract-verification/verify-with-hardhat
+    // Note: Etherscan API V2 (required as of Aug 2025) is fully supported in Hardhat 3 + @nomicfoundation/hardhat-verify 3.x (chainDescriptors, apiUrl: "https://api.etherscan.io/v2/api"). With Hardhat 2 + plugin 2.x, V1 endpoints are deprecated; use manual verification on sepolia.etherscan.io or upgrade to Hardhat 3 for scripted verify.
+    etherscan: {
+        apiKey: {
+            sepolia: process.env.ETHERSCAN_API_KEY || "",
+            sepoliaEth: process.env.ETHERSCAN_API_KEY || "",
+        },
+        // customChains: [
+        //     {
+        //         network: "sepoliaEth",
+        //         chainId: 11155111,
+        //         urls: {
+        //             apiURL: "https://api-sepolia.etherscan.io/api",
+        //             browserURL: "https://sepolia.etherscan.io",
+        //         },
+        //     },
+        // ],
     },
     mocha: {
         timeout: 1000000, // Set the timeout to 60 seconds

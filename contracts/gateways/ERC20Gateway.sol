@@ -1,23 +1,25 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {ERC20PeggedToken} from "./tokens/ERC20PeggedToken.sol";
-import {ERC20TokenFactory} from "./factories/ERC20TokenFactory.sol";
+import {ERC20PeggedToken} from "../tokens/ERC20PeggedToken.sol";
+import {ERC20TokenFactory} from "../factories/ERC20TokenFactory.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
+import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-import {FluentBridge} from "./FluentBridge.sol";
+import {FluentBridge} from "../FluentBridge.sol";
 
 /**
  * @title ERC20Gateway
  * @author Fluent Labs
  * @notice Gateway contract for ERC20 tokens.
  * @dev Upgradeable via transparent proxy; state in ERC20GatewayStorage (ERC-7201).
+ *      Uses ReentrancyGuardUpgradeable to protect token-bridging entrypoints.
  */
-contract ERC20Gateway is Initializable, Ownable2StepUpgradeable {
+contract ERC20Gateway is Initializable, Ownable2StepUpgradeable, ReentrancyGuardUpgradeable {
     using SafeERC20 for IERC20;
 
     /// @custom:storage-location erc7201:fluent.storage.ERC20GatewayStorage
@@ -32,8 +34,7 @@ contract ERC20Gateway is Initializable, Ownable2StepUpgradeable {
     }
 
     /// @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.ERC20GatewayStorage")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant ERC20_GATEWAY_STORAGE_LOCATION =
-        0xe252cab26214ab2f0e4d4e6f063d78ba24b618cf5f8fd25d1b9aef671b7f9100;
+    bytes32 private constant ERC20_GATEWAY_STORAGE_LOCATION = 0xe252cab26214ab2f0e4d4e6f063d78ba24b618cf5f8fd25d1b9aef671b7f9100;
 
     function _getERC20GatewayStorage() private pure returns (ERC20GatewayStorage storage $) {
         assembly {
@@ -42,12 +43,24 @@ contract ERC20Gateway is Initializable, Ownable2StepUpgradeable {
     }
 
     // ---------- Public getters ----------
-    function bridgeContract() public view returns (address) { return _getERC20GatewayStorage().bridgeContract; }
-    function tokenFactory() public view returns (address) { return _getERC20GatewayStorage().tokenFactory; }
-    function otherSide() public view returns (address) { return _getERC20GatewayStorage().otherSide; }
-    function otherSideTokenImplementation() public view returns (address) { return _getERC20GatewayStorage().otherSideTokenImplementation; }
-    function otherSideFactory() public view returns (address) { return _getERC20GatewayStorage().otherSideFactory; }
-    function tokenMapping(address key) public view returns (address) { return _getERC20GatewayStorage().tokenMapping[key]; }
+    function bridgeContract() public view returns (address) {
+        return _getERC20GatewayStorage().bridgeContract;
+    }
+    function tokenFactory() public view returns (address) {
+        return _getERC20GatewayStorage().tokenFactory;
+    }
+    function otherSide() public view returns (address) {
+        return _getERC20GatewayStorage().otherSide;
+    }
+    function otherSideTokenImplementation() public view returns (address) {
+        return _getERC20GatewayStorage().otherSideTokenImplementation;
+    }
+    function otherSideFactory() public view returns (address) {
+        return _getERC20GatewayStorage().otherSideFactory;
+    }
+    function tokenMapping(address key) public view returns (address) {
+        return _getERC20GatewayStorage().tokenMapping[key];
+    }
 
     error OnlyBridgeSender();
     error MessageFromWrongGateway();
@@ -84,6 +97,7 @@ contract ERC20Gateway is Initializable, Ownable2StepUpgradeable {
     function initialize(address _initialOwner, address _bridgeContract, address _tokenFactory) public payable initializer {
         __Ownable_init(_initialOwner);
         __Ownable2Step_init();
+        __ReentrancyGuard_init();
         ERC20GatewayStorage storage $ = _getERC20GatewayStorage();
         $.bridgeContract = _bridgeContract;
         $.tokenFactory = _tokenFactory;
@@ -117,7 +131,7 @@ contract ERC20Gateway is Initializable, Ownable2StepUpgradeable {
             );
     }
 
-    function sendTokens(address _token, address _to, uint256 _amount) external payable {
+    function sendTokens(address _token, address _to, uint256 _amount) external payable nonReentrant {
         sendTokensFrom(_token, msg.sender, msg.sender, _to, _amount, msg.value);
     }
 
@@ -158,7 +172,7 @@ contract ERC20Gateway is Initializable, Ownable2StepUpgradeable {
         address _to,
         uint256 _amount,
         bytes calldata _tokenMetadata
-    ) external payable onlyBridgeSender {
+    ) external payable onlyBridgeSender nonReentrant {
         ERC20GatewayStorage storage $ = _getERC20GatewayStorage();
         require(FluentBridge(msg.sender).nativeSender() == $.otherSide, MessageFromWrongGateway());
         require(msg.value == 0, MessageValueMustBeZero());
@@ -176,7 +190,12 @@ contract ERC20Gateway is Initializable, Ownable2StepUpgradeable {
         emit ReceivedTokens(_from, _to, _amount);
     }
 
-    function receiveNativeTokens(address _nativeToken, address _from, address _to, uint256 _amount) external payable onlyBridgeSender {
+    function receiveNativeTokens(address _nativeToken, address _from, address _to, uint256 _amount)
+        external
+        payable
+        onlyBridgeSender
+        nonReentrant
+    {
         require(FluentBridge(msg.sender).nativeSender() == _getERC20GatewayStorage().otherSide, MessageFromWrongGateway());
         _receiveNativeTokens(_nativeToken, _from, _to, _amount);
     }

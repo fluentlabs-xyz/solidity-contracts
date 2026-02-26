@@ -1,6 +1,18 @@
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
-const { deployUniversalTokenFactoryWithLinking } = require("./helpers/UniversalTokenFactoryHelper");
+const { deployUniversalTokenFactoryWithLinking } = require("../helpers/UniversalTokenFactoryHelper");
+
+// Encode keyData = abi.encode(l1Token, chainId)
+function encodeKeyData(l1Token, chainId) {
+    return ethers.AbiCoder.defaultAbiCoder().encode(["address", "uint256"], [l1Token, chainId]);
+}
+// Encode deployArgs = abi.encode(name, symbol, decimals, initialSupply, minter, pauser)
+function encodeDeployArgs(name, symbol, decimals, initialSupply, minter, pauser) {
+    return ethers.AbiCoder.defaultAbiCoder().encode(
+        ["string", "string", "uint8", "uint256", "address", "address"],
+        [name, symbol, decimals, initialSupply, minter, pauser]
+    );
+}
 
 // Impersonation: Hardhat uses hardhat_*, Anvil uses anvil_*
 async function impersonateAccount(provider, address) {
@@ -52,7 +64,7 @@ describe("UniversalTokenFactory", function () {
         factory = f;
     });
 
-    describe("computeTokenAddress", function () {
+    describe("computeTokenAddress (keyData + deployArgs)", function () {
         it("should compute deterministic CREATE2 addresses for given inputs", async function () {
             const l1Token = "0x1111111111111111111111111111111111111111";
             const chainId = 20993;
@@ -63,8 +75,10 @@ describe("UniversalTokenFactory", function () {
             const minter = deployer.address;
             const pauser = ethers.ZeroAddress;
 
-            const address1 = await factory.computeTokenAddressString(l1Token, chainId, name, symbol, decimals, initialSupply, minter, pauser);
-            const address2 = await factory.computeTokenAddressString(l1Token, chainId, name, symbol, decimals, initialSupply, minter, pauser);
+            const keyData = encodeKeyData(l1Token, chainId);
+            const deployArgs = encodeDeployArgs(name, symbol, decimals, initialSupply, minter, pauser);
+            const address1 = await factory.computeTokenAddress(keyData, deployArgs);
+            const address2 = await factory.computeTokenAddress(keyData, deployArgs);
 
             expect(address1).to.equal(address2);
             expect(address1).to.not.equal(ethers.ZeroAddress);
@@ -72,20 +86,20 @@ describe("UniversalTokenFactory", function () {
 
         it("should produce different addresses for different L1 tokens", async function () {
             const chainId = 20993;
-            const params = ["Test Token", "TEST", 18, 0n, deployer.address, ethers.ZeroAddress];
+            const deployArgs = encodeDeployArgs("Test Token", "TEST", 18, 0n, deployer.address, ethers.ZeroAddress);
 
-            const addr1 = await factory.computeTokenAddressString("0x1111111111111111111111111111111111111111", chainId, ...params);
-            const addr2 = await factory.computeTokenAddressString("0x2222222222222222222222222222222222222222", chainId, ...params);
+            const addr1 = await factory.computeTokenAddress(encodeKeyData("0x1111111111111111111111111111111111111111", chainId), deployArgs);
+            const addr2 = await factory.computeTokenAddress(encodeKeyData("0x2222222222222222222222222222222222222222", chainId), deployArgs);
 
             expect(addr1).to.not.equal(addr2);
         });
 
         it("should produce different addresses for different chain IDs", async function () {
             const l1Token = "0x1111111111111111111111111111111111111111";
-            const params = ["Test Token", "TEST", 18, 0n, deployer.address, ethers.ZeroAddress];
+            const deployArgs = encodeDeployArgs("Test Token", "TEST", 18, 0n, deployer.address, ethers.ZeroAddress);
 
-            const addr1 = await factory.computeTokenAddressString(l1Token, 20993, ...params);
-            const addr2 = await factory.computeTokenAddressString(l1Token, 1, ...params);
+            const addr1 = await factory.computeTokenAddress(encodeKeyData(l1Token, 20993), deployArgs);
+            const addr2 = await factory.computeTokenAddress(encodeKeyData(l1Token, 1), deployArgs);
 
             expect(addr1).to.not.equal(addr2);
         });
@@ -95,41 +109,25 @@ describe("UniversalTokenFactory", function () {
         it("should compute deterministic salt for given token and chain ID", async function () {
             const l1Token = "0x1111111111111111111111111111111111111111";
             const chainId = 1337;
-            const params = ["Test", "TST", 18, 0n, deployer.address, ethers.ZeroAddress];
+            const deployArgs = encodeDeployArgs("Test", "TST", 18, 0n, deployer.address, ethers.ZeroAddress);
 
             const expectedSalt = ethers.keccak256(ethers.solidityPacked(["string", "address", "uint256"], ["BRIDGE_TOKEN", l1Token, chainId]));
             expect(expectedSalt).to.not.equal(ethers.ZeroHash);
 
-            const address1 = await factory.computeTokenAddressString(l1Token, chainId, ...params);
-            const address2 = await factory.computeTokenAddressString(l1Token, chainId, ...params);
+            const keyData = encodeKeyData(l1Token, chainId);
+            const address1 = await factory.computeTokenAddress(keyData, deployArgs);
+            const address2 = await factory.computeTokenAddress(keyData, deployArgs);
             expect(address1).to.equal(address2);
         });
     });
 
-    describe("getDeploymentDataAndHash", function () {
-        it("should return deployment data and bytecode hash", async function () {
-            const name = ethers.zeroPadValue(ethers.toUtf8Bytes("Test"), 32);
-            const symbol = ethers.zeroPadValue(ethers.toUtf8Bytes("TST"), 32);
-            const decimals = 18;
-            const initialSupply = 1000n;
-            const minter = deployer.address;
-            const pauser = ethers.ZeroAddress;
-
-            const [deploymentData, bytecodeHash] = await factory.getDeploymentDataAndHash(name, symbol, decimals, initialSupply, minter, pauser);
-
-            expect(deploymentData).to.not.equal("0x");
-            expect(bytecodeHash).to.not.equal(ethers.ZeroHash);
-            expect(ethers.keccak256(deploymentData)).to.equal(bytecodeHash);
-        });
-    });
-
-    describe("deployBridgedTokenCreate2 (Fluent Node integration)", function () {
+    describe("deployToken (Fluent Node integration)", function () {
         it("should deploy a Universal Token via CREATE2 on Fluent Node", async function () {
             if (!hasFluentPrecompile) {
                 this.skip();
             }
 
-            const l1Token = ethers.Wallet.createRandom().address; // Unique per test run
+            const l1Token = ethers.Wallet.createRandom().address;
             const chainId = 20993;
             const name = "Bridged Test Token";
             const symbol = "BTT";
@@ -138,20 +136,11 @@ describe("UniversalTokenFactory", function () {
             const minter = deployer.address;
             const pauser = ethers.ZeroAddress;
 
-            const predictedAddress = await factory.computeTokenAddressString(
-                l1Token,
-                chainId,
-                name,
-                symbol,
-                decimals,
-                initialSupply,
-                minter,
-                pauser
-            );
+            const keyData = encodeKeyData(l1Token, chainId);
+            const deployArgs = encodeDeployArgs(name, symbol, decimals, initialSupply, minter, pauser);
+            const predictedAddress = await factory.computeTokenAddress(keyData, deployArgs);
 
-            const tx = await factory.deployBridgedTokenCreate2(l1Token, chainId, name, symbol, decimals, initialSupply, minter, pauser, {
-                gasLimit: DEPLOY_BRIDGED_TOKEN_GAS_LIMIT,
-            });
+            const tx = await factory.deployToken(keyData, deployArgs, { gasLimit: DEPLOY_BRIDGED_TOKEN_GAS_LIMIT });
             const receipt = await tx.wait();
 
             expect(receipt.status).to.equal(1);
@@ -165,7 +154,6 @@ describe("UniversalTokenFactory", function () {
             expect(tokenInfo.chainId).to.equal(BigInt(chainId));
             expect(tokenInfo.deployed).to.be.true;
 
-            // Verify token properties via IUniversalToken
             const IUniversalToken = await ethers.getContractAt("IUniversalToken", deployedToken);
             expect(await IUniversalToken.name()).to.equal(name);
             expect(await IUniversalToken.symbol()).to.equal(symbol);
@@ -181,12 +169,13 @@ describe("UniversalTokenFactory", function () {
 
             const l1Token = ethers.Wallet.createRandom().address;
             const chainId = 20993;
-            const params = ["Duplicate Token", "DUP", 18, 1000n, deployer.address, ethers.ZeroAddress];
+            const deployArgs = encodeDeployArgs("Duplicate Token", "DUP", 18, 1000n, deployer.address, ethers.ZeroAddress);
+            const keyData = encodeKeyData(l1Token, chainId);
 
-            await factory.deployBridgedTokenCreate2(l1Token, chainId, ...params, { gasLimit: DEPLOY_BRIDGED_TOKEN_GAS_LIMIT });
+            await factory.deployToken(keyData, deployArgs, { gasLimit: DEPLOY_BRIDGED_TOKEN_GAS_LIMIT });
 
             try {
-                await factory.deployBridgedTokenCreate2(l1Token, chainId, ...params, { gasLimit: DEPLOY_BRIDGED_TOKEN_GAS_LIMIT });
+                await factory.deployToken(keyData, deployArgs, { gasLimit: DEPLOY_BRIDGED_TOKEN_GAS_LIMIT });
                 expect.fail("Expected revert");
             } catch (error) {
                 expect(error.message).to.include("UniversalTokenFactory: token already deployed");
@@ -194,10 +183,11 @@ describe("UniversalTokenFactory", function () {
         });
 
         it("should revert when L1 token is zero address", async function () {
-            const params = ["Test", "TST", 18, 0n, deployer.address, ethers.ZeroAddress];
+            const deployArgs = encodeDeployArgs("Test", "TST", 18, 0n, deployer.address, ethers.ZeroAddress);
+            const keyData = encodeKeyData(ethers.ZeroAddress, 20993);
 
             try {
-                await factory.deployBridgedTokenCreate2(ethers.ZeroAddress, 20993, ...params);
+                await factory.deployToken(keyData, deployArgs);
                 expect.fail("Expected revert");
             } catch (error) {
                 expect(error.message).to.include("UniversalTokenFactory: invalid L1 token");
@@ -205,10 +195,11 @@ describe("UniversalTokenFactory", function () {
         });
 
         it("should revert when chain ID is zero", async function () {
-            const params = ["Test", "TST", 18, 0n, deployer.address, ethers.ZeroAddress];
+            const deployArgs = encodeDeployArgs("Test", "TST", 18, 0n, deployer.address, ethers.ZeroAddress);
+            const keyData = encodeKeyData(deployer.address, 0);
 
             try {
-                await factory.deployBridgedTokenCreate2(deployer.address, 0, ...params);
+                await factory.deployToken(keyData, deployArgs);
                 expect.fail("Expected revert");
             } catch (error) {
                 expect(error.message).to.include("UniversalTokenFactory: invalid chain ID");
@@ -231,19 +222,10 @@ describe("UniversalTokenFactory", function () {
             const minter = deployer.address;
             const pauser = ethers.ZeroAddress;
 
-            const predictedAddr = await factory.computeTokenAddressString(
-                l1Token,
-                chainId,
-                name,
-                symbol,
-                decimals,
-                initialSupply,
-                minter,
-                pauser
-            );
-            const tx = await factory.deployBridgedTokenCreate2(l1Token, chainId, name, symbol, decimals, initialSupply, minter, pauser, {
-                gasLimit: DEPLOY_BRIDGED_TOKEN_GAS_LIMIT,
-            });
+            const keyData = encodeKeyData(l1Token, chainId);
+            const deployArgs = encodeDeployArgs(name, symbol, decimals, initialSupply, minter, pauser);
+            const predictedAddr = await factory.computeTokenAddress(keyData, deployArgs);
+            const tx = await factory.deployToken(keyData, deployArgs, { gasLimit: DEPLOY_BRIDGED_TOKEN_GAS_LIMIT });
             const receipt = await tx.wait();
             const factoryAddress = await factory.getAddress();
             const eventLog = receipt.logs.find(l => l.address.toLowerCase() === factoryAddress.toLowerCase());

@@ -1,32 +1,36 @@
 const { ethers } = require("hardhat");
 
 /**
- * Deploys UniversalTokenSDK library and UniversalTokenFactory with proper linking.
- * Required because UniversalTokenFactory uses UniversalTokenSDK library (public functions).
+ * Deploys UniversalTokenFactory for tests, linked against a mock UniversalTokenSDK.
+ * Production deployments should use the real UniversalTokenSDK; tests only care about
+ * deterministic addresses and successful deployment paths.
  *
- * @returns {Promise<{factory: Contract, library: Contract}>}
+ * @param {string} [initialOwner] - Owner of the factory (defaults to first signer)
+ * @returns {Promise<{factory: Contract, library: Contract}>} library is the mock SDK
  */
-async function deployUniversalTokenFactoryWithLinking() {
-  const [deployer] = await ethers.getSigners();
+async function deployUniversalTokenFactoryWithLinking(initialOwner) {
+    const [deployer] = await ethers.getSigners();
+    const owner = initialOwner ?? deployer.address;
 
-  // Deploy the library first
-  const UniversalTokenSDK = await ethers.getContractFactory("UniversalTokenSDK");
-  const library = await UniversalTokenSDK.connect(deployer).deploy();
-  await library.waitForDeployment();
-  const libraryAddress = await library.getAddress();
+    // Deploy the mock SDK library first
+    const UniversalTokenSDKMock = await ethers.getContractFactory("UniversalTokenSDKMock");
+    const library = await UniversalTokenSDKMock.connect(deployer).deploy();
+    await library.waitForDeployment();
+    const libraryAddress = await library.getAddress();
 
-  // Deploy factory with library linked
-  const Factory = await ethers.getContractFactory("UniversalTokenFactory", {
-    libraries: {
-      UniversalTokenSDK: libraryAddress,
-    },
-  });
-  const factory = await Factory.connect(deployer).deploy();
-  await factory.waitForDeployment();
+    // Deploy factory implementation with the mock SDK linked
+    const Factory = await ethers.getContractFactory("UniversalTokenFactory", {
+        libraries: {
+            UniversalTokenSDK: libraryAddress,
+        },
+    });
+    // For tests we can deploy the factory directly (non-upgradeable) since ownership is not exercised.
+    const factory = await Factory.connect(deployer).deploy();
+    await factory.waitForDeployment();
 
-  return { factory, library };
+    return { factory, library };
 }
 
 module.exports = {
-  deployUniversalTokenFactoryWithLinking,
+    deployUniversalTokenFactoryWithLinking,
 };

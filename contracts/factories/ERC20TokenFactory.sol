@@ -8,17 +8,24 @@ import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {ITokenFactory} from "../interfaces/ITokenFactory.sol";
+import {IGenericTokenFactory} from "../interfaces/IGenericTokenFactory.sol";
 
 /**
  * @title ERC20TokenFactory
  * @author Fluent Labs
  * @notice Factory contract for deploying ERC20 pegged tokens as beacon proxies.
  * @dev All deployed tokens share one UpgradeableBeacon; owner can upgrade implementation for all via upgradeTo().
- *      Upgradeable via transparent proxy.
+ *      Upgradeable via transparent proxy. Implements IGenericTokenFactory with keyData = abi.encode(gateway, originToken), deployArgs = "".
  */
-contract ERC20TokenFactory is Initializable, Ownable2StepUpgradeable, ITokenFactory {
+contract ERC20TokenFactory is Initializable, Ownable2StepUpgradeable, ITokenFactory, IGenericTokenFactory {
     /// @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.ERC20TokenFactoryStorage")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant ERC20_TOKEN_FACTORY_STORAGE_LOCATION = 0x7e7e246e4fb97ee905f8e7f5e1901f4b71035b0cadbe1c1120bbfd15bea2c800;
+
+    function _getERC20TokenFactoryStorage() private pure returns (ERC20TokenFactoryStorage storage $) {
+        assembly {
+            $.slot := ERC20_TOKEN_FACTORY_STORAGE_LOCATION
+        }
+    }
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -63,24 +70,43 @@ contract ERC20TokenFactory is Initializable, Ownable2StepUpgradeable, ITokenFact
     }
 
     function deployToken(address _gateway, address _originToken) external override onlyOwner returns (address) {
+        address peggedToken = _deployToken(_gateway, _originToken);
+        emit TokenDeployed(_originToken, peggedToken);
+        return peggedToken;
+    }
+
+    /// @inheritdoc IGenericTokenFactory
+    /// @dev keyData = abi.encode(gateway, originToken); deployArgs ignored.
+    function computeTokenAddress(bytes calldata keyData, bytes calldata) external view override returns (address) {
+        (address _gateway, address _originToken) = abi.decode(keyData, (address, address));
+        bytes32 _salt = _calculateSalt(_gateway, _originToken);
+        bytes memory bytecode = _beaconProxyBytecode(_getERC20TokenFactoryStorage().beacon);
+        return Create2.computeAddress(_salt, keccak256(bytecode));
+    }
+
+    /// @inheritdoc IGenericTokenFactory
+    /// @dev keyData = abi.encode(gateway, originToken); deployArgs ignored.
+    function deployToken(bytes calldata keyData, bytes calldata) external override onlyOwner returns (address) {
+        (address _gateway, address _originToken) = abi.decode(keyData, (address, address));
+        address peggedToken = _deployToken(_gateway, _originToken);
+        emit TokenDeployed(_originToken, peggedToken);
+        return peggedToken;
+    }
+
+    function _deployToken(address _gateway, address _originToken) internal returns (address) {
         bytes32 salt = _calculateSalt(_gateway, _originToken);
         bytes memory bytecode = _beaconProxyBytecode(_getERC20TokenFactoryStorage().beacon);
-        address peggedToken = Create2.deploy(0, salt, bytecode);
-
-        emit TokenDeployed(_originToken, peggedToken);
-
-        return peggedToken;
+        return Create2.deploy(0, salt, bytecode);
     }
 
     function _calculateSalt(address _gateway, address _originToken) internal pure returns (bytes32) {
         return keccak256(abi.encodePacked(_gateway, _originToken));
     }
 
-    function _getERC20TokenFactoryStorage() private pure returns (ERC20TokenFactoryStorage storage $) {
-        assembly {
-            $.slot := ERC20_TOKEN_FACTORY_STORAGE_LOCATION
-        }
-    }
+    /******************
+     *********** Beacon functions ***********
+     ****************************************
+     */
 
     /// @notice Current implementation address (from beacon).
     function implementation() public view returns (address) {
