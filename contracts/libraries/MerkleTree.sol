@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.30;
 
 library MerkleTree {
     /// @notice Structure containing Merkle proof details.
@@ -8,12 +8,7 @@ library MerkleTree {
         bytes proof;
     }
 
-    function verifyMerkleProof(
-        bytes32 _root,
-        bytes32 _hash,
-        uint256 _nonce,
-        bytes memory _proof
-    ) internal pure returns (bool) {
+    function verifyMerkleProof(bytes32 _root, bytes32 _hash, uint256 _nonce, bytes memory _proof) internal pure returns (bool) {
         require(_proof.length % 32 == 0, "Invalid proof");
         uint256 _length = _proof.length / 32;
 
@@ -32,10 +27,7 @@ library MerkleTree {
         return _hash == _root;
     }
 
-    function _efficientHash(
-        bytes32 a,
-        bytes32 b
-    ) private pure returns (bytes32 value) {
+    function _efficientHash(bytes32 a, bytes32 b) private pure returns (bytes32 value) {
         assembly {
             mstore(0x00, a)
             mstore(0x20, b)

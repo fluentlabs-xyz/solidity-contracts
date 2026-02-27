@@ -36,14 +36,7 @@ interface IBridgeErrorCodes {
     error ContractPaused();
 }
 
-interface IFluentBridge is IBridgeErrorCodes {
-    /// @notice Enum describing the status of a cross-chain message.
-    enum MessageStatus {
-        None,
-        Failed,
-        Success
-    }
-
+interface IFluentBridgeEvents {
     /// @notice Emitted when a message is sent to another chain.
     event SentMessage(
         address indexed sender,
@@ -64,6 +57,27 @@ interface IFluentBridge is IBridgeErrorCodes {
 
     /// @notice Emitted after a rollback is executed (refund to sender).
     event ReceivedMessageRollback(bytes32 messageHash, bool successfulCall, bytes returnData);
+
+    /// @notice Emitted when the address of the bridge contract on the other chain is updated.
+    event OtherBridgeUpdated(address indexed prevValue, address indexed newValue);
+
+    /// @notice Emitted when the address of the bridge authority is updated.
+    event BridgeAuthorityUpdated(address indexed prevValue, address indexed newValue);
+
+    /// @notice Emitted when the address of the rollup contract is updated.
+    event RollupUpdated(address indexed prevValue, address indexed newValue);
+
+    /// @notice Emitted when the address of the L1 block oracle is updated.
+    event L1BlockOracleUpdated(address indexed prevValue, address indexed newValue);
+}
+
+interface IFluentBridge is IBridgeErrorCodes, IFluentBridgeEvents {
+    /// @notice Enum describing the status of a cross-chain message.
+    enum MessageStatus {
+        None,
+        Failed,
+        Success
+    }
 
     // ---------- Storage / view getters ----------
 
@@ -219,4 +233,22 @@ interface IFluentBridge is IBridgeErrorCodes {
         uint256 _nonce,
         bytes calldata _message
     ) external payable;
+
+    /**
+     * @notice Sets the address of the bridge authority.
+     * @param _bridgeAuthority The address of the bridge authority.
+     */
+    function setBridgeAuthority(address _bridgeAuthority) external;
+
+    /**
+     * @notice Sets the address of the rollup contract.
+     * @param _rollup The address of the rollup contract.
+     */
+    function setRollup(address _rollup) external;
+
+    /**
+     * @notice Sets the address of the L1 block oracle.
+     * @param _l1BlockOracle The address of the L1 block oracle.
+     */
+    function setL1BlockOracle(address _l1BlockOracle) external;
 }

@@ -24,20 +24,6 @@ interface IGenericTokenFactory {
         bool deployed;
     }
 
-    event TokenDeployed(
-        address indexed tokenAddress,
-        address indexed originToken,
-        string name,
-        string symbol,
-        uint8 decimals,
-        uint256 initialSupply,
-        address minter,
-        address pauser
-    );
-
-    /// @notice Emitted when a new bridged token is deployed (generic: address + keyData)
-    event TokenDeployed(address indexed tokenAddress, bytes keyData);
-
     /**
      * @notice Computes the address of a bridged/pegged token
      * @param keyData Factory-specific key (e.g. abi.encode(gateway, originToken) or abi.encode(l1Token, chainId))

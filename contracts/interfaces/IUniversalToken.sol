@@ -3,10 +3,10 @@ pragma solidity ^0.8.0;
 
 interface IUniversalTokenErrorCodes {
     /// @notice Error thrown when operation is attempted while paused
-    error EnforcedPause();
+    error UniversalEnforcedPause();
 
     /// @notice Error thrown when pause is expected but contract is not paused
-    error ExpectedPause();
+    error UniversalExpectedPause();
 
     /// @notice Error thrown when sender is invalid (zero address)
     error InvalidSender(address sender);

@@ -7,10 +7,15 @@ import "../libraries/UniversalTokenSDK.sol";
 /**
  * @title UniversalTokenFactory
  * @notice Factory for Universal Tokens. Only two external functions: computeTokenAddress + deployToken.
- * @dev Uses UniversalTokenSDK under the hood. keyData = abi.encode(l1Token, chainId), deployArgs = abi.encode(name, symbol, decimals, initialSupply, minter, pauser).
+ * @dev Uses UniversalTokenSDK under the hood.
+ *      keyData = abi.encode(l1Token, chainId), deployArgs = abi.encode(name, symbol, decimals, initialSupply, minter, pauser).
+ *      chainId in keyData must match block.chainid for canonical per-chain deployment.
  */
 contract UniversalTokenFactory is GenericTokenFactory {
-    using UniversalTokenSDK for *;
+    error InvalidL1Token();
+    error InvalidChainId();
+    error WrongChainId();
+    error TokenAlreadyDeployed();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -23,26 +28,33 @@ contract UniversalTokenFactory is GenericTokenFactory {
     }
 
     /// @inheritdoc IGenericTokenFactory
-    function deployToken(bytes calldata keyData, bytes calldata deployArgs) external override returns (address tokenAddress) {
-        (address l1Token, uint256 chainId) = abi.decode(keyData, (address, uint256));
-        (string memory name, string memory symbol, uint8 decimals, uint256 initialSupply, address minter, address pauser) = abi.decode(
-            deployArgs,
-            (string, string, uint8, uint256, address, address)
+    function deployToken(bytes calldata keyData, bytes calldata deployArgs) external override onlyOwner returns (address tokenAddress) {
+        (address l1Token, uint256 chainId) = _decodeKeyData(keyData);
+        (string memory name, string memory symbol, uint8 decimals, uint256 initialSupply, address minter, address pauser) = _decodeDeployArgs(
+            deployArgs
         );
 
         tokenAddress = _deployWithSDK(l1Token, chainId, name, symbol, decimals, initialSupply, minter, pauser);
-        // emit TokenDeployed(l1Token, tokenAddress, name, symbol, decimals);
         return tokenAddress;
     }
 
     /// @dev Subclasses implement: decode keyData/deployArgs and return predicted token address (via SDK).
     function _computeTokenAddressView(bytes calldata keyData, bytes calldata deployArgs) internal view override returns (address) {
-        (address l1Token, uint256 chainId) = abi.decode(keyData, (address, uint256));
-        (string memory name, string memory symbol, uint8 decimals, uint256 initialSupply, address minter, address pauser) = abi.decode(
-            deployArgs,
-            (string, string, uint8, uint256, address, address)
+        (address l1Token, uint256 chainId) = _decodeKeyData(keyData);
+        (string memory name, string memory symbol, uint8 decimals, uint256 initialSupply, address minter, address pauser) = _decodeDeployArgs(
+            deployArgs
         );
         return _computeAddressWithSDK(l1Token, chainId, name, symbol, decimals, initialSupply, minter, pauser);
+    }
+
+    function _decodeKeyData(bytes calldata keyData) internal pure returns (address l1Token, uint256 chainId) {
+        return abi.decode(keyData, (address, uint256));
+    }
+
+    function _decodeDeployArgs(
+        bytes calldata deployArgs
+    ) internal pure returns (string memory name, string memory symbol, uint8 decimals, uint256 initialSupply, address minter, address pauser) {
+        return abi.decode(deployArgs, (string, string, uint8, uint256, address, address));
     }
 
     /// @dev Salt for CREATE2 (must match SDK: keccak256(BRIDGE_TOKEN_PREFIX ++ l1Token ++ chainId))
@@ -79,9 +91,10 @@ contract UniversalTokenFactory is GenericTokenFactory {
         address minter,
         address pauser
     ) internal returns (address tokenAddress) {
-        require(l1Token != address(0), "UniversalTokenFactory: invalid L1 token");
-        require(chainId > 0, "UniversalTokenFactory: invalid chain ID");
-        require(bridgedTokens(l1Token) == address(0), "UniversalTokenFactory: token already deployed");
+        require(l1Token != address(0), InvalidL1Token());
+        require(chainId > 0, InvalidChainId());
+        require(chainId == block.chainid, WrongChainId());
+        require(bridgedTokens(l1Token) == address(0), TokenAlreadyDeployed());
 
         bytes memory deploymentData = UniversalTokenSDK.createDeploymentData(name, symbol, decimals, initialSupply, minter, pauser);
         bytes32 salt = _bridgeTokenSalt(l1Token, chainId);
@@ -95,6 +108,5 @@ contract UniversalTokenFactory is GenericTokenFactory {
 
         _setBridgedToken(l1Token, tokenAddress);
         _setTokenInfo(tokenAddress, TokenInfo({l1Token: l1Token, chainId: chainId, deployed: true}));
-        emit TokenDeployed(tokenAddress, l1Token, name, symbol, decimals, initialSupply, minter, pauser);
     }
 }

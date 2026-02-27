@@ -10,14 +10,6 @@ pragma solidity ^0.8.0;
  */
 interface ITokenFactory {
     /****
-     * Events
-     ***********
-     */
-
-    /// @dev Emitted when a pegged token is deployed
-    event TokenDeployed(address indexed _originToken, address indexed _peggedToken);
-
-    /****
      * Errors
      ***********
      */
@@ -26,11 +18,13 @@ interface ITokenFactory {
     /// @dev signature: 0xd02c623d
     error ZeroImplementationAddress();
 
-    /// @custom:storage-location erc7201:fluent.storage.ERC20TokenFactoryStorage
-    struct ERC20TokenFactoryStorage {
-        address beacon;
-        uint256[50] __gap;
-    }
+    /****
+     * Events
+     ***********
+     */
+
+    /// @dev Emitted when a pegged token is deployed
+    event TokenDeployed(address indexed _originToken, address indexed _peggedToken);
 
     /**
      * @notice Computes the address of a pegged token for a given gateway and origin token
@@ -44,14 +38,14 @@ interface ITokenFactory {
      * @notice Computes the address of a pegged token on the other side
      * @param _gateway Other side gateway address
      * @param _originToken Origin token address
-     * @param _implementation Token implementation address (for legacy factories)
+     * @param _beacon Other-side beacon address used by BeaconProxy constructor
      * @param _factory Factory address (for legacy factories)
      * @return Predicted pegged token address
      */
     function computeOtherSidePeggedTokenAddress(
         address _gateway,
         address _originToken,
-        address _implementation,
+        address _beacon,
         address _factory
     ) external view returns (address);
 

@@ -10,7 +10,7 @@ import {IL1BlockOracle} from "../interfaces/IL1BlockOracle.sol";
  * @notice Oracle contract for the L1 block number
  * @dev Provides a function to get the current L1 block number
  */
-contract L1BlockOracle is IL1BlockOracle, Ownable {
+contract L1BlockOracle is Ownable, IL1BlockOracle {
     /// @notice The current L1 block number
     uint256 internal _l1BlockNumber;
 
