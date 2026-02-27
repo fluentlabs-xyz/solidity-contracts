@@ -4,4 +4,7 @@
 /node_modules
 .DS_Store
 /tmp
+/forge-out
+/forge-cache
+/broadcast
 .env

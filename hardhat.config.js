@@ -4,8 +4,8 @@ require("@nomiclabs/hardhat-solhint");
 require("@openzeppelin/hardhat-upgrades");
 require("hardhat-abi-exporter");
 require("@nomicfoundation/hardhat-ignition-ethers");
-require("@nomicfoundation/hardhat-verify");
-require("dotenv").config();
+require("@nomicfoundation/hardhat-foundry");
+
 const { vars } = require("hardhat/config");
 
 helpers = require("./helpers");

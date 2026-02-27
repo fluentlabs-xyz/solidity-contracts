@@ -8,5 +8,7 @@
         "editor.defaultFormatter": "JuanBlanco.solidity",
         "editor.formatOnSave": true
     },
-    "prettier.requireConfig": true
+    "prettier.requireConfig": true,
+    "wake.compiler.solc.remappings": ["@openzeppelin/=node_modules/@openzeppelin/", "hardhat/=node_modules/hardhat/"],
+    "wake.compiler.solc.allow_paths": ["test"]
 }
