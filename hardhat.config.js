@@ -3,6 +3,8 @@ require("@nomiclabs/hardhat-ethers");
 require("@nomiclabs/hardhat-solhint");
 require('hardhat-abi-exporter');
 require("@nomicfoundation/hardhat-ignition-ethers");
+require("@nomicfoundation/hardhat-foundry");
+
 const { vars } = require("hardhat/config");
 
 helpers = require('./helpers')
