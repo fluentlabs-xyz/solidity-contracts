@@ -40,6 +40,8 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
     error NotEnoughValueIncentiveFee(uint256 value, uint256 incentiveFee);
     error InvalidBlockProof();
     error ContractPaused();
+    error BlobHashGetterNotConfigured();
+    error DaBlobHashMismatch(bytes32 expected, bytes32 provided);
     error ZeroAddressNotAllowed(string field);
     error ZeroValueNotAllowed(string field);
 
@@ -106,6 +108,9 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
     /// @notice Mapping from address to challenge deposit available for withdrawal.
     mapping(address => uint256) public challengerReadyForWithdrawal;
 
+    /// @notice Mapping from address to proof reward available for withdrawal.
+    mapping(address => uint256) public proverReadyForWithdrawal;
+
     /// @notice Mapping from block commitment hash to challenger address.
     mapping(bytes32 => address) public blockCommitmentChallenger;
 
@@ -117,6 +122,9 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
 
     /// @notice Start index of the challenge queue.
     uint private challengeQueueStart;
+
+    /// @notice 1-based index in challenge queue by commitment hash.
+    mapping(bytes32 => uint256) private challengeQueueIndex;
 
     /// @notice Toggle for enabling data availability checks.
     bool private daCheck;
@@ -180,9 +188,16 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
         uint256 amount
     );
 
+    event ProofRewardWithdrawn(address indexed prover, uint256 amount);
+
     event DaCheckUpdated(
         bool oldValue,
         bool newValue
+    );
+
+    event BlobHashGetterUpdated(
+        address indexed oldBlobHashGetter,
+        address indexed newBlobHashGetter
     );
 
     event BridgeUpdated(
@@ -225,6 +240,7 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
         acceptDepositDeadline = _acceptDepositDeadline;
         incentiveFee = _incentiveFee;
         nextBatchIndex = 1;
+        blobHashGetter = deploy();
     }
 
     /**
@@ -235,6 +251,20 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
         bool oldValue = daCheck;
         daCheck = isCheck;
         emit DaCheckUpdated(oldValue, isCheck);
+    }
+
+    /**
+     * @notice Set a new blob hash getter contract used for DA checks.
+     * @param _blobHashGetter The new blob hash getter contract address.
+     */
+    function setBlobHashGetter(address _blobHashGetter) external onlyOwner {
+        if (_blobHashGetter == address(0)) {
+            revert ZeroAddressNotAllowed("blobHashGetter");
+        }
+
+        address oldBlobHashGetter = blobHashGetter;
+        blobHashGetter = _blobHashGetter;
+        emit BlobHashGetterUpdated(oldBlobHashGetter, _blobHashGetter);
     }
 
     /**
@@ -308,12 +338,7 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
                         incentiveFees += incentiveFee;
                     }
                 }
-                // Remove from challenge queue
-                for (uint256 k = 0; k < challengeQueue.length; k++) {
-                    if (challengeQueue[k] == commitmentHash) {
-                        delete challengeQueue[k];
-                    }
-                }
+                _removeChallengeFromQueue(commitmentHash);
 
                 delete challengeDeadline[commitmentHash];
             }
@@ -347,7 +372,7 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
      * @param blob The blob data.
      * @return hash The resulting blob hash.
      */
-    function calculateBlobHash(bytes memory blob) public returns (bytes32) {
+    function calculateBlobHash(bytes memory blob) public pure returns (bytes32) {
         bytes32 hash = sha256(blob);
 
         hash &= 0x00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff;
@@ -365,7 +390,7 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
      */
     function calculateBatchRoot(
         BlockCommitment[] calldata commitmentBatch
-    ) public view returns (bytes32) {
+    ) public pure returns (bytes32) {
         bytes memory leafs = new bytes(commitmentBatch.length * 32);
 
         for (uint256 i = 0; i < commitmentBatch.length; ++i) {
@@ -479,21 +504,24 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
             );
         }
 
-        //        TODO: NOT IMPLEMENTED YET
-        //        bytes32 requiredBlobHash;
-        //        if (daCheck) {
-        //            requiredBlobHash = calculateBlobHash();
-        //            bytes32 submittedBlobHash = BlobHashGetter.getBlobHash(
-        //                blobHashGetter,
-        //                0
-        //            );
-        //            require(
-        //                submittedBlobHash == requiredBlobHash,
-        //                "submitted wrong blob to da"
-        //            );
-        //        }
-
         bytes32 batchRoot = calculateBatchRoot(_commitmentBatch);
+        if (daCheck) {
+            if (blobHashGetter == address(0)) {
+                revert BlobHashGetterNotConfigured();
+            }
+
+            bytes32 requiredBlobHash = calculateBlobHash(
+                abi.encodePacked(batchRoot)
+            );
+            bytes32 submittedBlobHash = BlobHashGetter.getBlobHash(
+                blobHashGetter,
+                0
+            );
+            if (submittedBlobHash != requiredBlobHash) {
+                revert DaBlobHashMismatch(requiredBlobHash, submittedBlobHash);
+            }
+        }
+
         acceptedBatchHash[_batchIndex] = batchRoot;
         nextBatchIndex = _batchIndex + 1;
         lastBlockHashInBatch[_batchIndex] = _commitmentBatch[batchSize - 1].blockHash;
@@ -525,9 +553,19 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
      * - The current block number has exceeded the challenge deadline for the first challenged batch in queue.
      */
     function _rollupCorrupted() internal view returns (bool) {
-        return
-            challengeQueue.length != 0 &&
-            challengeDeadline[challengeQueue[challengeQueueStart]] < block.number;
+        if (
+            challengeQueue.length == 0 ||
+            challengeQueueStart >= challengeQueue.length
+        ) {
+            return false;
+        }
+
+        bytes32 oldestChallenge = challengeQueue[challengeQueueStart];
+        if (oldestChallenge == bytes32(0)) {
+            return false;
+        }
+
+        return challengeDeadline[oldestChallenge] < block.number;
     }
 
     /**
@@ -678,6 +716,7 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
         blockCommitmentChallenger[commitmentHash] = msg.sender;
         challengeDeadline[commitmentHash] = block.number + challengeBlockCount;
         challengeQueue.push(commitmentHash);
+        challengeQueueIndex[commitmentHash] = challengeQueue.length;
         batchChallengedCommitments[_batchIndex].push(commitmentHash);
     }
 
@@ -705,6 +744,9 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
                 _commitmentBatch.depositHash
             )
         );
+        if (provenBlockCommitment[commitmentHash]) {
+            revert BlockCommitmentAlreadyProofed(commitmentHash);
+        }
         
         // Verify block commitment is part of the batch
         bool blockValid = MerkleTree.verifyMerkleProof(
@@ -721,28 +763,19 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
             _proof
         );
 
+        address challenger = blockCommitmentChallenger[commitmentHash];
         provenBlockCommitment[commitmentHash] = true;
         delete challengeDeadline[commitmentHash];
         provenCommitmentInBatch[_batchIndex].push(commitmentHash);
-        address challenger = blockCommitmentChallenger[commitmentHash];
 
         if (challenger != address(0)) {
             blockCommitmentChallenger[commitmentHash] = address(0);
             if (challengerDeposit[challenger] >= challengeDepositAmount) {
-                // Slash the challenger's deposit
                 challengerDeposit[challenger] -= challengeDepositAmount;
-                // Transfer the slashed deposit to the proof provider
-                (bool success, ) = payable(msg.sender).call{value: challengeDepositAmount}("");
-                if (!success) revert EthTransferFailed(msg.sender, challengeDepositAmount);
+                proverReadyForWithdrawal[msg.sender] += challengeDepositAmount;
             }
 
-            for (uint256 i = 0; i < challengeQueue.length; i++) {
-                if (challengeQueue[i] == commitmentHash) {
-                    delete challengeQueue[i];
-                }
-            }
-            _cleanQueue();
-
+            _removeChallengeFromQueue(commitmentHash);
 
             // Remove from batch challenged commitments
             bytes32[] storage challengedCommitments = batchChallengedCommitments[_batchIndex];
@@ -799,9 +832,24 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
         challengerReadyForWithdrawal[challenger] = 0;
 
         (bool success, ) = challenger.call{value: amount}("");
-        require(success, "ETH transfer to challenger failed");
+        if (!success) revert EthTransferFailed(challenger, amount);
 
         emit ChallengeDepositWithdrawn(challenger, amount);
+    }
+
+    /**
+     * @notice Withdraws pending proof reward for the caller.
+     */
+    function withdrawProofReward() external nonReentrant whenNotPaused {
+        uint256 amount = proverReadyForWithdrawal[msg.sender];
+        if (amount == 0) revert NothingToWithdraw();
+
+        proverReadyForWithdrawal[msg.sender] = 0;
+
+        (bool success, ) = payable(msg.sender).call{value: amount}("");
+        if (!success) revert EthTransferFailed(msg.sender, amount);
+
+        emit ProofRewardWithdrawn(msg.sender, amount);
     }
 
     function _checkDeposit(
@@ -839,6 +887,20 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
                 delete challengeQueue;
                 return;
             }
+        }
+    }
+
+    function _removeChallengeFromQueue(bytes32 commitmentHash) internal {
+        uint256 indexPlusOne = challengeQueueIndex[commitmentHash];
+        if (indexPlusOne == 0) {
+            return;
+        }
+
+        uint256 index = indexPlusOne - 1;
+        delete challengeQueue[index];
+        delete challengeQueueIndex[commitmentHash];
+        if (index == challengeQueueStart) {
+            _cleanQueue();
         }
     }
 
