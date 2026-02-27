@@ -7,3 +7,4 @@
 /forge-out
 /forge-cache
 /broadcast
+.env
