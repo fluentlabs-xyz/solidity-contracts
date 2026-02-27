@@ -1,0 +1,259 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+import "../../contracts/Bridge.sol";
+import "../../contracts/libraries/MerkleTree.sol";
+import "../../contracts/mocks/VerifierMock.sol";
+import "../../contracts/rollup/Rollup.sol";
+import "../../contracts/rollup/SP1VerifierGroth16.sol";
+
+interface Vm {
+    struct Log {
+        bytes32[] topics;
+        bytes data;
+        address emitter;
+    }
+
+    function deal(address account, uint256 newBalance) external;
+    function expectRevert() external;
+    function expectRevert(bytes calldata revertData) external;
+    function expectRevert(bytes4 revertData) external;
+    function prank(address msgSender) external;
+    function startPrank(address msgSender) external;
+    function stopPrank() external;
+    function roll(uint256 newHeight) external;
+    function recordLogs() external;
+    function getRecordedLogs() external returns (Log[] memory);
+    function targetContract(address newTargetedContract_) external;
+}
+
+abstract contract MinimalTest {
+    Vm internal constant vm =
+        Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
+
+    function assertTrue(bool condition, string memory message) internal pure {
+        require(condition, message);
+    }
+
+    function assertEq(uint256 left, uint256 right, string memory message) internal pure {
+        require(left == right, message);
+    }
+
+    function assertEq(int256 left, int256 right, string memory message) internal pure {
+        require(left == right, message);
+    }
+
+    function assertEq(address left, address right, string memory message) internal pure {
+        require(left == right, message);
+    }
+
+    function assertEq(bytes32 left, bytes32 right, string memory message) internal pure {
+        require(left == right, message);
+    }
+
+    function assertEq(bool left, bool right, string memory message) internal pure {
+        require(left == right, message);
+    }
+
+    function assertEq(bytes memory left, bytes memory right, string memory message) internal pure {
+        require(keccak256(left) == keccak256(right), message);
+    }
+
+    function assertLe(uint256 left, uint256 right, string memory message) internal pure {
+        require(left <= right, message);
+    }
+
+    function assertGt(uint256 left, uint256 right, string memory message) internal pure {
+        require(left > right, message);
+    }
+}
+
+abstract contract RollupBase is MinimalTest {
+    bytes32 internal constant ZERO_HASH =
+        0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
+    bytes32 internal constant MOCK_VK_KEY =
+        0x00612f9d5a388df116872ff70e36bcb86c7e73b1089f32f68fc8e0d0ba7861b7;
+    bytes32 internal constant MOCK_GENESIS_HASH =
+        0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
+
+    bytes32 internal constant SP1_VK_KEY =
+        0x00440704be87894021b2b5673900bf717ec670dcfde36f7bf371f9ae1a02f46e;
+    bytes32 internal constant SP1_GENESIS_HASH =
+        0x9d06b07ccbd86a2fc8ab4145d909873c09d92bbce87f98f33699ff3733e91a2c;
+
+    address internal constant SEQUENCER = address(0xA11CE);
+    address internal constant CHALLENGER = address(0xB0B);
+    address internal constant PROOF_PROVIDER = address(0xCAFE);
+    address internal constant ATTACKER = address(0xBAD);
+
+    Rollup internal rollup;
+    Bridge internal bridge;
+    VerifierMock internal verifierMock;
+    SP1Verifier internal verifierSp1;
+
+    function _deployMockRollup(
+        uint256 batchSize_,
+        uint256 challengeDepositAmount_,
+        uint256 challengeBlockCount_,
+        uint256 approveBlockCount_,
+        uint256 acceptDepositDeadline_,
+        uint256 incentiveFee_
+    ) internal {
+        verifierMock = new VerifierMock();
+        bridge = new Bridge(
+            address(this),
+            address(0),
+            0,
+            address(0x1111),
+            address(0x2222)
+        );
+        rollup = new Rollup(
+            SEQUENCER,
+            challengeDepositAmount_,
+            challengeBlockCount_,
+            approveBlockCount_,
+            address(verifierMock),
+            MOCK_VK_KEY,
+            MOCK_GENESIS_HASH,
+            address(bridge),
+            batchSize_,
+            acceptDepositDeadline_,
+            incentiveFee_
+        );
+        rollup.setDaCheck(false);
+    }
+
+    function _deployMockRollupWithLinkedBridgeQueue(
+        uint256 batchSize_,
+        uint256 challengeDepositAmount_,
+        uint256 challengeBlockCount_,
+        uint256 approveBlockCount_,
+        uint256 acceptDepositDeadline_,
+        uint256 incentiveFee_
+    ) internal {
+        verifierMock = new VerifierMock();
+        rollup = new Rollup(
+            SEQUENCER,
+            challengeDepositAmount_,
+            challengeBlockCount_,
+            approveBlockCount_,
+            address(verifierMock),
+            MOCK_VK_KEY,
+            MOCK_GENESIS_HASH,
+            address(0x1),
+            batchSize_,
+            acceptDepositDeadline_,
+            incentiveFee_
+        );
+        bridge = new Bridge(
+            address(this),
+            address(rollup),
+            0,
+            address(0x1111),
+            address(0x2222)
+        );
+        rollup.setBridge(address(bridge));
+        rollup.setDaCheck(false);
+    }
+
+    function _deploySp1RollupForVerifierPath() internal {
+        verifierSp1 = new SP1Verifier();
+        bridge = new Bridge(
+            address(this),
+            address(0),
+            0,
+            address(0x1111),
+            address(0x2222)
+        );
+        rollup = new Rollup(
+            SEQUENCER,
+            10000,
+            0,
+            1,
+            address(verifierSp1),
+            SP1_VK_KEY,
+            SP1_GENESIS_HASH,
+            address(bridge),
+            1,
+            10,
+            1000
+        );
+        rollup.setDaCheck(false);
+    }
+
+    function _buildCommitment(
+        bytes32 previousBlockHash,
+        bytes32 blockHash,
+        bytes32 withdrawalHash,
+        bytes32 depositHash
+    ) internal pure returns (Rollup.BlockCommitment memory commitment) {
+        commitment = Rollup.BlockCommitment({
+            previousBlockHash: previousBlockHash,
+            blockHash: blockHash,
+            withdrawalHash: withdrawalHash,
+            depositHash: depositHash
+        });
+    }
+
+    function _commitmentHash(
+        Rollup.BlockCommitment memory commitment
+    ) internal pure returns (bytes32) {
+        return keccak256(
+            abi.encodePacked(
+                commitment.previousBlockHash,
+                commitment.blockHash,
+                commitment.withdrawalHash,
+                commitment.depositHash
+            )
+        );
+    }
+
+    function _proofForSingleLeaf()
+        internal
+        pure
+        returns (MerkleTree.MerkleProof memory)
+    {
+        return MerkleTree.MerkleProof({nonce: 0, proof: ""});
+    }
+
+    function _proofForTwoLeaves(
+        uint256 indexInBatch,
+        bytes32 sibling
+    ) internal pure returns (MerkleTree.MerkleProof memory) {
+        return
+            MerkleTree.MerkleProof({
+                nonce: indexInBatch,
+                proof: abi.encodePacked(sibling)
+            });
+    }
+
+    function _hashPair(
+        bytes32 left,
+        bytes32 right
+    ) internal pure returns (bytes32) {
+        return keccak256(abi.encodePacked(left, right));
+    }
+
+    function _bridgeMessageHash(
+        address from,
+        address to,
+        uint256 value,
+        uint256 chainId,
+        uint256 blockNumber_,
+        uint256 nonce_,
+        bytes memory message
+    ) internal pure returns (bytes32) {
+        return
+            keccak256(
+                abi.encode(
+                    from,
+                    to,
+                    value,
+                    chainId,
+                    blockNumber_,
+                    nonce_,
+                    message
+                )
+            );
+    }
+}
