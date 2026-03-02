@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.30;
 
-import "./Base.t.sol";
+import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
+import {Rollup} from "../../contracts/rollup/Rollup.sol";
+import {RollupBase} from "./Base.t.sol";
 
 contract RollupVerifierProofTest is RollupBase {
     bytes internal constant VALID_ZK_PROOF =
@@ -13,8 +15,7 @@ contract RollupVerifierProofTest is RollupBase {
 
     function test_acceptChallengeAndProve_withSp1Verifier() public {
         Rollup.BlockCommitment[] memory batch = new Rollup.BlockCommitment[](1);
-        bytes32 blockHash =
-            0x931c2be30add0b25a64c8b07103fe5ffdab5b58d0ca095c9e6259bfe740fff13;
+        bytes32 blockHash = 0x931c2be30add0b25a64c8b07103fe5ffdab5b58d0ca095c9e6259bfe740fff13;
         batch[0] = _buildCommitment(SP1_GENESIS_HASH, blockHash, ZERO_HASH, ZERO_HASH);
 
         assertEq(rollup.acceptedBatch(1), false, "batch should not be accepted yet");
@@ -24,11 +25,7 @@ contract RollupVerifierProofTest is RollupBase {
 
         assertEq(rollup.nextBatchIndex(), 2, "nextBatchIndex should be incremented");
         assertEq(rollup.acceptedBatch(1), true, "batch should be accepted");
-        assertEq(
-            rollup.lastBlockHashInBatch(1),
-            blockHash,
-            "last block hash should match commitment"
-        );
+        assertEq(rollup.lastBlockHashInBatch(1), blockHash, "last block hash should match commitment");
 
         bytes32 commitmentHash = _commitmentHash(batch[0]);
         MerkleTree.MerkleProof memory blockProof = _proofForSingleLeaf();
@@ -42,10 +39,6 @@ contract RollupVerifierProofTest is RollupBase {
 
         bytes32[] memory challengeQueue = rollup.getChallengeQueue();
         assertEq(challengeQueue.length, 0, "challenge queue must be empty");
-        assertEq(
-            rollup.provenBlockCommitment(commitmentHash),
-            true,
-            "commitment should be marked proven"
-        );
+        assertEq(rollup.provenBlockCommitment(commitmentHash), true, "commitment should be marked proven");
     }
 }

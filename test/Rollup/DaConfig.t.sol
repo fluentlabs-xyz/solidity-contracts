@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.30;
 
-import "./Base.t.sol";
+import {Rollup} from "../../contracts/rollup/Rollup.sol";
+import {RollupBase, Vm} from "./Base.t.sol";
 
 contract MockBlobHashGetter {
     bytes32 internal blobHash;
@@ -20,8 +21,7 @@ contract MockBlobHashGetter {
 }
 
 contract RollupDaConfigTest is RollupBase {
-    bytes32 internal constant DA_CHECK_UPDATED_SIG =
-        keccak256("DaCheckUpdated(bool,bool)");
+    bytes32 internal constant DA_CHECK_UPDATED_SIG = keccak256("DaCheckUpdated(bool,bool)");
 
     function setUp() public {
         _deployMockRollup({
@@ -41,11 +41,7 @@ contract RollupDaConfigTest is RollupBase {
 
         bool found;
         for (uint256 i = 0; i < entries.length; i++) {
-            if (
-                entries[i].emitter == address(rollup) &&
-                entries[i].topics.length > 0 &&
-                entries[i].topics[0] == DA_CHECK_UPDATED_SIG
-            ) {
+            if (entries[i].emitter == address(rollup) && entries[i].topics.length > 0 && entries[i].topics[0] == DA_CHECK_UPDATED_SIG) {
                 (bool oldValue, bool newValue) = abi.decode(entries[i].data, (bool, bool));
                 assertEq(oldValue, false, "old value mismatch");
                 assertEq(newValue, true, "new value mismatch");
@@ -57,12 +53,7 @@ contract RollupDaConfigTest is RollupBase {
     }
 
     function test_setDaCheck_revertsForNonOwner() public {
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                bytes4(keccak256("OwnableUnauthorizedAccount(address)")),
-                ATTACKER
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(bytes4(keccak256("OwnableUnauthorizedAccount(address)")), ATTACKER));
         vm.prank(ATTACKER);
         rollup.setDaCheck(true);
     }
@@ -76,11 +67,7 @@ contract RollupDaConfigTest is RollupBase {
 
         assertEq(hash1, hash2, "blob hash must be deterministic");
         assertEq(uint256(hash1) >> 248, 1, "first byte must be 0x01");
-        assertEq(
-            uint256(hash1) & lowMask,
-            uint256(rawSha) & lowMask,
-            "low 31 bytes must match sha256 output"
-        );
+        assertEq(uint256(hash1) & lowMask, uint256(rawSha) & lowMask, "low 31 bytes must match sha256 output");
     }
 
     function test_calculateBlobHash_handlesEmptyBlob() public {
@@ -100,9 +87,7 @@ contract RollupDaConfigTest is RollupBase {
         rollup.setDaCheck(true);
 
         bytes32 batchRoot = rollup.calculateBatchRoot(batch);
-        bytes32 expectedBlobHash = rollup.calculateBlobHash(
-            abi.encodePacked(batchRoot)
-        );
+        bytes32 expectedBlobHash = rollup.calculateBlobHash(abi.encodePacked(batchRoot));
         getter.setBlobHash(expectedBlobHash);
 
         vm.prank(SEQUENCER);
@@ -123,19 +108,11 @@ contract RollupDaConfigTest is RollupBase {
         rollup.setDaCheck(true);
 
         bytes32 batchRoot = rollup.calculateBatchRoot(batch);
-        bytes32 expectedBlobHash = rollup.calculateBlobHash(
-            abi.encodePacked(batchRoot)
-        );
+        bytes32 expectedBlobHash = rollup.calculateBlobHash(abi.encodePacked(batchRoot));
         bytes32 wrongBlobHash = bytes32(uint256(1));
         getter.setBlobHash(wrongBlobHash);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                Rollup.DaBlobHashMismatch.selector,
-                expectedBlobHash,
-                wrongBlobHash
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(Rollup.DaBlobHashMismatch.selector, expectedBlobHash, wrongBlobHash));
         vm.prank(SEQUENCER);
         rollup.acceptNextBatch(1, batch, new Rollup.DepositsInBlock[](0));
     }

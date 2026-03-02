@@ -1,14 +1,12 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.30;
 
-import "../Rollup/Base.t.sol";
-import "./RollupHandler.t.sol";
+import {MinimalTest, Rollup, Bridge, VerifierMock} from "../Rollup/Base.t.sol";
+import {RollupHandler} from "./RollupHandler.t.sol";
 
 contract RollupInvariantTest is MinimalTest {
-    bytes32 internal constant MOCK_VK_KEY =
-        0x00612f9d5a388df116872ff70e36bcb86c7e73b1089f32f68fc8e0d0ba7861b7;
-    bytes32 internal constant MOCK_GENESIS_HASH =
-        0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
+    bytes32 internal constant MOCK_VK_KEY = 0x00612f9d5a388df116872ff70e36bcb86c7e73b1089f32f68fc8e0d0ba7861b7;
+    bytes32 internal constant MOCK_GENESIS_HASH = 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
 
     Rollup internal rollup;
     Bridge internal bridge;
@@ -19,26 +17,9 @@ contract RollupInvariantTest is MinimalTest {
         handler = new RollupHandler();
 
         verifierMock = new VerifierMock();
-        bridge = new Bridge(
-            address(this),
-            address(0),
-            0,
-            address(0x1111),
-            address(0x2222)
-        );
-        rollup = new Rollup(
-            address(handler),
-            10000,
-            5000,
-            1,
-            address(verifierMock),
-            MOCK_VK_KEY,
-            MOCK_GENESIS_HASH,
-            address(bridge),
-            1,
-            100,
-            0
-        );
+        bridge = new Bridge();
+        bridge.initialize(address(this), address(this), address(0), 0, address(0x1111), address(0x2222));
+        rollup = new Rollup(address(handler), 10000, 5000, 1, address(verifierMock), MOCK_VK_KEY, MOCK_GENESIS_HASH, address(bridge), 1, 100, 0);
 
         handler.initialize(rollup);
         rollup.setDaCheck(false);
@@ -48,10 +29,7 @@ contract RollupInvariantTest is MinimalTest {
         vm.deal(address(handler), 1_000_000 ether);
     }
 
-    function testFuzz_invariant_stateHoldsAfterRandomizedActions(
-        uint256 seed,
-        uint8 actionCount
-    ) public {
+    function testFuzz_invariant_stateHoldsAfterRandomizedActions(uint256 seed, uint8 actionCount) public {
         uint256 steps = uint256(actionCount % 64) + 1;
         for (uint256 i = 0; i < steps; i++) {
             uint256 op = uint256(keccak256(abi.encode(seed, i))) % 6;
@@ -108,11 +86,7 @@ contract RollupInvariantTest is MinimalTest {
         for (uint256 i = 0; i < len; i++) {
             bytes32 commitmentHash = handler.commitmentHashAt(i);
             if (rollup.blockCommitmentChallenger(commitmentHash) != address(0)) {
-                assertGt(
-                    rollup.challengeDeadline(commitmentHash),
-                    0,
-                    "challenged commitment must have deadline"
-                );
+                assertGt(rollup.challengeDeadline(commitmentHash), 0, "challenged commitment must have deadline");
             }
         }
     }
@@ -122,31 +96,19 @@ contract RollupInvariantTest is MinimalTest {
         for (uint256 i = 0; i < len; i++) {
             bytes32 commitmentHash = handler.commitmentHashAt(i);
             if (rollup.provenBlockCommitment(commitmentHash)) {
-                assertEq(
-                    rollup.blockCommitmentChallenger(commitmentHash),
-                    address(0),
-                    "proven commitment cannot keep active challenger"
-                );
+                assertEq(rollup.blockCommitmentChallenger(commitmentHash), address(0), "proven commitment cannot keep active challenger");
             }
         }
     }
 
     function _assertNextBatchIndexNoIllegalDecrease() internal view {
-        assertEq(
-            handler.illegalNextBatchDecreaseCount(),
-            0,
-            "nextBatchIndex decreased outside forceRevertBatch"
-        );
+        assertEq(handler.illegalNextBatchDecreaseCount(), 0, "nextBatchIndex decreased outside forceRevertBatch");
     }
 
     function _assertEmptyQueueNotCorrupted() internal view {
         bytes32[] memory queue = rollup.getChallengeQueue();
         if (queue.length == 0) {
-            assertEq(
-                rollup.rollupCorrupted(),
-                false,
-                "rollupCorrupted must be false when queue is empty"
-            );
+            assertEq(rollup.rollupCorrupted(), false, "rollupCorrupted must be false when queue is empty");
         }
     }
 
@@ -162,10 +124,6 @@ contract RollupInvariantTest is MinimalTest {
 
         uint256 expectedLocked = activeChallengeCount * rollup.challengeDepositAmount();
         uint256 actualLocked = rollup.challengerDeposit(address(handler));
-        assertEq(
-            actualLocked,
-            expectedLocked,
-            "challengerDeposit inconsistent with active challenges"
-        );
+        assertEq(actualLocked, expectedLocked, "challengerDeposit inconsistent with active challenges");
     }
 }

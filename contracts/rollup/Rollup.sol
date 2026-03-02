@@ -2,10 +2,10 @@
 pragma solidity 0.8.30;
 
 import {Ownable2Step, Ownable} from "@openzeppelin/contracts/access/Ownable2Step.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts/utils/Pausable.sol";
-import "../interfaces/IVerifier.sol";
-import "../libraries/BlobHashGetter.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+import {IVerifier} from "../interfaces/IVerifier.sol";
+import {BlobHashGetterDeployer, BlobHashGetter} from "../libraries/BlobHashGetter.sol";
 import {FluentBridge} from "../FluentBridge.sol";
 import {MerkleTree} from "../libraries/MerkleTree.sol";
 
@@ -117,7 +117,7 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
     bytes32[] private challengeQueue;
 
     /// @notice Start index of the challenge queue.
-    uint private challengeQueueStart;
+    uint256 private challengeQueueStart;
 
     /// @notice 1-based index in challenge queue by commitment hash.
     mapping(bytes32 => uint256) private challengeQueueIndex;
@@ -543,9 +543,9 @@ contract Rollup is Ownable2Step, ReentrancyGuard, BlobHashGetterDeployer, Pausab
         }
 
         for (uint256 idx = _batchIndex; idx > 0 && !alreadyApprovedBatch[idx]; --idx) {
-            bytes32[] storage challengedCommitments = batchChallengedCommitments[idx];
-            for (uint256 j = 0; j < challengedCommitments.length; j++) {
-                if (blockCommitmentChallenger[challengedCommitments[j]] != address(0)) {
+            bytes32[] storage earlierChallenged = batchChallengedCommitments[idx];
+            for (uint256 j = 0; j < earlierChallenged.length; j++) {
+                if (blockCommitmentChallenger[earlierChallenged[j]] != address(0)) {
                     return false;
                 }
             }

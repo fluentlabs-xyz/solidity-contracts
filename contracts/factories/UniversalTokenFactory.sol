@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "./GenericTokenFactory.sol";
-import "../libraries/UniversalTokenSDK.sol";
+import {GenericTokenFactory} from "./GenericTokenFactory.sol";
+import {IGenericTokenFactory} from "../interfaces/IGenericTokenFactory.sol";
+import {UniversalTokenSDK} from "../libraries/UniversalTokenSDK.sol";
 
 /**
  * @title UniversalTokenFactory

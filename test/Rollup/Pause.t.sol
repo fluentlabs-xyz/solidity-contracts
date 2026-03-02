@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "./Base.t.sol";
+import {Rollup} from "../../contracts/rollup/Rollup.sol";
+import {RollupBase} from "./Base.t.sol";
 
 contract RollupPauseTest is RollupBase {
     function setUp() public {
@@ -15,11 +16,7 @@ contract RollupPauseTest is RollupBase {
         });
     }
 
-    function _buildValidBatch(bytes32 prevHash)
-        internal
-        pure
-        returns (Rollup.BlockCommitment[] memory batch)
-    {
+    function _buildValidBatch(bytes32 prevHash) internal pure returns (Rollup.BlockCommitment[] memory batch) {
         batch = new Rollup.BlockCommitment[](2);
         bytes32 blockHash1 = keccak256("pause-batch-1");
         bytes32 blockHash2 = keccak256("pause-batch-2");

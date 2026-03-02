@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.30;
 
-import "./Base.t.sol";
+import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
+import {Rollup} from "../../contracts/rollup/Rollup.sol";
+import {RollupBase} from "./Base.t.sol";
 
 contract RollupChallengeProofTest is RollupBase {
     function setUp() public {
@@ -17,11 +19,7 @@ contract RollupChallengeProofTest is RollupBase {
 
     function _acceptChallengeableBatch()
         internal
-        returns (
-            Rollup.BlockCommitment[] memory batch,
-            MerkleTree.MerkleProof memory blockProofForFirst,
-            bytes32 firstCommitmentHash
-        )
+        returns (Rollup.BlockCommitment[] memory batch, MerkleTree.MerkleProof memory blockProofForFirst, bytes32 firstCommitmentHash)
     {
         batch = new Rollup.BlockCommitment[](2);
         bytes32 blockHash1 = keccak256("challenge-batch-1");
@@ -60,11 +58,7 @@ contract RollupChallengeProofTest is RollupBase {
 
         bytes32[] memory queueAfterProof = rollup.getChallengeQueue();
         assertEq(queueAfterProof.length, 0, "challenge queue should be empty");
-        assertEq(
-            rollup.provenBlockCommitment(firstCommitmentHash),
-            true,
-            "commitment not marked as proven"
-        );
+        assertEq(rollup.provenBlockCommitment(firstCommitmentHash), true, "commitment not marked as proven");
     }
 
     function test_proofReward_usesPullPayment() public {
@@ -85,30 +79,14 @@ contract RollupChallengeProofTest is RollupBase {
         vm.prank(PROOF_PROVIDER);
         rollup.proofBlockCommitment(1, batch[0], hex"1234", blockProofForFirst);
 
-        assertEq(
-            PROOF_PROVIDER.balance,
-            proofProviderBefore,
-            "proof should not push ETH immediately"
-        );
-        assertEq(
-            rollup.proverReadyForWithdrawal(PROOF_PROVIDER),
-            10000,
-            "proof reward not accrued"
-        );
+        assertEq(PROOF_PROVIDER.balance, proofProviderBefore, "proof should not push ETH immediately");
+        assertEq(rollup.proverReadyForWithdrawal(PROOF_PROVIDER), 10000, "proof reward not accrued");
 
         vm.prank(PROOF_PROVIDER);
         rollup.withdrawProofReward();
 
-        assertEq(
-            PROOF_PROVIDER.balance,
-            proofProviderBefore + 10000,
-            "withdraw did not transfer proof reward"
-        );
-        assertEq(
-            rollup.proverReadyForWithdrawal(PROOF_PROVIDER),
-            0,
-            "proof reward should be cleared after withdrawal"
-        );
+        assertEq(PROOF_PROVIDER.balance, proofProviderBefore + 10000, "withdraw did not transfer proof reward");
+        assertEq(rollup.proverReadyForWithdrawal(PROOF_PROVIDER), 0, "proof reward should be cleared after withdrawal");
     }
 
     function test_rollupCorrupted_thenForceRevert_resetsState() public {
@@ -144,13 +122,7 @@ contract RollupChallengeProofTest is RollupBase {
         ignoredCommitmentHash;
 
         vm.deal(CHALLENGER, 9999);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                Rollup.InsufficientChallengeDeposit.selector,
-                10000,
-                9999
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(Rollup.InsufficientChallengeDeposit.selector, 10000, 9999));
         vm.prank(CHALLENGER);
         rollup.challengeBlockCommitment{value: 9999}(1, batch[0], blockProofForFirst);
     }
@@ -164,13 +136,7 @@ contract RollupChallengeProofTest is RollupBase {
         ignoredCommitmentHash;
 
         vm.deal(CHALLENGER, 10001);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                Rollup.ExcessiveChallengeDeposit.selector,
-                10000,
-                10001
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(Rollup.ExcessiveChallengeDeposit.selector, 10000, 10001));
         vm.prank(CHALLENGER);
         rollup.challengeBlockCommitment{value: 10001}(1, batch[0], blockProofForFirst);
     }

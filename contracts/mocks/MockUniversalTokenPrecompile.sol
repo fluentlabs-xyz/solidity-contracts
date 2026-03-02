@@ -32,11 +32,7 @@ contract MockUniversalTokenPrecompile {
 
     /// @notice Events matching IUniversalToken
     event Transfer(address indexed from, address indexed to, uint256 value);
-    event Approval(
-        address indexed owner,
-        address indexed spender,
-        uint256 value
-    );
+    event Approval(address indexed owner, address indexed spender, uint256 value);
     event Paused(address indexed account);
     event Unpaused(address indexed account);
 
@@ -82,9 +78,7 @@ contract MockUniversalTokenPrecompile {
     /**
      * @notice Returns the symbol of the token
      */
-    function symbol(
-        address tokenAddress
-    ) external view returns (string memory) {
+    function symbol(address tokenAddress) external view returns (string memory) {
         require(tokens[tokenAddress].initialized, "Token not initialized");
         return tokens[tokenAddress].symbol;
     }
@@ -108,10 +102,7 @@ contract MockUniversalTokenPrecompile {
     /**
      * @notice Returns the balance of an account
      */
-    function balanceOf(
-        address tokenAddress,
-        address account
-    ) external view returns (uint256) {
+    function balanceOf(address tokenAddress, address account) external view returns (uint256) {
         require(tokens[tokenAddress].initialized, "Token not initialized");
         return tokens[tokenAddress].balances[account];
     }
@@ -119,11 +110,7 @@ contract MockUniversalTokenPrecompile {
     /**
      * @notice Transfers tokens (called via delegatecall or fallback)
      */
-    function transfer(
-        address tokenAddress,
-        address to,
-        uint256 amount
-    ) external returns (bool) {
+    function transfer(address tokenAddress, address to, uint256 amount) external returns (bool) {
         TokenInstance storage token = tokens[tokenAddress];
         require(token.initialized, "Token not initialized");
         require(!token.paused, "Token is paused");
@@ -144,11 +131,7 @@ contract MockUniversalTokenPrecompile {
     /**
      * @notice Approves a spender
      */
-    function approve(
-        address tokenAddress,
-        address spender,
-        uint256 amount
-    ) external returns (bool) {
+    function approve(address tokenAddress, address spender, uint256 amount) external returns (bool) {
         TokenInstance storage token = tokens[tokenAddress];
         require(token.initialized, "Token not initialized");
 
@@ -160,11 +143,7 @@ contract MockUniversalTokenPrecompile {
     /**
      * @notice Returns the allowance
      */
-    function allowance(
-        address tokenAddress,
-        address owner,
-        address spender
-    ) external view returns (uint256) {
+    function allowance(address tokenAddress, address owner, address spender) external view returns (uint256) {
         require(tokens[tokenAddress].initialized, "Token not initialized");
         return tokens[tokenAddress].allowances[owner][spender];
     }
@@ -172,11 +151,7 @@ contract MockUniversalTokenPrecompile {
     /**
      * @notice Mints tokens
      */
-    function mint(
-        address tokenAddress,
-        address to,
-        uint256 amount
-    ) external returns (bool) {
+    function mint(address tokenAddress, address to, uint256 amount) external returns (bool) {
         TokenInstance storage token = tokens[tokenAddress];
         require(token.initialized, "Token not initialized");
         require(msg.sender == token.minter, "Not minter");
@@ -222,9 +197,7 @@ contract MockUniversalTokenPrecompile {
     /**
      * @notice Helper to convert bytes32 to string
      */
-    function _bytes32ToString(
-        bytes32 _bytes32
-    ) private pure returns (string memory) {
+    function _bytes32ToString(bytes32 _bytes32) private pure returns (string memory) {
         uint8 i = 0;
         while (i < 32 && _bytes32[i] != 0) {
             i++;

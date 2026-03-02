@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.30;
 
-import "../../contracts/Bridge.sol";
-import "../../contracts/libraries/MerkleTree.sol";
-import "../../contracts/mocks/VerifierMock.sol";
-import "../../contracts/rollup/Rollup.sol";
-import "../../contracts/rollup/SP1VerifierGroth16.sol";
+import {FluentBridge as Bridge} from "../../contracts/FluentBridge.sol";
+import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
+import {VerifierMock} from "../../contracts/mocks/VerifierMock.sol";
+import {Rollup} from "../../contracts/rollup/Rollup.sol";
+import {SP1Verifier} from "../../contracts/rollup/SP1VerifierGroth16.sol";
 
 interface Vm {
     struct Log {
@@ -28,8 +28,7 @@ interface Vm {
 }
 
 abstract contract MinimalTest {
-    Vm internal constant vm =
-        Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
+    Vm internal constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
     function assertTrue(bool condition, string memory message) internal pure {
         require(condition, message);
@@ -69,17 +68,12 @@ abstract contract MinimalTest {
 }
 
 abstract contract RollupBase is MinimalTest {
-    bytes32 internal constant ZERO_HASH =
-        0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
-    bytes32 internal constant MOCK_VK_KEY =
-        0x00612f9d5a388df116872ff70e36bcb86c7e73b1089f32f68fc8e0d0ba7861b7;
-    bytes32 internal constant MOCK_GENESIS_HASH =
-        0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
+    bytes32 internal constant ZERO_HASH = 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
+    bytes32 internal constant MOCK_VK_KEY = 0x00612f9d5a388df116872ff70e36bcb86c7e73b1089f32f68fc8e0d0ba7861b7;
+    bytes32 internal constant MOCK_GENESIS_HASH = 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
 
-    bytes32 internal constant SP1_VK_KEY =
-        0x00440704be87894021b2b5673900bf717ec670dcfde36f7bf371f9ae1a02f46e;
-    bytes32 internal constant SP1_GENESIS_HASH =
-        0x9d06b07ccbd86a2fc8ab4145d909873c09d92bbce87f98f33699ff3733e91a2c;
+    bytes32 internal constant SP1_VK_KEY = 0x00440704be87894021b2b5673900bf717ec670dcfde36f7bf371f9ae1a02f46e;
+    bytes32 internal constant SP1_GENESIS_HASH = 0x9d06b07ccbd86a2fc8ab4145d909873c09d92bbce87f98f33699ff3733e91a2c;
 
     address internal constant SEQUENCER = address(0xA11CE);
     address internal constant CHALLENGER = address(0xB0B);
@@ -100,8 +94,10 @@ abstract contract RollupBase is MinimalTest {
         uint256 incentiveFee_
     ) internal {
         verifierMock = new VerifierMock();
-        bridge = new Bridge(
+        bridge = new Bridge();
+        bridge.initialize(
             address(this),
+            address(this), // bridgeAuthority unused in these unit tests
             address(0),
             0,
             address(0x1111),
@@ -145,39 +141,17 @@ abstract contract RollupBase is MinimalTest {
             acceptDepositDeadline_,
             incentiveFee_
         );
-        bridge = new Bridge(
-            address(this),
-            address(rollup),
-            0,
-            address(0x1111),
-            address(0x2222)
-        );
+        bridge = new Bridge();
+        bridge.initialize(address(this), address(this), address(rollup), 0, address(0x1111), address(0x2222));
         rollup.setBridge(address(bridge));
         rollup.setDaCheck(false);
     }
 
     function _deploySp1RollupForVerifierPath() internal {
         verifierSp1 = new SP1Verifier();
-        bridge = new Bridge(
-            address(this),
-            address(0),
-            0,
-            address(0x1111),
-            address(0x2222)
-        );
-        rollup = new Rollup(
-            SEQUENCER,
-            10000,
-            0,
-            1,
-            address(verifierSp1),
-            SP1_VK_KEY,
-            SP1_GENESIS_HASH,
-            address(bridge),
-            1,
-            10,
-            1000
-        );
+        bridge = new Bridge();
+        bridge.initialize(address(this), address(this), address(0), 0, address(0x1111), address(0x2222));
+        rollup = new Rollup(SEQUENCER, 10000, 0, 1, address(verifierSp1), SP1_VK_KEY, SP1_GENESIS_HASH, address(bridge), 1, 10, 1000);
         rollup.setDaCheck(false);
     }
 
@@ -195,42 +169,20 @@ abstract contract RollupBase is MinimalTest {
         });
     }
 
-    function _commitmentHash(
-        Rollup.BlockCommitment memory commitment
-    ) internal pure returns (bytes32) {
-        return keccak256(
-            abi.encodePacked(
-                commitment.previousBlockHash,
-                commitment.blockHash,
-                commitment.withdrawalHash,
-                commitment.depositHash
-            )
-        );
+    function _commitmentHash(Rollup.BlockCommitment memory commitment) internal pure returns (bytes32) {
+        return
+            keccak256(abi.encodePacked(commitment.previousBlockHash, commitment.blockHash, commitment.withdrawalHash, commitment.depositHash));
     }
 
-    function _proofForSingleLeaf()
-        internal
-        pure
-        returns (MerkleTree.MerkleProof memory)
-    {
+    function _proofForSingleLeaf() internal pure returns (MerkleTree.MerkleProof memory) {
         return MerkleTree.MerkleProof({nonce: 0, proof: ""});
     }
 
-    function _proofForTwoLeaves(
-        uint256 indexInBatch,
-        bytes32 sibling
-    ) internal pure returns (MerkleTree.MerkleProof memory) {
-        return
-            MerkleTree.MerkleProof({
-                nonce: indexInBatch,
-                proof: abi.encodePacked(sibling)
-            });
+    function _proofForTwoLeaves(uint256 indexInBatch, bytes32 sibling) internal pure returns (MerkleTree.MerkleProof memory) {
+        return MerkleTree.MerkleProof({nonce: indexInBatch, proof: abi.encodePacked(sibling)});
     }
 
-    function _hashPair(
-        bytes32 left,
-        bytes32 right
-    ) internal pure returns (bytes32) {
+    function _hashPair(bytes32 left, bytes32 right) internal pure returns (bytes32) {
         return keccak256(abi.encodePacked(left, right));
     }
 
@@ -243,17 +195,6 @@ abstract contract RollupBase is MinimalTest {
         uint256 nonce_,
         bytes memory message
     ) internal pure returns (bytes32) {
-        return
-            keccak256(
-                abi.encode(
-                    from,
-                    to,
-                    value,
-                    chainId,
-                    blockNumber_,
-                    nonce_,
-                    message
-                )
-            );
+        return keccak256(abi.encode(from, to, value, chainId, blockNumber_, nonce_, message));
     }
 }

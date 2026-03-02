@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.30;
 
-import "../../contracts/libraries/MerkleTree.sol";
-import "../../contracts/rollup/Rollup.sol";
+import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
+import {Rollup} from "../../contracts/rollup/Rollup.sol";
 
 contract RollupHandler {
-    bytes32 internal constant ZERO_HASH =
-        0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
+    bytes32 internal constant ZERO_HASH = 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
 
     Rollup public rollup;
     uint256 public illegalNextBatchDecreaseCount;
@@ -42,9 +41,7 @@ contract RollupHandler {
         }
 
         bytes32 prevHash = rollup.lastBlockHashInBatch(beforeIndex - 1);
-        bytes32 blockHash = keccak256(
-            abi.encodePacked(address(this), entropyNonce++, salt)
-        );
+        bytes32 blockHash = keccak256(abi.encodePacked(address(this), entropyNonce++, salt));
 
         Rollup.BlockCommitment[] memory batch = new Rollup.BlockCommitment[](1);
         batch[0] = Rollup.BlockCommitment({
@@ -58,17 +55,9 @@ contract RollupHandler {
             trackedCommitments.push(batch[0]);
             trackedBatchIndexes.push(beforeIndex);
             trackedCommitmentHashes.push(
-                keccak256(
-                    abi.encodePacked(
-                        batch[0].previousBlockHash,
-                        batch[0].blockHash,
-                        batch[0].withdrawalHash,
-                        batch[0].depositHash
-                    )
-                )
+                keccak256(abi.encodePacked(batch[0].previousBlockHash, batch[0].blockHash, batch[0].withdrawalHash, batch[0].depositHash))
             );
         } catch {}
-
         _recordNextBatchDecrease(beforeIndex, false);
     }
 
@@ -81,17 +70,11 @@ contract RollupHandler {
 
         uint256 index = seed % len;
         bytes32 commitmentHash = trackedCommitmentHashes[index];
-        if (
-            rollup.blockCommitmentChallenger(commitmentHash) != address(0) ||
-            rollup.provenBlockCommitment(commitmentHash)
-        ) {
+        if (rollup.blockCommitmentChallenger(commitmentHash) != address(0) || rollup.provenBlockCommitment(commitmentHash)) {
             return;
         }
 
-        MerkleTree.MerkleProof memory blockProof = MerkleTree.MerkleProof({
-            nonce: 0,
-            proof: ""
-        });
+        MerkleTree.MerkleProof memory blockProof = MerkleTree.MerkleProof({nonce: 0, proof: ""});
 
         try
             rollup.challengeBlockCommitment{value: rollup.challengeDepositAmount()}(
@@ -100,7 +83,6 @@ contract RollupHandler {
                 blockProof
             )
         {} catch {}
-
         _recordNextBatchDecrease(beforeIndex, false);
     }
 
@@ -112,20 +94,9 @@ contract RollupHandler {
         }
 
         uint256 index = seed % len;
-        MerkleTree.MerkleProof memory blockProof = MerkleTree.MerkleProof({
-            nonce: 0,
-            proof: ""
-        });
+        MerkleTree.MerkleProof memory blockProof = MerkleTree.MerkleProof({nonce: 0, proof: ""});
 
-        try
-            rollup.proofBlockCommitment(
-                trackedBatchIndexes[index],
-                trackedCommitments[index],
-                hex"1234",
-                blockProof
-            )
-        {} catch {}
-
+        try rollup.proofBlockCommitment(trackedBatchIndexes[index], trackedCommitments[index], hex"1234", blockProof) {} catch {}
         _recordNextBatchDecrease(beforeIndex, false);
     }
 
@@ -138,7 +109,6 @@ contract RollupHandler {
         uint256 revertIndex = 1 + (seed % (beforeIndex - 1));
 
         try rollup.forceRevertBatch(revertIndex) {} catch {}
-
         _recordNextBatchDecrease(beforeIndex, true);
     }
 
@@ -150,11 +120,7 @@ contract RollupHandler {
 
     function stepWithdrawProofReward() external {
         uint256 beforeIndex = rollup.nextBatchIndex();
-        (bool success, ) = address(rollup).call(
-            abi.encodeWithSelector(
-                bytes4(keccak256("withdrawProofReward()"))
-            )
-        );
+        (bool success, ) = address(rollup).call(abi.encodeWithSelector(bytes4(keccak256("withdrawProofReward()"))));
         success;
         _recordNextBatchDecrease(beforeIndex, false);
     }

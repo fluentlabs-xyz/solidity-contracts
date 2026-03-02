@@ -6,7 +6,7 @@ optimizer = true
 optimizer_runs = 200
 out = "forge-out"
 script = "scripts"
-solc_version = "0.8.20"
+solc_version = "0.8.30"
 src = "contracts"
 test = "test"
 

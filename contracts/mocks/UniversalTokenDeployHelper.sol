@@ -35,17 +35,9 @@ contract UniversalTokenDeployHelper {
         );
 
         assembly {
-            tokenAddress := create2(
-                0,
-                add(bytecode, 0x20),
-                mload(bytecode),
-                salt
-            )
+            tokenAddress := create2(0, add(bytecode, 0x20), mload(bytecode), salt)
         }
 
-        require(
-            tokenAddress != address(0),
-            "UniversalTokenDeployHelper: deployment failed"
-        );
+        require(tokenAddress != address(0), "UniversalTokenDeployHelper: deployment failed");
     }
 }

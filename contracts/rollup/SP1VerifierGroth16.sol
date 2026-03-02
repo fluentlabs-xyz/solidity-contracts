@@ -23,15 +23,12 @@ contract SP1Verifier is Groth16Verifier, ISP1VerifierWithHash {
 
     /// @inheritdoc ISP1VerifierWithHash
     function VERIFIER_HASH() public pure returns (bytes32) {
-        return
-            0x11b6a09d63d255ad425ee3a7f6211d5ec63fbde9805b40551c3136275b6f4eb4;
+        return 0x11b6a09d63d255ad425ee3a7f6211d5ec63fbde9805b40551c3136275b6f4eb4;
     }
 
     /// @notice Hashes the public values to a field elements inside Bn254.
     /// @param publicValues The public values.
-    function hashPublicValues(
-        bytes calldata publicValues
-    ) public pure returns (bytes32) {
+    function hashPublicValues(bytes calldata publicValues) public pure returns (bytes32) {
         return sha256(publicValues) & bytes32(uint256((1 << 253) - 1));
     }
 
@@ -39,11 +36,7 @@ contract SP1Verifier is Groth16Verifier, ISP1VerifierWithHash {
     /// @param programVKey The verification key for the RISC-V program.
     /// @param publicValues The public values encoded as bytes.
     /// @param proofBytes The proof of the program execution the SP1 zkVM encoded as bytes.
-    function verifyProof(
-        bytes32 programVKey,
-        bytes calldata publicValues,
-        bytes calldata proofBytes
-    ) external view {
+    function verifyProof(bytes32 programVKey, bytes calldata publicValues, bytes calldata proofBytes) external view {
         bytes4 receivedSelector = bytes4(proofBytes[:4]);
         bytes4 expectedSelector = bytes4(VERIFIER_HASH());
         if (receivedSelector != expectedSelector) {
