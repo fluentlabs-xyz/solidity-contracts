@@ -1,12 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-interface IGateway {
-    /****
-     * Errors
-     ***********
-     */
-
+interface IGatewayErrors {
     /// @dev Thrown when the caller is not the configured local bridge contract.
     /// @dev selector: 0xf591effd
     error OnlyBridgeSender();
@@ -50,14 +45,11 @@ interface IGateway {
     /// @dev Thrown when the recipient is zero.
     /// @dev selector: 0x9c8d2cd2
     error InvalidRecipient();
+}
 
-    /****
-     * Events
-     ***********
-     */
-
+interface IGatewayEvents {
     /// @dev Emitted when tokens are received.
-    event ReceivedTokens(address source, address target, uint256 amount);
+    event ReceivedTokens(address indexed source, address indexed target, uint256 amount);
 
     /// @dev Emitted when the token mapping is updated.
     event UpdateTokenMapping(address indexed _peggedToken, address indexed _oldOriginToken, address indexed _newOriginToken);
@@ -77,12 +69,9 @@ interface IGateway {
     event OtherSideGatewayUpdated(address indexed oldOtherSide, address indexed newOtherSide);
 
     event OtherSideTokenImplementationUpdated(address indexed oldImplementation, address indexed newImplementation);
+}
 
-    /****
-     * Functions
-     ***********
-     */
-
+interface IGateway is IGatewayErrors, IGatewayEvents {
     /**
      * @notice Sends native tokens to the other side.
      * @param _to The address of the recipient on the other side.

@@ -73,7 +73,7 @@ contract PaymentsGateway is Initializable, Ownable2StepUpgradeable, ReentrancyGu
         PaymentsGatewayStorage storage $ = _getERC20GatewayStorage();
         require(_to != address(0), InvalidRecipient());
         require($.otherSide != address(0), ZeroAddress());
-        require(msg.value == _amount, IGateway.InvalidNativeAmount());
+        require(msg.value == _amount, InvalidNativeAmount());
 
         FluentBridge($.bridgeContract).sendMessage{value: _amount}(
             $.otherSide,
@@ -164,11 +164,11 @@ contract PaymentsGateway is Initializable, Ownable2StepUpgradeable, ReentrancyGu
     /// @inheritdoc IGateway
     function receiveNativeTokens(address _from, address _to, uint256 _amount) external payable onlyBridgeSender nonReentrant {
         require(FluentBridge(msg.sender).nativeSender() == _getERC20GatewayStorage().otherSide, MessageFromWrongGateway());
-        require(msg.value == _amount, IGateway.InvalidNativeAmount());
+        require(msg.value == _amount, InvalidNativeAmount());
         require(_to != address(0), InvalidRecipient());
 
         (bool success, ) = payable(_to).call{value: _amount}("");
-        require(success, IGateway.NativeTransferFailed());
+        require(success, NativeTransferFailed());
 
         emit ReceivedTokens(_from, _to, _amount);
     }
@@ -180,10 +180,10 @@ contract PaymentsGateway is Initializable, Ownable2StepUpgradeable, ReentrancyGu
      * @return The address of the pegged token.
      */
     function _deployL2Token(bytes memory _tokenMetadata, address _originToken) internal returns (address) {
-        address _peggedToken = ERC20TokenFactory(_getERC20GatewayStorage().tokenFactory).deployToken(address(this), _originToken);
+        bytes memory keyData = abi.encode(address(this), _originToken);
+        address _peggedToken = ERC20TokenFactory(_getERC20GatewayStorage().tokenFactory).deployToken(keyData, "");
 
         (string memory _symbol, string memory _name, uint8 _decimals) = abi.decode(_tokenMetadata, (string, string, uint8));
-
         ERC20PeggedToken(_peggedToken).initialize(_name, _symbol, _decimals, address(this), _originToken);
 
         return _peggedToken;
@@ -302,7 +302,7 @@ contract PaymentsGateway is Initializable, Ownable2StepUpgradeable, ReentrancyGu
     function rescueNative(address payable _to, uint256 _amount) external onlyOwner {
         require(_to != address(0), InvalidRecipient());
         (bool success, ) = _to.call{value: _amount}("");
-        require(success, IGateway.NativeTransferFailed());
+        require(success, NativeTransferFailed());
     }
 
     /// @notice Receives ETH (e.g. forced transfers). Prefer bridge entrypoints for normal flow.

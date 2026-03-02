@@ -32,6 +32,9 @@ abstract contract GenericTokenFactory is Initializable, Ownable2StepUpgradeable,
         __Ownable2Step_init();
     }
 
+    /// @inheritdoc IGenericTokenFactory
+    function deployToken(bytes calldata keyData, bytes calldata deployArgs) external virtual override returns (address);
+
     /// @notice Mapping from L1 token address to L2 token address (forwarder for ERC-7201 storage)
     function bridgedTokens(address key) public view returns (address) {
         return _getGenericTokenFactoryStorage().bridgedTokens[key];
@@ -44,14 +47,17 @@ abstract contract GenericTokenFactory is Initializable, Ownable2StepUpgradeable,
 
     /// @inheritdoc IGenericTokenFactory
     function computeTokenAddress(bytes calldata keyData, bytes calldata deployArgs) external view virtual override returns (address) {
-        return _computeTokenAddressView(keyData, deployArgs);
+        //  return _computeTokenAddressView(keyData, deployArgs);
+        return address(0);
     }
 
     /// @inheritdoc IGenericTokenFactory
-    function deployToken(bytes calldata keyData, bytes calldata deployArgs) external virtual override returns (address);
+    function computePeggedTokenAddress(bytes calldata keyData, bytes calldata deployArgs) external view virtual override returns (address) {
+        return address(0);
+    }
 
     /// @dev Subclasses implement: decode keyData/deployArgs and return predicted token address.
-    function _computeTokenAddressView(bytes calldata keyData, bytes calldata deployArgs) internal view virtual returns (address);
+    //  function _computeTokenAddressView(bytes calldata keyData, bytes calldata deployArgs) internal view virtual returns (address);
 
     /// @dev Subclasses use this to update bridged token storage (ERC-7201).
     function _setBridgedToken(address l1Token, address l2Token) internal {

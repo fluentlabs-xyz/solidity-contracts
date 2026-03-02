@@ -7,8 +7,7 @@ import {IBeacon} from "@openzeppelin/contracts/proxy/beacon/IBeacon.sol";
 import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
-import {ITokenFactory} from "../interfaces/ITokenFactory.sol";
-import {IGenericTokenFactory} from "../interfaces/IGenericTokenFactory.sol";
+import {GenericTokenFactory} from "./GenericTokenFactory.sol";
 
 /**
  * @title ERC20TokenFactory
@@ -17,11 +16,7 @@ import {IGenericTokenFactory} from "../interfaces/IGenericTokenFactory.sol";
  * @dev All deployed tokens share one UpgradeableBeacon; owner can upgrade implementation for all via upgradeTo().
  *      Upgradeable via transparent proxy. Implements IGenericTokenFactory with keyData = abi.encode(gateway, originToken), deployArgs = "".
  */
-contract ERC20TokenFactory is Initializable, Ownable2StepUpgradeable, ITokenFactory, IGenericTokenFactory {
-    error InvalidGateway();
-    error InvalidOriginToken();
-    error TokenAlreadyDeployed();
-
+contract ERC20TokenFactory is Initializable, Ownable2StepUpgradeable, GenericTokenFactory {
     /// @custom:storage-location erc7201:fluent.storage.ERC20TokenFactoryStorage
     struct ERC20TokenFactoryStorage {
         address beacon;
@@ -50,7 +45,7 @@ contract ERC20TokenFactory is Initializable, Ownable2StepUpgradeable, ITokenFact
     function initialize(address _initialOwner, address _implementation) public initializer {
         __Ownable_init(_initialOwner);
         __Ownable2Step_init();
-        require(_implementation != address(0), ITokenFactory.ZeroImplementationAddress());
+        require(_implementation != address(0), ZeroImplementationAddress());
         UpgradeableBeacon _beacon = new UpgradeableBeacon(_implementation, address(this));
 
         _getERC20TokenFactoryStorage().beacon = address(_beacon);
@@ -60,14 +55,7 @@ contract ERC20TokenFactory is Initializable, Ownable2StepUpgradeable, ITokenFact
      * Deploy functions
      *******************/
 
-    function deployToken(address _gateway, address _originToken) external override onlyOwner returns (address) {
-        address peggedToken = _deployToken(_gateway, _originToken);
-        emit TokenDeployed(_originToken, peggedToken);
-        return peggedToken;
-    }
-
-    /// @inheritdoc IGenericTokenFactory
-    /// @dev keyData = abi.encode(gateway, originToken); deployArgs ignored.
+    /// @inheritdoc GenericTokenFactory
     function deployToken(bytes calldata keyData, bytes calldata) external override onlyOwner returns (address) {
         (address _gateway, address _originToken) = _decodeKeyData(keyData);
         address peggedToken = _deployToken(_gateway, _originToken);
@@ -94,26 +82,33 @@ contract ERC20TokenFactory is Initializable, Ownable2StepUpgradeable, ITokenFact
         address _originToken,
         address _beacon,
         address _factory
-    ) external pure override returns (address) {
+    ) external pure returns (address) {
         bytes32 _salt = _calculateSalt(_gateway, _originToken);
         bytes memory bytecode = _beaconProxyBytecode(_beacon);
         return Create2.computeAddress(_salt, keccak256(bytecode), _factory);
     }
 
-    function computePeggedTokenAddress(address _gateway, address _originToken) external view override returns (address) {
+    function computePeggedTokenAddress(address _gateway, address _originToken) external view returns (address) {
         bytes32 _salt = _calculateSalt(_gateway, _originToken);
         bytes memory bytecode = _beaconProxyBytecode(_getERC20TokenFactoryStorage().beacon);
         return Create2.computeAddress(_salt, keccak256(bytecode));
     }
 
-    /// @inheritdoc IGenericTokenFactory
-    /// @dev keyData = abi.encode(gateway, originToken); deployArgs ignored.
+    /// @inheritdoc GenericTokenFactory
     function computeTokenAddress(bytes calldata keyData, bytes calldata) external view override returns (address) {
         (address _gateway, address _originToken) = _decodeKeyData(keyData);
         bytes32 _salt = _calculateSalt(_gateway, _originToken);
         bytes memory bytecode = _beaconProxyBytecode(_getERC20TokenFactoryStorage().beacon);
         return Create2.computeAddress(_salt, keccak256(bytecode));
     }
+
+    // /// @inheritdoc GenericTokenFactory
+    // function _computeTokenAddressView(bytes calldata keyData, bytes calldata) internal view override returns (address) {
+    //     (address _gateway, address _originToken) = _decodeKeyData(keyData);
+    //     bytes32 _salt = _calculateSalt(_gateway, _originToken);
+    //     bytes memory bytecode = _beaconProxyBytecode(_getERC20TokenFactoryStorage().beacon);
+    //     return Create2.computeAddress(_salt, keccak256(bytecode));
+    // }
 
     function _decodeKeyData(bytes calldata keyData) internal pure returns (address _gateway, address _originToken) {
         return abi.decode(keyData, (address, address));
