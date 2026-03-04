@@ -22,7 +22,7 @@ contract RollupVerifierProofTest is RollupBase {
 
         vm.prank(SEQUENCER);
         // In tests we run with daCheck disabled, so blob index is ignored.
-        rollup.acceptNextBatch(1, batch, new Rollup.DepositsInBlock[](0), 0);
+        rollup.acceptNextBatch(batch, new Rollup.DepositsInBlock[](0), 0);
 
         assertEq(rollup.nextBatchIndex(), 2, "nextBatchIndex should be incremented");
         assertEq(rollup.acceptedBatch(1), true, "batch should be accepted");

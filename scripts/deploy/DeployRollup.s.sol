@@ -3,7 +3,7 @@ pragma solidity 0.8.30;
 
 import {BaseScript} from "../Base.sol";
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
-import {SP1Verifier} from "../../contracts/rollup/SP1VerifierGroth16.sol";
+import {SP1Verifier} from "../../contracts/verifier/SP1VerifierGroth16.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 /// @notice Deployment script for the Rollup contract behind an ERC1967 proxy (transparent upgradeable).
@@ -11,8 +11,11 @@ contract DeployRollup is BaseScript {
     event RollupDeployed(address indexed implementation, address indexed proxy);
 
     function run() external returns (address rollupProxy) {
-        address initialOwner = vm.envAddress("ROLLUP_INITIAL_OWNER");
-        Rollup.InitializeParams memory params;
+        address admin = vm.envAddress("ROLLUP_INITIAL_OWNER");
+        address pauser = vm.envOr("ROLLUP_PAUSER", address(0));
+        Rollup.InitConfiguration memory params;
+        params.admin = admin;
+        params.pauser = pauser;
         params.sequencer = vm.envAddress("ROLLUP_SEQUENCER");
         params.challengeDepositAmount = vm.envOr("ROLLUP_CHALLENGE_DEPOSIT_AMOUNT", uint256(0.01 ether));
         params.challengeBlockCount = vm.envOr("ROLLUP_CHALLENGE_BLOCK_COUNT", uint256(1_000));
@@ -28,15 +31,11 @@ contract DeployRollup is BaseScript {
 
         vm.startBroadcast();
 
-        // 1. Deploy SP1 verifier (or use an existing address via env if you prefer)
         SP1Verifier verifierImpl = new SP1Verifier();
-
-        // 2. Deploy Rollup implementation (upgradeable, uses initialize)
         Rollup rollupImpl = new Rollup();
 
-        // 3. Deploy proxy pointing to Rollup implementation, encoding initializer call
         params.verifier = address(verifierImpl);
-        bytes memory initData = abi.encodeCall(Rollup.initialize, (initialOwner, params));
+        bytes memory initData = abi.encodeCall(Rollup.initialize, (abi.encode(params)));
 
         ERC1967Proxy rollupProxyContract = new ERC1967Proxy(address(rollupImpl), initData);
 

@@ -43,7 +43,7 @@ contract RollupDepositDeadlineTest is RollupBase {
         assertEq(bridge.getQueueSize(), 1, "queue size before accept mismatch");
 
         vm.prank(SEQUENCER);
-        rollup.acceptNextBatch(1, batch, deposits, 0);
+        rollup.acceptNextBatch(batch, deposits, 0);
 
         assertEq(bridge.getQueueSize(), 0, "queue must be fully consumed");
         assertEq(rollup.nextBatchIndex(), 2, "nextBatchIndex must increment");
@@ -66,7 +66,7 @@ contract RollupDepositDeadlineTest is RollupBase {
             abi.encodeWithSelector(IRollupErrors.BlockHashMismatch.selector, batchBlockHash, wrongDepositBlockHash)
         );
         vm.prank(SEQUENCER);
-        rollup.acceptNextBatch(1, batch, deposits, 0);
+        rollup.acceptNextBatch(batch, deposits, 0);
     }
 
     function test_acceptNextBatch_revertsWhenDepositHashMismatches() public {
@@ -81,7 +81,7 @@ contract RollupDepositDeadlineTest is RollupBase {
 
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.DepositVerificationFailed.selector, blockHash));
         vm.prank(SEQUENCER);
-        rollup.acceptNextBatch(1, batch, deposits, 0);
+        rollup.acceptNextBatch(batch, deposits, 0);
     }
 
     function test_acceptNextBatch_revertsWhenDepositDeadlineExceeded() public {
@@ -96,7 +96,7 @@ contract RollupDepositDeadlineTest is RollupBase {
         firstDeposits[0] = Rollup.DepositsInBlock({blockHash: blockHash1, depositCount: 1});
 
         vm.prank(SEQUENCER);
-        rollup.acceptNextBatch(1, firstBatch, firstDeposits, 0);
+        rollup.acceptNextBatch(firstBatch, firstDeposits, 0);
 
         assertEq(bridge.getQueueSize(), 1, "one deposit must remain pending");
 
@@ -108,8 +108,7 @@ contract RollupDepositDeadlineTest is RollupBase {
         vm.prank(SEQUENCER);
         (bool success,) = address(rollup).call(
             abi.encodeWithSelector(
-                Rollup.acceptNextBatch.selector, uint256(2), secondBatch, new Rollup.DepositsInBlock[](0)
-                , uint256(0)
+                Rollup.acceptNextBatch.selector, secondBatch, new Rollup.DepositsInBlock[](0), uint256(0)
             )
         );
         assertTrue(!success, "deadline-exceeded batch should revert");

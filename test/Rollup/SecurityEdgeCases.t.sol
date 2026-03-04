@@ -65,7 +65,7 @@ contract RollupSecurityEdgeCasesTest is RollupBase {
 
         vm.prank(SEQUENCER);
         // In tests we run with daCheck disabled, so blob index is ignored.
-        rollup.acceptNextBatch(batchIndex, batch, new Rollup.DepositsInBlock[](0), 0);
+        rollup.acceptNextBatch(batch, new Rollup.DepositsInBlock[](0), 0);
 
         blockProof = _proofForSingleLeaf();
         vm.deal(CHALLENGER, 10000 ether);
@@ -147,7 +147,7 @@ contract RollupSecurityEdgeCasesTest is RollupBase {
 
         vm.expectRevert();
         vm.prank(SEQUENCER);
-        rollup.acceptNextBatch(1, batch, new Rollup.DepositsInBlock[](0), 0);
+        rollup.acceptNextBatch(batch, new Rollup.DepositsInBlock[](0), 0);
     }
 
     function test_poc_proofGasDoesNotScaleWithQueueLength() public {

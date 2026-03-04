@@ -4,10 +4,25 @@ pragma solidity ^0.8.20;
 import {MerkleTree} from "../libraries/MerkleTree.sol";
 
 interface IRollupErrors {
+    /**
+     * @notice Error thrown when the rollup is corrupted.
+     */
     error RollupCorrupted();
+    /**
+     * @notice Error thrown when the previous block hash is wrong.
+     */
     error WrongPreviousBlockHash(bytes32 expected, bytes32 provided);
+    /**
+     * @notice Error thrown when the deposit verification failed.
+     */
     error DepositVerificationFailed(bytes32 blockHash);
+    /**
+     * @notice Error thrown when the accept deposit deadline exceeded.
+     */
     error AcceptDepositDeadlineExceeded(uint256 deadline, uint256 currentBlock);
+    /**
+     * @notice Error thrown when the batch is not accepted.
+     */
     error BatchNotAccepted(uint256 batchIndex);
     error BatchAlreadyApproved(uint256 batchIndex);
     error BlockCommitmentAlreadyProofed(bytes32 commitmentHash);
@@ -33,17 +48,26 @@ interface IRollupErrors {
 }
 
 interface IRollupEvents {
-    event UpdateVerifier(address oldVerifier, address newVerifier);
-    event BatchAccepted(uint256 batchIndex, bytes32 batchRoot);
-    event BatchProofed(uint256 batchIndex);
-    event ForceRevertBatch(uint256 batchIndex);
-    event ChallengeDepositWithdrawn(address indexed challenger, uint256 amount);
-    event ProofRewardWithdrawn(address indexed prover, uint256 amount);
+    event VerifierUpdated(address indexed oldVerifier, address indexed newVerifier);
+
     event DaCheckUpdated(bool oldValue, bool newValue);
+
     event BridgeUpdated(address indexed oldBridge, address indexed newBridge);
+
+    event ProgramVKeyUpdated(bytes32 indexed oldValue, bytes32 indexed newValue);
+
+    event BatchAccepted(uint256 batchIndex, bytes32 batchRoot);
+
+    event BatchProofed(uint256 batchIndex);
+
+    event ForceRevertBatch(uint256 batchIndex);
+
+    event ChallengeDepositWithdrawn(address indexed challenger, uint256 amount);
+
+    event ProofRewardWithdrawn(address indexed prover, uint256 amount);
 }
 
-interface IRollup is IRollupErrors, IRollupEvents {
+interface IRollup {
     /// @notice Address of the sequencer. Responsible for accepting new batches.
     function sequencer() external view returns (address);
 

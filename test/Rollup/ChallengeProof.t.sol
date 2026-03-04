@@ -31,7 +31,7 @@ contract RollupChallengeProofTest is RollupBase {
 
         vm.prank(SEQUENCER);
         // In tests we run with daCheck disabled, so blob index is ignored.
-        rollup.acceptNextBatch(1, batch, new Rollup.DepositsInBlock[](0), 0);
+        rollup.acceptNextBatch(batch, new Rollup.DepositsInBlock[](0), 0);
 
         bytes32 firstLeaf = _commitmentHash(batch[0]);
         bytes32 secondLeaf = _commitmentHash(batch[1]);

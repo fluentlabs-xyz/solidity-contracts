@@ -120,27 +120,24 @@ abstract contract BaseDualFork {
         l1.verifier = new VerifierMock();
         l1.oracle = new L1BlockOracle();
         Rollup rollupImpl = new Rollup();
+        Rollup.InitConfiguration memory initParams = Rollup.InitConfiguration({
+            admin: address(this),
+            pauser: address(0),
+            sequencer: SEQUENCER,
+            challengeDepositAmount: 10000,
+            challengeBlockCount: 20,
+            approveBlockCount: 0,
+            verifier: address(l1.verifier),
+            programVKey: MOCK_VK_KEY,
+            genesisHash: MOCK_GENESIS_HASH,
+            bridge: address(0),
+            batchSize: batchSize,
+            acceptDepositDeadline: 100,
+            incentiveFee: 0
+        });
         ERC1967Proxy rollupProxy = new ERC1967Proxy(
             address(rollupImpl),
-            abi.encodeCall(
-                Rollup.initialize,
-                (
-                    address(this),
-                    Rollup.InitializeParams({
-                        sequencer: SEQUENCER,
-                        challengeDepositAmount: 10000,
-                        challengeBlockCount: 20,
-                        approveBlockCount: 0,
-                        verifier: address(l1.verifier),
-                        programVKey: MOCK_VK_KEY,
-                        genesisHash: MOCK_GENESIS_HASH,
-                        bridge: address(0),
-                        batchSize: batchSize,
-                        acceptDepositDeadline: 100,
-                        incentiveFee: 0
-                    })
-                )
-            )
+            abi.encodeCall(Rollup.initialize, (abi.encode(initParams)))
         );
         l1.rollup = Rollup(payable(address(rollupProxy)));
 
@@ -243,7 +240,7 @@ abstract contract BaseDualFork {
         _syncDaBlobHashForBatch(batch);
 
         vm.prank(SEQUENCER);
-        l1.rollup.acceptNextBatch(batchIndex, batch, deposits, 0);
+        l1.rollup.acceptNextBatch(batch, deposits, 0);
     }
 
     function _acceptSingleCommitmentBatchL1(

@@ -24,27 +24,24 @@ contract BridgeLegacyParityTest is RollupBase {
     function setUp() public {
         verifierMock = new VerifierMock();
         Rollup rollupImpl = new Rollup();
+        Rollup.InitConfiguration memory initParams = Rollup.InitConfiguration({
+            admin: address(this),
+            pauser: address(0),
+            sequencer: SEQUENCER,
+            challengeDepositAmount: 10000,
+            challengeBlockCount: 0,
+            approveBlockCount: 1,
+            verifier: address(verifierMock),
+            programVKey: MOCK_VK_KEY,
+            genesisHash: MOCK_GENESIS_HASH,
+            bridge: address(0x1),
+            batchSize: 2,
+            acceptDepositDeadline: 10,
+            incentiveFee: 0
+        });
         ERC1967Proxy rollupProxy = new ERC1967Proxy(
             address(rollupImpl),
-            abi.encodeCall(
-                Rollup.initialize,
-                (
-                    address(this),
-                    Rollup.InitializeParams({
-                        sequencer: SEQUENCER,
-                        challengeDepositAmount: 10000,
-                        challengeBlockCount: 0,
-                        approveBlockCount: 1,
-                        verifier: address(verifierMock),
-                        programVKey: MOCK_VK_KEY,
-                        genesisHash: MOCK_GENESIS_HASH,
-                        bridge: address(0x1),
-                        batchSize: 2,
-                        acceptDepositDeadline: 10,
-                        incentiveFee: 0
-                    })
-                )
-            )
+            abi.encodeCall(Rollup.initialize, (abi.encode(initParams)))
         );
         rollup = Rollup(payable(address(rollupProxy)));
         oracle = new L1BlockOracle();
@@ -86,7 +83,7 @@ contract BridgeLegacyParityTest is RollupBase {
         deposits[0] = Rollup.DepositsInBlock({blockHash: blockHash1, depositCount: 1});
 
         vm.prank(SEQUENCER);
-        rollup.acceptNextBatch(1, batch, deposits, 0);
+        rollup.acceptNextBatch(batch, deposits, 0);
 
         assertEq(bridge.getQueueSize(), 0, "queue should be consumed");
     }
@@ -166,7 +163,7 @@ contract BridgeLegacyParityTest is RollupBase {
         batch[1] = _buildCommitment(blockHash1, blockHash2, ZERO_HASH, ZERO_HASH);
 
         vm.prank(SEQUENCER);
-        rollup.acceptNextBatch(1, batch, new Rollup.DepositsInBlock[](0), 0);
+        rollup.acceptNextBatch(batch, new Rollup.DepositsInBlock[](0), 0);
         vm.roll(block.number + 2);
 
         uint256 userBalanceBefore = USER.balance;
@@ -266,7 +263,7 @@ contract BridgeLegacyParityTest is RollupBase {
         bytes32 blockSibling = _commitmentHash(batch[1]);
 
         vm.prank(SEQUENCER);
-        rollup.acceptNextBatch(1, batch, new Rollup.DepositsInBlock[](0), 0);
+        rollup.acceptNextBatch(batch, new Rollup.DepositsInBlock[](0), 0);
 
         vm.roll(block.number + 2);
         _executeReceiveWithProof(batch[0], sourceChainId, sourceBlock, nonce, messageHash2, blockSibling);

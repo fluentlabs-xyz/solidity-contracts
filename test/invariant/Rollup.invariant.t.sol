@@ -27,34 +27,33 @@ contract RollupInvariantTest is MinimalTest {
         );
         bridge = Bridge(payable(address(bridgeProxy)));
         Rollup rollupImpl = new Rollup();
+        Rollup.InitConfiguration memory initParams = Rollup.InitConfiguration({
+            admin: address(this),
+            pauser: address(0),
+            sequencer: address(handler),
+            challengeDepositAmount: 10000,
+            challengeBlockCount: 5000,
+            approveBlockCount: 1,
+            verifier: address(verifierMock),
+            programVKey: MOCK_VK_KEY,
+            genesisHash: MOCK_GENESIS_HASH,
+            bridge: address(bridge),
+            batchSize: 1,
+            acceptDepositDeadline: 100,
+            incentiveFee: 0
+        });
         ERC1967Proxy rollupProxy = new ERC1967Proxy(
             address(rollupImpl),
-            abi.encodeCall(
-                Rollup.initialize,
-                (
-                    address(this),
-                    Rollup.InitializeParams({
-                        sequencer: address(handler),
-                        challengeDepositAmount: 10000,
-                        challengeBlockCount: 5000,
-                        approveBlockCount: 1,
-                        verifier: address(verifierMock),
-                        programVKey: MOCK_VK_KEY,
-                        genesisHash: MOCK_GENESIS_HASH,
-                        bridge: address(bridge),
-                        batchSize: 1,
-                        acceptDepositDeadline: 100,
-                        incentiveFee: 0
-                    })
-                )
-            )
+            abi.encodeCall(Rollup.initialize, (abi.encode(initParams)))
         );
         rollup = Rollup(payable(address(rollupProxy)));
 
         handler.initialize(rollup);
         rollup.setDaCheck(false);
-        rollup.transferOwnership(address(handler));
-        handler.acceptRollupOwnership();
+        rollup.grantRole(rollup.DEFAULT_ADMIN_ROLE(), address(handler));
+        rollup.grantRole(rollup.PAUSER_ROLE(), address(handler));
+        rollup.renounceRole(rollup.DEFAULT_ADMIN_ROLE(), address(this));
+        rollup.renounceRole(rollup.PAUSER_ROLE(), address(this));
 
         vm.deal(address(handler), 1_000_000 ether);
     }

@@ -3,95 +3,22 @@ pragma solidity 0.8.30;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
-import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
+import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
-import {IVerifier} from "../interfaces/IVerifier.sol";
-import {IRollupErrors, IRollupEvents} from "../interfaces/IRollup.sol";
-import {FluentBridge} from "../FluentBridge.sol";
+
 import {MerkleTree} from "../libraries/MerkleTree.sol";
+import {RollupStorageLayout} from "./RollupStorage.sol";
+
+import {IRollup} from "../interfaces/IRollup.sol";
+import {IVerifier} from "../interfaces/IVerifier.sol";
+import {IFluentBridge} from "../interfaces/IFluentBridge.sol";
 
 /**
  * @title Rollup Contract
  * @dev This contract implements a rollup system with features such as batch acceptance, deposit verification,
  * proof submission, and challenge mechanisms. It interacts with a Bridge contract and a verifier for SP1 proof validation.
  */
-contract Rollup is IRollupErrors, IRollupEvents, Initializable, ReentrancyGuardUpgradeable, Ownable2StepUpgradeable, PausableUpgradeable {
-    /// @custom:storage-location erc7201:fluent.storage.RollupStorage
-    struct RollupStorage {
-        address sequencer;
-        address bridge;
-        bytes32 programVKey;
-        uint256 nextBatchIndex;
-        uint256 approveBlockCount;
-        uint256 challengeDepositAmount;
-        uint256 incentiveFee;
-        uint256 challengeBlockCount;
-        uint256 batchSize;
-        mapping(uint256 => bytes32) lastBlockHashInBatch;
-        uint256 lastDepositAcceptedBlockNumber;
-        uint256 acceptDepositDeadline;
-        mapping(uint256 => bytes32) acceptedBatchHash;
-        mapping(uint256 => bool) alreadyApprovedBatch;
-        mapping(uint256 => uint256) acceptedBlock;
-        mapping(bytes32 => bool) provenBlockCommitment;
-        mapping(address => uint256) challengerDeposit;
-        mapping(address => uint256) challengerReadyForWithdrawal;
-        mapping(address => uint256) proverReadyForWithdrawal;
-        mapping(bytes32 => address) blockCommitmentChallenger;
-        mapping(bytes32 => uint256) challengeDeadline;
-        bytes32[] challengeQueue;
-        uint256 challengeQueueStart;
-        mapping(bytes32 => uint256) challengeQueueIndex;
-        mapping(uint256 => bytes32[]) batchBlobHashes;
-        bool daCheck;
-        mapping(uint256 => bytes32[]) batchChallengedCommitments;
-        mapping(uint256 => bytes32[]) provenCommitmentInBatch;
-        uint256[40] __gap;
-    }
-
-    /// @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.RollupStorage")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant ROLLUP_STORAGE_LOCATION = 0x3c5cb8ff22ae9906a910cecced8ac84ef594b2ee1cab438e85f81b70bddcc700;
-
-    function _getRollupStorage() private pure returns (RollupStorage storage $) {
-        assembly {
-            $.slot := ROLLUP_STORAGE_LOCATION
-        }
-    }
-
-    /// @dev Constant representing an empty deposit hash.
-    bytes32 public constant ZERO_BYTES_HASH = 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
-
-    /// @dev zk-SNARK verifier instance.
-    IVerifier private verifier;
-
-    /// @dev Structure representing a committed block.
-    struct BlockCommitment {
-        bytes32 previousBlockHash;
-        bytes32 blockHash;
-        bytes32 withdrawalHash;
-        bytes32 depositHash;
-    }
-
-    /// @dev Represents metadata about deposits included in a block.
-    struct DepositsInBlock {
-        bytes32 blockHash;
-        uint256 depositCount;
-    }
-
-    struct InitializeParams {
-        address sequencer;
-        uint256 challengeDepositAmount;
-        uint256 challengeBlockCount;
-        uint256 approveBlockCount;
-        address verifier;
-        bytes32 programVKey;
-        bytes32 genesisHash;
-        address bridge;
-        uint256 batchSize;
-        uint256 acceptDepositDeadline;
-        uint256 incentiveFee;
-    }
-
+contract Rollup is RollupStorageLayout, IRollup {
     modifier onlySequencer() {
         RollupStorage storage $ = _getRollupStorage();
         require(msg.sender == $.sequencer, OnlySequencer());
@@ -105,185 +32,216 @@ contract Rollup is IRollupErrors, IRollupEvents, Initializable, ReentrancyGuardU
 
     /**
      * @notice Initializes the upgradeable rollup (replaces constructor when used behind a proxy).
-     * @param _initialOwner Owner of the Rollup (e.g. multisig).
-     * @param _params Rollup initialization parameters.
+     * @param data ABI-encoded InitConfiguration.
      */
-    function initialize(address _initialOwner, InitializeParams calldata _params) external initializer {
+    function initialize(bytes memory data) external initializer {
         __ReentrancyGuard_init();
-        __Ownable_init(_initialOwner);
-        __Ownable2Step_init();
+        __AccessControl_init();
         __Pausable_init();
+        __initRollupStorage(data);
+    }
+
+    /**
+     * @notice Accepts the next batch of block commitments.
+     * @param _commitmentBatch The batch of block commitments.
+     * @param depositsInBlocks Deposits per block for validation.
+     * @param _numBlobs The number of blob commitments attached to this transaction.
+     */
+    function acceptNextBatch(
+        BlockCommitment[] calldata _commitmentBatch,
+        DepositsInBlock[] calldata depositsInBlocks,
+        uint256 _numBlobs
+    ) external payable onlySequencer whenNotPaused {
         RollupStorage storage $ = _getRollupStorage();
+        require(depositsInBlocks.length <= _commitmentBatch.length, InvalidDepositsArrayLength());
+        uint256 _batchIndex = $.nextBatchIndex;
+        require(!_rollupCorrupted(), RollupCorrupted());
+        require(_commitmentBatch.length == $.batchSize, InvalidBatchSize($.batchSize, _commitmentBatch.length));
 
-        require(_params.sequencer != address(0), ZeroAddressNotAllowed("sequencer"));
-        require(_params.verifier != address(0), ZeroAddressNotAllowed("verifier"));
-        require(_params.programVKey != bytes32(0), ZeroValueNotAllowed("programVKey"));
-        require(_params.genesisHash != bytes32(0), ZeroValueNotAllowed("genesisHash"));
-        require(_params.batchSize != 0, ZeroValueNotAllowed("batchSize"));
+        if (_batchIndex > 0) {
+            require(
+                _commitmentBatch[0].previousBlockHash == $.lastBlockHashInBatch[_batchIndex - 1],
+                WrongPreviousBlockHash($.lastBlockHashInBatch[_batchIndex - 1], _commitmentBatch[0].previousBlockHash)
+            );
+        }
 
-        $.sequencer = _params.sequencer;
-        $.challengeDepositAmount = _params.challengeDepositAmount;
-        $.challengeBlockCount = _params.challengeBlockCount;
-        $.approveBlockCount = _params.approveBlockCount;
-        verifier = IVerifier(_params.verifier);
-        $.programVKey = _params.programVKey;
-        $.lastBlockHashInBatch[0] = _params.genesisHash;
-        $.bridge = _params.bridge;
-        $.batchSize = _params.batchSize;
-        $.acceptDepositDeadline = _params.acceptDepositDeadline;
-        $.incentiveFee = _params.incentiveFee;
-        $.nextBatchIndex = 1;
-        $.daCheck = true;
-    }
+        uint256 depositIndex = 0;
+        uint256 queueSize = IFluentBridge($.bridge).getQueueSize();
 
-    function sequencer() public view returns (address) {
-        return _getRollupStorage().sequencer;
-    }
+        for (uint256 i = 0; i < $.batchSize - 1; ++i) {
+            require(
+                _commitmentBatch[i].blockHash == _commitmentBatch[i + 1].previousBlockHash,
+                InvalidBlockSequence(i, _commitmentBatch[i].blockHash, _commitmentBatch[i + 1].previousBlockHash)
+            );
+            if (_commitmentBatch[i].depositHash != ZERO_BYTES_HASH) {
+                _checkDeposit(_commitmentBatch[i], depositsInBlocks[depositIndex]);
+                depositIndex += 1;
+            }
+        }
 
-    function bridge() public view returns (address) {
-        return _getRollupStorage().bridge;
-    }
+        if (_commitmentBatch[$.batchSize - 1].depositHash != ZERO_BYTES_HASH) {
+            _checkDeposit(_commitmentBatch[$.batchSize - 1], depositsInBlocks[depositIndex]);
+        }
 
-    function programVKey() public view returns (bytes32) {
-        return _getRollupStorage().programVKey;
-    }
+        /// @dev we check
+        if (IFluentBridge($.bridge).getQueueSize() == 0) {
+            $.lastDepositAcceptedBlockNumber = 0;
+        } else if (queueSize > IFluentBridge($.bridge).getQueueSize() || (queueSize != 0 && $.lastDepositAcceptedBlockNumber == 0)) {
+            $.lastDepositAcceptedBlockNumber = block.number;
+        } else {
+            require(
+                $.lastDepositAcceptedBlockNumber + $.acceptDepositDeadline >= block.number,
+                AcceptDepositDeadlineExceeded($.lastDepositAcceptedBlockNumber + $.acceptDepositDeadline, block.number)
+            );
+        }
 
-    function nextBatchIndex() public view returns (uint256) {
-        return _getRollupStorage().nextBatchIndex;
-    }
+        bytes32 batchRoot = calculateBatchRoot(_commitmentBatch);
 
-    function approveBlockCount() public view returns (uint256) {
-        return _getRollupStorage().approveBlockCount;
-    }
+        if ($.daCheck) {
+            // Verify at least one blob is provided
+            require(_numBlobs != 0, ZeroValueNotAllowed("numBlobs"));
 
-    function challengeDepositAmount() public view returns (uint256) {
-        return _getRollupStorage().challengeDepositAmount;
-    }
+            // `blobhash(i)` is the versioned hash of the KZG commitment (EIP-4844),
+            // so it cannot be derived as sha256(batchRoot). We only assert each requested
+            // blob hash is present and store it for proof binding in proofBlockCommitment.
+            bytes32[] storage blobHashes = $.batchBlobHashes[_batchIndex];
+            for (uint256 i = 0; i < _numBlobs; ++i) {
+                bytes32 submittedBlobHash = _getBlobHash(i);
+                require(submittedBlobHash != bytes32(0), ZeroValueNotAllowed("blobHash"));
+                blobHashes.push(submittedBlobHash);
+            }
+        }
 
-    function incentiveFee() public view returns (uint256) {
-        return _getRollupStorage().incentiveFee;
-    }
+        $.acceptedBatchHash[_batchIndex] = batchRoot;
+        $.nextBatchIndex = _batchIndex + 1;
+        $.lastBlockHashInBatch[_batchIndex] = _commitmentBatch[$.batchSize - 1].blockHash;
+        $.acceptedBlock[_batchIndex] = block.number;
 
-    function challengeBlockCount() public view returns (uint256) {
-        return _getRollupStorage().challengeBlockCount;
-    }
-
-    function batchSize() public view returns (uint256) {
-        return _getRollupStorage().batchSize;
-    }
-
-    function lastBlockHashInBatch(uint256 batchIndex) public view returns (bytes32) {
-        return _getRollupStorage().lastBlockHashInBatch[batchIndex];
-    }
-
-    function lastDepositAcceptedBlockNumber() public view returns (uint256) {
-        return _getRollupStorage().lastDepositAcceptedBlockNumber;
-    }
-
-    function acceptDepositDeadline() public view returns (uint256) {
-        return _getRollupStorage().acceptDepositDeadline;
-    }
-
-    function acceptedBatchHash(uint256 batchIndex) public view returns (bytes32) {
-        return _getRollupStorage().acceptedBatchHash[batchIndex];
-    }
-
-    function alreadyApprovedBatch(uint256 batchIndex) public view returns (bool) {
-        return _getRollupStorage().alreadyApprovedBatch[batchIndex];
-    }
-
-    function acceptedBlock(uint256 batchIndex) public view returns (uint256) {
-        return _getRollupStorage().acceptedBlock[batchIndex];
-    }
-
-    function provenBlockCommitment(bytes32 commitmentHash) public view returns (bool) {
-        return _getRollupStorage().provenBlockCommitment[commitmentHash];
-    }
-
-    function challengerDeposit(address challenger) public view returns (uint256) {
-        return _getRollupStorage().challengerDeposit[challenger];
-    }
-
-    function challengerReadyForWithdrawal(address challenger) public view returns (uint256) {
-        return _getRollupStorage().challengerReadyForWithdrawal[challenger];
-    }
-
-    function proverReadyForWithdrawal(address prover) public view returns (uint256) {
-        return _getRollupStorage().proverReadyForWithdrawal[prover];
-    }
-
-    function blockCommitmentChallenger(bytes32 commitmentHash) public view returns (address) {
-        return _getRollupStorage().blockCommitmentChallenger[commitmentHash];
-    }
-
-    function challengeDeadline(bytes32 commitmentHash) public view returns (uint256) {
-        return _getRollupStorage().challengeDeadline[commitmentHash];
-    }
-
-    function batchBlobHashes(uint256 batchIndex) public view returns (bytes32[] memory) {
-        return _getRollupStorage().batchBlobHashes[batchIndex];
-    }
-
-    function daCheck() public view returns (bool) {
-        return _getRollupStorage().daCheck;
-    }
-
-    function batchChallengedCommitments(uint256 batchIndex) public view returns (bytes32[] memory) {
-        return _getRollupStorage().batchChallengedCommitments[batchIndex];
-    }
-
-    function provenCommitmentInBatch(uint256 batchIndex) public view returns (bytes32[] memory) {
-        return _getRollupStorage().provenCommitmentInBatch[batchIndex];
+        emit BatchAccepted(_batchIndex, batchRoot);
     }
 
     /**
-     * @notice Toggle data availability check.
-     * @param isCheck Whether to enable the check.
+     * @notice Challenges an unapproved block commitment by providing a deposit.
+     * @dev A block commitment can be challenged only if it is part of an accepted batch and not yet proven.
+     *      The caller must send at least `challengeDepositAmount` in ETH as a deposit.
+     * @param _batchIndex The index of the batch containing the block commitment.
+     * @param _commitmentBatch The block commitment being challenged.
+     * @param _block_proof Merkle proof showing the block commitment is part of the accepted batch.
      */
-    function setDaCheck(bool isCheck) external payable onlyOwner {
+    function challengeBlockCommitment(
+        uint256 _batchIndex,
+        BlockCommitment calldata _commitmentBatch,
+        MerkleTree.MerkleProof calldata _block_proof
+    ) external payable nonReentrant whenNotPaused onlyRole(CHALLENGER_ROLE) {
         RollupStorage storage $ = _getRollupStorage();
-        bool oldValue = $.daCheck;
-        $.daCheck = isCheck;
-        emit DaCheckUpdated(oldValue, isCheck);
+        require(_acceptedBatch(_batchIndex), BatchNotAccepted(_batchIndex));
+
+        bytes32 batchHash = $.acceptedBatchHash[_batchIndex];
+        bytes32 commitmentHash = keccak256(
+            abi.encodePacked(
+                _commitmentBatch.previousBlockHash,
+                _commitmentBatch.blockHash,
+                _commitmentBatch.withdrawalHash,
+                _commitmentBatch.depositHash
+            )
+        );
+
+        // Verify block commitment is part of the batch
+        bool blockValid = MerkleTree.verifyMerkleProof(batchHash, commitmentHash, _block_proof.nonce, _block_proof.proof);
+        require(blockValid, InvalidBlockProof());
+
+        require(!_ensureBatchApproved(_batchIndex), BatchAlreadyApproved(_batchIndex));
+        require(!$.provenBlockCommitment[commitmentHash], BlockCommitmentAlreadyProofed(commitmentHash));
+        require($.blockCommitmentChallenger[commitmentHash] == address(0), BatchAlreadyChallenged(_batchIndex));
+
+        require(msg.value >= $.challengeDepositAmount, InsufficientChallengeDeposit($.challengeDepositAmount, msg.value));
+        require(msg.value <= $.challengeDepositAmount, ExcessiveChallengeDeposit($.challengeDepositAmount, msg.value));
+
+        $.challengerDeposit[msg.sender] += msg.value;
+        $.blockCommitmentChallenger[commitmentHash] = msg.sender;
+        $.challengeDeadline[commitmentHash] = block.number + $.challengeBlockCount;
+        $.challengeQueue.push(commitmentHash);
+        $.challengeQueueIndex[commitmentHash] = $.challengeQueue.length;
+        $.batchChallengedCommitments[_batchIndex].push(commitmentHash);
+
+        /// emit event
     }
 
     /**
-     * @notice Set a new bridge contract address.
-     * @param _bridge The new bridge address.
+     * @notice Submits an SP1 proof to finalize and approve a previously accepted block commitment.
+     * @dev Verifies the proof using the configured SP1 verifier and marks the block commitment as proven.
+     *      If the batch was challenged, the challenger's deposit is unlocked for withdrawal.
+     *      This variant verifies the block against the data-availability blob used during batch acceptance.
+     * @param _batchIndex The index of the batch containing the block commitment.
+     * @param _commitmentBatch The block commitment to prove.
+     * @param _blobIndex Index of the blob in the batch's blob list that was used to prove this block.
+     * @param _proof The SP1 proof data.
+     * @param _block_proof Merkle proof showing the block commitment is part of the accepted batch.
      */
-    function setBridge(address _bridge) external payable onlyOwner {
+    function proofBlockCommitment(
+        uint256 _batchIndex,
+        BlockCommitment calldata _commitmentBatch,
+        uint256 _blobIndex,
+        bytes calldata _proof,
+        MerkleTree.MerkleProof calldata _block_proof
+    ) external payable nonReentrant whenNotPaused onlyRole(PROVER_ROLE) {
         RollupStorage storage $ = _getRollupStorage();
-        address oldBridge = $.bridge;
-        $.bridge = _bridge;
-        emit BridgeUpdated(oldBridge, _bridge);
-    }
+        bytes32 batchHash = $.acceptedBatchHash[_batchIndex];
+        bytes32 commitmentHash = keccak256(
+            abi.encodePacked(
+                _commitmentBatch.previousBlockHash,
+                _commitmentBatch.blockHash,
+                _commitmentBatch.withdrawalHash,
+                _commitmentBatch.depositHash
+            )
+        );
+        require(!$.provenBlockCommitment[commitmentHash], BlockCommitmentAlreadyProofed(commitmentHash));
 
-    /**
-     * @notice Updates the verifier contract.
-     * @param _newVerifier The address of the new verifier.
-     */
-    function updateVerifier(address _newVerifier) external onlyOwner {
-        require(_newVerifier != address(0), ZeroAddressNotAllowed("verifier"));
-        address _oldVerifier = address(verifier);
-        verifier = IVerifier(_newVerifier);
+        // Verify block commitment is part of the batch
+        bool blockValid = MerkleTree.verifyMerkleProof(batchHash, commitmentHash, _block_proof.nonce, _block_proof.proof);
+        require(blockValid, InvalidBlockProof());
 
-        emit UpdateVerifier(_oldVerifier, _newVerifier);
-    }
+        if ($.daCheck) {
+            // Ensure the provided blob index is within the bounds of the batch's blob hashes
+            bytes32[] storage blobHashes = $.batchBlobHashes[_batchIndex];
+            require(_blobIndex < blobHashes.length, DaBlobHashMismatch(bytes32(0), bytes32(0)));
 
-    /**
-     * @notice Pauses the contract, preventing all non-owner functions from being called
-     * @dev Only callable by the owner
-     */
-    function pause() external onlyOwner {
-        _pause();
-    }
+            // Bind the SP1 proof to the DA blob that was used for this batch
+            bytes32 blobHash = blobHashes[_blobIndex];
 
-    /**
-     * @notice Unpauses the contract, allowing all functions to be called again
-     * @dev Only callable by the owner
-     */
-    function unpause() external onlyOwner {
-        _unpause();
+            IVerifier($.verifier).verifyProof($.programVKey, _getPublicValuesFromCommitmentAndBlob(_commitmentBatch, blobHash), _proof);
+        } else {
+            // Legacy mode: verify proof only against the block commitment without DA binding.
+            IVerifier($.verifier).verifyProof($.programVKey, _getPublicValuesFromCommitment(_commitmentBatch), _proof);
+        }
+
+        address challenger = $.blockCommitmentChallenger[commitmentHash];
+        $.provenBlockCommitment[commitmentHash] = true;
+        delete $.challengeDeadline[commitmentHash];
+        $.provenCommitmentInBatch[_batchIndex].push(commitmentHash);
+
+        if (challenger != address(0)) {
+            $.blockCommitmentChallenger[commitmentHash] = address(0);
+            if ($.challengerDeposit[challenger] >= $.challengeDepositAmount) {
+                $.challengerDeposit[challenger] -= $.challengeDepositAmount;
+                $.proverReadyForWithdrawal[msg.sender] += $.challengeDepositAmount;
+            }
+
+            _removeChallengeFromQueue(commitmentHash);
+
+            // Remove from batch challenged commitments
+            bytes32[] storage challengedCommitments = $.batchChallengedCommitments[_batchIndex];
+            for (uint256 i = 0; i < challengedCommitments.length; i++) {
+                if (challengedCommitments[i] == commitmentHash) {
+                    // Replace with last element and pop
+                    challengedCommitments[i] = challengedCommitments[challengedCommitments.length - 1];
+                    challengedCommitments.pop();
+                    break;
+                }
+            }
+        }
+
+        emit BatchProofed(_batchIndex);
     }
 
     /**
@@ -292,7 +250,7 @@ contract Rollup is IRollupErrors, IRollupEvents, Initializable, ReentrancyGuardU
      *      It will clean up all state variables associated with the reverted batches to ensure the system can continue operating correctly.
      * @param _revertedBatchIndex The batch index to revert from.
      */
-    function forceRevertBatch(uint256 _revertedBatchIndex) external payable onlyOwner nonReentrant {
+    function forceRevertBatch(uint256 _revertedBatchIndex) external payable onlyRole(DEFAULT_ADMIN_ROLE) nonReentrant {
         RollupStorage storage $ = _getRollupStorage();
         require(_acceptedBatch(_revertedBatchIndex), BatchNotAccepted(_revertedBatchIndex));
         require(_revertedBatchIndex != 0, InvalidRevertIndex(_revertedBatchIndex));
@@ -339,407 +297,6 @@ contract Rollup is IRollupErrors, IRollupEvents, Initializable, ReentrancyGuardU
         $.nextBatchIndex = _revertedBatchIndex;
 
         emit ForceRevertBatch(_revertedBatchIndex);
-    }
-
-    /**
-     * @notice Calculates the hash of a blob for DA check.
-     * @param blob The blob data.
-     * @return hash The resulting blob hash.
-     */
-    function calculateBlobHash(bytes memory blob) public pure returns (bytes32) {
-        bytes32 hash = sha256(blob);
-
-        hash &= 0x00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff;
-        hash |= 0x0100000000000000000000000000000000000000000000000000000000000000;
-
-        return hash;
-    }
-
-    /**
-     * @notice Calculates the Merkle root of a batch of block commitments.
-     * @dev Each commitment is hashed using keccak256 and used as a leaf in the Merkle tree.
-     *      The resulting Merkle root represents the batch's integrity and can be used to verify inclusion.
-     * @param commitmentBatch An array of BlockCommitment structs representing the batch.
-     * @return The Merkle root (batch root) derived from the block commitments.
-     */
-    function calculateBatchRoot(BlockCommitment[] calldata commitmentBatch) public pure returns (bytes32) {
-        bytes memory leafs = new bytes(commitmentBatch.length * 32);
-
-        for (uint256 i = 0; i < commitmentBatch.length; ++i) {
-            bytes32 hash = keccak256(
-                abi.encodePacked(
-                    commitmentBatch[i].previousBlockHash,
-                    commitmentBatch[i].blockHash,
-                    commitmentBatch[i].withdrawalHash,
-                    commitmentBatch[i].depositHash
-                )
-            );
-            assembly {
-                mstore(add(add(leafs, 32), mul(i, 32)), hash)
-            }
-        }
-
-        return _calculateMerkleRoot(leafs);
-    }
-
-    /**
-     * @notice Accepts the next batch of block commitments.
-     * @param _commitmentBatch The batch of block commitments.
-     * @param depositsInBlocks Deposits per block for validation.
-     * @param _numBlobs The number of blob commitments attached to this transaction.
-     *
-     * 1. replace block commitment list with block commitment batch root
-     * 2. add blob hash (?) into block commitment
-     * 3. verify blob hashes by passing numb of blobs using `BLOBHASH` opcode
-     * 4. store verified blob hashes in storage
-     * 5. remove storage field `lastBlockHashInBatch` and `checkDa`
-     * 6. encode tx data as RLP array and store tx data for all blocks within batch together (as N RLP lists)
-     * 7. review field `depositsInBlock` to make sure we pop correct items (?)
-     * 8. compress tx data using brotli compression
-     * 100 mln block limit | block time 1s
-     *
-     * 1. call CalculateBatchRoot
-     * 2. acceptNextBatchSafe()
-     * OR
-     * 1. acceptNextBatch()
-     */
-    function acceptNextBatch(
-        BlockCommitment[] calldata _commitmentBatch,
-        DepositsInBlock[] calldata depositsInBlocks,
-        uint256 _numBlobs
-    ) external payable onlySequencer whenNotPaused {
-        RollupStorage storage $ = _getRollupStorage();
-        require(depositsInBlocks.length <= _commitmentBatch.length, InvalidDepositsArrayLength());
-        uint256 _batchIndex = $.nextBatchIndex;
-        require(!_rollupCorrupted(), RollupCorrupted());
-        require(_commitmentBatch.length == $.batchSize, InvalidBatchSize($.batchSize, _commitmentBatch.length));
-
-        if (_batchIndex > 0) {
-            require(
-                _commitmentBatch[0].previousBlockHash == $.lastBlockHashInBatch[_batchIndex - 1],
-                WrongPreviousBlockHash($.lastBlockHashInBatch[_batchIndex - 1], _commitmentBatch[0].previousBlockHash)
-            );
-        }
-
-        uint256 depositIndex = 0;
-        uint256 queueSize = FluentBridge($.bridge).getQueueSize();
-
-        for (uint256 i = 0; i < $.batchSize - 1; ++i) {
-            require(
-                _commitmentBatch[i].blockHash == _commitmentBatch[i + 1].previousBlockHash,
-                InvalidBlockSequence(i, _commitmentBatch[i].blockHash, _commitmentBatch[i + 1].previousBlockHash)
-            );
-            if (_commitmentBatch[i].depositHash != ZERO_BYTES_HASH) {
-                if (!_checkDeposit(_commitmentBatch[i], depositsInBlocks[depositIndex])) {
-                    revert DepositVerificationFailed(_commitmentBatch[i].blockHash);
-                }
-                depositIndex += 1;
-            }
-        }
-
-        if (_commitmentBatch[$.batchSize - 1].depositHash != ZERO_BYTES_HASH) {
-            if (!_checkDeposit(_commitmentBatch[$.batchSize - 1], depositsInBlocks[depositIndex])) {
-                revert DepositVerificationFailed(_commitmentBatch[$.batchSize - 1].blockHash);
-            }
-        }
-
-        /// @dev we check
-        if (FluentBridge($.bridge).getQueueSize() == 0) {
-            $.lastDepositAcceptedBlockNumber = 0;
-        } else if (queueSize > FluentBridge($.bridge).getQueueSize() || (queueSize != 0 && $.lastDepositAcceptedBlockNumber == 0)) {
-            $.lastDepositAcceptedBlockNumber = block.number;
-        } else if ($.lastDepositAcceptedBlockNumber + $.acceptDepositDeadline < block.number) {
-            revert AcceptDepositDeadlineExceeded($.lastDepositAcceptedBlockNumber + $.acceptDepositDeadline, block.number);
-        }
-
-        bytes32 batchRoot = calculateBatchRoot(_commitmentBatch);
-
-        if ($.daCheck) {
-            // Verify at least one blob is provided
-            require(_numBlobs != 0, ZeroValueNotAllowed("numBlobs"));
-
-            // `blobhash(i)` is the versioned hash of the KZG commitment (EIP-4844),
-            // so it cannot be derived as sha256(batchRoot). We only assert each requested
-            // blob hash is present and store it for proof binding in proofBlockCommitment.
-            bytes32[] storage blobHashes = $.batchBlobHashes[_batchIndex];
-            for (uint256 i = 0; i < _numBlobs; ++i) {
-                bytes32 submittedBlobHash = _getBlobHash(i);
-                require(submittedBlobHash != bytes32(0), ZeroValueNotAllowed("blobHash"));
-                blobHashes.push(submittedBlobHash);
-            }
-        }
-
-        $.acceptedBatchHash[_batchIndex] = batchRoot;
-        $.nextBatchIndex = _batchIndex + 1;
-        $.lastBlockHashInBatch[_batchIndex] = _commitmentBatch[$.batchSize - 1].blockHash;
-        $.acceptedBlock[_batchIndex] = block.number;
-
-        emit BatchAccepted(_batchIndex, batchRoot);
-    }
-
-    /**
-     * @notice Returns the challenge queue.
-     */
-    function getChallengeQueue() public view returns (bytes32[] memory) {
-        RollupStorage storage $ = _getRollupStorage();
-        return $.challengeQueue;
-    }
-
-    /**
-     * @notice Checks if rollup is corrupted.
-     */
-    function rollupCorrupted() external view returns (bool) {
-        return _rollupCorrupted();
-    }
-
-    /**
-     * @dev Checks if the rollup is in a corrupted state.
-     * @return True if the earliest challenged batch has exceeded its challenge deadline without resolution.
-     *
-     * A rollup is considered corrupted when:
-     * - There is at least one challenged batch in the challenge queue, AND
-     * - The current block number has exceeded the challenge deadline for the first challenged batch in queue.
-     */
-    function _rollupCorrupted() internal view returns (bool) {
-        RollupStorage storage $ = _getRollupStorage();
-        if ($.challengeQueue.length == 0 || $.challengeQueueStart >= $.challengeQueue.length) {
-            return false;
-        }
-
-        bytes32 oldestChallenge = $.challengeQueue[$.challengeQueueStart];
-        if (oldestChallenge == bytes32(0)) {
-            return false;
-        }
-
-        return $.challengeDeadline[oldestChallenge] < block.number;
-    }
-
-    /**
-     * @notice Checks if a batch has been accepted.
-     * @param _batchIndex The index of the batch to check.
-     * @return True if the batch has been accepted (i.e., its index is less than the next expected batch index).
-     */
-    function acceptedBatch(uint256 _batchIndex) external view returns (bool) {
-        return _acceptedBatch(_batchIndex);
-    }
-
-    function _acceptedBatch(uint256 _batchIndex) internal view returns (bool) {
-        RollupStorage storage $ = _getRollupStorage();
-        return _batchIndex < $.nextBatchIndex;
-    }
-
-    /**
-     * @notice Checks if a batch has been approved.
-     * @param _batchIndex The index of the batch to check.
-     * @return True if the batch has been approved, either because enough blocks have passed since acceptance,
-     *         or the batch has already been proven.
-     */
-    function approvedBatch(uint256 _batchIndex) external view returns (bool) {
-        return _approvedBatch(_batchIndex);
-    }
-
-    /**
-     * @dev Internal helper to determine whether a batch is approved.
-     * @param _batchIndex The index of the batch.
-     * @return True if:
-     *         - The batch has been accepted, AND
-     *         - Either `approveBlockCount` blocks have passed since the batch was accepted, OR
-     *           the batch has already been proven via zk-SNARK proof.
-     */
-    function _approvedBatch(uint256 _batchIndex) internal view returns (bool) {
-        RollupStorage storage $ = _getRollupStorage();
-        if (!_acceptedBatch(_batchIndex)) {
-            return false;
-        }
-
-        if ($.alreadyApprovedBatch[_batchIndex]) {
-            return true;
-        }
-
-        for (uint256 idx = _batchIndex; idx > 0 && !$.alreadyApprovedBatch[idx]; --idx) {
-            bytes32[] storage earlierChallenged = $.batchChallengedCommitments[idx];
-            for (uint256 j = 0; j < earlierChallenged.length; j++) {
-                if ($.blockCommitmentChallenger[earlierChallenged[j]] != address(0)) {
-                    return false;
-                }
-            }
-        }
-
-        bytes32[] storage challengedCommitments = $.batchChallengedCommitments[_batchIndex];
-        for (uint256 j = 0; j < challengedCommitments.length; j++) {
-            bytes32 commitmentHash = challengedCommitments[j];
-            if ($.blockCommitmentChallenger[commitmentHash] != address(0)) {
-                return false;
-            }
-        }
-
-        return block.number - $.acceptedBlock[_batchIndex] > $.approveBlockCount;
-    }
-
-    /**
-     * @notice Ensures a batch is marked as approved if eligible.
-     * @dev Calls `_approvedBatch` to determine eligibility, and if true,
-     *      sets the approval flag in `alreadyApprovedBatch` for caching.
-     * @param _batchIndex The index of the batch to evaluate.
-     * @return True if the batch is approved (either previously or by this call); false otherwise.
-     */
-    function ensureBatchApproved(uint256 _batchIndex) external returns (bool) {
-        return _ensureBatchApproved(_batchIndex);
-    }
-
-    /**
-     * @dev Internal version of `ensureBatchApproved`.
-     *      Caches the result of `_approvedBatch` by updating `alreadyApprovedBatch` if approved.
-     * @param _batchIndex The index of the batch.
-     * @return True if the batch is approved and cached; false otherwise.
-     */
-    function _ensureBatchApproved(uint256 _batchIndex) internal returns (bool) {
-        RollupStorage storage $ = _getRollupStorage();
-        if (_approvedBatch(_batchIndex)) {
-            $.alreadyApprovedBatch[_batchIndex] = true;
-            return true;
-        }
-        return false;
-    }
-
-    /**
-     * @notice Challenges an unapproved block commitment by providing a deposit.
-     * @dev A block commitment can be challenged only if it is part of an accepted batch and not yet proven.
-     *      The caller must send at least `challengeDepositAmount` in ETH as a deposit.
-     * @param _batchIndex The index of the batch containing the block commitment.
-     * @param _commitmentBatch The block commitment being challenged.
-     * @param _block_proof Merkle proof showing the block commitment is part of the accepted batch.
-     */
-    function challengeBlockCommitment(
-        uint256 _batchIndex,
-        BlockCommitment calldata _commitmentBatch,
-        MerkleTree.MerkleProof calldata _block_proof
-    ) external payable nonReentrant whenNotPaused {
-        RollupStorage storage $ = _getRollupStorage();
-        if (!_acceptedBatch(_batchIndex)) {
-            revert BatchNotAccepted(_batchIndex);
-        }
-
-        bytes32 batchHash = $.acceptedBatchHash[_batchIndex];
-        bytes32 commitmentHash = keccak256(
-            abi.encodePacked(
-                _commitmentBatch.previousBlockHash,
-                _commitmentBatch.blockHash,
-                _commitmentBatch.withdrawalHash,
-                _commitmentBatch.depositHash
-            )
-        );
-
-        // Verify block commitment is part of the batch
-        bool blockValid = MerkleTree.verifyMerkleProof(batchHash, commitmentHash, _block_proof.nonce, _block_proof.proof);
-        if (!blockValid) revert InvalidBlockProof();
-
-        if (_ensureBatchApproved(_batchIndex)) {
-            revert BatchAlreadyApproved(_batchIndex);
-        }
-        if ($.provenBlockCommitment[commitmentHash]) {
-            revert BlockCommitmentAlreadyProofed(commitmentHash);
-        }
-        if ($.blockCommitmentChallenger[commitmentHash] != address(0)) {
-            revert BatchAlreadyChallenged(_batchIndex);
-        }
-
-        if (msg.value < $.challengeDepositAmount) {
-            revert InsufficientChallengeDeposit($.challengeDepositAmount, msg.value);
-        }
-        if (msg.value > $.challengeDepositAmount) {
-            revert ExcessiveChallengeDeposit($.challengeDepositAmount, msg.value);
-        }
-
-        $.challengerDeposit[msg.sender] += msg.value;
-        $.blockCommitmentChallenger[commitmentHash] = msg.sender;
-        $.challengeDeadline[commitmentHash] = block.number + $.challengeBlockCount;
-        $.challengeQueue.push(commitmentHash);
-        $.challengeQueueIndex[commitmentHash] = $.challengeQueue.length;
-        $.batchChallengedCommitments[_batchIndex].push(commitmentHash);
-
-        /// emit event
-    }
-
-    /**
-     * @notice Submits an SP1 proof to finalize and approve a previously accepted block commitment.
-     * @dev Verifies the proof using the configured SP1 verifier and marks the block commitment as proven.
-     *      If the batch was challenged, the challenger's deposit is unlocked for withdrawal.
-     *      This variant verifies the block against the data-availability blob used during batch acceptance.
-     * @param _batchIndex The index of the batch containing the block commitment.
-     * @param _commitmentBatch The block commitment to prove.
-     * @param _blobIndex Index of the blob in the batch's blob list that was used to prove this block.
-     * @param _proof The SP1 proof data.
-     * @param _block_proof Merkle proof showing the block commitment is part of the accepted batch.
-     */
-    function proofBlockCommitment(
-        uint256 _batchIndex,
-        BlockCommitment calldata _commitmentBatch,
-        uint256 _blobIndex,
-        bytes calldata _proof,
-        MerkleTree.MerkleProof calldata _block_proof
-    ) external payable nonReentrant whenNotPaused {
-        RollupStorage storage $ = _getRollupStorage();
-        bytes32 batchHash = $.acceptedBatchHash[_batchIndex];
-        bytes32 commitmentHash = keccak256(
-            abi.encodePacked(
-                _commitmentBatch.previousBlockHash,
-                _commitmentBatch.blockHash,
-                _commitmentBatch.withdrawalHash,
-                _commitmentBatch.depositHash
-            )
-        );
-        if ($.provenBlockCommitment[commitmentHash]) {
-            revert BlockCommitmentAlreadyProofed(commitmentHash);
-        }
-
-        // Verify block commitment is part of the batch
-        bool blockValid = MerkleTree.verifyMerkleProof(batchHash, commitmentHash, _block_proof.nonce, _block_proof.proof);
-        if (!blockValid) revert InvalidBlockProof();
-
-        if ($.daCheck) {
-            // Ensure the provided blob index is within the bounds of the batch's blob hashes
-            bytes32[] storage blobHashes = $.batchBlobHashes[_batchIndex];
-            if (_blobIndex >= blobHashes.length) {
-                revert DaBlobHashMismatch(bytes32(0), bytes32(0));
-            }
-
-            // Bind the SP1 proof to the DA blob that was used for this batch
-            bytes32 blobHash = blobHashes[_blobIndex];
-
-            verifier.verifyProof($.programVKey, _getPublicValuesFromCommitmentAndBlob(_commitmentBatch, blobHash), _proof);
-        } else {
-            // Legacy mode: verify proof only against the block commitment without DA binding.
-            verifier.verifyProof($.programVKey, _getPublicValuesFromCommitment(_commitmentBatch), _proof);
-        }
-
-        address challenger = $.blockCommitmentChallenger[commitmentHash];
-        $.provenBlockCommitment[commitmentHash] = true;
-        delete $.challengeDeadline[commitmentHash];
-        $.provenCommitmentInBatch[_batchIndex].push(commitmentHash);
-
-        if (challenger != address(0)) {
-            $.blockCommitmentChallenger[commitmentHash] = address(0);
-            if ($.challengerDeposit[challenger] >= $.challengeDepositAmount) {
-                $.challengerDeposit[challenger] -= $.challengeDepositAmount;
-                $.proverReadyForWithdrawal[msg.sender] += $.challengeDepositAmount;
-            }
-
-            _removeChallengeFromQueue(commitmentHash);
-
-            // Remove from batch challenged commitments
-            bytes32[] storage challengedCommitments = $.batchChallengedCommitments[_batchIndex];
-            for (uint256 i = 0; i < challengedCommitments.length; i++) {
-                if (challengedCommitments[i] == commitmentHash) {
-                    // Replace with last element and pop
-                    challengedCommitments[i] = challengedCommitments[challengedCommitments.length - 1];
-                    challengedCommitments.pop();
-                    break;
-                }
-            }
-        }
-
-        emit BatchProofed(_batchIndex);
     }
 
     /**
@@ -797,13 +354,12 @@ contract Rollup is IRollupErrors, IRollupEvents, Initializable, ReentrancyGuardU
     function withdrawChallengeDeposit(address payable challenger) external payable nonReentrant whenNotPaused {
         RollupStorage storage $ = _getRollupStorage();
         uint256 amount = $.challengerReadyForWithdrawal[challenger];
-
-        if (amount == 0) revert NothingToWithdraw();
+        require(amount != 0, NothingToWithdraw());
 
         $.challengerReadyForWithdrawal[challenger] = 0;
 
         (bool success, ) = challenger.call{value: amount}("");
-        if (!success) revert EthTransferFailed(challenger, amount);
+        require(success, EthTransferFailed(challenger, amount));
 
         emit ChallengeDepositWithdrawn(challenger, amount);
     }
@@ -814,29 +370,27 @@ contract Rollup is IRollupErrors, IRollupEvents, Initializable, ReentrancyGuardU
     function withdrawProofReward() external nonReentrant whenNotPaused {
         RollupStorage storage $ = _getRollupStorage();
         uint256 amount = $.proverReadyForWithdrawal[msg.sender];
-        if (amount == 0) revert NothingToWithdraw();
+        require(amount != 0, NothingToWithdraw());
 
         $.proverReadyForWithdrawal[msg.sender] = 0;
 
         (bool success, ) = payable(msg.sender).call{value: amount}("");
-        if (!success) revert EthTransferFailed(msg.sender, amount);
+        require(success, EthTransferFailed(msg.sender, amount));
 
         emit ProofRewardWithdrawn(msg.sender, amount);
     }
 
-    function _checkDeposit(BlockCommitment calldata _commitmentBatch, DepositsInBlock calldata depositInBlock) private returns (bool) {
+    function _checkDeposit(BlockCommitment calldata _commitmentBatch, DepositsInBlock calldata depositInBlock) private {
         RollupStorage storage $ = _getRollupStorage();
-        if (_commitmentBatch.blockHash != depositInBlock.blockHash) {
-            revert BlockHashMismatch(_commitmentBatch.blockHash, depositInBlock.blockHash);
-        }
+        require(_commitmentBatch.blockHash == depositInBlock.blockHash, BlockHashMismatch(_commitmentBatch.blockHash, depositInBlock.blockHash));
 
         bytes32[] memory depositIds = new bytes32[](depositInBlock.depositCount);
         for (uint256 i = 0; i < depositInBlock.depositCount; ++i) {
-            bytes32 depositId = FluentBridge($.bridge).popSentMessage();
+            bytes32 depositId = IFluentBridge($.bridge).popSentMessage();
             depositIds[i] = depositId;
         }
 
-        return keccak256(abi.encodePacked(depositIds)) == _commitmentBatch.depositHash;
+        require(keccak256(abi.encodePacked(depositIds)) == _commitmentBatch.depositHash, DepositVerificationFailed(_commitmentBatch.blockHash));
     }
 
     function _cleanQueue() internal {
@@ -863,68 +417,6 @@ contract Rollup is IRollupErrors, IRollupEvents, Initializable, ReentrancyGuardU
         delete $.challengeQueueIndex[commitmentHash];
         if (index == $.challengeQueueStart) {
             _cleanQueue();
-        }
-    }
-
-    function _calculateMerkleRoot(bytes memory _leafs) internal pure returns (bytes32) {
-        uint256 count = _leafs.length / 32;
-
-        if (count == 0) {
-            revert NoLeavesProvided();
-        }
-
-        while (count > 0) {
-            bytes32 hash;
-            bytes32 left;
-            bytes32 right;
-            for (uint256 i = 0; i < count / 2; i++) {
-                assembly {
-                    left := mload(add(add(_leafs, 32), mul(mul(i, 2), 32)))
-                    right := mload(add(add(_leafs, 32), mul(add(mul(i, 2), 1), 32)))
-                }
-                hash = _efficientHash(left, right);
-                assembly {
-                    mstore(add(add(_leafs, 32), mul(i, 32)), hash)
-                }
-            }
-
-            if (count % 2 == 1 && count > 1) {
-                assembly {
-                    left := mload(add(add(_leafs, 32), mul(sub(count, 1), 32)))
-                }
-                hash = _efficientHash(left, left);
-
-                assembly {
-                    mstore(add(add(_leafs, 32), mul(div(sub(count, 1), 2), 32)), hash)
-                }
-                count += 1;
-            }
-
-            count = count / 2;
-        }
-        bytes32 root;
-        assembly {
-            root := mload(add(_leafs, 32))
-        }
-
-        return root;
-    }
-
-    function _efficientHash(bytes32 a, bytes32 b) private pure returns (bytes32 value) {
-        assembly {
-            mstore(0x00, a)
-            mstore(0x20, b)
-            value := keccak256(0x00, 0x40)
-        }
-    }
-
-    /**
-     * @dev Returns the blob hash for the given blob index using the BLOBHASH opcode.
-     * @param index The blob index for the current transaction.
-     */
-    function _getBlobHash(uint256 index) internal view returns (bytes32 blobHash) {
-        assembly {
-            blobHash := blobhash(index)
         }
     }
 }

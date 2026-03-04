@@ -5,7 +5,7 @@ import {FluentBridge as Bridge} from "../../contracts/FluentBridge.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 import {VerifierMock} from "../../contracts/mocks/VerifierMock.sol";
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
-import {SP1Verifier} from "../../contracts/rollup/SP1VerifierGroth16.sol";
+import {SP1Verifier} from "../../contracts/verifier/SP1VerifierGroth16.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 interface Vm {
@@ -86,9 +86,11 @@ abstract contract RollupBase is MinimalTest {
     VerifierMock internal verifierMock;
     SP1Verifier internal verifierSp1;
 
-    function _deployRollupProxy(address initialOwner, Rollup.InitializeParams memory params) internal returns (Rollup) {
+    function _deployRollupProxy(Rollup.InitConfiguration memory params) internal returns (Rollup) {
         Rollup rollupImpl = new Rollup();
-        ERC1967Proxy proxy = new ERC1967Proxy(address(rollupImpl), abi.encodeCall(Rollup.initialize, (initialOwner, params)));
+        if (params.pauser == address(0)) params.pauser = params.admin;
+        bytes memory initData = abi.encodeCall(Rollup.initialize, (abi.encode(params)));
+        ERC1967Proxy proxy = new ERC1967Proxy(address(rollupImpl), initData);
         return Rollup(payable(address(proxy)));
     }
 
@@ -126,8 +128,9 @@ abstract contract RollupBase is MinimalTest {
             address(0x2222)
         );
         rollup = _deployRollupProxy(
-            address(this),
-            Rollup.InitializeParams({
+            Rollup.InitConfiguration({
+                admin: address(this),
+                pauser: address(0),
                 sequencer: SEQUENCER,
                 challengeDepositAmount: challengeDepositAmount_,
                 challengeBlockCount: challengeBlockCount_,
@@ -154,8 +157,9 @@ abstract contract RollupBase is MinimalTest {
     ) internal {
         verifierMock = new VerifierMock();
         rollup = _deployRollupProxy(
-            address(this),
-            Rollup.InitializeParams({
+            Rollup.InitConfiguration({
+                admin: address(this),
+                pauser: address(0),
                 sequencer: SEQUENCER,
                 challengeDepositAmount: challengeDepositAmount_,
                 challengeBlockCount: challengeBlockCount_,
@@ -178,8 +182,9 @@ abstract contract RollupBase is MinimalTest {
         verifierSp1 = new SP1Verifier();
         bridge = _deployBridge(address(this), address(this), address(0), 0, address(0x1111), address(0x2222));
         rollup = _deployRollupProxy(
-            address(this),
-            Rollup.InitializeParams({
+            Rollup.InitConfiguration({
+                admin: address(this),
+                pauser: address(0),
                 sequencer: SEQUENCER,
                 challengeDepositAmount: 10000,
                 challengeBlockCount: 0,

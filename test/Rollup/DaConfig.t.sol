@@ -3,6 +3,7 @@ pragma solidity ^0.8.30;
 
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
 import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {RollupBase, Vm} from "./Base.t.sol";
 
 contract RollupDaConfigTest is RollupBase {
@@ -40,8 +41,8 @@ contract RollupDaConfigTest is RollupBase {
         assertTrue(found, "DaCheckUpdated event was not emitted");
     }
 
-    function test_setDaCheck_revertsForNonOwner() public {
-        vm.expectRevert(abi.encodeWithSelector(bytes4(keccak256("OwnableUnauthorizedAccount(address)")), ATTACKER));
+    function test_setDaCheck_revertsForNonAdmin() public {
+        vm.expectRevert(abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, ATTACKER, bytes32(0)));
         vm.prank(ATTACKER);
         rollup.setDaCheck(true);
     }
@@ -73,7 +74,7 @@ contract RollupDaConfigTest is RollupBase {
 
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "numBlobs"));
         vm.prank(SEQUENCER);
-        rollup.acceptNextBatch(1, batch, new Rollup.DepositsInBlock[](0), 0);
+        rollup.acceptNextBatch(batch, new Rollup.DepositsInBlock[](0), 0);
     }
 
     function test_acceptNextBatch_daCheckRevertsWhenBlobHashIsMissing() public {
@@ -87,6 +88,6 @@ contract RollupDaConfigTest is RollupBase {
 
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "blobHash"));
         vm.prank(SEQUENCER);
-        rollup.acceptNextBatch(1, batch, new Rollup.DepositsInBlock[](0), 1);
+        rollup.acceptNextBatch(batch, new Rollup.DepositsInBlock[](0), 1);
     }
 }

@@ -31,19 +31,11 @@ contract RollupBatchAcceptanceTest is RollupBase {
         bytes32 expectedRoot = rollup.calculateBatchRoot(batch);
 
         vm.prank(SEQUENCER);
-        rollup.acceptNextBatch(1, batch, new Rollup.DepositsInBlock[](0), 0);
+        rollup.acceptNextBatch(batch, new Rollup.DepositsInBlock[](0), 0);
 
         assertEq(rollup.nextBatchIndex(), 2, "next batch index not incremented");
         assertEq(rollup.acceptedBatchHash(1), expectedRoot, "accepted root mismatch");
         assertEq(rollup.lastBlockHashInBatch(1), batch[1].blockHash, "last block hash mismatch");
-    }
-
-    function test_acceptNextBatch_revertsWhenIndexIsInvalid() public {
-        Rollup.BlockCommitment[] memory batch = _buildLinkedBatch(MOCK_GENESIS_HASH);
-
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidBatchIndex.selector, 1, 2));
-        vm.prank(SEQUENCER);
-        rollup.acceptNextBatch(2, batch, new Rollup.DepositsInBlock[](0), 0);
     }
 
     function test_acceptNextBatch_revertsWhenBatchSizeIsInvalid() public {
@@ -52,7 +44,7 @@ contract RollupBatchAcceptanceTest is RollupBase {
 
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidBatchSize.selector, 2, 1));
         vm.prank(SEQUENCER);
-        rollup.acceptNextBatch(1, shortBatch, new Rollup.DepositsInBlock[](0), 0);
+        rollup.acceptNextBatch(shortBatch, new Rollup.DepositsInBlock[](0), 0);
     }
 
     function test_acceptNextBatch_revertsWhenPreviousHashIsWrong() public {
@@ -63,7 +55,7 @@ contract RollupBatchAcceptanceTest is RollupBase {
             abi.encodeWithSelector(IRollupErrors.WrongPreviousBlockHash.selector, MOCK_GENESIS_HASH, wrongPrevHash)
         );
         vm.prank(SEQUENCER);
-        rollup.acceptNextBatch(1, batch, new Rollup.DepositsInBlock[](0), 0);
+        rollup.acceptNextBatch(batch, new Rollup.DepositsInBlock[](0), 0);
     }
 
     function test_acceptNextBatch_revertsWhenBatchSequenceBreaks() public {
@@ -76,6 +68,6 @@ contract RollupBatchAcceptanceTest is RollupBase {
 
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidBlockSequence.selector, 0, blockHash1, badPrev));
         vm.prank(SEQUENCER);
-        rollup.acceptNextBatch(1, batch, new Rollup.DepositsInBlock[](0), 0);
+        rollup.acceptNextBatch(batch, new Rollup.DepositsInBlock[](0), 0);
     }
 }

@@ -22,10 +22,6 @@ contract RollupHandler {
         rollup = _rollup;
     }
 
-    function acceptRollupOwnership() external {
-        rollup.acceptOwnership();
-    }
-
     function commitmentsLength() external view returns (uint256) {
         return trackedCommitmentHashes.length;
     }
@@ -51,7 +47,7 @@ contract RollupHandler {
             depositHash: ZERO_HASH
         });
 
-        try rollup.acceptNextBatch(beforeIndex, batch, new Rollup.DepositsInBlock[](0), 0) {
+        try rollup.acceptNextBatch(batch, new Rollup.DepositsInBlock[](0), 0) {
             trackedCommitments.push(batch[0]);
             trackedBatchIndexes.push(beforeIndex);
             trackedCommitmentHashes.push(

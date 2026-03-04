@@ -154,6 +154,6 @@ contract ERC20RoundtripHappyPathTest is BaseDualFork {
 
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "blobHash"));
         vm.prank(SEQUENCER);
-        l1.rollup.acceptNextBatch(1, batch, new Rollup.DepositsInBlock[](0), 1);
+        l1.rollup.acceptNextBatch(batch, new Rollup.DepositsInBlock[](0), 1);
     }
 }
