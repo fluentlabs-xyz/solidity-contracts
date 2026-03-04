@@ -50,6 +50,7 @@ interface IFluentBridgeEvents {
     );
 
     /// @notice Emitted after a message is received and executed (success or failure).
+    /// @
     event ReceivedMessage(bytes32 messageHash, bool successfulCall, bytes returnData);
 
     /// @notice Emitted when a rollback is triggered (message not received on L2 within deadline).

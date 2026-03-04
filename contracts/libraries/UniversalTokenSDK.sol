@@ -66,7 +66,8 @@ library UniversalTokenSDK {
     ) public pure returns (bytes memory deploymentData) {
         bytes32 nameBytes = stringToBytes32(name);
         bytes32 symbolBytes = stringToBytes32(symbol);
-        deploymentData = _encodeInitialSettingsRustCompatible(nameBytes, symbolBytes, decimals, initialSupply, minter, pauser);
+        deploymentData =
+            _encodeInitialSettingsRustCompatible(nameBytes, symbolBytes, decimals, initialSupply, minter, pauser);
     }
 
     /**
@@ -306,11 +307,7 @@ library UniversalTokenSDK {
 
             // Copy all encoded data
             let copyLen := dataLen
-            for {
-                let i := 0
-            } lt(i, copyLen) {
-                i := add(i, 32)
-            } {
+            for { let i := 0 } lt(i, copyLen) { i := add(i, 32) } {
                 mstore(add(targetPtr, i), mload(add(encodedDataPtr, i)))
             }
         }
@@ -327,7 +324,11 @@ library UniversalTokenSDK {
         uint256 initialSupply,
         address minter,
         address pauser
-    ) public pure returns (bytes memory simpleEncode, uint256 simpleLen, bytes memory structLikeEncode, uint256 structLikeLen) {
+    )
+        public
+        pure
+        returns (bytes memory simpleEncode, uint256 simpleLen, bytes memory structLikeEncode, uint256 structLikeLen)
+    {
         // Simple encoding (what we currently do)
         simpleEncode = abi.encode(name, symbol, decimals, initialSupply, minter, pauser);
         simpleLen = simpleEncode.length;

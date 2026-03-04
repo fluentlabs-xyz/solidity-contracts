@@ -1,0 +1,21 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.30;
+
+import {BaseScript} from "./Base.sol";
+
+/// @notice Sends ETH from the broadcasting account to a recipient.
+/// @dev Environment:
+/// - RECIPIENT (address, required): recipient of the transfer
+/// - AMOUNT_WEI (uint256, optional): amount in wei (default: 0.01 ether)
+contract SendEth is BaseScript {
+    function run() external {
+        address recipient = vm.envAddress("RECIPIENT");
+        uint256 amountWei = vm.envOr("AMOUNT_WEI", uint256(0.01 ether));
+
+        vm.startBroadcast();
+        (bool ok,) = payable(recipient).call{value: amountWei}("");
+        require(ok, "ETH transfer failed");
+        vm.stopBroadcast();
+    }
+}
+

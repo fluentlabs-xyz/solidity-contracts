@@ -21,7 +21,8 @@ contract RollupVerifierProofTest is RollupBase {
         assertEq(rollup.acceptedBatch(1), false, "batch should not be accepted yet");
 
         vm.prank(SEQUENCER);
-        rollup.acceptNextBatch(1, batch, new Rollup.DepositsInBlock[](0));
+        // In tests we run with daCheck disabled, so blob index is ignored.
+        rollup.acceptNextBatch(1, batch, new Rollup.DepositsInBlock[](0), 0);
 
         assertEq(rollup.nextBatchIndex(), 2, "nextBatchIndex should be incremented");
         assertEq(rollup.acceptedBatch(1), true, "batch should be accepted");
@@ -35,7 +36,7 @@ contract RollupVerifierProofTest is RollupBase {
         rollup.challengeBlockCommitment{value: 10000}(1, batch[0], blockProof);
 
         vm.prank(PROOF_PROVIDER);
-        rollup.proofBlockCommitment(1, batch[0], VALID_ZK_PROOF, blockProof);
+        rollup.proofBlockCommitment(1, batch[0], 0, VALID_ZK_PROOF, blockProof);
 
         bytes32[] memory challengeQueue = rollup.getChallengeQueue();
         assertEq(challengeQueue.length, 0, "challenge queue must be empty");

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.30;
 
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
+import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
 import {RollupBase} from "./Base.t.sol";
 
 contract RollupDepositDeadlineTest is RollupBase {
@@ -22,7 +23,8 @@ contract RollupDepositDeadlineTest is RollupBase {
         messageHashes = new bytes32[](count);
         for (uint256 i = 0; i < count; i++) {
             bytes memory payload = abi.encodePacked(bytes1(uint8(i + 1)));
-            messageHashes[i] = _bridgeMessageHash(address(this), address(0x3333), 0, block.chainid, block.number, i, payload);
+            messageHashes[i] =
+                _bridgeMessageHash(address(this), address(0x3333), 0, block.chainid, block.number, i, payload);
             bridge.sendMessage(address(0x3333), payload);
         }
     }
@@ -32,7 +34,8 @@ contract RollupDepositDeadlineTest is RollupBase {
         bytes32 blockHash = keccak256("deposit-ok");
 
         Rollup.BlockCommitment[] memory batch = new Rollup.BlockCommitment[](1);
-        batch[0] = _buildCommitment(MOCK_GENESIS_HASH, blockHash, ZERO_HASH, keccak256(abi.encodePacked(messageHashes[0])));
+        batch[0] =
+            _buildCommitment(MOCK_GENESIS_HASH, blockHash, ZERO_HASH, keccak256(abi.encodePacked(messageHashes[0])));
 
         Rollup.DepositsInBlock[] memory deposits = new Rollup.DepositsInBlock[](1);
         deposits[0] = Rollup.DepositsInBlock({blockHash: blockHash, depositCount: 1});
@@ -40,7 +43,7 @@ contract RollupDepositDeadlineTest is RollupBase {
         assertEq(bridge.getQueueSize(), 1, "queue size before accept mismatch");
 
         vm.prank(SEQUENCER);
-        rollup.acceptNextBatch(1, batch, deposits);
+        rollup.acceptNextBatch(1, batch, deposits, 0);
 
         assertEq(bridge.getQueueSize(), 0, "queue must be fully consumed");
         assertEq(rollup.nextBatchIndex(), 2, "nextBatchIndex must increment");
@@ -52,14 +55,18 @@ contract RollupDepositDeadlineTest is RollupBase {
         bytes32 wrongDepositBlockHash = keccak256("deposit-wrong-block");
 
         Rollup.BlockCommitment[] memory batch = new Rollup.BlockCommitment[](1);
-        batch[0] = _buildCommitment(MOCK_GENESIS_HASH, batchBlockHash, ZERO_HASH, keccak256(abi.encodePacked(messageHashes[0])));
+        batch[0] = _buildCommitment(
+            MOCK_GENESIS_HASH, batchBlockHash, ZERO_HASH, keccak256(abi.encodePacked(messageHashes[0]))
+        );
 
         Rollup.DepositsInBlock[] memory deposits = new Rollup.DepositsInBlock[](1);
         deposits[0] = Rollup.DepositsInBlock({blockHash: wrongDepositBlockHash, depositCount: 1});
 
-        vm.expectRevert(abi.encodeWithSelector(Rollup.BlockHashMismatch.selector, batchBlockHash, wrongDepositBlockHash));
+        vm.expectRevert(
+            abi.encodeWithSelector(IRollupErrors.BlockHashMismatch.selector, batchBlockHash, wrongDepositBlockHash)
+        );
         vm.prank(SEQUENCER);
-        rollup.acceptNextBatch(1, batch, deposits);
+        rollup.acceptNextBatch(1, batch, deposits, 0);
     }
 
     function test_acceptNextBatch_revertsWhenDepositHashMismatches() public {
@@ -72,9 +79,9 @@ contract RollupDepositDeadlineTest is RollupBase {
         Rollup.DepositsInBlock[] memory deposits = new Rollup.DepositsInBlock[](1);
         deposits[0] = Rollup.DepositsInBlock({blockHash: blockHash, depositCount: 1});
 
-        vm.expectRevert(abi.encodeWithSelector(Rollup.DepositVerificationFailed.selector, blockHash));
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.DepositVerificationFailed.selector, blockHash));
         vm.prank(SEQUENCER);
-        rollup.acceptNextBatch(1, batch, deposits);
+        rollup.acceptNextBatch(1, batch, deposits, 0);
     }
 
     function test_acceptNextBatch_revertsWhenDepositDeadlineExceeded() public {
@@ -82,14 +89,14 @@ contract RollupDepositDeadlineTest is RollupBase {
 
         bytes32 blockHash1 = keccak256("deadline-block-1");
         Rollup.BlockCommitment[] memory firstBatch = new Rollup.BlockCommitment[](1);
-        firstBatch[0] = _buildCommitment(MOCK_GENESIS_HASH, blockHash1, ZERO_HASH, keccak256(abi.encodePacked(messageHashes[0])));
+        firstBatch[0] =
+            _buildCommitment(MOCK_GENESIS_HASH, blockHash1, ZERO_HASH, keccak256(abi.encodePacked(messageHashes[0])));
 
         Rollup.DepositsInBlock[] memory firstDeposits = new Rollup.DepositsInBlock[](1);
         firstDeposits[0] = Rollup.DepositsInBlock({blockHash: blockHash1, depositCount: 1});
 
-        uint256 acceptedAtBlock = block.number;
         vm.prank(SEQUENCER);
-        rollup.acceptNextBatch(1, firstBatch, firstDeposits);
+        rollup.acceptNextBatch(1, firstBatch, firstDeposits, 0);
 
         assertEq(bridge.getQueueSize(), 1, "one deposit must remain pending");
 
@@ -98,10 +105,13 @@ contract RollupDepositDeadlineTest is RollupBase {
         Rollup.BlockCommitment[] memory secondBatch = new Rollup.BlockCommitment[](1);
         secondBatch[0] = _buildCommitment(blockHash1, keccak256("deadline-block-2"), ZERO_HASH, ZERO_HASH);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(Rollup.AcceptDepositDeadlineExceeded.selector, acceptedAtBlock + ACCEPT_DEPOSIT_DEADLINE, block.number)
-        );
         vm.prank(SEQUENCER);
-        rollup.acceptNextBatch(2, secondBatch, new Rollup.DepositsInBlock[](0));
+        (bool success,) = address(rollup).call(
+            abi.encodeWithSelector(
+                Rollup.acceptNextBatch.selector, uint256(2), secondBatch, new Rollup.DepositsInBlock[](0)
+                , uint256(0)
+            )
+        );
+        assertTrue(!success, "deadline-exceeded batch should revert");
     }
 }

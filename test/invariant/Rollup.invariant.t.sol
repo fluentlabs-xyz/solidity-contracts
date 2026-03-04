@@ -3,6 +3,7 @@ pragma solidity ^0.8.30;
 
 import {MinimalTest, Rollup, Bridge, VerifierMock} from "../Rollup/Base.t.sol";
 import {RollupHandler} from "./RollupHandler.t.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 contract RollupInvariantTest is MinimalTest {
     bytes32 internal constant MOCK_VK_KEY = 0x00612f9d5a388df116872ff70e36bcb86c7e73b1089f32f68fc8e0d0ba7861b7;
@@ -17,9 +18,38 @@ contract RollupInvariantTest is MinimalTest {
         handler = new RollupHandler();
 
         verifierMock = new VerifierMock();
-        bridge = new Bridge();
-        bridge.initialize(address(this), address(this), address(0), 0, address(0x1111), address(0x2222));
-        rollup = new Rollup(address(handler), 10000, 5000, 1, address(verifierMock), MOCK_VK_KEY, MOCK_GENESIS_HASH, address(bridge), 1, 100, 0);
+        Bridge bridgeImpl = new Bridge();
+        ERC1967Proxy bridgeProxy = new ERC1967Proxy(
+            address(bridgeImpl),
+            abi.encodeCall(
+                Bridge.initialize, (address(this), address(this), address(0), 0, address(0x1111), address(0x2222))
+            )
+        );
+        bridge = Bridge(payable(address(bridgeProxy)));
+        Rollup rollupImpl = new Rollup();
+        ERC1967Proxy rollupProxy = new ERC1967Proxy(
+            address(rollupImpl),
+            abi.encodeCall(
+                Rollup.initialize,
+                (
+                    address(this),
+                    Rollup.InitializeParams({
+                        sequencer: address(handler),
+                        challengeDepositAmount: 10000,
+                        challengeBlockCount: 5000,
+                        approveBlockCount: 1,
+                        verifier: address(verifierMock),
+                        programVKey: MOCK_VK_KEY,
+                        genesisHash: MOCK_GENESIS_HASH,
+                        bridge: address(bridge),
+                        batchSize: 1,
+                        acceptDepositDeadline: 100,
+                        incentiveFee: 0
+                    })
+                )
+            )
+        );
+        rollup = Rollup(payable(address(rollupProxy)));
 
         handler.initialize(rollup);
         rollup.setDaCheck(false);
@@ -96,7 +126,11 @@ contract RollupInvariantTest is MinimalTest {
         for (uint256 i = 0; i < len; i++) {
             bytes32 commitmentHash = handler.commitmentHashAt(i);
             if (rollup.provenBlockCommitment(commitmentHash)) {
-                assertEq(rollup.blockCommitmentChallenger(commitmentHash), address(0), "proven commitment cannot keep active challenger");
+                assertEq(
+                    rollup.blockCommitmentChallenger(commitmentHash),
+                    address(0),
+                    "proven commitment cannot keep active challenger"
+                );
             }
         }
     }

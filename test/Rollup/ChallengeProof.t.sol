@@ -3,6 +3,7 @@ pragma solidity ^0.8.30;
 
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
+import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
 import {RollupBase} from "./Base.t.sol";
 
 contract RollupChallengeProofTest is RollupBase {
@@ -29,7 +30,8 @@ contract RollupChallengeProofTest is RollupBase {
         batch[1] = _buildCommitment(blockHash1, blockHash2, ZERO_HASH, ZERO_HASH);
 
         vm.prank(SEQUENCER);
-        rollup.acceptNextBatch(1, batch, new Rollup.DepositsInBlock[](0));
+        // In tests we run with daCheck disabled, so blob index is ignored.
+        rollup.acceptNextBatch(1, batch, new Rollup.DepositsInBlock[](0), 0);
 
         bytes32 firstLeaf = _commitmentHash(batch[0]);
         bytes32 secondLeaf = _commitmentHash(batch[1]);
@@ -54,7 +56,7 @@ contract RollupChallengeProofTest is RollupBase {
         assertEq(queueAfterChallenge[0], firstCommitmentHash, "wrong challenged hash");
 
         vm.prank(PROOF_PROVIDER);
-        rollup.proofBlockCommitment(1, batch[0], hex"1234", blockProofForFirst);
+        rollup.proofBlockCommitment(1, batch[0], 0, hex"1234", blockProofForFirst);
 
         bytes32[] memory queueAfterProof = rollup.getChallengeQueue();
         assertEq(queueAfterProof.length, 0, "challenge queue should be empty");
@@ -77,7 +79,7 @@ contract RollupChallengeProofTest is RollupBase {
         uint256 proofProviderBefore = PROOF_PROVIDER.balance;
 
         vm.prank(PROOF_PROVIDER);
-        rollup.proofBlockCommitment(1, batch[0], hex"1234", blockProofForFirst);
+        rollup.proofBlockCommitment(1, batch[0], 0, hex"1234", blockProofForFirst);
 
         assertEq(PROOF_PROVIDER.balance, proofProviderBefore, "proof should not push ETH immediately");
         assertEq(rollup.proverReadyForWithdrawal(PROOF_PROVIDER), 10000, "proof reward not accrued");
@@ -122,7 +124,7 @@ contract RollupChallengeProofTest is RollupBase {
         ignoredCommitmentHash;
 
         vm.deal(CHALLENGER, 9999);
-        vm.expectRevert(abi.encodeWithSelector(Rollup.InsufficientChallengeDeposit.selector, 10000, 9999));
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InsufficientChallengeDeposit.selector, 10000, 9999));
         vm.prank(CHALLENGER);
         rollup.challengeBlockCommitment{value: 9999}(1, batch[0], blockProofForFirst);
     }
@@ -136,13 +138,13 @@ contract RollupChallengeProofTest is RollupBase {
         ignoredCommitmentHash;
 
         vm.deal(CHALLENGER, 10001);
-        vm.expectRevert(abi.encodeWithSelector(Rollup.ExcessiveChallengeDeposit.selector, 10000, 10001));
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ExcessiveChallengeDeposit.selector, 10000, 10001));
         vm.prank(CHALLENGER);
         rollup.challengeBlockCommitment{value: 10001}(1, batch[0], blockProofForFirst);
     }
 
     function test_withdrawProofReward_revertsWhenNothingToWithdraw() public {
-        vm.expectRevert(Rollup.NothingToWithdraw.selector);
+        vm.expectRevert(IRollupErrors.NothingToWithdraw.selector);
         vm.prank(PROOF_PROVIDER);
         rollup.withdrawProofReward();
     }

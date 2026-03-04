@@ -16,7 +16,7 @@ This project provides a suite of smart contracts and accompanying tests for impl
 
 The **Bridge Contracts** project focuses on bridging assets and data across blockchains as well as supporting rollup verifications. It includes modules for managing ERC20 token transfers, performing proof verifications, and deploying rollups to improve transaction scalability and network efficiency.
 
-The project uses Solidity for smart contracts and JavaScript for testing and interfacing.
+The project uses Solidity for smart contracts and Foundry for building and testing.
 
 ## Contracts
 
@@ -99,7 +99,7 @@ sequenceDiagram
 Make sure you have the following installed:
 
 - Node.js (`>=16.x.x`) and npm
-- Hardhat development environment
+- Foundry (`forge`, `cast`, `anvil`)
 - Solidity compiler compatible with the above contracts
 
 ## Installation
@@ -114,30 +114,21 @@ yarn install
 
 ## Testing
 
-Run the test suite to ensure all contracts are functioning correctly.
+Run the test suite with Foundry:
 
-### Steps to test:
+```bash
+forge test
+```
 
-1. Install Hardhat dependencies:
-   ```bash
-   yarn install
-   ```
+Useful commands:
 
-2. Execute the test cases:
-   ```bash
-   npx hardhat test
-   ```
-
-3. Execute the e2e test cases:
-   ```bash
-   npx hardhat node
-   npx hardhat node --port 8546
-   npx hardhat test ./test/e2e/SendTokens.js
-   ```
+```bash
+forge build
+forge fmt
+anvil --port 8545
+anvil --port 8546
+```
 
 ### Testing Files
 
-Tests are organized in the following files:
-- **ERC20Gateway.js**: Tests for the `ERC20Gateway.sol` contract.
-- **Bridge.js**: Tests for the `Bridge.sol` contract.
-- **Rollup.js**: Tests for the `Rollup.sol` and related rollup verifier contracts.
+Tests are organized under `test/**/*.t.sol` (unit, invariant, and e2e parity suites).

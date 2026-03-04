@@ -8,3 +8,4 @@
 /forge-cache
 /broadcast
 .env
+/coverage

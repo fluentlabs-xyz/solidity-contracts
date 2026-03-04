@@ -2,8 +2,10 @@
 pragma solidity ^0.8.20;
 
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
+import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
 import {VerifierMock} from "../../contracts/mocks/VerifierMock.sol";
 import {RollupBase} from "./Base.t.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 contract RollupInitializationTest is RollupBase {
     function setUp() public {
@@ -17,7 +19,7 @@ contract RollupInitializationTest is RollupBase {
         });
     }
 
-    function test_constructor_setsInitialState() public view {
+    function test_initialize_setsInitialState() public view {
         assertEq(rollup.sequencer(), SEQUENCER, "sequencer mismatch");
         assertEq(rollup.bridge(), address(bridge), "bridge mismatch");
         assertEq(rollup.programVKey(), MOCK_VK_KEY, "vk mismatch");
@@ -26,32 +28,142 @@ contract RollupInitializationTest is RollupBase {
         assertEq(rollup.lastBlockHashInBatch(0), MOCK_GENESIS_HASH, "genesis hash mismatch");
     }
 
-    function test_constructor_revertsWhenSequencerIsZero() public {
+    function test_initialize_revertsWhenSequencerIsZero() public {
         VerifierMock verifier = new VerifierMock();
-        vm.expectRevert(abi.encodeWithSelector(Rollup.ZeroAddressNotAllowed.selector, "sequencer"));
-        new Rollup(address(0), 10000, 1, 1, address(verifier), MOCK_VK_KEY, MOCK_GENESIS_HASH, address(0x1), 2, 10, 0);
+        Rollup rollupImpl = new Rollup();
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroAddressNotAllowed.selector, "sequencer"));
+        new ERC1967Proxy(
+            address(rollupImpl),
+            abi.encodeCall(
+                Rollup.initialize,
+                (
+                    address(this),
+                    Rollup.InitializeParams({
+                        sequencer: address(0),
+                        challengeDepositAmount: 10000,
+                        challengeBlockCount: 1,
+                        approveBlockCount: 1,
+                        verifier: address(verifier),
+                        programVKey: MOCK_VK_KEY,
+                        genesisHash: MOCK_GENESIS_HASH,
+                        bridge: address(0x1),
+                        batchSize: 2,
+                        acceptDepositDeadline: 10,
+                        incentiveFee: 0
+                    })
+                )
+            )
+        );
     }
 
-    function test_constructor_revertsWhenVerifierIsZero() public {
-        vm.expectRevert(abi.encodeWithSelector(Rollup.ZeroAddressNotAllowed.selector, "verifier"));
-        new Rollup(SEQUENCER, 10000, 1, 1, address(0), MOCK_VK_KEY, MOCK_GENESIS_HASH, address(0x1), 2, 10, 0);
+    function test_initialize_revertsWhenVerifierIsZero() public {
+        Rollup rollupImpl = new Rollup();
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroAddressNotAllowed.selector, "verifier"));
+        new ERC1967Proxy(
+            address(rollupImpl),
+            abi.encodeCall(
+                Rollup.initialize,
+                (
+                    address(this),
+                    Rollup.InitializeParams({
+                        sequencer: SEQUENCER,
+                        challengeDepositAmount: 10000,
+                        challengeBlockCount: 1,
+                        approveBlockCount: 1,
+                        verifier: address(0),
+                        programVKey: MOCK_VK_KEY,
+                        genesisHash: MOCK_GENESIS_HASH,
+                        bridge: address(0x1),
+                        batchSize: 2,
+                        acceptDepositDeadline: 10,
+                        incentiveFee: 0
+                    })
+                )
+            )
+        );
     }
 
-    function test_constructor_revertsWhenProgramVKeyIsZero() public {
+    function test_initialize_revertsWhenProgramVKeyIsZero() public {
         VerifierMock verifier = new VerifierMock();
-        vm.expectRevert(abi.encodeWithSelector(Rollup.ZeroValueNotAllowed.selector, "programVKey"));
-        new Rollup(SEQUENCER, 10000, 1, 1, address(verifier), bytes32(0), MOCK_GENESIS_HASH, address(0x1), 2, 10, 0);
+        Rollup rollupImpl = new Rollup();
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "programVKey"));
+        new ERC1967Proxy(
+            address(rollupImpl),
+            abi.encodeCall(
+                Rollup.initialize,
+                (
+                    address(this),
+                    Rollup.InitializeParams({
+                        sequencer: SEQUENCER,
+                        challengeDepositAmount: 10000,
+                        challengeBlockCount: 1,
+                        approveBlockCount: 1,
+                        verifier: address(verifier),
+                        programVKey: bytes32(0),
+                        genesisHash: MOCK_GENESIS_HASH,
+                        bridge: address(0x1),
+                        batchSize: 2,
+                        acceptDepositDeadline: 10,
+                        incentiveFee: 0
+                    })
+                )
+            )
+        );
     }
 
-    function test_constructor_revertsWhenGenesisHashIsZero() public {
+    function test_initialize_revertsWhenGenesisHashIsZero() public {
         VerifierMock verifier = new VerifierMock();
-        vm.expectRevert(abi.encodeWithSelector(Rollup.ZeroValueNotAllowed.selector, "genesisHash"));
-        new Rollup(SEQUENCER, 10000, 1, 1, address(verifier), MOCK_VK_KEY, bytes32(0), address(0x1), 2, 10, 0);
+        Rollup rollupImpl = new Rollup();
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "genesisHash"));
+        new ERC1967Proxy(
+            address(rollupImpl),
+            abi.encodeCall(
+                Rollup.initialize,
+                (
+                    address(this),
+                    Rollup.InitializeParams({
+                        sequencer: SEQUENCER,
+                        challengeDepositAmount: 10000,
+                        challengeBlockCount: 1,
+                        approveBlockCount: 1,
+                        verifier: address(verifier),
+                        programVKey: MOCK_VK_KEY,
+                        genesisHash: bytes32(0),
+                        bridge: address(0x1),
+                        batchSize: 2,
+                        acceptDepositDeadline: 10,
+                        incentiveFee: 0
+                    })
+                )
+            )
+        );
     }
 
-    function test_constructor_revertsWhenBatchSizeIsZero() public {
+    function test_initialize_revertsWhenBatchSizeIsZero() public {
         VerifierMock verifier = new VerifierMock();
-        vm.expectRevert(abi.encodeWithSelector(Rollup.ZeroValueNotAllowed.selector, "batchSize"));
-        new Rollup(SEQUENCER, 10000, 1, 1, address(verifier), MOCK_VK_KEY, MOCK_GENESIS_HASH, address(0x1), 0, 10, 0);
+        Rollup rollupImpl = new Rollup();
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "batchSize"));
+        new ERC1967Proxy(
+            address(rollupImpl),
+            abi.encodeCall(
+                Rollup.initialize,
+                (
+                    address(this),
+                    Rollup.InitializeParams({
+                        sequencer: SEQUENCER,
+                        challengeDepositAmount: 10000,
+                        challengeBlockCount: 1,
+                        approveBlockCount: 1,
+                        verifier: address(verifier),
+                        programVKey: MOCK_VK_KEY,
+                        genesisHash: MOCK_GENESIS_HASH,
+                        bridge: address(0x1),
+                        batchSize: 0,
+                        acceptDepositDeadline: 10,
+                        incentiveFee: 0
+                    })
+                )
+            )
+        );
     }
 }

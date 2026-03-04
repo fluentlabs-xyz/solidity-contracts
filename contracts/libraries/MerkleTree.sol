@@ -8,7 +8,11 @@ library MerkleTree {
         bytes proof;
     }
 
-    function verifyMerkleProof(bytes32 _root, bytes32 _hash, uint256 _nonce, bytes memory _proof) internal pure returns (bool) {
+    function verifyMerkleProof(bytes32 _root, bytes32 _hash, uint256 _nonce, bytes memory _proof)
+        internal
+        pure
+        returns (bool)
+    {
         require(_proof.length % 32 == 0, "Invalid proof");
         uint256 _length = _proof.length / 32;
 

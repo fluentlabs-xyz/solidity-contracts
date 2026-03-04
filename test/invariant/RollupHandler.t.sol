@@ -51,7 +51,7 @@ contract RollupHandler {
             depositHash: ZERO_HASH
         });
 
-        try rollup.acceptNextBatch(beforeIndex, batch, new Rollup.DepositsInBlock[](0)) {
+        try rollup.acceptNextBatch(beforeIndex, batch, new Rollup.DepositsInBlock[](0), 0) {
             trackedCommitments.push(batch[0]);
             trackedBatchIndexes.push(beforeIndex);
             trackedCommitmentHashes.push(
@@ -96,7 +96,7 @@ contract RollupHandler {
         uint256 index = seed % len;
         MerkleTree.MerkleProof memory blockProof = MerkleTree.MerkleProof({nonce: 0, proof: ""});
 
-        try rollup.proofBlockCommitment(trackedBatchIndexes[index], trackedCommitments[index], hex"1234", blockProof) {} catch {}
+        try rollup.proofBlockCommitment(trackedBatchIndexes[index], trackedCommitments[index], 0, hex"1234", blockProof) {} catch {}
         _recordNextBatchDecrease(beforeIndex, false);
     }
 

@@ -11,6 +11,7 @@ import {VerifierMock} from "../../contracts/mocks/VerifierMock.sol";
 import {L1BlockOracle} from "../../contracts/oracle/L1BlockOracle.sol";
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
 import {MockBlobHashGetter} from "./mocks/MockBlobHashGetter.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 interface VmFork {
     struct Log {
@@ -118,7 +119,30 @@ abstract contract BaseDualFork {
 
         l1.verifier = new VerifierMock();
         l1.oracle = new L1BlockOracle();
-        l1.rollup = new Rollup(SEQUENCER, 10000, 20, 0, address(l1.verifier), MOCK_VK_KEY, MOCK_GENESIS_HASH, address(0), batchSize, 100, 0);
+        Rollup rollupImpl = new Rollup();
+        ERC1967Proxy rollupProxy = new ERC1967Proxy(
+            address(rollupImpl),
+            abi.encodeCall(
+                Rollup.initialize,
+                (
+                    address(this),
+                    Rollup.InitializeParams({
+                        sequencer: SEQUENCER,
+                        challengeDepositAmount: 10000,
+                        challengeBlockCount: 20,
+                        approveBlockCount: 0,
+                        verifier: address(l1.verifier),
+                        programVKey: MOCK_VK_KEY,
+                        genesisHash: MOCK_GENESIS_HASH,
+                        bridge: address(0),
+                        batchSize: batchSize,
+                        acceptDepositDeadline: 100,
+                        incentiveFee: 0
+                    })
+                )
+            )
+        );
+        l1.rollup = Rollup(payable(address(rollupProxy)));
 
         // Deploy FluentBridge implementation (no proxy) and initialize it.
         l1.bridge = new Bridge();
@@ -131,10 +155,9 @@ abstract contract BaseDualFork {
             address(l1.oracle)
         );
         l1.rollup.setBridge(address(l1.bridge));
-        l1.rollup.setDaCheck(true);
+        l1.rollup.setDaCheck(false);
 
         l1BlobHashGetter = new MockBlobHashGetter();
-        l1.rollup.setBlobHashGetter(address(l1BlobHashGetter));
 
         l1.peggedImpl = new ERC20PeggedToken();
 
@@ -220,7 +243,7 @@ abstract contract BaseDualFork {
         _syncDaBlobHashForBatch(batch);
 
         vm.prank(SEQUENCER);
-        l1.rollup.acceptNextBatch(batchIndex, batch, deposits);
+        l1.rollup.acceptNextBatch(batchIndex, batch, deposits, 0);
     }
 
     function _acceptSingleCommitmentBatchL1(

@@ -6,6 +6,7 @@ import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 import {VerifierMock} from "../../contracts/mocks/VerifierMock.sol";
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
 import {SP1Verifier} from "../../contracts/rollup/SP1VerifierGroth16.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 interface Vm {
     struct Log {
@@ -85,6 +86,28 @@ abstract contract RollupBase is MinimalTest {
     VerifierMock internal verifierMock;
     SP1Verifier internal verifierSp1;
 
+    function _deployRollupProxy(address initialOwner, Rollup.InitializeParams memory params) internal returns (Rollup) {
+        Rollup rollupImpl = new Rollup();
+        ERC1967Proxy proxy = new ERC1967Proxy(address(rollupImpl), abi.encodeCall(Rollup.initialize, (initialOwner, params)));
+        return Rollup(payable(address(proxy)));
+    }
+
+    function _deployBridge(
+        address initialOwner,
+        address bridgeAuthority,
+        address rollupAddress,
+        uint256 receiveMessageDeadline,
+        address otherBridge,
+        address l1BlockOracle
+    ) internal returns (Bridge) {
+        Bridge bridgeImpl = new Bridge();
+        ERC1967Proxy proxy = new ERC1967Proxy(
+            address(bridgeImpl),
+            abi.encodeCall(Bridge.initialize, (initialOwner, bridgeAuthority, rollupAddress, receiveMessageDeadline, otherBridge, l1BlockOracle))
+        );
+        return Bridge(payable(address(proxy)));
+    }
+
     function _deployMockRollup(
         uint256 batchSize_,
         uint256 challengeDepositAmount_,
@@ -94,8 +117,7 @@ abstract contract RollupBase is MinimalTest {
         uint256 incentiveFee_
     ) internal {
         verifierMock = new VerifierMock();
-        bridge = new Bridge();
-        bridge.initialize(
+        bridge = _deployBridge(
             address(this),
             address(this), // bridgeAuthority unused in these unit tests
             address(0),
@@ -103,18 +125,21 @@ abstract contract RollupBase is MinimalTest {
             address(0x1111),
             address(0x2222)
         );
-        rollup = new Rollup(
-            SEQUENCER,
-            challengeDepositAmount_,
-            challengeBlockCount_,
-            approveBlockCount_,
-            address(verifierMock),
-            MOCK_VK_KEY,
-            MOCK_GENESIS_HASH,
-            address(bridge),
-            batchSize_,
-            acceptDepositDeadline_,
-            incentiveFee_
+        rollup = _deployRollupProxy(
+            address(this),
+            Rollup.InitializeParams({
+                sequencer: SEQUENCER,
+                challengeDepositAmount: challengeDepositAmount_,
+                challengeBlockCount: challengeBlockCount_,
+                approveBlockCount: approveBlockCount_,
+                verifier: address(verifierMock),
+                programVKey: MOCK_VK_KEY,
+                genesisHash: MOCK_GENESIS_HASH,
+                bridge: address(bridge),
+                batchSize: batchSize_,
+                acceptDepositDeadline: acceptDepositDeadline_,
+                incentiveFee: incentiveFee_
+            })
         );
         rollup.setDaCheck(false);
     }
@@ -128,30 +153,46 @@ abstract contract RollupBase is MinimalTest {
         uint256 incentiveFee_
     ) internal {
         verifierMock = new VerifierMock();
-        rollup = new Rollup(
-            SEQUENCER,
-            challengeDepositAmount_,
-            challengeBlockCount_,
-            approveBlockCount_,
-            address(verifierMock),
-            MOCK_VK_KEY,
-            MOCK_GENESIS_HASH,
-            address(0x1),
-            batchSize_,
-            acceptDepositDeadline_,
-            incentiveFee_
+        rollup = _deployRollupProxy(
+            address(this),
+            Rollup.InitializeParams({
+                sequencer: SEQUENCER,
+                challengeDepositAmount: challengeDepositAmount_,
+                challengeBlockCount: challengeBlockCount_,
+                approveBlockCount: approveBlockCount_,
+                verifier: address(verifierMock),
+                programVKey: MOCK_VK_KEY,
+                genesisHash: MOCK_GENESIS_HASH,
+                bridge: address(0x1),
+                batchSize: batchSize_,
+                acceptDepositDeadline: acceptDepositDeadline_,
+                incentiveFee: incentiveFee_
+            })
         );
-        bridge = new Bridge();
-        bridge.initialize(address(this), address(this), address(rollup), 0, address(0x1111), address(0x2222));
+        bridge = _deployBridge(address(this), address(this), address(rollup), 0, address(0x1111), address(0x2222));
         rollup.setBridge(address(bridge));
         rollup.setDaCheck(false);
     }
 
     function _deploySp1RollupForVerifierPath() internal {
         verifierSp1 = new SP1Verifier();
-        bridge = new Bridge();
-        bridge.initialize(address(this), address(this), address(0), 0, address(0x1111), address(0x2222));
-        rollup = new Rollup(SEQUENCER, 10000, 0, 1, address(verifierSp1), SP1_VK_KEY, SP1_GENESIS_HASH, address(bridge), 1, 10, 1000);
+        bridge = _deployBridge(address(this), address(this), address(0), 0, address(0x1111), address(0x2222));
+        rollup = _deployRollupProxy(
+            address(this),
+            Rollup.InitializeParams({
+                sequencer: SEQUENCER,
+                challengeDepositAmount: 10000,
+                challengeBlockCount: 0,
+                approveBlockCount: 1,
+                verifier: address(verifierSp1),
+                programVKey: SP1_VK_KEY,
+                genesisHash: SP1_GENESIS_HASH,
+                bridge: address(bridge),
+                batchSize: 1,
+                acceptDepositDeadline: 10,
+                incentiveFee: 1000
+            })
+        );
         rollup.setDaCheck(false);
     }
 

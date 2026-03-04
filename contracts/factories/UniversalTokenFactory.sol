@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity 0.8.30;
 
 import {GenericTokenFactory} from "./GenericTokenFactory.sol";
 import {IGenericTokenFactory} from "../interfaces/IGenericTokenFactory.sol";
@@ -13,6 +13,8 @@ import {UniversalTokenSDK} from "../libraries/UniversalTokenSDK.sol";
  *      chainId in keyData must match block.chainid for canonical per-chain deployment.
  */
 contract UniversalTokenFactory is GenericTokenFactory {
+    error TokenDeploymentFailed();
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -36,14 +38,14 @@ contract UniversalTokenFactory is GenericTokenFactory {
         return tokenAddress;
     }
 
-    // /// @dev Subclasses implement: decode keyData/deployArgs and return predicted token address (via SDK).
-    // function _computeTokenAddressView(bytes calldata keyData, bytes calldata deployArgs) internal view override returns (address) {
-    //     (address originToken, uint256 chainId) = _decodeKeyData(keyData);
-    //     (string memory name, string memory symbol, uint8 decimals, uint256 initialSupply, address minter, address pauser) = _decodeDeployArgs(
-    //         deployArgs
-    //     );
-    //     return _computeAddressWithSDK(originToken, chainId, name, symbol, decimals, initialSupply, minter, pauser);
-    // }
+    /// @inheritdoc GenericTokenFactory
+    function _computeTokenAddress(bytes calldata keyData, bytes calldata deployArgs) internal view override returns (address) {
+        (address originToken, uint256 chainId) = _decodeKeyData(keyData);
+        (string memory name, string memory symbol, uint8 decimals, uint256 initialSupply, address minter, address pauser) = _decodeDeployArgs(
+            deployArgs
+        );
+        return _computeAddressWithSDK(originToken, chainId, name, symbol, decimals, initialSupply, minter, pauser);
+    }
 
     /// @dev Salt for CREATE2 (must match SDK: keccak256(BRIDGE_TOKEN_PREFIX ++ originToken ++ chainId))
     function _bridgeTokenSalt(address originToken, uint256 chainId) internal pure returns (bytes32) {
@@ -89,10 +91,8 @@ contract UniversalTokenFactory is GenericTokenFactory {
 
         assembly {
             tokenAddress := create2(0, add(deploymentData, 0x20), mload(deploymentData), salt)
-            if iszero(tokenAddress) {
-                revert(0, 0)
-            }
         }
+        require(tokenAddress != address(0), TokenDeploymentFailed());
 
         _setBridgedToken(_originToken, tokenAddress);
         _setTokenInfo(tokenAddress, TokenInfo({originToken: _originToken, chainId: chainId, deployed: true}));

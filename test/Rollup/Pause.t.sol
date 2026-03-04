@@ -42,7 +42,7 @@ contract RollupPauseTest is RollupBase {
 
         vm.expectRevert(bytes4(keccak256("EnforcedPause()")));
         vm.prank(SEQUENCER);
-        rollup.acceptNextBatch(1, batch, new Rollup.DepositsInBlock[](0));
+        rollup.acceptNextBatch(1, batch, new Rollup.DepositsInBlock[](0), 0);
     }
 
     function test_acceptNextBatch_worksAfterUnpause() public {
@@ -52,7 +52,7 @@ contract RollupPauseTest is RollupBase {
         rollup.unpause();
 
         vm.prank(SEQUENCER);
-        rollup.acceptNextBatch(1, batch, new Rollup.DepositsInBlock[](0));
+        rollup.acceptNextBatch(1, batch, new Rollup.DepositsInBlock[](0), 0);
 
         assertEq(rollup.nextBatchIndex(), 2, "batch not accepted after unpause");
     }

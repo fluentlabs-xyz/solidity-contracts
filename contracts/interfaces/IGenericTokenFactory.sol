@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity 0.8.30;
 
 interface IGenericTokenFactoryErrors {
     /// @dev Thrown when the gateway is invalid.
@@ -53,6 +53,14 @@ interface IGenericTokenFactory is IGenericTokenFactoryErrors {
     }
 
     /**
+     * @notice Deploys a bridged/pegged token
+     * @param keyData Factory-specific key (same encoding as computeTokenAddress)
+     * @param deployArgs Optional deployment params (empty for ERC20; for Universal: name, symbol, decimals, initialSupply, minter, pauser)
+     * @return Address of the deployed token
+     */
+    function deployToken(bytes calldata keyData, bytes calldata deployArgs) external returns (address);
+
+    /**
      * @notice Computes the address of a bridged/pegged token
      * @param keyData Factory-specific key (e.g. abi.encode(gateway, originToken) or abi.encode(originToken, chainId))
      * @param deployArgs Optional deployment params (empty for ERC20; for Universal: name, symbol, decimals, initialSupply, minter, pauser)
@@ -69,10 +77,10 @@ interface IGenericTokenFactory is IGenericTokenFactoryErrors {
     function computePeggedTokenAddress(bytes calldata keyData, bytes calldata deployArgs) external view returns (address);
 
     /**
-     * @notice Deploys a bridged/pegged token
-     * @param keyData Factory-specific key (same encoding as computeTokenAddress)
+     * @notice Alias of computeTokenAddress kept for cross-side gateway naming compatibility.
+     * @param keyData Factory-specific key (e.g. abi.encode(gateway, originToken) or abi.encode(originToken, chainId))
      * @param deployArgs Optional deployment params (empty for ERC20; for Universal: name, symbol, decimals, initialSupply, minter, pauser)
-     * @return Address of the deployed token
+     * @return Predicted pegged token address
      */
-    function deployToken(bytes calldata keyData, bytes calldata deployArgs) external returns (address);
+    function computeOtherSidePeggedTokenAddress(bytes calldata keyData, bytes calldata deployArgs) external view returns (address);
 }

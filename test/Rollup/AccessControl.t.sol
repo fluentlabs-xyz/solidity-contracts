@@ -32,9 +32,6 @@ contract RollupAccessControlTest is RollupBase {
         rollup.setBridge(address(0x9999));
         assertEq(rollup.bridge(), address(0x9999), "bridge update failed");
 
-        rollup.setBlobHashGetter(address(0x7777));
-        assertEq(rollup.blobHashGetter(), address(0x7777), "blob hash getter update failed");
-
         VerifierMock newVerifier = new VerifierMock();
         rollup.updateVerifier(address(newVerifier));
 
@@ -58,10 +55,6 @@ contract RollupAccessControlTest is RollupBase {
 
         vm.expectRevert(abi.encodeWithSelector(OWNABLE_UNAUTHORIZED_SELECTOR, ATTACKER));
         vm.prank(ATTACKER);
-        rollup.setBlobHashGetter(address(0x7777));
-
-        vm.expectRevert(abi.encodeWithSelector(OWNABLE_UNAUTHORIZED_SELECTOR, ATTACKER));
-        vm.prank(ATTACKER);
         rollup.setDaCheck(true);
 
         vm.expectRevert(abi.encodeWithSelector(OWNABLE_UNAUTHORIZED_SELECTOR, ATTACKER));
@@ -80,8 +73,8 @@ contract RollupAccessControlTest is RollupBase {
     function test_nonSequencer_revertsOnAcceptNextBatch() public {
         Rollup.BlockCommitment[] memory batch = _buildValidBatch(MOCK_GENESIS_HASH);
 
-        vm.expectRevert(bytes("call only by sequencer"));
+        vm.expectRevert(bytes4(keccak256("OnlySequencer()")));
         vm.prank(ATTACKER);
-        rollup.acceptNextBatch(1, batch, new Rollup.DepositsInBlock[](0));
+        rollup.acceptNextBatch(1, batch, new Rollup.DepositsInBlock[](0), 0);
     }
 }

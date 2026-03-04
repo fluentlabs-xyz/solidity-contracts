@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity 0.8.30;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
@@ -9,11 +9,12 @@ import {IGenericTokenFactory} from "../interfaces/IGenericTokenFactory.sol";
  * @title GenericTokenFactory
  * @notice Base contract for upgradeable token factories used by the bridge
  * @dev Provides common storage (ERC-7201), events, and IGenericTokenFactory delegation.
- *      Subclasses implement _computeTokenAddressView and deployToken; base exposes computeTokenAddress.
+ *      Subclasses implement _computeTokenAddress and deployToken; base exposes computeTokenAddress.
  */
 abstract contract GenericTokenFactory is Initializable, Ownable2StepUpgradeable, IGenericTokenFactory {
     /// @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.GenericTokenFactoryStorage")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant GENERIC_TOKEN_FACTORY_STORAGE_LOCATION = 0x2e7141bc12ac0a34646003e28ce36e2b4a5ec6dcb16986fae278c46570192200;
+    /// @notice returns the storage pointer for the GenericTokenFactoryStorage struct.
 
     function _getGenericTokenFactoryStorage() private pure returns (GenericTokenFactoryStorage storage $) {
         assembly {
@@ -47,17 +48,24 @@ abstract contract GenericTokenFactory is Initializable, Ownable2StepUpgradeable,
 
     /// @inheritdoc IGenericTokenFactory
     function computeTokenAddress(bytes calldata keyData, bytes calldata deployArgs) external view virtual override returns (address) {
-        //  return _computeTokenAddressView(keyData, deployArgs);
-        return address(0);
+        return _computeTokenAddress(keyData, deployArgs);
     }
 
     /// @inheritdoc IGenericTokenFactory
     function computePeggedTokenAddress(bytes calldata keyData, bytes calldata deployArgs) external view virtual override returns (address) {
-        return address(0);
+        return _computeTokenAddress(keyData, deployArgs);
+    }
+
+    /// @inheritdoc IGenericTokenFactory
+    function computeOtherSidePeggedTokenAddress(
+        bytes calldata keyData,
+        bytes calldata deployArgs
+    ) external view virtual override returns (address) {
+        return _computeTokenAddress(keyData, deployArgs);
     }
 
     /// @dev Subclasses implement: decode keyData/deployArgs and return predicted token address.
-    //  function _computeTokenAddressView(bytes calldata keyData, bytes calldata deployArgs) internal view virtual returns (address);
+    function _computeTokenAddress(bytes calldata keyData, bytes calldata deployArgs) internal view virtual returns (address);
 
     /// @dev Subclasses use this to update bridged token storage (ERC-7201).
     function _setBridgedToken(address l1Token, address l2Token) internal {

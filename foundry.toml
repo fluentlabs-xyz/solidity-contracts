@@ -1,7 +1,7 @@
 [profile.default]
 cache_path = "forge-cache"
-evm_version = "paris"
-libs = ["node_modules"]
+evm_version = "cancun"
+libs = ["node_modules", "lib"]
 optimizer = true
 optimizer_runs = 200
 out = "forge-out"

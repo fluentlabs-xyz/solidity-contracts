@@ -26,7 +26,8 @@ contract ERC20TokenFactoryTest is FactoryTestBase {
         peggedImplementation = new ERC20PeggedToken();
 
         ERC20TokenFactory factoryImplementation = new ERC20TokenFactory();
-        bytes memory initData = abi.encodeCall(ERC20TokenFactory.initialize, (address(this), address(peggedImplementation)));
+        bytes memory initData =
+            abi.encodeCall(ERC20TokenFactory.initialize, (address(this), address(peggedImplementation)));
         factory = ERC20TokenFactory(address(new ERC1967Proxy(address(factoryImplementation), initData)));
     }
 
@@ -72,7 +73,10 @@ contract ERC20TokenFactoryTest is FactoryTestBase {
 
         bool found;
         for (uint256 i = 0; i < logs.length; i++) {
-            if (logs[i].emitter == address(factory) && logs[i].topics.length == 3 && logs[i].topics[0] == TOKEN_DEPLOYED_SIG) {
+            if (
+                logs[i].emitter == address(factory) && logs[i].topics.length == 3
+                    && logs[i].topics[0] == TOKEN_DEPLOYED_SIG
+            ) {
                 assertEq(address(uint160(uint256(logs[i].topics[1]))), ORIGIN_TOKEN, "origin token topic mismatch");
                 assertEq(address(uint160(uint256(logs[i].topics[2]))), deployed, "deployed token topic mismatch");
                 found = true;
@@ -114,7 +118,8 @@ contract ERC20TokenFactoryTest is FactoryTestBase {
     }
 
     function testComputeOtherSidePeggedTokenAddressMatchesManualCompute() public view {
-        address computed = factory.computeOtherSidePeggedTokenAddress(GATEWAY, ORIGIN_TOKEN, factory.beacon(), address(factory));
+        address computed =
+            factory.computeOtherSidePeggedTokenAddress(GATEWAY, ORIGIN_TOKEN, factory.beacon(), address(factory));
         address local = factory.computePeggedTokenAddress(GATEWAY, ORIGIN_TOKEN);
 
         assertEq(computed, local, "cross-side compute should match local compute with same params");

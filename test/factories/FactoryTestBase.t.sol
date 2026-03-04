@@ -1,19 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.30;
 
-interface Vm {
-    struct Log {
-        bytes32[] topics;
-        bytes data;
-        address emitter;
-    }
-
-    function prank(address msgSender) external;
-    function expectRevert(bytes calldata revertData) external;
-    function expectRevert(bytes4 revertData) external;
-    function recordLogs() external;
-    function getRecordedLogs() external returns (Log[] memory);
-}
+import {Vm} from "../Rollup/Base.t.sol";
 
 abstract contract FactoryTestBase {
     Vm internal constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));

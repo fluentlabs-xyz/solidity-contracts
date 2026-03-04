@@ -13,7 +13,9 @@ contract UniversalTokenFactoryHarness is UniversalTokenFactory {
     }
 
     function setTokenInfoForTest(address tokenAddress, address l1Token, uint256 chainId, bool deployed) external {
-        _setTokenInfo(tokenAddress, IGenericTokenFactory.TokenInfo({originToken: l1Token, chainId: chainId, deployed: deployed}));
+        _setTokenInfo(
+            tokenAddress, IGenericTokenFactory.TokenInfo({originToken: l1Token, chainId: chainId, deployed: deployed})
+        );
     }
 }
 
