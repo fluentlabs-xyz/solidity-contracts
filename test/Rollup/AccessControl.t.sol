@@ -2,6 +2,7 @@
 pragma solidity ^0.8.30;
 
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
+import {RollupStorageLayout} from "../../contracts/rollup/RollupStorage.sol";
 import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
 import {VerifierMock} from "../../contracts/mocks/VerifierMock.sol";
 import {RollupBase} from "./Base.t.sol";
@@ -20,8 +21,8 @@ contract RollupAccessControlTest is RollupBase {
         });
     }
 
-    function _buildValidBatch(bytes32 prevHash) internal pure returns (Rollup.BlockCommitment[] memory batch) {
-        batch = new Rollup.BlockCommitment[](2);
+    function _buildValidBatch(bytes32 prevHash) internal pure returns (RollupStorageLayout.BlockCommitment[] memory batch) {
+        batch = new RollupStorageLayout.BlockCommitment[](2);
         bytes32 blockHash1 = keccak256("acl-1");
         bytes32 blockHash2 = keccak256("acl-2");
 
@@ -34,7 +35,7 @@ contract RollupAccessControlTest is RollupBase {
         assertEq(rollup.bridge(), address(0x9999), "bridge update failed");
 
         VerifierMock newVerifier = new VerifierMock();
-        rollup.updateVerifier(address(newVerifier));
+        rollup.setVerifier(address(newVerifier));
 
         rollup.setDaCheck(true);
 
@@ -52,7 +53,7 @@ contract RollupAccessControlTest is RollupBase {
 
         vm.expectRevert(abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, ATTACKER, bytes32(0)));
         vm.prank(ATTACKER);
-        rollup.updateVerifier(address(0x8888));
+        rollup.setVerifier(address(0x8888));
 
         vm.expectRevert(abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, ATTACKER, bytes32(0)));
         vm.prank(ATTACKER);
@@ -72,10 +73,10 @@ contract RollupAccessControlTest is RollupBase {
     }
 
     function test_nonSequencer_revertsOnAcceptNextBatch() public {
-        Rollup.BlockCommitment[] memory batch = _buildValidBatch(MOCK_GENESIS_HASH);
+        RollupStorageLayout.BlockCommitment[] memory batch = _buildValidBatch(MOCK_GENESIS_HASH);
 
         vm.expectRevert(IRollupErrors.OnlySequencer.selector);
         vm.prank(ATTACKER);
-        rollup.acceptNextBatch(batch, new Rollup.DepositsInBlock[](0), 0);
+        rollup.acceptNextBatch(batch, new RollupStorageLayout.DepositsInBlock[](0), 0);
     }
 }

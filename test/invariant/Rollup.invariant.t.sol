@@ -2,6 +2,7 @@
 pragma solidity ^0.8.30;
 
 import {MinimalTest, Rollup, Bridge, VerifierMock} from "../Rollup/Base.t.sol";
+import {RollupStorageLayout} from "../../contracts/rollup/RollupStorage.sol";
 import {RollupHandler} from "./RollupHandler.t.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
@@ -27,7 +28,7 @@ contract RollupInvariantTest is MinimalTest {
         );
         bridge = Bridge(payable(address(bridgeProxy)));
         Rollup rollupImpl = new Rollup();
-        Rollup.InitConfiguration memory initParams = Rollup.InitConfiguration({
+        RollupStorageLayout.InitConfiguration memory initParams = RollupStorageLayout.InitConfiguration({
             admin: address(this),
             pauser: address(0),
             sequencer: address(handler),
@@ -40,7 +41,9 @@ contract RollupInvariantTest is MinimalTest {
             bridge: address(bridge),
             batchSize: 1,
             acceptDepositDeadline: 100,
-            incentiveFee: 0
+            incentiveFee: 0,
+            challenger: address(0),
+            prover: address(0)
         });
         ERC1967Proxy rollupProxy = new ERC1967Proxy(
             address(rollupImpl),

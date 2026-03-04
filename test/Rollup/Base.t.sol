@@ -5,6 +5,7 @@ import {FluentBridge as Bridge} from "../../contracts/FluentBridge.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 import {VerifierMock} from "../../contracts/mocks/VerifierMock.sol";
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
+import {RollupStorageLayout} from "../../contracts/rollup/RollupStorage.sol";
 import {SP1Verifier} from "../../contracts/verifier/SP1VerifierGroth16.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
@@ -86,7 +87,7 @@ abstract contract RollupBase is MinimalTest {
     VerifierMock internal verifierMock;
     SP1Verifier internal verifierSp1;
 
-    function _deployRollupProxy(Rollup.InitConfiguration memory params) internal returns (Rollup) {
+    function _deployRollupProxy(RollupStorageLayout.InitConfiguration memory params) internal returns (Rollup) {
         Rollup rollupImpl = new Rollup();
         if (params.pauser == address(0)) params.pauser = params.admin;
         bytes memory initData = abi.encodeCall(Rollup.initialize, (abi.encode(params)));
@@ -128,7 +129,7 @@ abstract contract RollupBase is MinimalTest {
             address(0x2222)
         );
         rollup = _deployRollupProxy(
-            Rollup.InitConfiguration({
+            RollupStorageLayout.InitConfiguration({
                 admin: address(this),
                 pauser: address(0),
                 sequencer: SEQUENCER,
@@ -141,7 +142,9 @@ abstract contract RollupBase is MinimalTest {
                 bridge: address(bridge),
                 batchSize: batchSize_,
                 acceptDepositDeadline: acceptDepositDeadline_,
-                incentiveFee: incentiveFee_
+                incentiveFee: incentiveFee_,
+                challenger: CHALLENGER,
+                prover: PROOF_PROVIDER
             })
         );
         rollup.setDaCheck(false);
@@ -157,7 +160,7 @@ abstract contract RollupBase is MinimalTest {
     ) internal {
         verifierMock = new VerifierMock();
         rollup = _deployRollupProxy(
-            Rollup.InitConfiguration({
+            RollupStorageLayout.InitConfiguration({
                 admin: address(this),
                 pauser: address(0),
                 sequencer: SEQUENCER,
@@ -170,7 +173,9 @@ abstract contract RollupBase is MinimalTest {
                 bridge: address(0x1),
                 batchSize: batchSize_,
                 acceptDepositDeadline: acceptDepositDeadline_,
-                incentiveFee: incentiveFee_
+                incentiveFee: incentiveFee_,
+                challenger: CHALLENGER,
+                prover: PROOF_PROVIDER
             })
         );
         bridge = _deployBridge(address(this), address(this), address(rollup), 0, address(0x1111), address(0x2222));
@@ -182,7 +187,7 @@ abstract contract RollupBase is MinimalTest {
         verifierSp1 = new SP1Verifier();
         bridge = _deployBridge(address(this), address(this), address(0), 0, address(0x1111), address(0x2222));
         rollup = _deployRollupProxy(
-            Rollup.InitConfiguration({
+            RollupStorageLayout.InitConfiguration({
                 admin: address(this),
                 pauser: address(0),
                 sequencer: SEQUENCER,
@@ -195,7 +200,9 @@ abstract contract RollupBase is MinimalTest {
                 bridge: address(bridge),
                 batchSize: 1,
                 acceptDepositDeadline: 10,
-                incentiveFee: 1000
+                incentiveFee: 1000,
+                challenger: CHALLENGER,
+                prover: PROOF_PROVIDER
             })
         );
         rollup.setDaCheck(false);
@@ -206,8 +213,8 @@ abstract contract RollupBase is MinimalTest {
         bytes32 blockHash,
         bytes32 withdrawalHash,
         bytes32 depositHash
-    ) internal pure returns (Rollup.BlockCommitment memory commitment) {
-        commitment = Rollup.BlockCommitment({
+    ) internal pure returns (RollupStorageLayout.BlockCommitment memory commitment) {
+        commitment = RollupStorageLayout.BlockCommitment({
             previousBlockHash: previousBlockHash,
             blockHash: blockHash,
             withdrawalHash: withdrawalHash,
@@ -215,7 +222,7 @@ abstract contract RollupBase is MinimalTest {
         });
     }
 
-    function _commitmentHash(Rollup.BlockCommitment memory commitment) internal pure returns (bytes32) {
+    function _commitmentHash(RollupStorageLayout.BlockCommitment memory commitment) internal pure returns (bytes32) {
         return
             keccak256(abi.encodePacked(commitment.previousBlockHash, commitment.blockHash, commitment.withdrawalHash, commitment.depositHash));
     }

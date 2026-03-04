@@ -3,6 +3,7 @@ pragma solidity ^0.8.30;
 
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
+import {RollupStorageLayout} from "../../contracts/rollup/RollupStorage.sol";
 import {RollupBase} from "./Base.t.sol";
 
 contract RollupVerifierProofTest is RollupBase {
@@ -14,7 +15,7 @@ contract RollupVerifierProofTest is RollupBase {
     }
 
     function test_acceptChallengeAndProve_withSp1Verifier() public {
-        Rollup.BlockCommitment[] memory batch = new Rollup.BlockCommitment[](1);
+        RollupStorageLayout.BlockCommitment[] memory batch = new RollupStorageLayout.BlockCommitment[](1);
         bytes32 blockHash = 0x931c2be30add0b25a64c8b07103fe5ffdab5b58d0ca095c9e6259bfe740fff13;
         batch[0] = _buildCommitment(SP1_GENESIS_HASH, blockHash, ZERO_HASH, ZERO_HASH);
 
@@ -22,7 +23,7 @@ contract RollupVerifierProofTest is RollupBase {
 
         vm.prank(SEQUENCER);
         // In tests we run with daCheck disabled, so blob index is ignored.
-        rollup.acceptNextBatch(batch, new Rollup.DepositsInBlock[](0), 0);
+        rollup.acceptNextBatch(batch, new RollupStorageLayout.DepositsInBlock[](0), 0);
 
         assertEq(rollup.nextBatchIndex(), 2, "nextBatchIndex should be incremented");
         assertEq(rollup.acceptedBatch(1), true, "batch should be accepted");

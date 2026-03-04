@@ -3,6 +3,7 @@ pragma solidity ^0.8.30;
 
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
+import {RollupStorageLayout} from "../../contracts/rollup/RollupStorage.sol";
 
 contract RollupHandler {
     bytes32 internal constant ZERO_HASH = 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
@@ -11,7 +12,7 @@ contract RollupHandler {
     uint256 public illegalNextBatchDecreaseCount;
 
     uint256 internal entropyNonce;
-    Rollup.BlockCommitment[] internal trackedCommitments;
+    RollupStorageLayout.BlockCommitment[] internal trackedCommitments;
     uint256[] internal trackedBatchIndexes;
     bytes32[] internal trackedCommitmentHashes;
 
@@ -39,15 +40,15 @@ contract RollupHandler {
         bytes32 prevHash = rollup.lastBlockHashInBatch(beforeIndex - 1);
         bytes32 blockHash = keccak256(abi.encodePacked(address(this), entropyNonce++, salt));
 
-        Rollup.BlockCommitment[] memory batch = new Rollup.BlockCommitment[](1);
-        batch[0] = Rollup.BlockCommitment({
+        RollupStorageLayout.BlockCommitment[] memory batch = new RollupStorageLayout.BlockCommitment[](1);
+        batch[0] = RollupStorageLayout.BlockCommitment({
             previousBlockHash: prevHash,
             blockHash: blockHash,
             withdrawalHash: ZERO_HASH,
             depositHash: ZERO_HASH
         });
 
-        try rollup.acceptNextBatch(batch, new Rollup.DepositsInBlock[](0), 0) {
+        try rollup.acceptNextBatch(batch, new RollupStorageLayout.DepositsInBlock[](0), 0) {
             trackedCommitments.push(batch[0]);
             trackedBatchIndexes.push(beforeIndex);
             trackedCommitmentHashes.push(

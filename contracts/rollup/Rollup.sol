@@ -1,15 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
-import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
-import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
-
 import {MerkleTree} from "../libraries/MerkleTree.sol";
 import {RollupStorageLayout} from "./RollupStorage.sol";
 
-import {IRollup} from "../interfaces/IRollup.sol";
+import {IRollupWrite} from "../interfaces/IRollup.sol";
 import {IVerifier} from "../interfaces/IVerifier.sol";
 import {IFluentBridge} from "../interfaces/IFluentBridge.sol";
 
@@ -18,13 +13,7 @@ import {IFluentBridge} from "../interfaces/IFluentBridge.sol";
  * @dev This contract implements a rollup system with features such as batch acceptance, deposit verification,
  * proof submission, and challenge mechanisms. It interacts with a Bridge contract and a verifier for SP1 proof validation.
  */
-contract Rollup is RollupStorageLayout, IRollup {
-    modifier onlySequencer() {
-        RollupStorage storage $ = _getRollupStorage();
-        require(msg.sender == $.sequencer, OnlySequencer());
-        _;
-    }
-
+contract Rollup is RollupStorageLayout, IRollupWrite {
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -51,7 +40,7 @@ contract Rollup is RollupStorageLayout, IRollup {
         BlockCommitment[] calldata _commitmentBatch,
         DepositsInBlock[] calldata depositsInBlocks,
         uint256 _numBlobs
-    ) external payable onlySequencer whenNotPaused {
+    ) external payable onlyRole(SEQUENCER_ROLE) whenNotPaused {
         RollupStorage storage $ = _getRollupStorage();
         require(depositsInBlocks.length <= _commitmentBatch.length, InvalidDepositsArrayLength());
         uint256 _batchIndex = $.nextBatchIndex;
@@ -136,6 +125,7 @@ contract Rollup is RollupStorageLayout, IRollup {
         RollupStorage storage $ = _getRollupStorage();
         require(_acceptedBatch(_batchIndex), BatchNotAccepted(_batchIndex));
 
+        address challenger = _msgSender();
         bytes32 batchHash = $.acceptedBatchHash[_batchIndex];
         bytes32 commitmentHash = keccak256(
             abi.encodePacked(
@@ -156,15 +146,14 @@ contract Rollup is RollupStorageLayout, IRollup {
 
         require(msg.value >= $.challengeDepositAmount, InsufficientChallengeDeposit($.challengeDepositAmount, msg.value));
         require(msg.value <= $.challengeDepositAmount, ExcessiveChallengeDeposit($.challengeDepositAmount, msg.value));
-
-        $.challengerDeposit[msg.sender] += msg.value;
-        $.blockCommitmentChallenger[commitmentHash] = msg.sender;
+        $.challengerDeposit[challenger] += msg.value;
+        $.blockCommitmentChallenger[commitmentHash] = challenger;
         $.challengeDeadline[commitmentHash] = block.number + $.challengeBlockCount;
         $.challengeQueue.push(commitmentHash);
         $.challengeQueueIndex[commitmentHash] = $.challengeQueue.length;
         $.batchChallengedCommitments[_batchIndex].push(commitmentHash);
 
-        /// emit event
+        emit BlockCommitmentChallenged(_batchIndex, commitmentHash, challenger);
     }
 
     /**
@@ -300,50 +289,29 @@ contract Rollup is RollupStorageLayout, IRollup {
     }
 
     /**
-     * @dev Encodes all block commitment fields as public values for proof verification.
-     * @param _commitment The block commitment structure.
-     * @return The encoded public values.
+     * @notice Ensures a batch is marked as approved if eligible.
+     * @dev Calls `_approvedBatch` to determine eligibility, and if true,
+     *      sets the approval flag in `alreadyApprovedBatch` for caching.
+     * @param _batchIndex The index of the batch to evaluate.
+     * @return True if the batch is approved (either previously or by this call); false otherwise.
      */
-    function _getPublicValuesFromCommitment(BlockCommitment calldata _commitment) internal pure returns (bytes memory) {
-        bytes memory publicValues = new bytes(160); // 4 * 32 bytes + 4 * 8 bytes for length
-
-        publicValues[0] = 0x20;
-        publicValues[40] = 0x20;
-        publicValues[80] = 0x20;
-        publicValues[120] = 0x20;
-
-        for (uint256 i = 0; i < 32; i++) {
-            publicValues[8 + i] = _commitment.previousBlockHash[i];
-            publicValues[48 + i] = _commitment.blockHash[i];
-            publicValues[88 + i] = _commitment.withdrawalHash[i];
-            publicValues[128 + i] = _commitment.depositHash[i];
-        }
-
-        return publicValues;
+    function ensureBatchApproved(uint256 _batchIndex) external returns (bool) {
+        return _ensureBatchApproved(_batchIndex);
     }
 
     /**
-     * @dev Encodes blob hash together with all block commitment fields as public values for SP1 proof verification.
-     * @param _commitment The block commitment structure.
-     * @param _blobHash The blob hash used for this block's data availability.
-     * @return The encoded public values.
+     * @dev Internal version of `ensureBatchApproved`.
+     *      Caches the result of `_approvedBatch` by updating `alreadyApprovedBatch` if approved.
+     * @param _batchIndex The index of the batch.
+     * @return True if the batch is approved and cached; false otherwise.
      */
-    function _getPublicValuesFromCommitmentAndBlob(
-        BlockCommitment calldata _commitment,
-        bytes32 _blobHash
-    ) internal pure returns (bytes memory) {
-        // Layout: blobHash || previousBlockHash || blockHash || withdrawalHash || depositHash
-        bytes memory publicValues = new bytes(160);
-
-        for (uint256 i = 0; i < 32; i++) {
-            publicValues[i] = _blobHash[i];
-            publicValues[32 + i] = _commitment.previousBlockHash[i];
-            publicValues[64 + i] = _commitment.blockHash[i];
-            publicValues[96 + i] = _commitment.withdrawalHash[i];
-            publicValues[128 + i] = _commitment.depositHash[i];
+    function _ensureBatchApproved(uint256 _batchIndex) internal returns (bool) {
+        RollupStorage storage $ = _getRollupStorage();
+        if (_approvedBatch(_batchIndex)) {
+            $.alreadyApprovedBatch[_batchIndex] = true;
+            return true;
         }
-
-        return publicValues;
+        return false;
     }
 
     /**
@@ -369,15 +337,16 @@ contract Rollup is RollupStorageLayout, IRollup {
      */
     function withdrawProofReward() external nonReentrant whenNotPaused {
         RollupStorage storage $ = _getRollupStorage();
-        uint256 amount = $.proverReadyForWithdrawal[msg.sender];
+        address prover = _msgSender();
+        uint256 amount = $.proverReadyForWithdrawal[prover];
         require(amount != 0, NothingToWithdraw());
 
-        $.proverReadyForWithdrawal[msg.sender] = 0;
+        $.proverReadyForWithdrawal[prover] = 0;
 
-        (bool success, ) = payable(msg.sender).call{value: amount}("");
-        require(success, EthTransferFailed(msg.sender, amount));
+        (bool success, ) = payable(prover).call{value: amount}("");
+        require(success, EthTransferFailed(prover, amount));
 
-        emit ProofRewardWithdrawn(msg.sender, amount);
+        emit ProofRewardWithdrawn(prover, amount);
     }
 
     function _checkDeposit(BlockCommitment calldata _commitmentBatch, DepositsInBlock calldata depositInBlock) private {

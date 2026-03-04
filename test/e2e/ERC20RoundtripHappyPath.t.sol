@@ -5,7 +5,7 @@ pragma solidity ^0.8.30;
 
 import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
-import {Rollup} from "../../contracts/rollup/Rollup.sol";
+import {RollupStorageLayout} from "../../contracts/rollup/RollupStorage.sol";
 import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
 import {IFluentBridge} from "../../contracts/interfaces/IFluentBridge.sol";
 import {BaseDualFork, VmFork} from "./BaseDualFork.t.sol";
@@ -57,9 +57,9 @@ contract ERC20RoundtripHappyPathTest is BaseDualFork {
         _switchToL1();
         _assertOnL1();
         bytes32 batch1BlockHash = keccak256("L1-BATCH-1");
-        Rollup.BlockCommitment memory batch1Commitment =
+        RollupStorageLayout.BlockCommitment memory batch1Commitment =
             _buildCommitment(MOCK_GENESIS_HASH, batch1BlockHash, l2ToL1.messageHash, ZERO_HASH);
-        _acceptSingleCommitmentBatchL1(1, batch1Commitment, new Rollup.DepositsInBlock[](0));
+        _acceptSingleCommitmentBatchL1(1, batch1Commitment, new RollupStorageLayout.DepositsInBlock[](0));
 
         // Step 3: L1 bridge processes proven withdrawal and mints pegged token.
         vm.roll(block.number + 1);
@@ -123,11 +123,11 @@ contract ERC20RoundtripHappyPathTest is BaseDualFork {
         _assertOnL1();
         bytes32 batch2BlockHash = keccak256("L1-BATCH-2");
         bytes32 depositHash = keccak256(abi.encodePacked(l1ToL2.messageHash));
-        Rollup.BlockCommitment memory batch2Commitment =
+        RollupStorageLayout.BlockCommitment memory batch2Commitment =
             _buildCommitment(batch1Commitment.blockHash, batch2BlockHash, ZERO_HASH, depositHash);
 
-        Rollup.DepositsInBlock[] memory deposits = new Rollup.DepositsInBlock[](1);
-        deposits[0] = Rollup.DepositsInBlock({blockHash: batch2BlockHash, depositCount: 1});
+        RollupStorageLayout.DepositsInBlock[] memory deposits = new RollupStorageLayout.DepositsInBlock[](1);
+        deposits[0] = RollupStorageLayout.DepositsInBlock({blockHash: batch2BlockHash, depositCount: 1});
         _acceptSingleCommitmentBatchL1(2, batch2Commitment, deposits);
 
         // Step 7: Verify final invariants for balances, queue state, and message status.
@@ -149,11 +149,11 @@ contract ERC20RoundtripHappyPathTest is BaseDualFork {
         _switchToL1();
         _assertOnL1();
 
-        Rollup.BlockCommitment[] memory batch = new Rollup.BlockCommitment[](1);
+        RollupStorageLayout.BlockCommitment[] memory batch = new RollupStorageLayout.BlockCommitment[](1);
         batch[0] = _buildCommitment(MOCK_GENESIS_HASH, keccak256("DA-MISMATCH-BLOCK"), ZERO_HASH, ZERO_HASH);
 
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "blobHash"));
         vm.prank(SEQUENCER);
-        l1.rollup.acceptNextBatch(batch, new Rollup.DepositsInBlock[](0), 1);
+        l1.rollup.acceptNextBatch(batch, new RollupStorageLayout.DepositsInBlock[](0), 1);
     }
 }

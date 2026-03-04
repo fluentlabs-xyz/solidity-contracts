@@ -2,12 +2,11 @@
 pragma solidity 0.8.30;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
-import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 
-import {IVerifier} from "../interfaces/IVerifier.sol";
-import {IRollupEvents, IRollupErrors} from "../interfaces/IRollup.sol";
+import {IRollupEvents, IRollupErrors, IRollupRead} from "../interfaces/IRollup.sol";
 
 /**
  *
@@ -18,11 +17,14 @@ contract RollupStorageLayout is
     AccessControlUpgradeable,
     PausableUpgradeable,
     IRollupEvents,
-    IRollupErrors
+    IRollupErrors,
+    IRollupRead
 {
     // ============ Roles ============
 
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
+
+    bytes32 public constant SEQUENCER_ROLE = keccak256("SEQUENCER_ROLE");
 
     bytes32 public constant CHALLENGER_ROLE = keccak256("CHALLENGER_ROLE");
 
@@ -38,7 +40,6 @@ contract RollupStorageLayout is
     bytes32 private constant ROLLUP_STORAGE_LOCATION = 0x3c5cb8ff22ae9906a910cecced8ac84ef594b2ee1cab438e85f81b70bddcc700;
 
     struct RollupStorage {
-        address sequencer;
         address bridge;
         /// @dev zk-SNARK verifier instance.
         address verifier;
@@ -119,8 +120,8 @@ contract RollupStorageLayout is
         _grantRole(PAUSER_ROLE, params.pauser != address(0) ? params.pauser : params.admin);
         _grantRole(CHALLENGER_ROLE, params.challenger != address(0) ? params.challenger : params.admin);
         _grantRole(PROVER_ROLE, params.prover != address(0) ? params.prover : params.admin);
+        _grantRole(SEQUENCER_ROLE, params.sequencer != address(0) ? params.sequencer : params.admin);
 
-        $.sequencer = params.sequencer;
         $.challengeDepositAmount = params.challengeDepositAmount;
         $.challengeBlockCount = params.challengeBlockCount;
         $.approveBlockCount = params.approveBlockCount;
@@ -136,10 +137,6 @@ contract RollupStorageLayout is
     }
 
     // ========= Storage View Getters =========
-
-    function sequencer() public view returns (address) {
-        return _getRollupStorage().sequencer;
-    }
 
     function bridge() public view returns (address) {
         return _getRollupStorage().bridge;
@@ -291,32 +288,6 @@ contract RollupStorageLayout is
     }
 
     /**
-     * @notice Ensures a batch is marked as approved if eligible.
-     * @dev Calls `_approvedBatch` to determine eligibility, and if true,
-     *      sets the approval flag in `alreadyApprovedBatch` for caching.
-     * @param _batchIndex The index of the batch to evaluate.
-     * @return True if the batch is approved (either previously or by this call); false otherwise.
-     */
-    function ensureBatchApproved(uint256 _batchIndex) external returns (bool) {
-        return _ensureBatchApproved(_batchIndex);
-    }
-
-    /**
-     * @dev Internal version of `ensureBatchApproved`.
-     *      Caches the result of `_approvedBatch` by updating `alreadyApprovedBatch` if approved.
-     * @param _batchIndex The index of the batch.
-     * @return True if the batch is approved and cached; false otherwise.
-     */
-    function _ensureBatchApproved(uint256 _batchIndex) internal returns (bool) {
-        RollupStorage storage $ = _getRollupStorage();
-        if (_approvedBatch(_batchIndex)) {
-            $.alreadyApprovedBatch[_batchIndex] = true;
-            return true;
-        }
-        return false;
-    }
-
-    /**
      * @notice Checks if a batch has been approved.
      * @param _batchIndex The index of the batch to check.
      * @return True if the batch has been approved, either because enough blocks have passed since acceptance,
@@ -353,6 +324,53 @@ contract RollupStorageLayout is
         }
 
         return block.number - $.acceptedBlock[_batchIndex] > $.approveBlockCount;
+    }
+
+    /**
+     * @dev Encodes all block commitment fields as public values for proof verification.
+     * @param _commitment The block commitment structure.
+     * @return The encoded public values.
+     */
+    function _getPublicValuesFromCommitment(BlockCommitment calldata _commitment) internal pure returns (bytes memory) {
+        bytes memory publicValues = new bytes(160); // 4 * 32 bytes + 4 * 8 bytes for length
+
+        publicValues[0] = 0x20;
+        publicValues[40] = 0x20;
+        publicValues[80] = 0x20;
+        publicValues[120] = 0x20;
+
+        for (uint256 i = 0; i < 32; i++) {
+            publicValues[8 + i] = _commitment.previousBlockHash[i];
+            publicValues[48 + i] = _commitment.blockHash[i];
+            publicValues[88 + i] = _commitment.withdrawalHash[i];
+            publicValues[128 + i] = _commitment.depositHash[i];
+        }
+
+        return publicValues;
+    }
+
+    /**
+     * @dev Encodes blob hash together with all block commitment fields as public values for SP1 proof verification.
+     * @param _commitment The block commitment structure.
+     * @param _blobHash The blob hash used for this block's data availability.
+     * @return The encoded public values.
+     */
+    function _getPublicValuesFromCommitmentAndBlob(
+        BlockCommitment calldata _commitment,
+        bytes32 _blobHash
+    ) internal pure returns (bytes memory) {
+        // Layout: blobHash || previousBlockHash || blockHash || withdrawalHash || depositHash
+        bytes memory publicValues = new bytes(160);
+
+        for (uint256 i = 0; i < 32; i++) {
+            publicValues[i] = _blobHash[i];
+            publicValues[32 + i] = _commitment.previousBlockHash[i];
+            publicValues[64 + i] = _commitment.blockHash[i];
+            publicValues[96 + i] = _commitment.withdrawalHash[i];
+            publicValues[128 + i] = _commitment.depositHash[i];
+        }
+
+        return publicValues;
     }
 
     // ========= Storage Setters =========

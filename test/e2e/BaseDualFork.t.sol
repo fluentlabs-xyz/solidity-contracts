@@ -10,6 +10,7 @@ import {MockERC20Token} from "../../contracts/mocks/MockERC20.sol";
 import {VerifierMock} from "../../contracts/mocks/VerifierMock.sol";
 import {L1BlockOracle} from "../../contracts/oracle/L1BlockOracle.sol";
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
+import {RollupStorageLayout} from "../../contracts/rollup/RollupStorage.sol";
 import {MockBlobHashGetter} from "./mocks/MockBlobHashGetter.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
@@ -120,7 +121,7 @@ abstract contract BaseDualFork {
         l1.verifier = new VerifierMock();
         l1.oracle = new L1BlockOracle();
         Rollup rollupImpl = new Rollup();
-        Rollup.InitConfiguration memory initParams = Rollup.InitConfiguration({
+        RollupStorageLayout.InitConfiguration memory initParams = RollupStorageLayout.InitConfiguration({
             admin: address(this),
             pauser: address(0),
             sequencer: SEQUENCER,
@@ -133,7 +134,9 @@ abstract contract BaseDualFork {
             bridge: address(0),
             batchSize: batchSize,
             acceptDepositDeadline: 100,
-            incentiveFee: 0
+            incentiveFee: 0,
+            challenger: address(0),
+            prover: address(0)
         });
         ERC1967Proxy rollupProxy = new ERC1967Proxy(
             address(rollupImpl),
@@ -212,8 +215,8 @@ abstract contract BaseDualFork {
         bytes32 blockHash,
         bytes32 withdrawalHash,
         bytes32 depositHash
-    ) internal pure returns (Rollup.BlockCommitment memory commitment) {
-        commitment = Rollup.BlockCommitment({
+    ) internal pure returns (RollupStorageLayout.BlockCommitment memory commitment) {
+        commitment = RollupStorageLayout.BlockCommitment({
             previousBlockHash: previousBlockHash,
             blockHash: blockHash,
             withdrawalHash: withdrawalHash,
@@ -225,7 +228,7 @@ abstract contract BaseDualFork {
         return MerkleTree.MerkleProof({nonce: 0, proof: ""});
     }
 
-    function _syncDaBlobHashForBatch(Rollup.BlockCommitment[] memory batch) internal {
+    function _syncDaBlobHashForBatch(RollupStorageLayout.BlockCommitment[] memory batch) internal {
         // Keep DA check fail-closed by setting expected blob hash before acceptance.
         _assertOnL1();
         bytes32 batchRoot = l1.rollup.calculateBatchRoot(batch);
@@ -233,7 +236,7 @@ abstract contract BaseDualFork {
         l1BlobHashGetter.setBlobHash(expectedBlobHash);
     }
 
-    function _acceptBatchL1(uint256 batchIndex, Rollup.BlockCommitment[] memory batch, Rollup.DepositsInBlock[] memory deposits) internal {
+    function _acceptBatchL1(uint256 batchIndex, RollupStorageLayout.BlockCommitment[] memory batch, RollupStorageLayout.DepositsInBlock[] memory deposits) internal {
         // Accepting a batch mutates rollup state and may consume bridge queue deposits.
         _switchToL1();
         _assertOnL1();
@@ -245,20 +248,20 @@ abstract contract BaseDualFork {
 
     function _acceptSingleCommitmentBatchL1(
         uint256 batchIndex,
-        Rollup.BlockCommitment memory commitment,
-        Rollup.DepositsInBlock[] memory deposits
+        RollupStorageLayout.BlockCommitment memory commitment,
+        RollupStorageLayout.DepositsInBlock[] memory deposits
     ) internal {
-        Rollup.BlockCommitment[] memory batch = new Rollup.BlockCommitment[](1);
+        RollupStorageLayout.BlockCommitment[] memory batch = new RollupStorageLayout.BlockCommitment[](1);
         batch[0] = commitment;
         _acceptBatchL1(batchIndex, batch, deposits);
     }
 
-    function _commitmentHash(Rollup.BlockCommitment memory commitment) internal pure returns (bytes32) {
+    function _commitmentHash(RollupStorageLayout.BlockCommitment memory commitment) internal pure returns (bytes32) {
         return
             keccak256(abi.encodePacked(commitment.previousBlockHash, commitment.blockHash, commitment.withdrawalHash, commitment.depositHash));
     }
 
-    function _buildBlockProof(Rollup.BlockCommitment[] memory batch, uint256 index) internal pure returns (MerkleTree.MerkleProof memory) {
+    function _buildBlockProof(RollupStorageLayout.BlockCommitment[] memory batch, uint256 index) internal pure returns (MerkleTree.MerkleProof memory) {
         require(index < batch.length, "proof index out of range");
 
         bytes32[] memory level = new bytes32[](batch.length);

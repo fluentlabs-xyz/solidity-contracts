@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
+import {RollupStorageLayout} from "../../contracts/rollup/RollupStorage.sol";
 import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
 import {VerifierMock} from "../../contracts/mocks/VerifierMock.sol";
 import {RollupBase} from "./Base.t.sol";
@@ -32,7 +33,7 @@ contract RollupInitializationTest is RollupBase {
         VerifierMock verifier = new VerifierMock();
         Rollup rollupImpl = new Rollup();
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroAddressNotAllowed.selector, "admin"));
-        Rollup.InitConfiguration memory params = Rollup.InitConfiguration({
+        RollupStorageLayout.InitConfiguration memory params = RollupStorageLayout.InitConfiguration({
             admin: address(0),
             pauser: address(0),
             sequencer: SEQUENCER,
@@ -45,7 +46,9 @@ contract RollupInitializationTest is RollupBase {
             bridge: address(0x1),
             batchSize: 2,
             acceptDepositDeadline: 10,
-            incentiveFee: 0
+            incentiveFee: 0,
+            challenger: address(0),
+            prover: address(0)
         });
         new ERC1967Proxy(address(rollupImpl), abi.encodeCall(Rollup.initialize, (abi.encode(params))));
     }
@@ -54,7 +57,7 @@ contract RollupInitializationTest is RollupBase {
         VerifierMock verifier = new VerifierMock();
         Rollup rollupImpl = new Rollup();
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroAddressNotAllowed.selector, "sequencer"));
-        Rollup.InitConfiguration memory params = Rollup.InitConfiguration({
+        RollupStorageLayout.InitConfiguration memory params = RollupStorageLayout.InitConfiguration({
             admin: address(this),
             pauser: address(0),
             sequencer: address(0),
@@ -67,7 +70,9 @@ contract RollupInitializationTest is RollupBase {
             bridge: address(0x1),
             batchSize: 2,
             acceptDepositDeadline: 10,
-            incentiveFee: 0
+            incentiveFee: 0,
+            challenger: address(0),
+            prover: address(0)
         });
         new ERC1967Proxy(address(rollupImpl), abi.encodeCall(Rollup.initialize, (abi.encode(params))));
     }
@@ -75,7 +80,7 @@ contract RollupInitializationTest is RollupBase {
     function test_initialize_revertsWhenVerifierIsZero() public {
         Rollup rollupImpl = new Rollup();
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroAddressNotAllowed.selector, "verifier"));
-        Rollup.InitConfiguration memory params = Rollup.InitConfiguration({
+        RollupStorageLayout.InitConfiguration memory params = RollupStorageLayout.InitConfiguration({
             admin: address(this),
             pauser: address(0),
             sequencer: SEQUENCER,
@@ -88,7 +93,9 @@ contract RollupInitializationTest is RollupBase {
             bridge: address(0x1),
             batchSize: 2,
             acceptDepositDeadline: 10,
-            incentiveFee: 0
+            incentiveFee: 0,
+            challenger: address(0),
+            prover: address(0)
         });
         new ERC1967Proxy(address(rollupImpl), abi.encodeCall(Rollup.initialize, (abi.encode(params))));
     }
@@ -97,7 +104,7 @@ contract RollupInitializationTest is RollupBase {
         VerifierMock verifier = new VerifierMock();
         Rollup rollupImpl = new Rollup();
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "programVKey"));
-        Rollup.InitConfiguration memory params = Rollup.InitConfiguration({
+        RollupStorageLayout.InitConfiguration memory params = RollupStorageLayout.InitConfiguration({
             admin: address(this),
             pauser: address(0),
             sequencer: SEQUENCER,
@@ -110,7 +117,9 @@ contract RollupInitializationTest is RollupBase {
             bridge: address(0x1),
             batchSize: 2,
             acceptDepositDeadline: 10,
-            incentiveFee: 0
+            incentiveFee: 0,
+            challenger: address(0),
+            prover: address(0)
         });
         new ERC1967Proxy(address(rollupImpl), abi.encodeCall(Rollup.initialize, (abi.encode(params))));
     }
@@ -119,7 +128,7 @@ contract RollupInitializationTest is RollupBase {
         VerifierMock verifier = new VerifierMock();
         Rollup rollupImpl = new Rollup();
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "genesisHash"));
-        Rollup.InitConfiguration memory params = Rollup.InitConfiguration({
+        RollupStorageLayout.InitConfiguration memory params = RollupStorageLayout.InitConfiguration({
             admin: address(this),
             pauser: address(0),
             sequencer: SEQUENCER,
@@ -132,7 +141,9 @@ contract RollupInitializationTest is RollupBase {
             bridge: address(0x1),
             batchSize: 2,
             acceptDepositDeadline: 10,
-            incentiveFee: 0
+            incentiveFee: 0,
+            challenger: address(0),
+            prover: address(0)
         });
         new ERC1967Proxy(address(rollupImpl), abi.encodeCall(Rollup.initialize, (abi.encode(params))));
     }
@@ -141,7 +152,7 @@ contract RollupInitializationTest is RollupBase {
         VerifierMock verifier = new VerifierMock();
         Rollup rollupImpl = new Rollup();
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "batchSize"));
-        Rollup.InitConfiguration memory params = Rollup.InitConfiguration({
+        RollupStorageLayout.InitConfiguration memory params = RollupStorageLayout.InitConfiguration({
             admin: address(this),
             pauser: address(0),
             sequencer: SEQUENCER,
@@ -154,7 +165,9 @@ contract RollupInitializationTest is RollupBase {
             bridge: address(0x1),
             batchSize: 0,
             acceptDepositDeadline: 10,
-            incentiveFee: 0
+            incentiveFee: 0,
+            challenger: address(0),
+            prover: address(0)
         });
         new ERC1967Proxy(address(rollupImpl), abi.encodeCall(Rollup.initialize, (abi.encode(params))));
     }
