@@ -3,6 +3,7 @@ pragma solidity ^0.8.0;
 
 import {Rollup} from "../rollup/Rollup.sol";
 import {MerkleTree} from "../libraries/MerkleTree.sol";
+import {RollupStorageLayout} from "../rollup/RollupStorage.sol";
 
 interface IBridgeErrorCodes {
     /// @dev Thrown when the caller is not the bridge authority.
@@ -158,7 +159,7 @@ interface IFluentBridge is IBridgeErrorCodes, IFluentBridgeEvents {
      */
     function receiveMessageWithProof(
         uint256 _batchIndex,
-        Rollup.BlockCommitment calldata _commitmentBatch,
+        RollupStorageLayout.BlockCommitment calldata _commitmentBatch,
         address _from,
         address payable _to,
         uint256 _value,
@@ -187,7 +188,7 @@ interface IFluentBridge is IBridgeErrorCodes, IFluentBridgeEvents {
      */
     function rollbackMessageWithProof(
         uint256 _batchIndex,
-        Rollup.BlockCommitment calldata _commitmentBatch,
+        RollupStorageLayout.BlockCommitment calldata _commitmentBatch,
         address _from,
         address _to,
         uint256 _value,

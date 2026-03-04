@@ -7,6 +7,7 @@ import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 import {MockERC20Token} from "../../contracts/mocks/MockERC20.sol";
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
+import {RollupStorageLayout} from "../../contracts/rollup/RollupStorage.sol";
 import {IFluentBridge} from "../../contracts/interfaces/IFluentBridge.sol";
 import {BaseDualFork, VmFork} from "./BaseDualFork.t.sol";
 
@@ -25,18 +26,18 @@ contract AcceptBatchParityTest is BaseDualFork {
 
         // Step 2: Accept two withdrawal batches on L1 with DA enabled.
         (
-            Rollup.BlockCommitment[] memory withdrawBatchA,
-            Rollup.BlockCommitment[] memory withdrawBatchB,
+            RollupStorageLayout.BlockCommitment[] memory withdrawBatchA,
+            RollupStorageLayout.BlockCommitment[] memory withdrawBatchB,
             bytes32 lastHashAfterWithdrawals
         ) = _buildWithdrawalBatchesFromMessages(l2ToL1, MOCK_GENESIS_HASH);
 
         _switchToL1();
         _assertOnL1();
-        _acceptBatchL1(1, withdrawBatchA, new Rollup.DepositsInBlock[](0));
+        _acceptBatchL1(1, withdrawBatchA, new RollupStorageLayout.DepositsInBlock[](0));
         bytes32 expectedRootA = l1.rollup.calculateBatchRoot(withdrawBatchA);
         assertEq(l1.rollup.acceptedBatchHash(1), expectedRootA, "accepted root mismatch for batch A");
 
-        _acceptBatchL1(2, withdrawBatchB, new Rollup.DepositsInBlock[](0));
+        _acceptBatchL1(2, withdrawBatchB, new RollupStorageLayout.DepositsInBlock[](0));
         bytes32 expectedRootB = l1.rollup.calculateBatchRoot(withdrawBatchB);
         assertEq(l1.rollup.acceptedBatchHash(2), expectedRootB, "accepted root mismatch for batch B");
         assertEq(l1.rollup.nextBatchIndex(), 3, "nextBatchIndex must move after two withdrawal batches");
@@ -79,9 +80,9 @@ contract AcceptBatchParityTest is BaseDualFork {
         }
 
         // Step 5: Accept two deposit batches and consume full L1 queue.
-        (Rollup.BlockCommitment[] memory depositBatchA, Rollup.BlockCommitment[] memory depositBatchB) =
+        (RollupStorageLayout.BlockCommitment[] memory depositBatchA, RollupStorageLayout.BlockCommitment[] memory depositBatchB) =
             _buildDepositBatchesFromMessages(l1ToL2, lastHashAfterWithdrawals);
-        (Rollup.DepositsInBlock[] memory depositsA, Rollup.DepositsInBlock[] memory depositsB) =
+        (RollupStorageLayout.DepositsInBlock[] memory depositsA, RollupStorageLayout.DepositsInBlock[] memory depositsB) =
             _buildDepositsForBatches(depositBatchA, depositBatchB);
 
         _switchToL1();
@@ -135,9 +136,9 @@ contract AcceptBatchParityTest is BaseDualFork {
         }
 
         // Step 3: Accept two deposit batches and assert queue transitions 8 -> 4 -> 0.
-        (Rollup.BlockCommitment[] memory depositBatchA, Rollup.BlockCommitment[] memory depositBatchB) =
+        (RollupStorageLayout.BlockCommitment[] memory depositBatchA, RollupStorageLayout.BlockCommitment[] memory depositBatchB) =
             _buildDepositBatchesFromMessages(l1ToL2, MOCK_GENESIS_HASH);
-        (Rollup.DepositsInBlock[] memory depositsA, Rollup.DepositsInBlock[] memory depositsB) =
+        (RollupStorageLayout.DepositsInBlock[] memory depositsA, RollupStorageLayout.DepositsInBlock[] memory depositsB) =
             _buildDepositsForBatches(depositBatchA, depositBatchB);
 
         _switchToL1();
@@ -195,17 +196,17 @@ contract AcceptBatchParityTest is BaseDualFork {
     function _buildWithdrawalBatchesFromMessages(SentMessageData[] memory messages, bytes32 initialPrevHash)
         internal
         pure
-        returns (Rollup.BlockCommitment[] memory batchA, Rollup.BlockCommitment[] memory batchB, bytes32 lastHash)
+        returns (RollupStorageLayout.BlockCommitment[] memory batchA, RollupStorageLayout.BlockCommitment[] memory batchB, bytes32 lastHash)
     {
         // Side effect: prepares deterministic withdrawal commitments for two sequential batches.
         require(messages.length == MESSAGE_COUNT, "unexpected message count");
-        batchA = new Rollup.BlockCommitment[](BATCH_SIZE);
-        batchB = new Rollup.BlockCommitment[](BATCH_SIZE);
+        batchA = new RollupStorageLayout.BlockCommitment[](BATCH_SIZE);
+        batchB = new RollupStorageLayout.BlockCommitment[](BATCH_SIZE);
 
         bytes32 prevHash = initialPrevHash;
         for (uint256 i = 0; i < MESSAGE_COUNT; i++) {
             bytes32 blockHash = keccak256(abi.encodePacked("W", i));
-            Rollup.BlockCommitment memory c = _buildCommitment(prevHash, blockHash, messages[i].messageHash, ZERO_HASH);
+            RollupStorageLayout.BlockCommitment memory c = _buildCommitment(prevHash, blockHash, messages[i].messageHash, ZERO_HASH);
             if (i < BATCH_SIZE) {
                 batchA[i] = c;
             } else {
@@ -219,18 +220,18 @@ contract AcceptBatchParityTest is BaseDualFork {
     function _buildDepositBatchesFromMessages(SentMessageData[] memory messages, bytes32 initialPrevHash)
         internal
         pure
-        returns (Rollup.BlockCommitment[] memory batchA, Rollup.BlockCommitment[] memory batchB)
+        returns (RollupStorageLayout.BlockCommitment[] memory batchA, RollupStorageLayout.BlockCommitment[] memory batchB)
     {
         // Side effect: prepares deterministic deposit commitments that consume queued L1 message hashes.
         require(messages.length == MESSAGE_COUNT, "unexpected message count");
-        batchA = new Rollup.BlockCommitment[](BATCH_SIZE);
-        batchB = new Rollup.BlockCommitment[](BATCH_SIZE);
+        batchA = new RollupStorageLayout.BlockCommitment[](BATCH_SIZE);
+        batchB = new RollupStorageLayout.BlockCommitment[](BATCH_SIZE);
 
         bytes32 prevHash = initialPrevHash;
         for (uint256 i = 0; i < MESSAGE_COUNT; i++) {
             bytes32 blockHash = keccak256(abi.encodePacked("D", i));
             bytes32 depositHash = keccak256(abi.encodePacked(messages[i].messageHash));
-            Rollup.BlockCommitment memory c = _buildCommitment(prevHash, blockHash, ZERO_HASH, depositHash);
+            RollupStorageLayout.BlockCommitment memory c = _buildCommitment(prevHash, blockHash, ZERO_HASH, depositHash);
             if (i < BATCH_SIZE) {
                 batchA[i] = c;
             } else {
@@ -240,23 +241,23 @@ contract AcceptBatchParityTest is BaseDualFork {
         }
     }
 
-    function _buildDepositsForBatches(Rollup.BlockCommitment[] memory batchA, Rollup.BlockCommitment[] memory batchB)
+    function _buildDepositsForBatches(RollupStorageLayout.BlockCommitment[] memory batchA, RollupStorageLayout.BlockCommitment[] memory batchB)
         internal
         pure
-        returns (Rollup.DepositsInBlock[] memory depositsA, Rollup.DepositsInBlock[] memory depositsB)
+        returns (RollupStorageLayout.DepositsInBlock[] memory depositsA, RollupStorageLayout.DepositsInBlock[] memory depositsB)
     {
         // Side effect: binds each commitment block hash to one queue item for deposit validation.
-        depositsA = new Rollup.DepositsInBlock[](batchA.length);
-        depositsB = new Rollup.DepositsInBlock[](batchB.length);
+        depositsA = new RollupStorageLayout.DepositsInBlock[](batchA.length);
+        depositsB = new RollupStorageLayout.DepositsInBlock[](batchB.length);
         for (uint256 i = 0; i < batchA.length; i++) {
-            depositsA[i] = Rollup.DepositsInBlock({blockHash: batchA[i].blockHash, depositCount: 1});
-            depositsB[i] = Rollup.DepositsInBlock({blockHash: batchB[i].blockHash, depositCount: 1});
+            depositsA[i] = RollupStorageLayout.DepositsInBlock({blockHash: batchA[i].blockHash, depositCount: 1});
+            depositsB[i] = RollupStorageLayout.DepositsInBlock({blockHash: batchB[i].blockHash, depositCount: 1});
         }
     }
 
     function _proveWithdrawalBatch(
         uint256 batchIndex,
-        Rollup.BlockCommitment[] memory batch,
+        RollupStorageLayout.BlockCommitment[] memory batch,
         SentMessageData[] memory sourceMessages,
         uint256 sourceOffset
     ) internal {

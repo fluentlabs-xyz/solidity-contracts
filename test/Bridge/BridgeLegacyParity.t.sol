@@ -6,6 +6,7 @@ import {IFluentBridge} from "../../contracts/interfaces/IFluentBridge.sol";
 import {L1BlockOracle} from "../../contracts/oracle/L1BlockOracle.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
+import {RollupStorageLayout} from "../../contracts/rollup/RollupStorage.sol";
 import {VerifierMock} from "../../contracts/mocks/VerifierMock.sol";
 import {RollupBase} from "../Rollup/Base.t.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
@@ -24,27 +25,26 @@ contract BridgeLegacyParityTest is RollupBase {
     function setUp() public {
         verifierMock = new VerifierMock();
         Rollup rollupImpl = new Rollup();
+        RollupStorageLayout.InitConfiguration memory initParams = RollupStorageLayout.InitConfiguration({
+            admin: address(this),
+            pauser: address(0),
+            sequencer: SEQUENCER,
+            challengeDepositAmount: 10000,
+            challengeBlockCount: 0,
+            approveBlockCount: 1,
+            verifier: address(verifierMock),
+            programVKey: MOCK_VK_KEY,
+            genesisHash: MOCK_GENESIS_HASH,
+            bridge: address(0x1),
+            batchSize: 2,
+            acceptDepositDeadline: 10,
+            incentiveFee: 0,
+            challenger: address(0),
+            prover: address(0)
+        });
         ERC1967Proxy rollupProxy = new ERC1967Proxy(
             address(rollupImpl),
-            abi.encodeCall(
-                Rollup.initialize,
-                (
-                    address(this),
-                    Rollup.InitializeParams({
-                        sequencer: SEQUENCER,
-                        challengeDepositAmount: 10000,
-                        challengeBlockCount: 0,
-                        approveBlockCount: 1,
-                        verifier: address(verifierMock),
-                        programVKey: MOCK_VK_KEY,
-                        genesisHash: MOCK_GENESIS_HASH,
-                        bridge: address(0x1),
-                        batchSize: 2,
-                        acceptDepositDeadline: 10,
-                        incentiveFee: 0
-                    })
-                )
-            )
+            abi.encodeCall(Rollup.initialize, (abi.encode(initParams)))
         );
         rollup = Rollup(payable(address(rollupProxy)));
         oracle = new L1BlockOracle();
@@ -78,15 +78,15 @@ contract BridgeLegacyParityTest is RollupBase {
         bytes32 blockHash1 = keccak256("bridge-send-block-1");
         bytes32 blockHash2 = keccak256("bridge-send-block-2");
 
-        Rollup.BlockCommitment[] memory batch = new Rollup.BlockCommitment[](2);
+        RollupStorageLayout.BlockCommitment[] memory batch = new RollupStorageLayout.BlockCommitment[](2);
         batch[0] = _buildCommitment(MOCK_GENESIS_HASH, blockHash1, ZERO_HASH, keccak256(abi.encodePacked(messageHash)));
         batch[1] = _buildCommitment(blockHash1, blockHash2, ZERO_HASH, ZERO_HASH);
 
-        Rollup.DepositsInBlock[] memory deposits = new Rollup.DepositsInBlock[](1);
-        deposits[0] = Rollup.DepositsInBlock({blockHash: blockHash1, depositCount: 1});
+        RollupStorageLayout.DepositsInBlock[] memory deposits = new RollupStorageLayout.DepositsInBlock[](1);
+        deposits[0] = RollupStorageLayout.DepositsInBlock({blockHash: blockHash1, depositCount: 1});
 
         vm.prank(SEQUENCER);
-        rollup.acceptNextBatch(1, batch, deposits, 0);
+        rollup.acceptNextBatch(batch, deposits, 0);
 
         assertEq(bridge.getQueueSize(), 0, "queue should be consumed");
     }
@@ -156,7 +156,7 @@ contract BridgeLegacyParityTest is RollupBase {
         bytes32 blockHash1 = keccak256("rollback-block-1");
         bytes32 blockHash2 = keccak256("rollback-block-2");
 
-        Rollup.BlockCommitment[] memory batch = new Rollup.BlockCommitment[](2);
+        RollupStorageLayout.BlockCommitment[] memory batch = new RollupStorageLayout.BlockCommitment[](2);
         batch[0] = _buildCommitment(
             MOCK_GENESIS_HASH,
             blockHash1,
@@ -166,7 +166,7 @@ contract BridgeLegacyParityTest is RollupBase {
         batch[1] = _buildCommitment(blockHash1, blockHash2, ZERO_HASH, ZERO_HASH);
 
         vm.prank(SEQUENCER);
-        rollup.acceptNextBatch(1, batch, new Rollup.DepositsInBlock[](0), 0);
+        rollup.acceptNextBatch(batch, new RollupStorageLayout.DepositsInBlock[](0), 0);
         vm.roll(block.number + 2);
 
         uint256 userBalanceBefore = USER.balance;
@@ -205,7 +205,7 @@ contract BridgeLegacyParityTest is RollupBase {
     }
 
     function _executeRollback(
-        Rollup.BlockCommitment memory commitment,
+        RollupStorageLayout.BlockCommitment memory commitment,
         uint256 sourceBlock,
         uint256 msgNonce,
         bytes32 blockSibling
@@ -226,7 +226,7 @@ contract BridgeLegacyParityTest is RollupBase {
     }
 
     function _executeReceiveWithProof(
-        Rollup.BlockCommitment memory commitment,
+        RollupStorageLayout.BlockCommitment memory commitment,
         uint256 sourceChainId,
         uint256 sourceBlock,
         uint256 nonce,
@@ -259,14 +259,14 @@ contract BridgeLegacyParityTest is RollupBase {
         bytes32 blockHash1 = keccak256("withdrawal-proof-block-1");
         bytes32 blockHash2 = keccak256("withdrawal-proof-block-2");
 
-        Rollup.BlockCommitment[] memory batch = new Rollup.BlockCommitment[](2);
+        RollupStorageLayout.BlockCommitment[] memory batch = new RollupStorageLayout.BlockCommitment[](2);
         batch[0] = _buildCommitment(MOCK_GENESIS_HASH, blockHash1, withdrawalRoot, ZERO_HASH);
         batch[1] = _buildCommitment(blockHash1, blockHash2, ZERO_HASH, ZERO_HASH);
 
         bytes32 blockSibling = _commitmentHash(batch[1]);
 
         vm.prank(SEQUENCER);
-        rollup.acceptNextBatch(1, batch, new Rollup.DepositsInBlock[](0), 0);
+        rollup.acceptNextBatch(batch, new RollupStorageLayout.DepositsInBlock[](0), 0);
 
         vm.roll(block.number + 2);
         _executeReceiveWithProof(batch[0], sourceChainId, sourceBlock, nonce, messageHash2, blockSibling);

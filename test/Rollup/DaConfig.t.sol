@@ -2,7 +2,9 @@
 pragma solidity ^0.8.30;
 
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
+import {RollupStorageLayout} from "../../contracts/rollup/RollupStorage.sol";
 import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {RollupBase, Vm} from "./Base.t.sol";
 
 contract RollupDaConfigTest is RollupBase {
@@ -40,8 +42,8 @@ contract RollupDaConfigTest is RollupBase {
         assertTrue(found, "DaCheckUpdated event was not emitted");
     }
 
-    function test_setDaCheck_revertsForNonOwner() public {
-        vm.expectRevert(abi.encodeWithSelector(bytes4(keccak256("OwnableUnauthorizedAccount(address)")), ATTACKER));
+    function test_setDaCheck_revertsForNonAdmin() public {
+        vm.expectRevert(abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, ATTACKER, bytes32(0)));
         vm.prank(ATTACKER);
         rollup.setDaCheck(true);
     }
@@ -64,7 +66,7 @@ contract RollupDaConfigTest is RollupBase {
     }
 
     function test_acceptNextBatch_daCheckRevertsWhenNumBlobsIsZero() public {
-        Rollup.BlockCommitment[] memory batch = new Rollup.BlockCommitment[](2);
+        RollupStorageLayout.BlockCommitment[] memory batch = new RollupStorageLayout.BlockCommitment[](2);
         bytes32 blockHash1 = keccak256("da-batch-1");
         bytes32 blockHash2 = keccak256("da-batch-2");
         batch[0] = _buildCommitment(MOCK_GENESIS_HASH, blockHash1, ZERO_HASH, ZERO_HASH);
@@ -73,11 +75,11 @@ contract RollupDaConfigTest is RollupBase {
 
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "numBlobs"));
         vm.prank(SEQUENCER);
-        rollup.acceptNextBatch(1, batch, new Rollup.DepositsInBlock[](0), 0);
+        rollup.acceptNextBatch(batch, new RollupStorageLayout.DepositsInBlock[](0), 0);
     }
 
     function test_acceptNextBatch_daCheckRevertsWhenBlobHashIsMissing() public {
-        Rollup.BlockCommitment[] memory batch = new Rollup.BlockCommitment[](2);
+        RollupStorageLayout.BlockCommitment[] memory batch = new RollupStorageLayout.BlockCommitment[](2);
         bytes32 blockHash1 = keccak256("da-batch-bad-1");
         bytes32 blockHash2 = keccak256("da-batch-bad-2");
         batch[0] = _buildCommitment(MOCK_GENESIS_HASH, blockHash1, ZERO_HASH, ZERO_HASH);
@@ -87,6 +89,6 @@ contract RollupDaConfigTest is RollupBase {
 
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "blobHash"));
         vm.prank(SEQUENCER);
-        rollup.acceptNextBatch(1, batch, new Rollup.DepositsInBlock[](0), 1);
+        rollup.acceptNextBatch(batch, new RollupStorageLayout.DepositsInBlock[](0), 1);
     }
 }

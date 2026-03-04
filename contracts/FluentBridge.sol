@@ -7,6 +7,7 @@ import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/acces
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 
 import {Rollup} from "./rollup/Rollup.sol";
+import {RollupStorageLayout} from "./rollup/RollupStorage.sol";
 import {Queue} from "./libraries/Queue.sol";
 import {MerkleTree} from "./libraries/MerkleTree.sol";
 import {ExcessivelySafeCall} from "./libraries/ExcessivelySafeCall.sol";
@@ -139,7 +140,7 @@ contract FluentBridge is Initializable, ReentrancyGuardUpgradeable, Ownable2Step
     /// @inheritdoc IFluentBridge
     function receiveMessageWithProof(
         uint256 _batchIndex,
-        Rollup.BlockCommitment calldata _commitmentBatch,
+        RollupStorageLayout.BlockCommitment calldata _commitmentBatch,
         address _from,
         address payable _to,
         uint256 _value,
@@ -166,7 +167,7 @@ contract FluentBridge is Initializable, ReentrancyGuardUpgradeable, Ownable2Step
     /// @inheritdoc IFluentBridge
     function rollbackMessageWithProof(
         uint256 _batchIndex,
-        Rollup.BlockCommitment calldata _commitmentBatch,
+        RollupStorageLayout.BlockCommitment calldata _commitmentBatch,
         address _from,
         address _to,
         uint256 _value,
@@ -278,7 +279,7 @@ contract FluentBridge is Initializable, ReentrancyGuardUpgradeable, Ownable2Step
 
     function _verifyWithdrawal(
         uint256 _batchIndex,
-        Rollup.BlockCommitment calldata _commitmentBatch,
+        RollupStorageLayout.BlockCommitment calldata _commitmentBatch,
         MerkleTree.MerkleProof calldata _withdrawal_proof,
         MerkleTree.MerkleProof calldata _block_proof,
         bytes32 _messageHash

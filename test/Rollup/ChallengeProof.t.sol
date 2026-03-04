@@ -3,6 +3,7 @@ pragma solidity ^0.8.30;
 
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
+import {RollupStorageLayout} from "../../contracts/rollup/RollupStorage.sol";
 import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
 import {RollupBase} from "./Base.t.sol";
 
@@ -20,9 +21,9 @@ contract RollupChallengeProofTest is RollupBase {
 
     function _acceptChallengeableBatch()
         internal
-        returns (Rollup.BlockCommitment[] memory batch, MerkleTree.MerkleProof memory blockProofForFirst, bytes32 firstCommitmentHash)
+        returns (RollupStorageLayout.BlockCommitment[] memory batch, MerkleTree.MerkleProof memory blockProofForFirst, bytes32 firstCommitmentHash)
     {
-        batch = new Rollup.BlockCommitment[](2);
+        batch = new RollupStorageLayout.BlockCommitment[](2);
         bytes32 blockHash1 = keccak256("challenge-batch-1");
         bytes32 blockHash2 = keccak256("challenge-batch-2");
 
@@ -31,7 +32,7 @@ contract RollupChallengeProofTest is RollupBase {
 
         vm.prank(SEQUENCER);
         // In tests we run with daCheck disabled, so blob index is ignored.
-        rollup.acceptNextBatch(1, batch, new Rollup.DepositsInBlock[](0), 0);
+        rollup.acceptNextBatch(batch, new RollupStorageLayout.DepositsInBlock[](0), 0);
 
         bytes32 firstLeaf = _commitmentHash(batch[0]);
         bytes32 secondLeaf = _commitmentHash(batch[1]);
@@ -42,7 +43,7 @@ contract RollupChallengeProofTest is RollupBase {
 
     function test_challengeAndProof_clearsQueueAndMarksProven() public {
         (
-            Rollup.BlockCommitment[] memory batch,
+            RollupStorageLayout.BlockCommitment[] memory batch,
             MerkleTree.MerkleProof memory blockProofForFirst,
             bytes32 firstCommitmentHash
         ) = _acceptChallengeableBatch();
@@ -65,7 +66,7 @@ contract RollupChallengeProofTest is RollupBase {
 
     function test_proofReward_usesPullPayment() public {
         (
-            Rollup.BlockCommitment[] memory batch,
+            RollupStorageLayout.BlockCommitment[] memory batch,
             MerkleTree.MerkleProof memory blockProofForFirst,
             bytes32 ignoredCommitmentHash
         ) = _acceptChallengeableBatch();
@@ -93,7 +94,7 @@ contract RollupChallengeProofTest is RollupBase {
 
     function test_rollupCorrupted_thenForceRevert_resetsState() public {
         (
-            Rollup.BlockCommitment[] memory batch,
+            RollupStorageLayout.BlockCommitment[] memory batch,
             MerkleTree.MerkleProof memory blockProofForFirst,
             bytes32 ignoredCommitmentHash
         ) = _acceptChallengeableBatch();
@@ -117,7 +118,7 @@ contract RollupChallengeProofTest is RollupBase {
 
     function test_challenge_revertsWhenDepositTooLow() public {
         (
-            Rollup.BlockCommitment[] memory batch,
+            RollupStorageLayout.BlockCommitment[] memory batch,
             MerkleTree.MerkleProof memory blockProofForFirst,
             bytes32 ignoredCommitmentHash
         ) = _acceptChallengeableBatch();
@@ -131,7 +132,7 @@ contract RollupChallengeProofTest is RollupBase {
 
     function test_challenge_revertsWhenDepositTooHigh() public {
         (
-            Rollup.BlockCommitment[] memory batch,
+            RollupStorageLayout.BlockCommitment[] memory batch,
             MerkleTree.MerkleProof memory blockProofForFirst,
             bytes32 ignoredCommitmentHash
         ) = _acceptChallengeableBatch();
