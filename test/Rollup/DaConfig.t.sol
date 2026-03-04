@@ -2,7 +2,7 @@
 pragma solidity ^0.8.30;
 
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
-import {RollupStorageLayout} from "../../contracts/rollup/RollupStorage.sol";
+import {RollupStorageLayout} from "../../contracts/rollup/RollupStorageLayout.sol";
 import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {RollupBase, Vm} from "./Base.t.sol";

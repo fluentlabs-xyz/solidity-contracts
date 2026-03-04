@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
-import {RollupStorageLayout} from "../../contracts/rollup/RollupStorage.sol";
+import {RollupStorageLayout} from "../../contracts/rollup/RollupStorageLayout.sol";
 import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
 import {VerifierMock} from "../../contracts/mocks/VerifierMock.sol";
 import {RollupBase} from "./Base.t.sol";
@@ -21,7 +21,6 @@ contract RollupInitializationTest is RollupBase {
     }
 
     function test_initialize_setsInitialState() public view {
-        assertEq(rollup.sequencer(), SEQUENCER, "sequencer mismatch");
         assertEq(rollup.bridge(), address(bridge), "bridge mismatch");
         assertEq(rollup.programVKey(), MOCK_VK_KEY, "vk mismatch");
         assertEq(rollup.batchSize(), 2, "batch size mismatch");

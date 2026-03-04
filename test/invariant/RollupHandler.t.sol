@@ -3,7 +3,7 @@ pragma solidity ^0.8.30;
 
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
-import {RollupStorageLayout} from "../../contracts/rollup/RollupStorage.sol";
+import {RollupStorageLayout} from "../../contracts/rollup/RollupStorageLayout.sol";
 
 contract RollupHandler {
     bytes32 internal constant ZERO_HASH = 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;

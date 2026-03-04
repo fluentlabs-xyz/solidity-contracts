@@ -2,7 +2,7 @@
 pragma solidity 0.8.30;
 
 import {MerkleTree} from "../libraries/MerkleTree.sol";
-import {RollupStorageLayout} from "./RollupStorage.sol";
+import {RollupStorageLayout} from "./RollupStorageLayout.sol";
 
 import {IRollupWrite} from "../interfaces/IRollup.sol";
 import {IVerifier} from "../interfaces/IVerifier.sol";

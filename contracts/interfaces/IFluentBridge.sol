@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 import {Rollup} from "../rollup/Rollup.sol";
 import {MerkleTree} from "../libraries/MerkleTree.sol";
-import {RollupStorageLayout} from "../rollup/RollupStorage.sol";
+import {RollupStorageLayout} from "../rollup/RollupStorageLayout.sol";
 
 interface IBridgeErrorCodes {
     /// @dev Thrown when the caller is not the bridge authority.

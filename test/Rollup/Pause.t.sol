@@ -2,7 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
-import {RollupStorageLayout} from "../../contracts/rollup/RollupStorage.sol";
+import {RollupStorageLayout} from "../../contracts/rollup/RollupStorageLayout.sol";
 import {RollupBase} from "./Base.t.sol";
 
 contract RollupPauseTest is RollupBase {

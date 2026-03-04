@@ -7,7 +7,7 @@ import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/acces
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 
 import {Rollup} from "./rollup/Rollup.sol";
-import {RollupStorageLayout} from "./rollup/RollupStorage.sol";
+import {RollupStorageLayout} from "./rollup/RollupStorageLayout.sol";
 import {Queue} from "./libraries/Queue.sol";
 import {MerkleTree} from "./libraries/MerkleTree.sol";
 import {ExcessivelySafeCall} from "./libraries/ExcessivelySafeCall.sol";

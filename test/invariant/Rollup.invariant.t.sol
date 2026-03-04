@@ -2,7 +2,7 @@
 pragma solidity ^0.8.30;
 
 import {MinimalTest, Rollup, Bridge, VerifierMock} from "../Rollup/Base.t.sol";
-import {RollupStorageLayout} from "../../contracts/rollup/RollupStorage.sol";
+import {RollupStorageLayout} from "../../contracts/rollup/RollupStorageLayout.sol";
 import {RollupHandler} from "./RollupHandler.t.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 

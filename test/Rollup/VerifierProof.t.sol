@@ -3,7 +3,7 @@ pragma solidity ^0.8.30;
 
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
-import {RollupStorageLayout} from "../../contracts/rollup/RollupStorage.sol";
+import {RollupStorageLayout} from "../../contracts/rollup/RollupStorageLayout.sol";
 import {RollupBase} from "./Base.t.sol";
 
 contract RollupVerifierProofTest is RollupBase {

@@ -2,7 +2,7 @@
 pragma solidity ^0.8.30;
 
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
-import {RollupStorageLayout} from "../../contracts/rollup/RollupStorage.sol";
+import {RollupStorageLayout} from "../../contracts/rollup/RollupStorageLayout.sol";
 import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
 import {VerifierMock} from "../../contracts/mocks/VerifierMock.sol";
 import {RollupBase} from "./Base.t.sol";

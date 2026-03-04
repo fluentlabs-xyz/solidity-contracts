@@ -5,7 +5,7 @@ pragma solidity ^0.8.30;
 
 import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
-import {RollupStorageLayout} from "../../contracts/rollup/RollupStorage.sol";
+import {RollupStorageLayout} from "../../contracts/rollup/RollupStorageLayout.sol";
 import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
 import {IFluentBridge} from "../../contracts/interfaces/IFluentBridge.sol";
 import {BaseDualFork, VmFork} from "./BaseDualFork.t.sol";
@@ -46,20 +46,20 @@ contract ERC20RoundtripHappyPathTest is BaseDualFork {
         SentMessageData memory l2ToL1 = _findSentMessage(l2Logs, address(l2.bridge));
         assertEq(l2ToL1.sender, address(l2.gateway), "wrong L2 sender");
         assertEq(l2ToL1.to, address(l1.gateway), "wrong L2 destination");
-        assertEq(
-            l2.originToken.balanceOf(USER_A),
-            userAInitialBalance - TRANSFER_AMOUNT,
-            "L2 user balance not reduced after send"
-        );
+        assertEq(l2.originToken.balanceOf(USER_A), userAInitialBalance - TRANSFER_AMOUNT, "L2 user balance not reduced after send");
         assertEq(l2.originToken.balanceOf(address(l2.gateway)), TRANSFER_AMOUNT, "L2 gateway should hold locked tokens");
 
         // Step 2: L1 sequencer accepts batch with withdrawal root and DA check.
         _switchToL1();
         _assertOnL1();
         bytes32 batch1BlockHash = keccak256("L1-BATCH-1");
-        RollupStorageLayout.BlockCommitment memory batch1Commitment =
-            _buildCommitment(MOCK_GENESIS_HASH, batch1BlockHash, l2ToL1.messageHash, ZERO_HASH);
-        _acceptSingleCommitmentBatchL1(1, batch1Commitment, new RollupStorageLayout.DepositsInBlock[](0));
+        RollupStorageLayout.BlockCommitment memory batch1Commitment = _buildCommitment(
+            MOCK_GENESIS_HASH,
+            batch1BlockHash,
+            l2ToL1.messageHash,
+            ZERO_HASH
+        );
+        _acceptSingleCommitmentBatchL1(batch1Commitment, new RollupStorageLayout.DepositsInBlock[](0));
 
         // Step 3: L1 bridge processes proven withdrawal and mints pegged token.
         vm.roll(block.number + 1);
@@ -104,18 +104,14 @@ contract ERC20RoundtripHappyPathTest is BaseDualFork {
         _switchToL2();
         _assertOnL2();
         vm.prank(BRIDGE_AUTHORITY);
-        l2.bridge.receiveMessage(
-            l1ToL2.sender, l1ToL2.to, l1ToL2.value, l1ToL2.chainId, l1ToL2.blockNumber, l1ToL2.nonce, l1ToL2.data
-        );
+        l2.bridge.receiveMessage(l1ToL2.sender, l1ToL2.to, l1ToL2.value, l1ToL2.chainId, l1ToL2.blockNumber, l1ToL2.nonce, l1ToL2.data);
 
         assertEq(
             uint256(l2.bridge.receivedMessage(l1ToL2.messageHash)),
             uint256(IFluentBridge.MessageStatus.Success),
             "L2 message status should be success"
         );
-        assertEq(
-            l2.originToken.balanceOf(USER_A), userAInitialBalance, "L2 user balance should be restored after roundtrip"
-        );
+        assertEq(l2.originToken.balanceOf(USER_A), userAInitialBalance, "L2 user balance should be restored after roundtrip");
         assertEq(l2.originToken.balanceOf(address(l2.gateway)), 0, "L2 gateway should release locked tokens");
 
         // Step 6: L1 sequencer accepts deposit batch and consumes L1 bridge queue.
@@ -123,12 +119,16 @@ contract ERC20RoundtripHappyPathTest is BaseDualFork {
         _assertOnL1();
         bytes32 batch2BlockHash = keccak256("L1-BATCH-2");
         bytes32 depositHash = keccak256(abi.encodePacked(l1ToL2.messageHash));
-        RollupStorageLayout.BlockCommitment memory batch2Commitment =
-            _buildCommitment(batch1Commitment.blockHash, batch2BlockHash, ZERO_HASH, depositHash);
+        RollupStorageLayout.BlockCommitment memory batch2Commitment = _buildCommitment(
+            batch1Commitment.blockHash,
+            batch2BlockHash,
+            ZERO_HASH,
+            depositHash
+        );
 
         RollupStorageLayout.DepositsInBlock[] memory deposits = new RollupStorageLayout.DepositsInBlock[](1);
         deposits[0] = RollupStorageLayout.DepositsInBlock({blockHash: batch2BlockHash, depositCount: 1});
-        _acceptSingleCommitmentBatchL1(2, batch2Commitment, deposits);
+        _acceptSingleCommitmentBatchL1(batch2Commitment, deposits);
 
         // Step 7: Verify final invariants for balances, queue state, and message status.
         assertEq(l1.rollup.nextBatchIndex(), 3, "unexpected nextBatchIndex");

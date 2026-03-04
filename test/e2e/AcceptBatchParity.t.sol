@@ -7,7 +7,7 @@ import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 import {MockERC20Token} from "../../contracts/mocks/MockERC20.sol";
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
-import {RollupStorageLayout} from "../../contracts/rollup/RollupStorage.sol";
+import {RollupStorageLayout} from "../../contracts/rollup/RollupStorageLayout.sol";
 import {IFluentBridge} from "../../contracts/interfaces/IFluentBridge.sol";
 import {BaseDualFork, VmFork} from "./BaseDualFork.t.sol";
 
@@ -33,11 +33,11 @@ contract AcceptBatchParityTest is BaseDualFork {
 
         _switchToL1();
         _assertOnL1();
-        _acceptBatchL1(1, withdrawBatchA, new RollupStorageLayout.DepositsInBlock[](0));
+        _acceptBatchL1(withdrawBatchA, new RollupStorageLayout.DepositsInBlock[](0));
         bytes32 expectedRootA = l1.rollup.calculateBatchRoot(withdrawBatchA);
         assertEq(l1.rollup.acceptedBatchHash(1), expectedRootA, "accepted root mismatch for batch A");
 
-        _acceptBatchL1(2, withdrawBatchB, new RollupStorageLayout.DepositsInBlock[](0));
+        _acceptBatchL1(withdrawBatchB, new RollupStorageLayout.DepositsInBlock[](0));
         bytes32 expectedRootB = l1.rollup.calculateBatchRoot(withdrawBatchB);
         assertEq(l1.rollup.acceptedBatchHash(2), expectedRootB, "accepted root mismatch for batch B");
         assertEq(l1.rollup.nextBatchIndex(), 3, "nextBatchIndex must move after two withdrawal batches");
@@ -49,14 +49,9 @@ contract AcceptBatchParityTest is BaseDualFork {
         // Step 4: Send bulk pegged-token messages L1 -> L2 and execute by bridge authority.
         address l1PeggedTokenAddress = l1.gateway.computePeggedTokenAddress(address(l2.originToken));
         ERC20PeggedToken l1PeggedToken = ERC20PeggedToken(l1PeggedTokenAddress);
-        assertEq(
-            l1PeggedToken.balanceOf(USER_B),
-            MESSAGE_COUNT * TRANSFER_AMOUNT,
-            "unexpected minted pegged token balance on L1"
-        );
+        assertEq(l1PeggedToken.balanceOf(USER_B), MESSAGE_COUNT * TRANSFER_AMOUNT, "unexpected minted pegged token balance on L1");
 
-        SentMessageData[] memory l1ToL2 =
-            _sendBulkL1ToL2WithPeggedToken(l1PeggedTokenAddress, MESSAGE_COUNT, TRANSFER_AMOUNT);
+        SentMessageData[] memory l1ToL2 = _sendBulkL1ToL2WithPeggedToken(l1PeggedTokenAddress, MESSAGE_COUNT, TRANSFER_AMOUNT);
         assertEq(l1.bridge.getQueueSize(), MESSAGE_COUNT, "L1 queue must hold one deposit per outbound message");
 
         _switchToL2();
@@ -80,16 +75,20 @@ contract AcceptBatchParityTest is BaseDualFork {
         }
 
         // Step 5: Accept two deposit batches and consume full L1 queue.
-        (RollupStorageLayout.BlockCommitment[] memory depositBatchA, RollupStorageLayout.BlockCommitment[] memory depositBatchB) =
-            _buildDepositBatchesFromMessages(l1ToL2, lastHashAfterWithdrawals);
-        (RollupStorageLayout.DepositsInBlock[] memory depositsA, RollupStorageLayout.DepositsInBlock[] memory depositsB) =
-            _buildDepositsForBatches(depositBatchA, depositBatchB);
+        (
+            RollupStorageLayout.BlockCommitment[] memory depositBatchA,
+            RollupStorageLayout.BlockCommitment[] memory depositBatchB
+        ) = _buildDepositBatchesFromMessages(l1ToL2, lastHashAfterWithdrawals);
+        (
+            RollupStorageLayout.DepositsInBlock[] memory depositsA,
+            RollupStorageLayout.DepositsInBlock[] memory depositsB
+        ) = _buildDepositsForBatches(depositBatchA, depositBatchB);
 
         _switchToL1();
         _assertOnL1();
-        _acceptBatchL1(3, depositBatchA, depositsA);
+        _acceptBatchL1(depositBatchA, depositsA);
         assertEq(l1.bridge.getQueueSize(), MESSAGE_COUNT - BATCH_SIZE, "queue should shrink after first deposit batch");
-        _acceptBatchL1(4, depositBatchB, depositsB);
+        _acceptBatchL1(depositBatchB, depositsB);
         assertEq(l1.bridge.getQueueSize(), 0, "queue should be fully consumed");
 
         assertEq(l1.rollup.nextBatchIndex(), 5, "unexpected final nextBatchIndex");
@@ -99,8 +98,7 @@ contract AcceptBatchParityTest is BaseDualFork {
         // Step 1: Build direct L1-origin bulk messages to L2.
         _switchToL1();
         _assertOnL1();
-        MockERC20Token l1OriginToken =
-            new MockERC20Token("L1 Origin Token", "L1T", MESSAGE_COUNT * TRANSFER_AMOUNT, USER_B);
+        MockERC20Token l1OriginToken = new MockERC20Token("L1 Origin Token", "L1T", MESSAGE_COUNT * TRANSFER_AMOUNT, USER_B);
 
         vm.startPrank(USER_B);
         l1OriginToken.approve(address(l1.gateway), MESSAGE_COUNT * TRANSFER_AMOUNT);
@@ -136,19 +134,23 @@ contract AcceptBatchParityTest is BaseDualFork {
         }
 
         // Step 3: Accept two deposit batches and assert queue transitions 8 -> 4 -> 0.
-        (RollupStorageLayout.BlockCommitment[] memory depositBatchA, RollupStorageLayout.BlockCommitment[] memory depositBatchB) =
-            _buildDepositBatchesFromMessages(l1ToL2, MOCK_GENESIS_HASH);
-        (RollupStorageLayout.DepositsInBlock[] memory depositsA, RollupStorageLayout.DepositsInBlock[] memory depositsB) =
-            _buildDepositsForBatches(depositBatchA, depositBatchB);
+        (
+            RollupStorageLayout.BlockCommitment[] memory depositBatchA,
+            RollupStorageLayout.BlockCommitment[] memory depositBatchB
+        ) = _buildDepositBatchesFromMessages(l1ToL2, MOCK_GENESIS_HASH);
+        (
+            RollupStorageLayout.DepositsInBlock[] memory depositsA,
+            RollupStorageLayout.DepositsInBlock[] memory depositsB
+        ) = _buildDepositsForBatches(depositBatchA, depositBatchB);
 
         _switchToL1();
         _assertOnL1();
-        _acceptBatchL1(1, depositBatchA, depositsA);
+        _acceptBatchL1(depositBatchA, depositsA);
         bytes32 expectedRootA = l1.rollup.calculateBatchRoot(depositBatchA);
         assertEq(l1.rollup.acceptedBatchHash(1), expectedRootA, "accepted root mismatch for first deposit batch");
         assertEq(l1.bridge.getQueueSize(), MESSAGE_COUNT - BATCH_SIZE, "queue transition after first batch is wrong");
 
-        _acceptBatchL1(2, depositBatchB, depositsB);
+        _acceptBatchL1(depositBatchB, depositsB);
         bytes32 expectedRootB = l1.rollup.calculateBatchRoot(depositBatchB);
         assertEq(l1.rollup.acceptedBatchHash(2), expectedRootB, "accepted root mismatch for second deposit batch");
         assertEq(l1.bridge.getQueueSize(), 0, "queue should be empty");
@@ -172,10 +174,11 @@ contract AcceptBatchParityTest is BaseDualFork {
         vm.stopPrank();
     }
 
-    function _sendBulkL1ToL2WithPeggedToken(address peggedTokenAddress, uint256 count, uint256 amount)
-        internal
-        returns (SentMessageData[] memory out)
-    {
+    function _sendBulkL1ToL2WithPeggedToken(
+        address peggedTokenAddress,
+        uint256 count,
+        uint256 amount
+    ) internal returns (SentMessageData[] memory out) {
         // Side effect: burns L1 pegged tokens and grows L1 deposit queue by `count`.
         _switchToL1();
         _assertOnL1();
@@ -193,7 +196,10 @@ contract AcceptBatchParityTest is BaseDualFork {
         vm.stopPrank();
     }
 
-    function _buildWithdrawalBatchesFromMessages(SentMessageData[] memory messages, bytes32 initialPrevHash)
+    function _buildWithdrawalBatchesFromMessages(
+        SentMessageData[] memory messages,
+        bytes32 initialPrevHash
+    )
         internal
         pure
         returns (RollupStorageLayout.BlockCommitment[] memory batchA, RollupStorageLayout.BlockCommitment[] memory batchB, bytes32 lastHash)
@@ -217,11 +223,10 @@ contract AcceptBatchParityTest is BaseDualFork {
         lastHash = prevHash;
     }
 
-    function _buildDepositBatchesFromMessages(SentMessageData[] memory messages, bytes32 initialPrevHash)
-        internal
-        pure
-        returns (RollupStorageLayout.BlockCommitment[] memory batchA, RollupStorageLayout.BlockCommitment[] memory batchB)
-    {
+    function _buildDepositBatchesFromMessages(
+        SentMessageData[] memory messages,
+        bytes32 initialPrevHash
+    ) internal pure returns (RollupStorageLayout.BlockCommitment[] memory batchA, RollupStorageLayout.BlockCommitment[] memory batchB) {
         // Side effect: prepares deterministic deposit commitments that consume queued L1 message hashes.
         require(messages.length == MESSAGE_COUNT, "unexpected message count");
         batchA = new RollupStorageLayout.BlockCommitment[](BATCH_SIZE);
@@ -241,11 +246,10 @@ contract AcceptBatchParityTest is BaseDualFork {
         }
     }
 
-    function _buildDepositsForBatches(RollupStorageLayout.BlockCommitment[] memory batchA, RollupStorageLayout.BlockCommitment[] memory batchB)
-        internal
-        pure
-        returns (RollupStorageLayout.DepositsInBlock[] memory depositsA, RollupStorageLayout.DepositsInBlock[] memory depositsB)
-    {
+    function _buildDepositsForBatches(
+        RollupStorageLayout.BlockCommitment[] memory batchA,
+        RollupStorageLayout.BlockCommitment[] memory batchB
+    ) internal pure returns (RollupStorageLayout.DepositsInBlock[] memory depositsA, RollupStorageLayout.DepositsInBlock[] memory depositsB) {
         // Side effect: binds each commitment block hash to one queue item for deposit validation.
         depositsA = new RollupStorageLayout.DepositsInBlock[](batchA.length);
         depositsB = new RollupStorageLayout.DepositsInBlock[](batchB.length);

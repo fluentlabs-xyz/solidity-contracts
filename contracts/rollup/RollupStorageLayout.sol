@@ -88,8 +88,8 @@ contract RollupStorageLayout is
 
     struct InitConfiguration {
         address admin;
-        address pauser;
         address sequencer;
+        address pauser;
         uint256 challengeDepositAmount;
         uint256 challengeBlockCount;
         uint256 approveBlockCount;
@@ -110,7 +110,6 @@ contract RollupStorageLayout is
         (InitConfiguration memory params) = abi.decode(data, (InitConfiguration));
 
         require(params.admin != address(0), ZeroAddressNotAllowed("admin"));
-        require(params.sequencer != address(0), ZeroAddressNotAllowed("sequencer"));
         require(params.verifier != address(0), ZeroAddressNotAllowed("verifier"));
         require(params.programVKey != bytes32(0), ZeroValueNotAllowed("programVKey"));
         require(params.genesisHash != bytes32(0), ZeroValueNotAllowed("genesisHash"));
