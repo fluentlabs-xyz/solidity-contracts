@@ -84,13 +84,18 @@ async function main() {
         const next = toL2Queue[0];
         try {
             const expectedNonce = await l2Bridge.receivedNonce();
+            if (next.nonce !== expectedNonce) {
+                // Wait until the destination bridge expects this source nonce.
+                relayingToL2 = false;
+                return;
+            }
             const tx = await l2Bridge.receiveMessage(
                 next.sender,
                 next.to,
                 next.value,
                 next.chainId,
                 next.blockNumber,
-                expectedNonce,
+                next.nonce,
                 next.data,
                 { gasLimit: 500_000 }
             );
@@ -115,13 +120,18 @@ async function main() {
         const next = toL1Queue[0];
         try {
             const expectedNonce = await l1Bridge.receivedNonce();
+            if (next.nonce !== expectedNonce) {
+                // Wait until the destination bridge expects this source nonce.
+                relayingToL1 = false;
+                return;
+            }
             const tx = await l1Bridge.receiveMessage(
                 next.sender,
                 next.to,
                 next.value,
                 next.chainId,
                 next.blockNumber,
-                expectedNonce,
+                next.nonce,
                 next.data,
                 { gasLimit: 500_000 }
             );

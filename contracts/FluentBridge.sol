@@ -219,7 +219,7 @@ contract FluentBridge is Initializable, ReentrancyGuardUpgradeable, Ownable2Step
         uint256 _blockNumber,
         uint256 _nonce,
         bytes calldata _message
-    ) external payable nonReentrant whenNotPaused {
+    ) external payable onlyBridgeAuthority nonReentrant whenNotPaused {
         bytes32 messageHash = keccak256(_encodeMessage(_from, _to, _value, _chainId, _blockNumber, _nonce, _message));
         require(_getFluentBridgeStorage().receivedMessage[messageHash] == MessageStatus.Failed, MessageNotFailed());
 

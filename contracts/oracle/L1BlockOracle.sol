@@ -17,7 +17,7 @@ contract L1BlockOracle is Ownable, IL1BlockOracle {
     constructor() Ownable(msg.sender) {}
 
     /// @inheritdoc IL1BlockOracle
-    function updateL1BlockNumber(uint256 _blockNumber) external onlyOwner {
+    function updateL1BlockNumber(uint256 _blockNumber) external override onlyOwner {
         _l1BlockNumber = _blockNumber;
         emit L1BlockNumberUpdated(_blockNumber);
     }
