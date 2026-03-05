@@ -243,7 +243,7 @@ contract FluentBridge is Initializable, ReentrancyGuardUpgradeable, Ownable2Step
         require(_to != address(this), ForbiddenSelfCall());
 
         FluentBridgeStorage storage $ = _getFluentBridgeStorage();
-        if ($.receiveMessageDeadline != 0) {
+        if ($.receiveMessageDeadline != 0 && $.l1BlockOracle != address(0)) {
             uint256 l1BlockNumber = IL1BlockOracle($.l1BlockOracle).getL1BlockNumber();
             if (_blockNumber + $.receiveMessageDeadline < l1BlockNumber) {
                 emit RollbackMessage(_messageHash, block.number);

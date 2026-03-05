@@ -42,7 +42,7 @@ contract PaymentsGatewayTest {
         factory.transferOwnership(address(gateway));
         gateway.acceptTokenFactory();
 
-        gateway.setOtherSide(OTHER_SIDE_GATEWAY, address(peggedImplementation), address(factory));
+        gateway.setOtherSide(OTHER_SIDE_GATEWAY, address(peggedImplementation), address(factory), factory.beacon());
 
         originToken = new MockERC20Token("Mock", "MOCK", 1_000_000 ether, USER);
     }
@@ -444,7 +444,7 @@ contract PaymentsGatewayTest {
         gateway.setOtherSideTokenImplementation(address(0xBBBB));
         assertEq(gateway.otherSideTokenImplementation(), address(0xBBBB), "otherSide implementation should update");
 
-        gateway.setOtherSide(address(0xCCCC), address(0xDDDD), address(0xEEEE));
+        gateway.setOtherSide(address(0xCCCC), address(0xDDDD), address(0xEEEE), address(0xBBBB));
         assertEq(gateway.otherSide(), address(0xCCCC), "otherSide set should update");
         assertEq(gateway.otherSideFactory(), address(0xEEEE), "otherSideFactory set should update");
 
@@ -468,13 +468,16 @@ contract PaymentsGatewayTest {
         gateway.setOtherSideTokenImplementation(address(0));
 
         vm.expectRevert(bytes4(keccak256("ZeroAddress()")));
-        gateway.setOtherSide(address(0), address(1), address(2));
+        gateway.setOtherSide(address(0), address(1), address(2), address(3));
 
         vm.expectRevert(bytes4(keccak256("ZeroAddress()")));
-        gateway.setOtherSide(address(1), address(0), address(2));
+        gateway.setOtherSide(address(1), address(0), address(2), address(3));
 
         vm.expectRevert(bytes4(keccak256("ZeroAddress()")));
-        gateway.setOtherSide(address(1), address(2), address(0));
+        gateway.setOtherSide(address(1), address(2), address(0), address(3));
+
+        vm.expectRevert(bytes4(keccak256("ZeroAddress()")));
+        gateway.setOtherSide(address(1), address(2), address(3), address(0));
     }
 
     function test_receiveFunctions_revertWhenCallerNotBridge() public {
@@ -529,9 +532,10 @@ contract PaymentsGatewayTest {
         vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", USER));
         gateway.setOtherSideTokenImplementation(address(peggedImplementation));
 
+        address beaconAddr = factory.beacon();
         vm.prank(USER);
         vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", USER));
-        gateway.setOtherSide(OTHER_SIDE_GATEWAY, address(peggedImplementation), address(factory));
+        gateway.setOtherSide(OTHER_SIDE_GATEWAY, address(peggedImplementation), address(factory), beaconAddr);
     }
 
     function test_receivePeggedTokens_wrongPeggedTokenPrediction_marksFailed() public {

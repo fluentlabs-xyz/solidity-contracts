@@ -6,6 +6,7 @@ import {Rollup} from "../../contracts/rollup/Rollup.sol";
 import {RollupStorageLayout} from "../../contracts/rollup/RollupStorageLayout.sol";
 import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
 import {RollupBase} from "./Base.t.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 
 contract MaliciousProverCallback {
     Rollup internal immutable rollup;
@@ -29,9 +30,7 @@ contract MaliciousProverCallback {
     receive() external payable {
         callbackTriggered = true;
         callbackReentryAttempted = true;
-        (bool ok,) = address(rollup).call(
-            abi.encodeWithSelector(Rollup.withdrawChallengeDeposit.selector, payable(address(this)))
-        );
+        (bool ok, ) = address(rollup).call(abi.encodeWithSelector(Rollup.withdrawChallengeDeposit.selector, payable(address(this))));
         callbackReentrySucceeded = ok;
     }
 
@@ -49,19 +48,19 @@ contract MaliciousProverCallback {
 }
 
 contract RollupSecurityEdgeCasesTest is RollupBase {
-    function _buildSingleCommitmentBatch(bytes32 prevHash, bytes32 blockHash)
-        internal
-        pure
-        returns (RollupStorageLayout.BlockCommitment[] memory batch)
-    {
+    function _buildSingleCommitmentBatch(
+        bytes32 prevHash,
+        bytes32 blockHash
+    ) internal pure returns (RollupStorageLayout.BlockCommitment[] memory batch) {
         batch = new RollupStorageLayout.BlockCommitment[](1);
         batch[0] = _buildCommitment(prevHash, blockHash, ZERO_HASH, ZERO_HASH);
     }
 
-    function _acceptAndChallenge(uint256 batchIndex, bytes32 prevHash, bytes32 blockHash)
-        internal
-        returns (RollupStorageLayout.BlockCommitment memory commitment, MerkleTree.MerkleProof memory blockProof)
-    {
+    function _acceptAndChallenge(
+        uint256 batchIndex,
+        bytes32 prevHash,
+        bytes32 blockHash
+    ) internal returns (RollupStorageLayout.BlockCommitment memory commitment, MerkleTree.MerkleProof memory blockProof) {
         RollupStorageLayout.BlockCommitment[] memory batch = _buildSingleCommitmentBatch(prevHash, blockHash);
 
         vm.prank(SEQUENCER);
@@ -76,15 +75,17 @@ contract RollupSecurityEdgeCasesTest is RollupBase {
         commitment = batch[0];
     }
 
-    function _setupChallengeQueue(uint256 challengeCount)
-        internal
-        returns (RollupStorageLayout.BlockCommitment memory firstCommitment, MerkleTree.MerkleProof memory firstProof)
-    {
+    function _setupChallengeQueue(
+        uint256 challengeCount
+    ) internal returns (RollupStorageLayout.BlockCommitment memory firstCommitment, MerkleTree.MerkleProof memory firstProof) {
         bytes32 prevHash = MOCK_GENESIS_HASH;
         for (uint256 i = 1; i <= challengeCount; i++) {
             bytes32 blockHash = keccak256(abi.encodePacked("security-queue", i));
-            (RollupStorageLayout.BlockCommitment memory commitment, MerkleTree.MerkleProof memory blockProof) =
-                _acceptAndChallenge(i, prevHash, blockHash);
+            (RollupStorageLayout.BlockCommitment memory commitment, MerkleTree.MerkleProof memory blockProof) = _acceptAndChallenge(
+                i,
+                prevHash,
+                blockHash
+            );
             if (i == 1) {
                 firstCommitment = commitment;
                 firstProof = blockProof;
@@ -103,8 +104,7 @@ contract RollupSecurityEdgeCasesTest is RollupBase {
             incentiveFee_: 0
         });
 
-        (RollupStorageLayout.BlockCommitment memory commitment, MerkleTree.MerkleProof memory blockProof) =
-            _setupChallengeQueue(challengeCount);
+        (RollupStorageLayout.BlockCommitment memory commitment, MerkleTree.MerkleProof memory blockProof) = _setupChallengeQueue(challengeCount);
 
         uint256 beforeGas = gasleft();
         vm.prank(PROOF_PROVIDER);
@@ -122,10 +122,16 @@ contract RollupSecurityEdgeCasesTest is RollupBase {
             incentiveFee_: 0
         });
 
-        (RollupStorageLayout.BlockCommitment memory commitment, MerkleTree.MerkleProof memory blockProof) =
-            _acceptAndChallenge(1, MOCK_GENESIS_HASH, keccak256("reentrancy-poc"));
+        (RollupStorageLayout.BlockCommitment memory commitment, MerkleTree.MerkleProof memory blockProof) = _acceptAndChallenge(
+            1,
+            MOCK_GENESIS_HASH,
+            keccak256("reentrancy-poc")
+        );
 
         MaliciousProverCallback maliciousProver = new MaliciousProverCallback(rollup);
+        // Grant PROVER_ROLE so the malicious contract can actually exercise the proof path.
+        rollup.grantRole(rollup.PROVER_ROLE(), address(maliciousProver));
+
         maliciousProver.prove(1, commitment, hex"1234", blockProof);
 
         assertEq(maliciousProver.wasCallbackTriggered(), false, "proof callback should not be externally triggered");
@@ -143,8 +149,7 @@ contract RollupSecurityEdgeCasesTest is RollupBase {
 
         rollup.setDaCheck(true);
 
-        RollupStorageLayout.BlockCommitment[] memory batch =
-            _buildSingleCommitmentBatch(MOCK_GENESIS_HASH, keccak256("da-fail-closed"));
+        RollupStorageLayout.BlockCommitment[] memory batch = _buildSingleCommitmentBatch(MOCK_GENESIS_HASH, keccak256("da-fail-closed"));
 
         vm.expectRevert();
         vm.prank(SEQUENCER);
@@ -155,11 +160,7 @@ contract RollupSecurityEdgeCasesTest is RollupBase {
         uint256 gasForSingleChallenge = _measureProofGasWithQueue(1);
         uint256 gasForFortyChallenges = _measureProofGasWithQueue(40);
 
-        assertLe(
-            gasForFortyChallenges,
-            gasForSingleChallenge + 50_000,
-            "proof gas should not scale with challenge queue size"
-        );
+        assertLe(gasForFortyChallenges, gasForSingleChallenge + 50_000, "proof gas should not scale with challenge queue size");
     }
 
     function test_poc_repeatedProofMustRevert() public {
@@ -172,8 +173,11 @@ contract RollupSecurityEdgeCasesTest is RollupBase {
             incentiveFee_: 0
         });
 
-        (RollupStorageLayout.BlockCommitment memory commitment, MerkleTree.MerkleProof memory blockProof) =
-            _acceptAndChallenge(1, MOCK_GENESIS_HASH, keccak256("repeat-proof"));
+        (RollupStorageLayout.BlockCommitment memory commitment, MerkleTree.MerkleProof memory blockProof) = _acceptAndChallenge(
+            1,
+            MOCK_GENESIS_HASH,
+            keccak256("repeat-proof")
+        );
 
         bytes32 commitmentHash = _commitmentHash(commitment);
 
@@ -181,7 +185,7 @@ contract RollupSecurityEdgeCasesTest is RollupBase {
         rollup.proofBlockCommitment(1, commitment, 0, hex"1234", blockProof);
 
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.BlockCommitmentAlreadyProofed.selector, commitmentHash));
-        vm.prank(ATTACKER);
+        vm.prank(PROOF_PROVIDER);
         rollup.proofBlockCommitment(1, commitment, 0, hex"1234", blockProof);
     }
 
@@ -195,17 +199,14 @@ contract RollupSecurityEdgeCasesTest is RollupBase {
             incentiveFee_: 0
         });
 
-        (RollupStorageLayout.BlockCommitment memory commitment, MerkleTree.MerkleProof memory blockProof) =
-            _acceptAndChallenge(1, MOCK_GENESIS_HASH, keccak256("frontrun"));
-        bytes32 commitmentHash = _commitmentHash(commitment);
+        (RollupStorageLayout.BlockCommitment memory commitment, MerkleTree.MerkleProof memory blockProof) = _acceptAndChallenge(
+            1,
+            MOCK_GENESIS_HASH,
+            keccak256("frontrun")
+        );
 
+        vm.expectRevert(abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, ATTACKER, rollup.PROVER_ROLE()));
         vm.prank(ATTACKER);
         rollup.proofBlockCommitment(1, commitment, 0, hex"1234", blockProof);
-
-        assertEq(
-            rollup.provenBlockCommitment(commitmentHash),
-            true,
-            "attacker should be able to front-run with valid proof calldata"
-        );
     }
 }

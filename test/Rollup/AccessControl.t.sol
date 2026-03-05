@@ -75,7 +75,13 @@ contract RollupAccessControlTest is RollupBase {
     function test_nonSequencer_revertsOnAcceptNextBatch() public {
         RollupStorageLayout.BlockCommitment[] memory batch = _buildValidBatch(MOCK_GENESIS_HASH);
 
-        vm.expectRevert(IRollupErrors.OnlySequencer.selector);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector,
+                ATTACKER,
+                rollup.SEQUENCER_ROLE()
+            )
+        );
         vm.prank(ATTACKER);
         rollup.acceptNextBatch(batch, new RollupStorageLayout.DepositsInBlock[](0), 0);
     }

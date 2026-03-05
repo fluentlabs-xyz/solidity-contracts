@@ -145,8 +145,8 @@ echo "L2 Gateway: $L2_GATEWAY  Factory: $L2_FACTORY  Beacon: $L2_BEACON"
 
 echo ""
 echo "=== Step 6: Set other side gateway config ==="
-send_tx "$L1_RPC_URL" "$L1_GATEWAY" "setOtherSide(address,address,address)" "$L2_GATEWAY" "$L2_BEACON" "$L2_FACTORY"
-send_tx "$L2_RPC_URL" "$L2_GATEWAY" "setOtherSide(address,address,address)" "$L1_GATEWAY" "$L1_BEACON" "$L1_FACTORY"
+send_tx "$L1_RPC_URL" "$L1_GATEWAY" "setOtherSide(address,address,address,address)" "$L2_GATEWAY" "$L2_BEACON" "$L2_FACTORY" "$L2_BEACON"
+send_tx "$L2_RPC_URL" "$L2_GATEWAY" "setOtherSide(address,address,address,address)" "$L1_GATEWAY" "$L1_BEACON" "$L1_FACTORY" "$L1_BEACON"
 echo "Gateways linked."
 
 echo ""

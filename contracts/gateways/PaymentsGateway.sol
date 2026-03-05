@@ -2,6 +2,7 @@
 pragma solidity 0.8.30;
 
 import {ERC20PeggedToken} from "../tokens/ERC20PeggedToken.sol";
+import {ERC20TokenFactory} from "../factories/ERC20TokenFactory.sol";
 import {GenericTokenFactory} from "../factories/GenericTokenFactory.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -30,15 +31,14 @@ contract PaymentsGateway is Initializable, Ownable2StepUpgradeable, ReentrancyGu
         address otherSide;
         address otherSideTokenImplementation;
         address otherSideFactory;
+        address otherSideBeacon;
         mapping(address => address) tokenMapping;
-        uint256[50] __gap;
+        uint256[49] __gap;
     }
+
     /// @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.PaymentsGatewayStorage")) - 1)) & ~bytes32(uint256(0xff))
-
-    bytes32 private constant PAYMENTS_GATEWAY_STORAGE_LOCATION =
-        0x56fcd3a376ece74d8548f8eb9ad3e4b76412a278066173b6106c2bf8de8e3d00;
+    bytes32 private constant PAYMENTS_GATEWAY_STORAGE_LOCATION = 0x56fcd3a376ece74d8548f8eb9ad3e4b76412a278066173b6106c2bf8de8e3d00;
     /// @dev returns the storage pointer for the PaymentsGatewayStorage struct.
-
     function _getPaymentsGatewayStorage() private pure returns (PaymentsGatewayStorage storage $) {
         assembly {
             $.slot := PAYMENTS_GATEWAY_STORAGE_LOCATION
@@ -57,9 +57,7 @@ contract PaymentsGateway is Initializable, Ownable2StepUpgradeable, ReentrancyGu
 
     /// @notice Initializes the upgradeable gateway (replaces constructor when used behind a proxy).
     function initialize(address _initialOwner, address _bridgeContract, address _tokenFactory) public initializer {
-        require(
-            _initialOwner != address(0) && _bridgeContract != address(0) && _tokenFactory != address(0), ZeroAddress()
-        );
+        require(_initialOwner != address(0) && _bridgeContract != address(0) && _tokenFactory != address(0), ZeroAddress());
 
         __Ownable_init(_initialOwner);
         __Ownable2Step_init();
@@ -78,7 +76,8 @@ contract PaymentsGateway is Initializable, Ownable2StepUpgradeable, ReentrancyGu
         require(msg.value == _amount, InvalidNativeAmount());
 
         FluentBridge($.bridgeContract).sendMessage{value: _amount}(
-            $.otherSide, abi.encodeCall(PaymentsGateway.receiveNativeTokens, (msg.sender, _to, _amount))
+            $.otherSide,
+            abi.encodeCall(PaymentsGateway.receiveNativeTokens, (msg.sender, _to, _amount))
         );
     }
 
@@ -98,13 +97,11 @@ contract PaymentsGateway is Initializable, Ownable2StepUpgradeable, ReentrancyGu
                 IERC20(_token).safeTransferFrom(_from, address(this), _amount);
             }
 
-            bytes memory rawTokenMetadata =
-                abi.encode(ERC20(_token).symbol(), ERC20(_token).name(), ERC20(_token).decimals());
-            bytes memory keyData = abi.encode($.otherSide, _token);
-            address peggedToken = GenericTokenFactory($.tokenFactory).computeOtherSidePeggedTokenAddress(keyData, "");
-            _message = abi.encodeCall(
-                PaymentsGateway.receivePeggedTokens, (_token, peggedToken, _sender, _to, _amount, rawTokenMetadata)
+            bytes memory rawTokenMetadata = abi.encode(ERC20(_token).symbol(), ERC20(_token).name(), ERC20(_token).decimals());
+            address peggedToken = ERC20TokenFactory($.tokenFactory).computeOtherSidePeggedTokenAddress(
+                $.otherSide, _token, $.otherSideBeacon, $.otherSideFactory
             );
+            _message = abi.encodeCall(PaymentsGateway.receivePeggedTokens, (_token, peggedToken, _sender, _to, _amount, rawTokenMetadata));
         } else {
             (, address originAddress) = ERC20PeggedToken(_token).getOrigin();
             require($.tokenMapping[_token] == originAddress);
@@ -146,15 +143,13 @@ contract PaymentsGateway is Initializable, Ownable2StepUpgradeable, ReentrancyGu
     }
 
     /// @inheritdoc IGateway
-    function receiveOriginTokens(address _originToken, address _from, address _to, uint256 _amount)
-        external
-        payable
-        onlyBridgeSender
-        nonReentrant
-    {
-        require(
-            FluentBridge(msg.sender).nativeSender() == _getPaymentsGatewayStorage().otherSide, MessageFromWrongGateway()
-        );
+    function receiveOriginTokens(
+        address _originToken,
+        address _from,
+        address _to,
+        uint256 _amount
+    ) external payable onlyBridgeSender nonReentrant {
+        require(FluentBridge(msg.sender).nativeSender() == _getPaymentsGatewayStorage().otherSide, MessageFromWrongGateway());
         require(msg.value == 0, MessageValueMustBeZero());
         require(_to != address(0), InvalidRecipient());
 
@@ -164,19 +159,12 @@ contract PaymentsGateway is Initializable, Ownable2StepUpgradeable, ReentrancyGu
     }
 
     /// @inheritdoc IGateway
-    function receiveNativeTokens(address _from, address _to, uint256 _amount)
-        external
-        payable
-        onlyBridgeSender
-        nonReentrant
-    {
-        require(
-            FluentBridge(msg.sender).nativeSender() == _getPaymentsGatewayStorage().otherSide, MessageFromWrongGateway()
-        );
+    function receiveNativeTokens(address _from, address _to, uint256 _amount) external payable onlyBridgeSender nonReentrant {
+        require(FluentBridge(msg.sender).nativeSender() == _getPaymentsGatewayStorage().otherSide, MessageFromWrongGateway());
         require(msg.value == _amount, InvalidNativeAmount());
         require(_to != address(0), InvalidRecipient());
 
-        (bool success,) = payable(_to).call{value: _amount}("");
+        (bool success, ) = payable(_to).call{value: _amount}("");
         require(success, NativeTransferFailed());
 
         emit ReceivedTokens(_from, _to, _amount);
@@ -192,18 +180,14 @@ contract PaymentsGateway is Initializable, Ownable2StepUpgradeable, ReentrancyGu
         bytes memory keyData = abi.encode(address(this), _originToken);
         address _peggedToken = GenericTokenFactory(_getPaymentsGatewayStorage().tokenFactory).deployToken(keyData, "");
 
-        (string memory _symbol, string memory _name, uint8 _decimals) =
-            abi.decode(_tokenMetadata, (string, string, uint8));
+        (string memory _symbol, string memory _name, uint8 _decimals) = abi.decode(_tokenMetadata, (string, string, uint8));
         ERC20PeggedToken(_peggedToken).initialize(_name, _symbol, _decimals, address(this), _originToken);
 
         return _peggedToken;
     }
 
-    /**
-     *
-     * Public getters
-     *
-     */
+    // ============ Public getters ============
+
     function bridgeContract() public view returns (address) {
         return _getPaymentsGatewayStorage().bridgeContract;
     }
@@ -237,15 +221,12 @@ contract PaymentsGateway is Initializable, Ownable2StepUpgradeable, ReentrancyGu
     /// @inheritdoc IGateway
     function computeOtherSidePeggedTokenAddress(address _token) external view returns (address) {
         PaymentsGatewayStorage storage $ = _getPaymentsGatewayStorage();
-        bytes memory keyData = abi.encode($.otherSide, _token);
-        return GenericTokenFactory($.tokenFactory).computeOtherSidePeggedTokenAddress(keyData, "");
+        return ERC20TokenFactory($.tokenFactory).computeOtherSidePeggedTokenAddress(
+            $.otherSide, _token, $.otherSideBeacon, $.otherSideFactory
+        );
     }
 
-    /**
-     *
-     * Admin functions
-     *
-     */
+    // ============ Admin functions ============
 
     /// @notice Accepts ownership of the token factory for this gateway.
     function acceptTokenFactory() external onlyOwner {
@@ -281,12 +262,16 @@ contract PaymentsGateway is Initializable, Ownable2StepUpgradeable, ReentrancyGu
 
     /// @notice Sets remote gateway/factory configuration used for cross-chain token routing.
     /// @dev High-trust admin action; should be controlled by multisig governance.
-    function setOtherSide(address _otherSide, address _otherSideTokenImplementation, address _otherSideFactory)
-        external
-        onlyOwner
-    {
+    /// @param _otherSideBeacon Beacon of the other side's token factory (from factory.beacon()).
+    function setOtherSide(
+        address _otherSide,
+        address _otherSideTokenImplementation,
+        address _otherSideFactory,
+        address _otherSideBeacon
+    ) external onlyOwner {
         require(
-            _otherSide != address(0) && _otherSideTokenImplementation != address(0) && _otherSideFactory != address(0),
+            _otherSide != address(0) && _otherSideTokenImplementation != address(0) && _otherSideFactory != address(0)
+                && _otherSideBeacon != address(0),
             ZeroAddress()
         );
         PaymentsGatewayStorage storage $ = _getPaymentsGatewayStorage();
@@ -297,10 +282,9 @@ contract PaymentsGateway is Initializable, Ownable2StepUpgradeable, ReentrancyGu
         $.otherSide = _otherSide;
         $.otherSideTokenImplementation = _otherSideTokenImplementation;
         $.otherSideFactory = _otherSideFactory;
+        $.otherSideBeacon = _otherSideBeacon;
 
-        emit OtherSideUpdated(
-            oldOtherSide, _otherSide, oldImplementation, _otherSideTokenImplementation, oldFactory, _otherSideFactory
-        );
+        emit OtherSideUpdated(oldOtherSide, _otherSide, oldImplementation, _otherSideTokenImplementation, oldFactory, _otherSideFactory);
     }
 
     /// @notice Updates local peggedToken => originToken mapping used for burn/unlock flows.
@@ -320,7 +304,7 @@ contract PaymentsGateway is Initializable, Ownable2StepUpgradeable, ReentrancyGu
     /// @dev Owner-only emergency path; use operational controls to avoid draining owed funds.
     function rescueNative(address payable _to, uint256 _amount) external onlyOwner {
         require(_to != address(0), InvalidRecipient());
-        (bool success,) = _to.call{value: _amount}("");
+        (bool success, ) = _to.call{value: _amount}("");
         require(success, NativeTransferFailed());
     }
 
