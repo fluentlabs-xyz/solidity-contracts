@@ -26,7 +26,13 @@ contract ERC20PeggedToken is Initializable, ERC20Upgradeable, OwnableUpgradeable
         _disableInitializers();
     }
 
-    function initialize(string memory name_, string memory symbol_, uint8 decimals_, address gateway, address originAddress) public initializer {
+    function initialize(
+        string memory name_,
+        string memory symbol_,
+        uint8 decimals_,
+        address gateway,
+        address originAddress
+    ) public initializer {
         // base ERC20 init; we override metadata below
         __ERC20_init("", "");
         __Ownable_init(msg.sender);
@@ -77,7 +83,10 @@ contract ERC20PeggedToken is Initializable, ERC20Upgradeable, OwnableUpgradeable
     }
 
     /// @dev Enforce pause semantics for all balance updates (transfer / mint / burn).
-    function _update(address from, address to, uint256 value) internal virtual override whenNotPaused {
+    function _update(address from, address to, uint256 value) internal virtual override {
+        if (paused()) {
+            revert("Pausable: paused");
+        }
         super._update(from, to, value);
     }
 

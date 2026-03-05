@@ -23,10 +23,7 @@ contract Restaker is OwnableUpgradeable, IRestaker {
         //        _disableInitializers();
     }
 
-    function initialize(
-        address owner,
-        IRestakerFacets facets
-    ) public override initializer {
+    function initialize(address owner, IRestakerFacets facets) public override initializer {
         __Ownable_init(owner);
         __Restaker_init(facets);
     }
