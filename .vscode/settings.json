@@ -1,7 +1,14 @@
 {
-    "wake.compiler.solc.remappings": [
-        "@openzeppelin/=node_modules/@openzeppelin/",
-        "hardhat/=node_modules/hardhat/"
-    ],
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.formatOnSave": true,
+    "[javascript]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "[solidity]": {
+        "editor.defaultFormatter": "JuanBlanco.solidity",
+        "editor.formatOnSave": true
+    },
+    "prettier.requireConfig": true,
+    "wake.compiler.solc.remappings": ["@openzeppelin/=node_modules/@openzeppelin/"],
     "wake.compiler.solc.allow_paths": ["test"]
 }

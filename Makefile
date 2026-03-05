@@ -31,3 +31,7 @@ test_SendTokens:
 .PHONY: test_RestakeTokens
 test_RestakeTokens:
 	$(MAKE) _run_test TEST_NAME=RestakeTokens
+
+.PHONY: format
+format:
+	yarn format

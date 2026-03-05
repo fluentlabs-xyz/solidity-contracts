@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: MIT
 // E2E purpose: canonical ERC20 bridge roundtrip on dual-fork setup.
 // Flow direction: L2 -> L1 (proof path), then L1 -> L2 (bridge authority path).
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.30;
 
-import "../../contracts/ERC20PeggedToken.sol";
-import "../../contracts/rollup/Rollup.sol";
-import "./BaseDualFork.t.sol";
+import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
+import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
+import {RollupStorageLayout} from "../../contracts/rollup/RollupStorageLayout.sol";
+import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
+import {IFluentBridge} from "../../contracts/interfaces/IFluentBridge.sol";
+import {BaseDualFork, VmFork} from "./BaseDualFork.t.sol";
 
 contract ERC20RoundtripHappyPathTest is BaseDualFork {
     uint256 internal constant TRANSFER_AMOUNT = 100 ether;
@@ -17,21 +20,13 @@ contract ERC20RoundtripHappyPathTest is BaseDualFork {
     function test_comparePeggedTokenAddresses_matchesOtherSideComputation() public {
         _switchToL2();
         _assertOnL2();
-        address peggedOnL2 = l2.gateway.computePeggedTokenAddress(
-            address(l2.originToken)
-        );
+        address peggedOnL2 = l2.gateway.computePeggedTokenAddress(address(l2.originToken));
 
         _switchToL1();
         _assertOnL1();
-        address peggedFromL1View = l1.gateway.computeOtherSidePeggedTokenAddress(
-            address(l2.originToken)
-        );
+        address peggedFromL1View = l1.gateway.computeOtherSidePeggedTokenAddress(address(l2.originToken));
 
-        assertEq(
-            peggedOnL2,
-            peggedFromL1View,
-            "pegged-token address parity mismatch across gateways"
-        );
+        assertEq(peggedOnL2, peggedFromL1View, "pegged-token address parity mismatch across gateways");
     }
 
     function test_e2e_erc20Roundtrip_happyPath_dualFork_daOn() public {
@@ -48,38 +43,23 @@ contract ERC20RoundtripHappyPathTest is BaseDualFork {
         VmFork.Log[] memory l2Logs = vm.getRecordedLogs();
         vm.stopPrank();
 
-        SentMessageData memory l2ToL1 = _findSentMessage(
-            l2Logs,
-            address(l2.bridge)
-        );
+        SentMessageData memory l2ToL1 = _findSentMessage(l2Logs, address(l2.bridge));
         assertEq(l2ToL1.sender, address(l2.gateway), "wrong L2 sender");
         assertEq(l2ToL1.to, address(l1.gateway), "wrong L2 destination");
-        assertEq(
-            l2.originToken.balanceOf(USER_A),
-            userAInitialBalance - TRANSFER_AMOUNT,
-            "L2 user balance not reduced after send"
-        );
-        assertEq(
-            l2.originToken.balanceOf(address(l2.gateway)),
-            TRANSFER_AMOUNT,
-            "L2 gateway should hold locked tokens"
-        );
+        assertEq(l2.originToken.balanceOf(USER_A), userAInitialBalance - TRANSFER_AMOUNT, "L2 user balance not reduced after send");
+        assertEq(l2.originToken.balanceOf(address(l2.gateway)), TRANSFER_AMOUNT, "L2 gateway should hold locked tokens");
 
         // Step 2: L1 sequencer accepts batch with withdrawal root and DA check.
         _switchToL1();
         _assertOnL1();
         bytes32 batch1BlockHash = keccak256("L1-BATCH-1");
-        Rollup.BlockCommitment memory batch1Commitment = _buildCommitment(
+        RollupStorageLayout.BlockCommitment memory batch1Commitment = _buildCommitment(
             MOCK_GENESIS_HASH,
             batch1BlockHash,
             l2ToL1.messageHash,
             ZERO_HASH
         );
-        _acceptSingleCommitmentBatchL1(
-            1,
-            batch1Commitment,
-            new Rollup.DepositsInBlock[](0)
-        );
+        _acceptSingleCommitmentBatchL1(batch1Commitment, new RollupStorageLayout.DepositsInBlock[](0));
 
         // Step 3: L1 bridge processes proven withdrawal and mints pegged token.
         vm.roll(block.number + 1);
@@ -98,18 +78,12 @@ contract ERC20RoundtripHappyPathTest is BaseDualFork {
             proof
         );
 
-        address l1PeggedTokenAddress = l1.gateway.computePeggedTokenAddress(
-            address(l2.originToken)
-        );
+        address l1PeggedTokenAddress = l1.gateway.computePeggedTokenAddress(address(l2.originToken));
         ERC20PeggedToken l1PeggedToken = ERC20PeggedToken(l1PeggedTokenAddress);
-        assertEq(
-            l1PeggedToken.balanceOf(USER_B),
-            TRANSFER_AMOUNT,
-            "L1 pegged mint failed"
-        );
+        assertEq(l1PeggedToken.balanceOf(USER_B), TRANSFER_AMOUNT, "L1 pegged mint failed");
         assertEq(
             uint256(l1.bridge.receivedMessage(l2ToL1.messageHash)),
-            uint256(Bridge.MessageStatus.Success),
+            uint256(IFluentBridge.MessageStatus.Success),
             "L1 message status should be success"
         );
 
@@ -121,10 +95,7 @@ contract ERC20RoundtripHappyPathTest is BaseDualFork {
         VmFork.Log[] memory l1Logs = vm.getRecordedLogs();
         vm.stopPrank();
 
-        SentMessageData memory l1ToL2 = _findSentMessage(
-            l1Logs,
-            address(l1.bridge)
-        );
+        SentMessageData memory l1ToL2 = _findSentMessage(l1Logs, address(l1.bridge));
         assertEq(l1ToL2.sender, address(l1.gateway), "wrong L1 sender");
         assertEq(l1ToL2.to, address(l2.gateway), "wrong L1 destination");
         assertEq(l1.bridge.getQueueSize(), 1, "L1 queue must contain one deposit");
@@ -133,102 +104,56 @@ contract ERC20RoundtripHappyPathTest is BaseDualFork {
         _switchToL2();
         _assertOnL2();
         vm.prank(BRIDGE_AUTHORITY);
-        l2.bridge.receiveMessage(
-            l1ToL2.sender,
-            l1ToL2.to,
-            l1ToL2.value,
-            l1ToL2.chainId,
-            l1ToL2.blockNumber,
-            l1ToL2.nonce,
-            l1ToL2.data
-        );
+        l2.bridge.receiveMessage(l1ToL2.sender, l1ToL2.to, l1ToL2.value, l1ToL2.chainId, l1ToL2.blockNumber, l1ToL2.nonce, l1ToL2.data);
 
         assertEq(
             uint256(l2.bridge.receivedMessage(l1ToL2.messageHash)),
-            uint256(Bridge.MessageStatus.Success),
+            uint256(IFluentBridge.MessageStatus.Success),
             "L2 message status should be success"
         );
-        assertEq(
-            l2.originToken.balanceOf(USER_A),
-            userAInitialBalance,
-            "L2 user balance should be restored after roundtrip"
-        );
-        assertEq(
-            l2.originToken.balanceOf(address(l2.gateway)),
-            0,
-            "L2 gateway should release locked tokens"
-        );
+        assertEq(l2.originToken.balanceOf(USER_A), userAInitialBalance, "L2 user balance should be restored after roundtrip");
+        assertEq(l2.originToken.balanceOf(address(l2.gateway)), 0, "L2 gateway should release locked tokens");
 
         // Step 6: L1 sequencer accepts deposit batch and consumes L1 bridge queue.
         _switchToL1();
         _assertOnL1();
         bytes32 batch2BlockHash = keccak256("L1-BATCH-2");
         bytes32 depositHash = keccak256(abi.encodePacked(l1ToL2.messageHash));
-        Rollup.BlockCommitment memory batch2Commitment = _buildCommitment(
+        RollupStorageLayout.BlockCommitment memory batch2Commitment = _buildCommitment(
             batch1Commitment.blockHash,
             batch2BlockHash,
             ZERO_HASH,
             depositHash
         );
 
-        Rollup.DepositsInBlock[] memory deposits =
-            new Rollup.DepositsInBlock[](1);
-        deposits[0] = Rollup.DepositsInBlock({
-            blockHash: batch2BlockHash,
-            depositCount: 1
-        });
-        _acceptSingleCommitmentBatchL1(2, batch2Commitment, deposits);
+        RollupStorageLayout.DepositsInBlock[] memory deposits = new RollupStorageLayout.DepositsInBlock[](1);
+        deposits[0] = RollupStorageLayout.DepositsInBlock({blockHash: batch2BlockHash, depositCount: 1});
+        _acceptSingleCommitmentBatchL1(batch2Commitment, deposits);
 
         // Step 7: Verify final invariants for balances, queue state, and message status.
         assertEq(l1.rollup.nextBatchIndex(), 3, "unexpected nextBatchIndex");
-        assertEq(
-            l1.bridge.getQueueSize(),
-            0,
-            "L1 queue should be consumed after deposit validation"
-        );
-        assertEq(
-            l1PeggedToken.balanceOf(USER_B),
-            0,
-            "L1 pegged token should be burned after return transfer"
-        );
+        assertEq(l1.bridge.getQueueSize(), 0, "L1 queue should be consumed after deposit validation");
+        assertEq(l1PeggedToken.balanceOf(USER_B), 0, "L1 pegged token should be burned after return transfer");
 
         _switchToL2();
         _assertOnL2();
         assertEq(
             uint256(l2.bridge.receivedMessage(l1ToL2.messageHash)),
-            uint256(Bridge.MessageStatus.Success),
+            uint256(IFluentBridge.MessageStatus.Success),
             "L2 final message status mismatch"
         );
     }
 
-    function test_acceptBatch_reverts_whenDaHashMismatch() public {
-        // Step 1: Build a valid batch and intentionally submit wrong DA blob hash.
+    function test_acceptBatch_reverts_whenDaBlobHashMissing() public {
+        // Step 1: Build a valid batch but do not attach blob data.
         _switchToL1();
         _assertOnL1();
 
-        Rollup.BlockCommitment[] memory batch = new Rollup.BlockCommitment[](1);
-        batch[0] = _buildCommitment(
-            MOCK_GENESIS_HASH,
-            keccak256("DA-MISMATCH-BLOCK"),
-            ZERO_HASH,
-            ZERO_HASH
-        );
+        RollupStorageLayout.BlockCommitment[] memory batch = new RollupStorageLayout.BlockCommitment[](1);
+        batch[0] = _buildCommitment(MOCK_GENESIS_HASH, keccak256("DA-MISMATCH-BLOCK"), ZERO_HASH, ZERO_HASH);
 
-        bytes32 batchRoot = l1.rollup.calculateBatchRoot(batch);
-        bytes32 expectedBlobHash = l1.rollup.calculateBlobHash(
-            abi.encodePacked(batchRoot)
-        );
-        bytes32 wrongBlobHash = bytes32(uint256(expectedBlobHash) ^ 1);
-        l1BlobHashGetter.setBlobHash(wrongBlobHash);
-
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                Rollup.DaBlobHashMismatch.selector,
-                expectedBlobHash,
-                wrongBlobHash
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "blobHash"));
         vm.prank(SEQUENCER);
-        l1.rollup.acceptNextBatch(1, batch, new Rollup.DepositsInBlock[](0));
+        l1.rollup.acceptNextBatch(batch, new RollupStorageLayout.DepositsInBlock[](0), 1);
     }
 }

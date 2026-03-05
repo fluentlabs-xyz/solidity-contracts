@@ -1,22 +1,29 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity 0.8.30;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "../interfaces/IL1BlockOracle.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {IL1BlockOracle} from "../interfaces/IL1BlockOracle.sol";
 
-contract L1BlockOracle is IL1BlockOracle, Ownable {
-    uint256 private l1BlockNumber;
-
-    event L1BlockNumberUpdated(uint256 newBlockNumber);
+/**
+ * @title L1BlockOracle
+ * @author Fluent Labs
+ * @notice Oracle contract for the L1 block number
+ * @dev Provides a function to get the current L1 block number
+ */
+contract L1BlockOracle is Ownable, IL1BlockOracle {
+    /// @notice The current L1 block number
+    uint256 internal _l1BlockNumber;
 
     constructor() Ownable(msg.sender) {}
 
-    function updateL1BlockNumber(uint256 _blockNumber) external onlyOwner {
-        l1BlockNumber = _blockNumber;
+    /// @inheritdoc IL1BlockOracle
+    function updateL1BlockNumber(uint256 _blockNumber) external override onlyOwner {
+        _l1BlockNumber = _blockNumber;
         emit L1BlockNumberUpdated(_blockNumber);
     }
 
+    /// @inheritdoc IL1BlockOracle
     function getL1BlockNumber() external view override returns (uint256) {
-        return l1BlockNumber;
+        return _l1BlockNumber;
     }
-} 
+}

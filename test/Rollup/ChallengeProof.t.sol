@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.30;
 
-import "./Base.t.sol";
+import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
+import {Rollup} from "../../contracts/rollup/Rollup.sol";
+import {RollupStorageLayout} from "../../contracts/rollup/RollupStorageLayout.sol";
+import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
+import {RollupBase} from "./Base.t.sol";
 
 contract RollupChallengeProofTest is RollupBase {
     function setUp() public {
@@ -17,13 +21,9 @@ contract RollupChallengeProofTest is RollupBase {
 
     function _acceptChallengeableBatch()
         internal
-        returns (
-            Rollup.BlockCommitment[] memory batch,
-            MerkleTree.MerkleProof memory blockProofForFirst,
-            bytes32 firstCommitmentHash
-        )
+        returns (RollupStorageLayout.BlockCommitment[] memory batch, MerkleTree.MerkleProof memory blockProofForFirst, bytes32 firstCommitmentHash)
     {
-        batch = new Rollup.BlockCommitment[](2);
+        batch = new RollupStorageLayout.BlockCommitment[](2);
         bytes32 blockHash1 = keccak256("challenge-batch-1");
         bytes32 blockHash2 = keccak256("challenge-batch-2");
 
@@ -31,7 +31,8 @@ contract RollupChallengeProofTest is RollupBase {
         batch[1] = _buildCommitment(blockHash1, blockHash2, ZERO_HASH, ZERO_HASH);
 
         vm.prank(SEQUENCER);
-        rollup.acceptNextBatch(1, batch, new Rollup.DepositsInBlock[](0));
+        // In tests we run with daCheck disabled, so blob index is ignored.
+        rollup.acceptNextBatch(batch, new RollupStorageLayout.DepositsInBlock[](0), 0);
 
         bytes32 firstLeaf = _commitmentHash(batch[0]);
         bytes32 secondLeaf = _commitmentHash(batch[1]);
@@ -42,7 +43,7 @@ contract RollupChallengeProofTest is RollupBase {
 
     function test_challengeAndProof_clearsQueueAndMarksProven() public {
         (
-            Rollup.BlockCommitment[] memory batch,
+            RollupStorageLayout.BlockCommitment[] memory batch,
             MerkleTree.MerkleProof memory blockProofForFirst,
             bytes32 firstCommitmentHash
         ) = _acceptChallengeableBatch();
@@ -56,20 +57,16 @@ contract RollupChallengeProofTest is RollupBase {
         assertEq(queueAfterChallenge[0], firstCommitmentHash, "wrong challenged hash");
 
         vm.prank(PROOF_PROVIDER);
-        rollup.proofBlockCommitment(1, batch[0], hex"1234", blockProofForFirst);
+        rollup.proofBlockCommitment(1, batch[0], 0, hex"1234", blockProofForFirst);
 
         bytes32[] memory queueAfterProof = rollup.getChallengeQueue();
         assertEq(queueAfterProof.length, 0, "challenge queue should be empty");
-        assertEq(
-            rollup.provenBlockCommitment(firstCommitmentHash),
-            true,
-            "commitment not marked as proven"
-        );
+        assertEq(rollup.provenBlockCommitment(firstCommitmentHash), true, "commitment not marked as proven");
     }
 
     function test_proofReward_usesPullPayment() public {
         (
-            Rollup.BlockCommitment[] memory batch,
+            RollupStorageLayout.BlockCommitment[] memory batch,
             MerkleTree.MerkleProof memory blockProofForFirst,
             bytes32 ignoredCommitmentHash
         ) = _acceptChallengeableBatch();
@@ -83,37 +80,21 @@ contract RollupChallengeProofTest is RollupBase {
         uint256 proofProviderBefore = PROOF_PROVIDER.balance;
 
         vm.prank(PROOF_PROVIDER);
-        rollup.proofBlockCommitment(1, batch[0], hex"1234", blockProofForFirst);
+        rollup.proofBlockCommitment(1, batch[0], 0, hex"1234", blockProofForFirst);
 
-        assertEq(
-            PROOF_PROVIDER.balance,
-            proofProviderBefore,
-            "proof should not push ETH immediately"
-        );
-        assertEq(
-            rollup.proverReadyForWithdrawal(PROOF_PROVIDER),
-            10000,
-            "proof reward not accrued"
-        );
+        assertEq(PROOF_PROVIDER.balance, proofProviderBefore, "proof should not push ETH immediately");
+        assertEq(rollup.proverReadyForWithdrawal(PROOF_PROVIDER), 10000, "proof reward not accrued");
 
         vm.prank(PROOF_PROVIDER);
         rollup.withdrawProofReward();
 
-        assertEq(
-            PROOF_PROVIDER.balance,
-            proofProviderBefore + 10000,
-            "withdraw did not transfer proof reward"
-        );
-        assertEq(
-            rollup.proverReadyForWithdrawal(PROOF_PROVIDER),
-            0,
-            "proof reward should be cleared after withdrawal"
-        );
+        assertEq(PROOF_PROVIDER.balance, proofProviderBefore + 10000, "withdraw did not transfer proof reward");
+        assertEq(rollup.proverReadyForWithdrawal(PROOF_PROVIDER), 0, "proof reward should be cleared after withdrawal");
     }
 
     function test_rollupCorrupted_thenForceRevert_resetsState() public {
         (
-            Rollup.BlockCommitment[] memory batch,
+            RollupStorageLayout.BlockCommitment[] memory batch,
             MerkleTree.MerkleProof memory blockProofForFirst,
             bytes32 ignoredCommitmentHash
         ) = _acceptChallengeableBatch();
@@ -137,46 +118,34 @@ contract RollupChallengeProofTest is RollupBase {
 
     function test_challenge_revertsWhenDepositTooLow() public {
         (
-            Rollup.BlockCommitment[] memory batch,
+            RollupStorageLayout.BlockCommitment[] memory batch,
             MerkleTree.MerkleProof memory blockProofForFirst,
             bytes32 ignoredCommitmentHash
         ) = _acceptChallengeableBatch();
         ignoredCommitmentHash;
 
         vm.deal(CHALLENGER, 9999);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                Rollup.InsufficientChallengeDeposit.selector,
-                10000,
-                9999
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InsufficientChallengeDeposit.selector, 10000, 9999));
         vm.prank(CHALLENGER);
         rollup.challengeBlockCommitment{value: 9999}(1, batch[0], blockProofForFirst);
     }
 
     function test_challenge_revertsWhenDepositTooHigh() public {
         (
-            Rollup.BlockCommitment[] memory batch,
+            RollupStorageLayout.BlockCommitment[] memory batch,
             MerkleTree.MerkleProof memory blockProofForFirst,
             bytes32 ignoredCommitmentHash
         ) = _acceptChallengeableBatch();
         ignoredCommitmentHash;
 
         vm.deal(CHALLENGER, 10001);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                Rollup.ExcessiveChallengeDeposit.selector,
-                10000,
-                10001
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ExcessiveChallengeDeposit.selector, 10000, 10001));
         vm.prank(CHALLENGER);
         rollup.challengeBlockCommitment{value: 10001}(1, batch[0], blockProofForFirst);
     }
 
     function test_withdrawProofReward_revertsWhenNothingToWithdraw() public {
-        vm.expectRevert(Rollup.NothingToWithdraw.selector);
+        vm.expectRevert(IRollupErrors.NothingToWithdraw.selector);
         vm.prank(PROOF_PROVIDER);
         rollup.withdrawProofReward();
     }

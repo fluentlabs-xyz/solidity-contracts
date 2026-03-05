@@ -27,8 +27,7 @@ contract Restaker is OwnableUpgradeable, IRestaker {
         address owner,
         IRestakerFacets facets
     ) public override initializer {
-        __Ownable_init();
-        transferOwnership(owner);
+        __Ownable_init(owner);
         __Restaker_init(facets);
     }
 

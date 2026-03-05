@@ -27,4 +27,4 @@ contract MaliciousContract {
     fallback(bytes calldata) external returns (bytes memory) {
         return maliciousFunction();
     }
-} 
+}

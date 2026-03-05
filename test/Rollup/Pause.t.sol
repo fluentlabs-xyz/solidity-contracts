@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "./Base.t.sol";
+import {Rollup} from "../../contracts/rollup/Rollup.sol";
+import {RollupStorageLayout} from "../../contracts/rollup/RollupStorageLayout.sol";
+import {RollupBase} from "./Base.t.sol";
 
 contract RollupPauseTest is RollupBase {
     function setUp() public {
@@ -15,12 +17,8 @@ contract RollupPauseTest is RollupBase {
         });
     }
 
-    function _buildValidBatch(bytes32 prevHash)
-        internal
-        pure
-        returns (Rollup.BlockCommitment[] memory batch)
-    {
-        batch = new Rollup.BlockCommitment[](2);
+    function _buildValidBatch(bytes32 prevHash) internal pure returns (RollupStorageLayout.BlockCommitment[] memory batch) {
+        batch = new RollupStorageLayout.BlockCommitment[](2);
         bytes32 blockHash1 = keccak256("pause-batch-1");
         bytes32 blockHash2 = keccak256("pause-batch-2");
 
@@ -39,23 +37,23 @@ contract RollupPauseTest is RollupBase {
     }
 
     function test_acceptNextBatch_revertsWhenPaused() public {
-        Rollup.BlockCommitment[] memory batch = _buildValidBatch(MOCK_GENESIS_HASH);
+        RollupStorageLayout.BlockCommitment[] memory batch = _buildValidBatch(MOCK_GENESIS_HASH);
 
         rollup.pause();
 
         vm.expectRevert(bytes4(keccak256("EnforcedPause()")));
         vm.prank(SEQUENCER);
-        rollup.acceptNextBatch(1, batch, new Rollup.DepositsInBlock[](0));
+        rollup.acceptNextBatch(batch, new RollupStorageLayout.DepositsInBlock[](0), 0);
     }
 
     function test_acceptNextBatch_worksAfterUnpause() public {
-        Rollup.BlockCommitment[] memory batch = _buildValidBatch(MOCK_GENESIS_HASH);
+        RollupStorageLayout.BlockCommitment[] memory batch = _buildValidBatch(MOCK_GENESIS_HASH);
 
         rollup.pause();
         rollup.unpause();
 
         vm.prank(SEQUENCER);
-        rollup.acceptNextBatch(1, batch, new Rollup.DepositsInBlock[](0));
+        rollup.acceptNextBatch(batch, new RollupStorageLayout.DepositsInBlock[](0), 0);
 
         assertEq(rollup.nextBatchIndex(), 2, "batch not accepted after unpause");
     }

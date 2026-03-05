@@ -1,27 +1,14 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.30;
 
-import "./Base.t.sol";
-
-contract MockBlobHashGetter {
-    bytes32 internal blobHash;
-
-    function setBlobHash(bytes32 value) external {
-        blobHash = value;
-    }
-
-    fallback() external {
-        bytes32 value = blobHash;
-        assembly {
-            mstore(0x00, value)
-            return(0x00, 0x20)
-        }
-    }
-}
+import {Rollup} from "../../contracts/rollup/Rollup.sol";
+import {RollupStorageLayout} from "../../contracts/rollup/RollupStorageLayout.sol";
+import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
+import {RollupBase, Vm} from "./Base.t.sol";
 
 contract RollupDaConfigTest is RollupBase {
-    bytes32 internal constant DA_CHECK_UPDATED_SIG =
-        keccak256("DaCheckUpdated(bool,bool)");
+    bytes32 internal constant DA_CHECK_UPDATED_SIG = keccak256("DaCheckUpdated(bool,bool)");
 
     function setUp() public {
         _deployMockRollup({
@@ -42,9 +29,8 @@ contract RollupDaConfigTest is RollupBase {
         bool found;
         for (uint256 i = 0; i < entries.length; i++) {
             if (
-                entries[i].emitter == address(rollup) &&
-                entries[i].topics.length > 0 &&
-                entries[i].topics[0] == DA_CHECK_UPDATED_SIG
+                entries[i].emitter == address(rollup) && entries[i].topics.length > 0
+                    && entries[i].topics[0] == DA_CHECK_UPDATED_SIG
             ) {
                 (bool oldValue, bool newValue) = abi.decode(entries[i].data, (bool, bool));
                 assertEq(oldValue, false, "old value mismatch");
@@ -56,13 +42,8 @@ contract RollupDaConfigTest is RollupBase {
         assertTrue(found, "DaCheckUpdated event was not emitted");
     }
 
-    function test_setDaCheck_revertsForNonOwner() public {
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                bytes4(keccak256("OwnableUnauthorizedAccount(address)")),
-                ATTACKER
-            )
-        );
+    function test_setDaCheck_revertsForNonAdmin() public {
+        vm.expectRevert(abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, ATTACKER, bytes32(0)));
         vm.prank(ATTACKER);
         rollup.setDaCheck(true);
     }
@@ -76,11 +57,7 @@ contract RollupDaConfigTest is RollupBase {
 
         assertEq(hash1, hash2, "blob hash must be deterministic");
         assertEq(uint256(hash1) >> 248, 1, "first byte must be 0x01");
-        assertEq(
-            uint256(hash1) & lowMask,
-            uint256(rawSha) & lowMask,
-            "low 31 bytes must match sha256 output"
-        );
+        assertEq(uint256(hash1) & lowMask, uint256(rawSha) & lowMask, "low 31 bytes must match sha256 output");
     }
 
     function test_calculateBlobHash_handlesEmptyBlob() public {
@@ -88,55 +65,30 @@ contract RollupDaConfigTest is RollupBase {
         assertEq(uint256(hash) >> 248, 1, "first byte must be 0x01 for empty blob");
     }
 
-    function test_acceptNextBatch_daCheckPassesWhenBlobHashMatches() public {
-        Rollup.BlockCommitment[] memory batch = new Rollup.BlockCommitment[](2);
+    function test_acceptNextBatch_daCheckRevertsWhenNumBlobsIsZero() public {
+        RollupStorageLayout.BlockCommitment[] memory batch = new RollupStorageLayout.BlockCommitment[](2);
         bytes32 blockHash1 = keccak256("da-batch-1");
         bytes32 blockHash2 = keccak256("da-batch-2");
         batch[0] = _buildCommitment(MOCK_GENESIS_HASH, blockHash1, ZERO_HASH, ZERO_HASH);
         batch[1] = _buildCommitment(blockHash1, blockHash2, ZERO_HASH, ZERO_HASH);
-
-        MockBlobHashGetter getter = new MockBlobHashGetter();
-        rollup.setBlobHashGetter(address(getter));
         rollup.setDaCheck(true);
 
-        bytes32 batchRoot = rollup.calculateBatchRoot(batch);
-        bytes32 expectedBlobHash = rollup.calculateBlobHash(
-            abi.encodePacked(batchRoot)
-        );
-        getter.setBlobHash(expectedBlobHash);
-
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "numBlobs"));
         vm.prank(SEQUENCER);
-        rollup.acceptNextBatch(1, batch, new Rollup.DepositsInBlock[](0));
-
-        assertEq(rollup.nextBatchIndex(), 2, "batch should be accepted with matching DA hash");
+        rollup.acceptNextBatch(batch, new RollupStorageLayout.DepositsInBlock[](0), 0);
     }
 
-    function test_acceptNextBatch_daCheckRevertsWhenBlobHashMismatches() public {
-        Rollup.BlockCommitment[] memory batch = new Rollup.BlockCommitment[](2);
+    function test_acceptNextBatch_daCheckRevertsWhenBlobHashIsMissing() public {
+        RollupStorageLayout.BlockCommitment[] memory batch = new RollupStorageLayout.BlockCommitment[](2);
         bytes32 blockHash1 = keccak256("da-batch-bad-1");
         bytes32 blockHash2 = keccak256("da-batch-bad-2");
         batch[0] = _buildCommitment(MOCK_GENESIS_HASH, blockHash1, ZERO_HASH, ZERO_HASH);
         batch[1] = _buildCommitment(blockHash1, blockHash2, ZERO_HASH, ZERO_HASH);
 
-        MockBlobHashGetter getter = new MockBlobHashGetter();
-        rollup.setBlobHashGetter(address(getter));
         rollup.setDaCheck(true);
 
-        bytes32 batchRoot = rollup.calculateBatchRoot(batch);
-        bytes32 expectedBlobHash = rollup.calculateBlobHash(
-            abi.encodePacked(batchRoot)
-        );
-        bytes32 wrongBlobHash = bytes32(uint256(1));
-        getter.setBlobHash(wrongBlobHash);
-
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                Rollup.DaBlobHashMismatch.selector,
-                expectedBlobHash,
-                wrongBlobHash
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "blobHash"));
         vm.prank(SEQUENCER);
-        rollup.acceptNextBatch(1, batch, new Rollup.DepositsInBlock[](0));
+        rollup.acceptNextBatch(batch, new RollupStorageLayout.DepositsInBlock[](0), 1);
     }
 }
