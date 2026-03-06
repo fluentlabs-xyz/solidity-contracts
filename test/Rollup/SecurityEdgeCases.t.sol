@@ -189,7 +189,7 @@ contract RollupSecurityEdgeCasesTest is RollupBase {
         rollup.proofBlockCommitment(1, commitment, 0, hex"1234", blockProof);
     }
 
-    function test_characterization_anyoneCanFrontRunProofSubmission() public {
+    function test_characterization_unauthorizedProverIsRejected() public {
         _deployMockRollup({
             batchSize_: 1,
             challengeDepositAmount_: 10000,

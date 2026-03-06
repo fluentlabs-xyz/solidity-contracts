@@ -98,6 +98,10 @@ contract PaymentsGateway is Initializable, Ownable2StepUpgradeable, ReentrancyGu
         bytes memory _message;
 
         if ($.tokenMapping[_token] == address(0)) {
+            require(
+                $.otherSide != address(0) && $.otherSideFactory != address(0) && $.otherSideBeacon != address(0),
+                ZeroAddress()
+            );
             if (_from != address(this)) {
                 IERC20(_token).safeTransferFrom(_from, address(this), _amount);
             }
@@ -214,6 +218,10 @@ contract PaymentsGateway is Initializable, Ownable2StepUpgradeable, ReentrancyGu
 
     function otherSideFactory() public view returns (address) {
         return _getPaymentsGatewayStorage().otherSideFactory;
+    }
+
+    function otherSideBeacon() public view returns (address) {
+        return _getPaymentsGatewayStorage().otherSideBeacon;
     }
 
     function tokenMapping(address key) public view returns (address) {
@@ -343,7 +351,9 @@ contract PaymentsGateway is Initializable, Ownable2StepUpgradeable, ReentrancyGu
             $.otherSideTokenImplementation,
             _otherSideTokenImplementation,
             $.otherSideFactory,
-            _otherSideFactory
+            _otherSideFactory,
+            $.otherSideBeacon,
+            _otherSideBeacon
         );
 
         $.otherSide = _otherSide;

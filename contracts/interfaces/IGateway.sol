@@ -64,7 +64,9 @@ interface IGatewayEvents {
         address indexed _oldImplementation,
         address _newImplementation,
         address _oldFactory,
-        address _newFactory
+        address _newFactory,
+        address _oldBeacon,
+        address _newBeacon
     );
 
     /**

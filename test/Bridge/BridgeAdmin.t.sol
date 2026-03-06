@@ -45,14 +45,17 @@ contract BridgeAdminTest is MinimalTest {
     function test_setters_updateState() public {
         address newAuthority = address(0xA0A1);
         address newRollup = address(0xB0B1);
+        address newOtherBridge = address(0xC0C1);
         address newOracle = address(0xD0D1);
 
         bridge.setBridgeAuthority(newAuthority);
         bridge.setRollup(newRollup);
+        bridge.setOtherBridge(newOtherBridge);
         bridge.setL1BlockOracle(newOracle);
 
         assertEq(bridge.bridgeAuthority(), newAuthority, "bridgeAuthority should update");
         assertEq(bridge.rollup(), newRollup, "rollup should update");
+        assertEq(bridge.otherBridge(), newOtherBridge, "otherBridge should update");
         assertEq(bridge.l1BlockOracle(), newOracle, "oracle should update");
     }
 
@@ -68,6 +71,10 @@ contract BridgeAdminTest is MinimalTest {
         vm.prank(ATTACKER);
         vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", ATTACKER));
         bridge.setL1BlockOracle(address(0x3));
+
+        vm.prank(ATTACKER);
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", ATTACKER));
+        bridge.setOtherBridge(address(0x4));
     }
 }
 

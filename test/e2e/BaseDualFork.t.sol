@@ -203,6 +203,7 @@ abstract contract BaseDualFork {
         _assertOnL2();
         l2.chainId = block.chainid;
 
+        l2.oracle = new L1BlockOracle();
         Bridge bridgeImplL2 = new Bridge();
         ERC1967Proxy bridgeProxyL2 = new ERC1967Proxy(
             address(bridgeImplL2),
@@ -214,7 +215,7 @@ abstract contract BaseDualFork {
                     address(0), // rollup is not used on L2 in these tests
                     100, // non-zero deadline to allow rollback window
                     address(0),
-                    address(0)
+                    address(l2.oracle)
                 )
             )
         );
@@ -243,12 +244,13 @@ abstract contract BaseDualFork {
         l2.originToken = new MockERC20Token("Mock Token", "TKN", INITIAL_SUPPLY, USER_A);
 
         // Make core L2 contracts persistent across forks so they can be referenced safely from L1.
-        address[] memory l2Contracts = new address[](5);
+        address[] memory l2Contracts = new address[](6);
         l2Contracts[0] = address(l2.bridge);
         l2Contracts[1] = address(l2.gateway);
         l2Contracts[2] = address(l2.factory);
         l2Contracts[3] = address(l2.peggedImpl);
         l2Contracts[4] = address(l2.originToken);
+        l2Contracts[5] = address(l2.oracle);
         vmStd.makePersistent(l2Contracts);
     }
 
