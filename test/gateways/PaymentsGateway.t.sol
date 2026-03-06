@@ -333,7 +333,7 @@ contract PaymentsGatewayTest {
         vm.prank(USER);
         pegged.approve(address(gateway), 5);
         vm.prank(USER);
-        vm.expectRevert(bytes(""));
+        vm.expectRevert(bytes4(keccak256("TokenMappingCheckFailed()")));
         gateway.sendTokens(predictedPegged, RECIPIENT, 5);
     }
 

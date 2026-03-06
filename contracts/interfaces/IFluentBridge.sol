@@ -35,6 +35,10 @@ interface IBridgeErrorCodes {
     error InvalidDestinationAddress();
     /// @dev Thrown when the contract is paused.
     error ContractPaused();
+    /// @dev Thrown when the address is zero.
+    error ZeroAddressNotAllowed(string field);
+    /// @dev Thrown when setting rollup to zero while the sent message queue is non-empty.
+    error QueueNotEmpty();
 }
 
 interface IFluentBridgeEvents {
@@ -71,6 +75,9 @@ interface IFluentBridgeEvents {
 
     /// @notice Emitted when the address of the L1 block oracle is updated.
     event L1BlockOracleUpdated(address indexed prevValue, address indexed newValue);
+
+    /// @notice Emitted when the address of the bridge contract is updated.
+    event BridgeContractUpdated(address indexed prevValue, address indexed newValue);
 }
 
 interface IFluentBridge is IBridgeErrorCodes, IFluentBridgeEvents {

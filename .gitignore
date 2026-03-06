@@ -9,3 +9,4 @@
 /broadcast
 .env
 /coverage
+lcov.info

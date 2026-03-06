@@ -106,6 +106,9 @@ contract FluentBridge is Initializable, ReentrancyGuardUpgradeable, Ownable2Step
         address _otherBridge,
         address _l1BlockOracle
     ) external initializer {
+        require(_initialOwner != address(0), ZeroAddressNotAllowed("initialOwner"));
+        require(_bridgeAuthority != address(0), ZeroAddressNotAllowed("bridgeAuthority"));
+
         __ReentrancyGuard_init();
         __Ownable_init(_initialOwner);
         __Ownable2Step_init();
@@ -153,6 +156,7 @@ contract FluentBridge is Initializable, ReentrancyGuardUpgradeable, Ownable2Step
     ) external payable nonReentrant whenNotPaused {
         FluentBridgeStorage storage $ = _getFluentBridgeStorage();
 
+        require($.rollup != address(0), OnlyWhenRollupInited());
         require(Rollup($.rollup).ensureBatchApproved(_batchIndex), InvalidBlockProof());
         // _chainId is the source chain id encoded at send time; it must differ from destination chain id here.
         require(_chainId != block.chainid, ForbiddenReceiveRollbackedMessage());
@@ -226,9 +230,7 @@ contract FluentBridge is Initializable, ReentrancyGuardUpgradeable, Ownable2Step
         _receiveMessage(_from, _to, _value, _chainId, _blockNumber, _nonce, _message, messageHash);
     }
 
-    /************
-     *** Internal functions
-     **********************/
+    // ============ Internal functions ============
 
     function _receiveMessage(
         address _from,
@@ -245,9 +247,9 @@ contract FluentBridge is Initializable, ReentrancyGuardUpgradeable, Ownable2Step
         FluentBridgeStorage storage $ = _getFluentBridgeStorage();
         if ($.receiveMessageDeadline != 0 && $.l1BlockOracle != address(0)) {
             uint256 l1BlockNumber = IL1BlockOracle($.l1BlockOracle).getL1BlockNumber();
-            if (_blockNumber + $.receiveMessageDeadline < l1BlockNumber) {
+            if (l1BlockNumber >= _blockNumber && l1BlockNumber - _blockNumber >= $.receiveMessageDeadline) {
                 emit RollbackMessage(_messageHash, block.number);
-                emit ReceivedMessage(_messageHash, true, "");
+                emit ReceivedMessage(_messageHash, false, "");
                 return;
             }
         }
@@ -328,23 +330,7 @@ contract FluentBridge is Initializable, ReentrancyGuardUpgradeable, Ownable2Step
         return abi.encode(_from, _to, _value, _chainId, _blockNumber, _nonce, _message);
     }
 
-    /**********
-     *** Pauser functions
-     ********************/
-
-    /// @inheritdoc IFluentBridge
-    function pause() external onlyOwner {
-        _pause();
-    }
-
-    /// @inheritdoc IFluentBridge
-    function unpause() external onlyOwner {
-        _unpause();
-    }
-
-    /**********
-     *** Public getters
-     ******************/
+    // ============ Public getters ============
 
     /// @inheritdoc IFluentBridge
     function nonce() public view returns (uint256) {
@@ -408,25 +394,26 @@ contract FluentBridge is Initializable, ReentrancyGuardUpgradeable, Ownable2Step
         return Queue.dequeue(_getFluentBridgeStorage().sentMessageQueue);
     }
 
-    /*******
-     * Admin functions
-     *****************/
+    // ============ Admin functions ============
 
     /// @inheritdoc IFluentBridge
     function setOtherBridge(address _otherBridge) external onlyOwner {
+        require(_otherBridge != address(0), ZeroAddressNotAllowed("otherBridge"));
         emit OtherBridgeUpdated(_getFluentBridgeStorage().otherBridge, _otherBridge);
         _getFluentBridgeStorage().otherBridge = _otherBridge;
     }
 
     /// @inheritdoc IFluentBridge
     function setBridgeAuthority(address _bridgeAuthority) external onlyOwner {
+        require(_bridgeAuthority != address(0), ZeroAddressNotAllowed("bridgeAuthority"));
         emit BridgeAuthorityUpdated(_getFluentBridgeStorage().bridgeAuthority, _bridgeAuthority);
         _getFluentBridgeStorage().bridgeAuthority = _bridgeAuthority;
     }
 
     /// @inheritdoc IFluentBridge
     function setRollup(address _rollup) external onlyOwner {
-        emit RollupUpdated(_getFluentBridgeStorage().rollup, _rollup);
+        if (_rollup == address(0)) require(this.getQueueSize() == 0, QueueNotEmpty());
+        emit RollupUpdated(rollup(), _rollup);
         _getFluentBridgeStorage().rollup = _rollup;
     }
 
@@ -434,5 +421,17 @@ contract FluentBridge is Initializable, ReentrancyGuardUpgradeable, Ownable2Step
     function setL1BlockOracle(address _l1BlockOracle) external onlyOwner {
         emit L1BlockOracleUpdated(_getFluentBridgeStorage().l1BlockOracle, _l1BlockOracle);
         _getFluentBridgeStorage().l1BlockOracle = _l1BlockOracle;
+    }
+
+    // ============ Pauser functions ============
+
+    /// @inheritdoc IFluentBridge
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    /// @inheritdoc IFluentBridge
+    function unpause() external onlyOwner {
+        _unpause();
     }
 }

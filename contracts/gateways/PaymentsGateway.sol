@@ -24,8 +24,12 @@ import {IGateway} from "../interfaces/IGateway.sol";
 contract PaymentsGateway is Initializable, Ownable2StepUpgradeable, ReentrancyGuardUpgradeable, IGateway {
     using SafeERC20 for IERC20;
 
+    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
+    uint256 public constant DEFAULT_GAS_LIMIT = 50_000;
+
     /// @custom:storage-location erc7201:fluent.storage.PaymentsGatewayStorage
     struct PaymentsGatewayStorage {
+        uint256 gasLimit;
         address bridgeContract;
         address tokenFactory;
         address otherSide;
@@ -63,9 +67,10 @@ contract PaymentsGateway is Initializable, Ownable2StepUpgradeable, ReentrancyGu
         __Ownable2Step_init();
         __ReentrancyGuard_init();
 
-        PaymentsGatewayStorage storage $ = _getPaymentsGatewayStorage();
-        $.bridgeContract = _bridgeContract;
-        $.tokenFactory = _tokenFactory;
+        // ============ Storage ============
+        _setGasLimit(DEFAULT_GAS_LIMIT);
+        _setBridgeContract(_bridgeContract);
+        _setTokenFactory(_tokenFactory);
     }
 
     /// @inheritdoc IGateway
@@ -99,12 +104,15 @@ contract PaymentsGateway is Initializable, Ownable2StepUpgradeable, ReentrancyGu
 
             bytes memory rawTokenMetadata = abi.encode(ERC20(_token).symbol(), ERC20(_token).name(), ERC20(_token).decimals());
             address peggedToken = ERC20TokenFactory($.tokenFactory).computeOtherSidePeggedTokenAddress(
-                $.otherSide, _token, $.otherSideBeacon, $.otherSideFactory
+                $.otherSide,
+                _token,
+                $.otherSideBeacon,
+                $.otherSideFactory
             );
             _message = abi.encodeCall(PaymentsGateway.receivePeggedTokens, (_token, peggedToken, _sender, _to, _amount, rawTokenMetadata));
         } else {
             (, address originAddress) = ERC20PeggedToken(_token).getOrigin();
-            require($.tokenMapping[_token] == originAddress);
+            require($.tokenMapping[_token] == originAddress, TokenMappingCheckFailed());
 
             ERC20PeggedToken(_token).burn(_from, _amount);
 
@@ -164,7 +172,7 @@ contract PaymentsGateway is Initializable, Ownable2StepUpgradeable, ReentrancyGu
         require(msg.value == _amount, InvalidNativeAmount());
         require(_to != address(0), InvalidRecipient());
 
-        (bool success, ) = payable(_to).call{value: _amount}("");
+        (bool success, ) = payable(_to).call{gas: gasLimit(), value: _amount}("");
         require(success, NativeTransferFailed());
 
         emit ReceivedTokens(_from, _to, _amount);
@@ -221,91 +229,172 @@ contract PaymentsGateway is Initializable, Ownable2StepUpgradeable, ReentrancyGu
     /// @inheritdoc IGateway
     function computeOtherSidePeggedTokenAddress(address _token) external view returns (address) {
         PaymentsGatewayStorage storage $ = _getPaymentsGatewayStorage();
-        return ERC20TokenFactory($.tokenFactory).computeOtherSidePeggedTokenAddress(
-            $.otherSide, _token, $.otherSideBeacon, $.otherSideFactory
-        );
+        return ERC20TokenFactory($.tokenFactory).computeOtherSidePeggedTokenAddress($.otherSide, _token, $.otherSideBeacon, $.otherSideFactory);
+    }
+
+    function gasLimit() public view returns (uint256) {
+        return _getPaymentsGatewayStorage().gasLimit;
     }
 
     // ============ Admin functions ============
 
-    /// @notice Accepts ownership of the token factory for this gateway.
+    /**
+     * @notice Accepts ownership of the token factory for this gateway.
+     */
     function acceptTokenFactory() external onlyOwner {
         GenericTokenFactory(_getPaymentsGatewayStorage().tokenFactory).acceptOwnership();
     }
 
-    /// @notice Updates the local token factory used for pegged token deployment and address computation.
+    /**
+     * @notice Updates the bridge contract address used for sending and receiving messages.
+     * @param _bridgeContract The address of the bridge contract.
+     */
+    function setBridgeContract(address _bridgeContract) external onlyOwner {
+        _setBridgeContract(_bridgeContract);
+    }
+
+    function _setBridgeContract(address _bridgeContract) internal {
+        require(_bridgeContract != address(0), ZeroAddress());
+        PaymentsGatewayStorage storage $ = _getPaymentsGatewayStorage();
+        emit BridgeContractUpdated($.bridgeContract, _bridgeContract);
+        $.bridgeContract = _bridgeContract;
+    }
+
+    /**
+     * @notice Updates the local token factory used for pegged token deployment and address computation.
+     * @param _tokenFactory The address of the token factory.
+     */
     function setTokenFactory(address _tokenFactory) external onlyOwner {
+        _setTokenFactory(_tokenFactory);
+    }
+
+    function _setTokenFactory(address _tokenFactory) internal {
         require(_tokenFactory != address(0), ZeroAddress());
         PaymentsGatewayStorage storage $ = _getPaymentsGatewayStorage();
-        address oldTokenFactory = $.tokenFactory;
+        emit TokenFactoryUpdated($.tokenFactory, _tokenFactory);
         $.tokenFactory = _tokenFactory;
-        emit TokenFactoryUpdated(oldTokenFactory, _tokenFactory);
     }
 
-    /// @notice Updates the remote gateway address used as message destination.
+    /**
+     * @notice Updates the remote gateway address used as message destination.
+     * @param _otherSide The address of the other side gateway.
+     */
     function setOtherSideGateway(address _otherSide) external onlyOwner {
+        _setOtherSideGateway(_otherSide);
+    }
+
+    function _setOtherSideGateway(address _otherSide) internal {
         require(_otherSide != address(0), ZeroAddress());
         PaymentsGatewayStorage storage $ = _getPaymentsGatewayStorage();
-        address oldOtherSide = $.otherSide;
+        emit OtherSideGatewayUpdated($.otherSide, _otherSide);
         $.otherSide = _otherSide;
-        emit OtherSideGatewayUpdated(oldOtherSide, _otherSide);
     }
 
-    /// @notice Updates remote token implementation used in deterministic pegged token address computation.
+    /**
+     * @notice Updates remote token implementation used in deterministic pegged token address computation.
+     * @param _otherSideTokenImplementation The address of the other side token implementation.
+     */
     function setOtherSideTokenImplementation(address _otherSideTokenImplementation) external onlyOwner {
+        _setOtherSideTokenImplementation(_otherSideTokenImplementation);
+    }
+
+    function _setOtherSideTokenImplementation(address _otherSideTokenImplementation) internal {
         require(_otherSideTokenImplementation != address(0), ZeroAddress());
         PaymentsGatewayStorage storage $ = _getPaymentsGatewayStorage();
-        address oldImplementation = $.otherSideTokenImplementation;
+        emit OtherSideTokenImplementationUpdated($.otherSideTokenImplementation, _otherSideTokenImplementation);
         $.otherSideTokenImplementation = _otherSideTokenImplementation;
-        emit OtherSideTokenImplementationUpdated(oldImplementation, _otherSideTokenImplementation);
     }
 
-    /// @notice Sets remote gateway/factory configuration used for cross-chain token routing.
-    /// @dev High-trust admin action; should be controlled by multisig governance.
-    /// @param _otherSideBeacon Beacon of the other side's token factory (from factory.beacon()).
+    /**
+     * @notice Sets remote gateway/factory configuration used for cross-chain token routing.
+     * @param _otherSide The address of the other side gateway.
+     * @dev High-trust admin action; should be controlled by multisig governance.
+     * @param _otherSideTokenImplementation The address of the other side token implementation.
+     * @param _otherSideFactory The address of the other side factory.
+     * @param _otherSideBeacon The address of the other side beacon.
+     */
     function setOtherSide(
         address _otherSide,
         address _otherSideTokenImplementation,
         address _otherSideFactory,
         address _otherSideBeacon
     ) external onlyOwner {
+        _setOtherSide(_otherSide, _otherSideTokenImplementation, _otherSideFactory, _otherSideBeacon);
+    }
+
+    function _setOtherSide(
+        address _otherSide,
+        address _otherSideTokenImplementation,
+        address _otherSideFactory,
+        address _otherSideBeacon
+    ) internal {
         require(
-            _otherSide != address(0) && _otherSideTokenImplementation != address(0) && _otherSideFactory != address(0)
-                && _otherSideBeacon != address(0),
+            _otherSide != address(0) &&
+                _otherSideTokenImplementation != address(0) &&
+                _otherSideFactory != address(0) &&
+                _otherSideBeacon != address(0),
             ZeroAddress()
         );
         PaymentsGatewayStorage storage $ = _getPaymentsGatewayStorage();
-        address oldOtherSide = $.otherSide;
-        address oldImplementation = $.otherSideTokenImplementation;
-        address oldFactory = $.otherSideFactory;
+
+        emit OtherSideUpdated(
+            $.otherSide,
+            _otherSide,
+            $.otherSideTokenImplementation,
+            _otherSideTokenImplementation,
+            $.otherSideFactory,
+            _otherSideFactory
+        );
 
         $.otherSide = _otherSide;
         $.otherSideTokenImplementation = _otherSideTokenImplementation;
         $.otherSideFactory = _otherSideFactory;
         $.otherSideBeacon = _otherSideBeacon;
-
-        emit OtherSideUpdated(oldOtherSide, _otherSide, oldImplementation, _otherSideTokenImplementation, oldFactory, _otherSideFactory);
     }
 
-    /// @notice Updates local peggedToken => originToken mapping used for burn/unlock flows.
-    /// @dev High-trust admin action; incorrect mapping can misroute user withdrawals.
+    /**
+     * @notice Updates local peggedToken => originToken mapping used for burn/unlock flows.
+     * @dev High-trust admin action; incorrect mapping can misroute user withdrawals.
+     * @param _originToken The address of the origin token.
+     * @param _peggedToken The address of the pegged token.
+     */
     function updateTokenMapping(address _originToken, address _peggedToken) external onlyOwner {
+        _updateTokenMapping(_originToken, _peggedToken);
+    }
+
+    function _updateTokenMapping(address _originToken, address _peggedToken) internal {
         require(_originToken != address(0), TokenAddressZero());
         require(_peggedToken != address(0), TokenAddressZero());
-
         PaymentsGatewayStorage storage $ = _getPaymentsGatewayStorage();
         address _oldOriginToken = $.tokenMapping[_peggedToken];
         $.tokenMapping[_peggedToken] = _originToken;
-
         emit UpdateTokenMapping(_peggedToken, _oldOriginToken, _originToken);
     }
 
-    /// @notice Recovers ETH accidentally sent or force-sent to this contract.
-    /// @dev Owner-only emergency path; use operational controls to avoid draining owed funds.
+    /**
+     * @notice Recovers ETH accidentally sent or force-sent to this contract.
+     * @param _to The address to send the ETH to.
+     * @param _amount The amount of ETH to send.
+     */
     function rescueNative(address payable _to, uint256 _amount) external onlyOwner {
         require(_to != address(0), InvalidRecipient());
         (bool success, ) = _to.call{value: _amount}("");
         require(success, NativeTransferFailed());
+    }
+
+    /**
+     * @notice Sets the gas limit for the bridge.
+     * @param _gasLimit The new gas limit.
+     */
+    function setGasLimit(uint256 _gasLimit) external onlyOwner {
+        require(_gasLimit > 0, InvalidGasLimit());
+        _setGasLimit(_gasLimit);
+    }
+
+    function _setGasLimit(uint256 _gasLimit) internal {
+        PaymentsGatewayStorage storage $ = _getPaymentsGatewayStorage();
+        emit GasLimitUpdated($.gasLimit, _gasLimit);
+        $.gasLimit = _gasLimit;
     }
 
     /// @notice Receives ETH (e.g. forced transfers). Prefer bridge entrypoints for normal flow.
