@@ -97,6 +97,7 @@ contract FluentBridge is Initializable, ReentrancyGuardUpgradeable, Ownable2Step
      *        - On L1: should be set to 0, as rollback is not applicable.
      * @param _otherBridge Address of the Bridge contract on the other chain.
      * @param _l1BlockOracle Address for L1 block number lookups
+     * @dev Invariant: if `_receiveMessageDeadline` is non-zero, `_l1BlockOracle` must also be non-zero.
      */
     function initialize(
         address _initialOwner,
@@ -108,6 +109,9 @@ contract FluentBridge is Initializable, ReentrancyGuardUpgradeable, Ownable2Step
     ) external initializer {
         require(_initialOwner != address(0), ZeroAddressNotAllowed("initialOwner"));
         require(_bridgeAuthority != address(0), ZeroAddressNotAllowed("bridgeAuthority"));
+        if (_receiveMessageDeadline != 0) {
+            require(_l1BlockOracle != address(0), ZeroAddressNotAllowed("l1BlockOracle"));
+        }
 
         __ReentrancyGuard_init();
         __Ownable_init(_initialOwner);
@@ -425,8 +429,12 @@ contract FluentBridge is Initializable, ReentrancyGuardUpgradeable, Ownable2Step
 
     /// @inheritdoc IFluentBridge
     function setL1BlockOracle(address _l1BlockOracle) external onlyOwner {
-        emit L1BlockOracleUpdated(_getFluentBridgeStorage().l1BlockOracle, _l1BlockOracle);
-        _getFluentBridgeStorage().l1BlockOracle = _l1BlockOracle;
+        FluentBridgeStorage storage $ = _getFluentBridgeStorage();
+        if ($.receiveMessageDeadline != 0) {
+            require(_l1BlockOracle != address(0), ZeroAddressNotAllowed("l1BlockOracle"));
+        }
+        emit L1BlockOracleUpdated($.l1BlockOracle, _l1BlockOracle);
+        $.l1BlockOracle = _l1BlockOracle;
     }
 
     // ============ Pauser functions ============

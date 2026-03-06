@@ -46,7 +46,9 @@ interface IGatewayErrors {
     /// @dev selector: 0x9c8d2cd2
     error InvalidRecipient();
 
-    /// TODO
+    /// @notice Thrown when a supplied gas limit is zero or otherwise invalid for gateway execution.
+    /// @dev Raised by gas-limit validation (e.g. `setGasLimit`) when the configured `_gasLimit` would render
+    ///      cross-chain native transfers unsafe or non-functional.
     error InvalidGasLimit();
 }
 

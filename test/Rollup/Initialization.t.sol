@@ -76,6 +76,7 @@ contract RollupInitializationTest is RollupBase {
         // When sequencer is zero, implementation falls back to admin as sequencer role holder.
         bytes32 sequencerRole = proxied.SEQUENCER_ROLE();
         assertEq(proxied.hasRole(sequencerRole, address(this)), true, "admin should have sequencer role when sequencer is zero");
+        assertEq(proxied.hasRole(sequencerRole, address(0)), false, "zero address must not have sequencer role");
     }
 
     function test_initialize_revertsWhenVerifierIsZero() public {

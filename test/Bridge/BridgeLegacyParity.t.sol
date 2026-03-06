@@ -150,13 +150,14 @@ contract BridgeLegacyParityTest is RollupBase {
         // Use a contract receiver to ensure its handler is never called when deadline has passed.
         NoopReceiver receiver = new NoopReceiver();
         uint256 receiverBalanceBefore = address(receiver).balance;
-        bridge.receiveMessage(DESTINATION, address(receiver), 200, sourceChainId, sourceBlock, nonce, "");
+        bytes memory payload = abi.encodeWithSignature("handle()");
+        bridge.receiveMessage(DESTINATION, address(receiver), 200, sourceChainId, sourceBlock, nonce, payload);
         uint256 receiverBalanceAfter = address(receiver).balance;
 
         assertEq(receiverBalanceAfter - receiverBalanceBefore, 0, "message must not execute after deadline");
 
         bytes32 messageHash =
-            _bridgeMessageHash(DESTINATION, address(receiver), 200, sourceChainId, sourceBlock, nonce, "");
+            _bridgeMessageHash(DESTINATION, address(receiver), 200, sourceChainId, sourceBlock, nonce, payload);
         assertEq(
             uint256(bridge.receivedMessage(messageHash)),
             uint256(IFluentBridge.MessageStatus.None),

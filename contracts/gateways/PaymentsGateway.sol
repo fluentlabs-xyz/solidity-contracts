@@ -397,12 +397,12 @@ contract PaymentsGateway is Initializable, Ownable2StepUpgradeable, ReentrancyGu
      * @param _gasLimit The new gas limit.
      */
     function setGasLimit(uint256 _gasLimit) external onlyOwner {
-        require(_gasLimit > 0, InvalidGasLimit());
         _setGasLimit(_gasLimit);
     }
 
     function _setGasLimit(uint256 _gasLimit) internal {
         PaymentsGatewayStorage storage $ = _getPaymentsGatewayStorage();
+        require(_gasLimit > 0, InvalidGasLimit());
         emit GasLimitUpdated($.gasLimit, _gasLimit);
         $.gasLimit = _gasLimit;
     }

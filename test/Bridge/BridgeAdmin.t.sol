@@ -2,6 +2,7 @@
 pragma solidity ^0.8.30;
 
 import {FluentBridge as Bridge} from "../../contracts/FluentBridge.sol";
+import {IBridgeErrorCodes} from "../../contracts/interfaces/IFluentBridge.sol";
 import {MinimalTest} from "../Rollup/Base.t.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
@@ -57,6 +58,44 @@ contract BridgeAdminTest is MinimalTest {
         assertEq(bridge.rollup(), newRollup, "rollup should update");
         assertEq(bridge.otherBridge(), newOtherBridge, "otherBridge should update");
         assertEq(bridge.l1BlockOracle(), newOracle, "oracle should update");
+    }
+
+    function test_adminSetters_zeroAddressAndQueueGuards() public {
+        // Zero-address guards on authority and otherBridge.
+        vm.expectRevert(abi.encodeWithSelector(IBridgeErrorCodes.ZeroAddressNotAllowed.selector, "bridgeAuthority"));
+        bridge.setBridgeAuthority(address(0));
+
+        vm.expectRevert(abi.encodeWithSelector(IBridgeErrorCodes.ZeroAddressNotAllowed.selector, "otherBridge"));
+        bridge.setOtherBridge(address(0));
+
+        // QueueNotEmpty guard when unsetting rollup.
+        vm.deal(address(this), 1 ether);
+        bridge.sendMessage{value: 1}(address(0xDEAD), "");
+        assertEq(bridge.getQueueSize(), 1, "queue should contain one message before unsetting rollup");
+
+        vm.expectRevert(bytes4(keccak256("QueueNotEmpty()")));
+        bridge.setRollup(address(0));
+
+        // When queue is empty, rollup can be set to zero.
+        Bridge bridgeImpl2 = new Bridge();
+        ERC1967Proxy proxy2 = new ERC1967Proxy(
+            address(bridgeImpl2),
+            abi.encodeCall(
+                Bridge.initialize,
+                (
+                    address(this),
+                    INITIAL_AUTHORITY,
+                    INITIAL_ROLLUP,
+                    INITIAL_DEADLINE,
+                    INITIAL_OTHER_BRIDGE,
+                    INITIAL_ORACLE
+                )
+            )
+        );
+        Bridge freshBridge = Bridge(payable(address(proxy2)));
+        assertEq(freshBridge.getQueueSize(), 0, "fresh bridge queue should be empty");
+        freshBridge.setRollup(address(0));
+        assertEq(freshBridge.rollup(), address(0), "fresh bridge rollup should be unset successfully");
     }
 
     function test_setters_revertForNonOwner() public {

@@ -199,11 +199,10 @@ contract RollupSecurityEdgeCasesTest is RollupBase {
             incentiveFee_: 0
         });
 
-        (RollupStorageLayout.BlockCommitment memory commitment, MerkleTree.MerkleProof memory blockProof) = _acceptAndChallenge(
-            1,
-            MOCK_GENESIS_HASH,
-            keccak256("frontrun")
-        );
+        // Construct a minimal, well-formed dummy commitment and Merkle proof.
+        RollupStorageLayout.BlockCommitment memory commitment =
+            _buildCommitment(MOCK_GENESIS_HASH, keccak256("frontrun"), ZERO_HASH, ZERO_HASH);
+        MerkleTree.MerkleProof memory blockProof = _proofForSingleLeaf();
 
         vm.expectRevert(abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, ATTACKER, rollup.PROVER_ROLE()));
         vm.prank(ATTACKER);
