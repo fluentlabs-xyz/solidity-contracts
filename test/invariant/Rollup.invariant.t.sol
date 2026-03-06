@@ -22,9 +22,7 @@ contract RollupInvariantTest is MinimalTest {
         Bridge bridgeImpl = new Bridge();
         ERC1967Proxy bridgeProxy = new ERC1967Proxy(
             address(bridgeImpl),
-            abi.encodeCall(
-                Bridge.initialize, (address(this), address(this), address(0), 0, address(0x1111), address(0x2222))
-            )
+            abi.encodeCall(Bridge.initialize, (address(this), address(this), address(0), 0, address(0x1111), address(0x2222)))
         );
         bridge = Bridge(payable(address(bridgeProxy)));
         Rollup rollupImpl = new Rollup();
@@ -45,10 +43,8 @@ contract RollupInvariantTest is MinimalTest {
             challenger: address(0),
             prover: address(0)
         });
-        ERC1967Proxy rollupProxy = new ERC1967Proxy(
-            address(rollupImpl),
-            abi.encodeCall(Rollup.initialize, (abi.encode(initParams)))
-        );
+
+        ERC1967Proxy rollupProxy = new ERC1967Proxy(address(rollupImpl), abi.encodeCall(Rollup.initialize, (abi.encode(initParams))));
         rollup = Rollup(payable(address(rollupProxy)));
 
         handler.initialize(rollup);
@@ -128,11 +124,7 @@ contract RollupInvariantTest is MinimalTest {
         for (uint256 i = 0; i < len; i++) {
             bytes32 commitmentHash = handler.commitmentHashAt(i);
             if (rollup.provenBlockCommitment(commitmentHash)) {
-                assertEq(
-                    rollup.blockCommitmentChallenger(commitmentHash),
-                    address(0),
-                    "proven commitment cannot keep active challenger"
-                );
+                assertEq(rollup.blockCommitmentChallenger(commitmentHash), address(0), "proven commitment cannot keep active challenger");
             }
         }
     }

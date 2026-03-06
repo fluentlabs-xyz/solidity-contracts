@@ -11,11 +11,11 @@ src = "contracts"
 test = "test"
 
 [rpc_endpoints]
-# Local dev forks (used by e2e tests)
-l1 = "http://127.0.0.1:9545"
-l2 = "http://127.0.0.1:9546"
+# Fork targets for dual-fork e2e tests
+l1 = "https://ethereum-sepolia-rpc.publicnode.com"
+l2 = "https://rpc.dev.fluent.xyz"
 
-# Remote networks migrated from Hardhat config
+# Additional named endpoints (optional env-driven)
 mainnet = "${MAINNET_RPC}"
 sepoliaEth = "${RPC_URL_SEPOLIA_ETH}"
 fluentTestnet = "${RPC_URL_FLUENT_TESTNET}"
@@ -23,3 +23,6 @@ fluentDev = "${RPC_URL_FLUENT_DEV}"
 
 [etherscan]
 sepolia = { key = "${ETHERSCAN_API_KEY}" }
+
+[profile.coverage]
+via_ir = true

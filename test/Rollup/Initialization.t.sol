@@ -52,10 +52,9 @@ contract RollupInitializationTest is RollupBase {
         new ERC1967Proxy(address(rollupImpl), abi.encodeCall(Rollup.initialize, (abi.encode(params))));
     }
 
-    function test_initialize_revertsWhenSequencerIsZero() public {
+    function test_initialize_withZeroSequencer_fallsBackToAdmin() public {
         VerifierMock verifier = new VerifierMock();
         Rollup rollupImpl = new Rollup();
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroAddressNotAllowed.selector, "sequencer"));
         RollupStorageLayout.InitConfiguration memory params = RollupStorageLayout.InitConfiguration({
             admin: address(this),
             pauser: address(0),
@@ -73,7 +72,11 @@ contract RollupInitializationTest is RollupBase {
             challenger: address(0),
             prover: address(0)
         });
-        new ERC1967Proxy(address(rollupImpl), abi.encodeCall(Rollup.initialize, (abi.encode(params))));
+        Rollup proxied = Rollup(payable(address(new ERC1967Proxy(address(rollupImpl), abi.encodeCall(Rollup.initialize, (abi.encode(params)))))));
+        // When sequencer is zero, implementation falls back to admin as sequencer role holder.
+        bytes32 sequencerRole = proxied.SEQUENCER_ROLE();
+        assertEq(proxied.hasRole(sequencerRole, address(this)), true, "admin should have sequencer role when sequencer is zero");
+        assertEq(proxied.hasRole(sequencerRole, address(0)), false, "zero address must not have sequencer role");
     }
 
     function test_initialize_revertsWhenVerifierIsZero() public {

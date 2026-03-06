@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.30;
 
+import "forge-std/Vm.sol";
+
 import {FluentBridge as Bridge} from "../../contracts/FluentBridge.sol";
 import {PaymentsGateway} from "../../contracts/gateways/PaymentsGateway.sol";
 import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
@@ -36,6 +38,7 @@ interface VmFork {
 
 abstract contract BaseDualFork {
     VmFork internal constant vm = VmFork(address(uint160(uint256(keccak256("hevm cheat code")))));
+    Vm internal constant vmStd = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
     bytes32 internal constant ZERO_HASH = 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
     bytes32 internal constant MOCK_VK_KEY = 0x00612f9d5a388df116872ff70e36bcb86c7e73b1089f32f68fc8e0d0ba7861b7;
@@ -141,16 +144,23 @@ abstract contract BaseDualFork {
         ERC1967Proxy rollupProxy = new ERC1967Proxy(address(rollupImpl), abi.encodeCall(Rollup.initialize, (abi.encode(initParams))));
         l1.rollup = Rollup(payable(address(rollupProxy)));
 
-        // Deploy FluentBridge implementation (no proxy) and initialize it.
-        l1.bridge = new Bridge();
-        l1.bridge.initialize(
-            address(this),
-            BRIDGE_AUTHORITY,
-            address(l1.rollup),
-            0, // receiveMessageDeadline = 0 on L1
-            address(0),
-            address(l1.oracle)
+        // Deploy FluentBridge behind an ERC1967 proxy and initialize it.
+        Bridge bridgeImplL1 = new Bridge();
+        ERC1967Proxy bridgeProxyL1 = new ERC1967Proxy(
+            address(bridgeImplL1),
+            abi.encodeCall(
+                Bridge.initialize,
+                (
+                    address(this),
+                    BRIDGE_AUTHORITY,
+                    address(l1.rollup),
+                    0, // receiveMessageDeadline = 0 on L1
+                    address(0),
+                    address(l1.oracle)
+                )
+            )
         );
+        l1.bridge = Bridge(payable(address(bridgeProxyL1)));
         l1.rollup.setBridge(address(l1.bridge));
         l1.rollup.setDaCheck(false);
 
@@ -158,14 +168,34 @@ abstract contract BaseDualFork {
 
         l1.peggedImpl = new ERC20PeggedToken();
 
-        l1.factory = new ERC20TokenFactory();
-        l1.factory.initialize(address(this), address(l1.peggedImpl));
+        // Deploy ERC20TokenFactory behind an ERC1967 proxy and initialize it.
+        ERC20TokenFactory factoryImplL1 = new ERC20TokenFactory();
+        ERC1967Proxy factoryProxyL1 = new ERC1967Proxy(
+            address(factoryImplL1),
+            abi.encodeCall(ERC20TokenFactory.initialize, (address(this), address(l1.peggedImpl)))
+        );
+        l1.factory = ERC20TokenFactory(payable(address(factoryProxyL1)));
 
-        // Deploy PaymentsGateway implementation and initialize it (tests don't use proxies).
-        l1.gateway = new PaymentsGateway();
-        l1.gateway.initialize(address(this), address(l1.bridge), address(l1.factory));
+        // Deploy PaymentsGateway behind an ERC1967 proxy and initialize it.
+        PaymentsGateway gatewayImplL1 = new PaymentsGateway();
+        ERC1967Proxy gatewayProxyL1 = new ERC1967Proxy(
+            address(gatewayImplL1),
+            abi.encodeCall(PaymentsGateway.initialize, (address(this), address(l1.bridge), address(l1.factory)))
+        );
+        l1.gateway = PaymentsGateway(payable(address(gatewayProxyL1)));
         l1.factory.transferOwnership(address(l1.gateway));
         l1.gateway.acceptTokenFactory();
+
+        // Make core L1 contracts persistent across forks so they can be referenced safely from L2.
+        address[] memory l1Contracts = new address[](7);
+        l1Contracts[0] = address(l1.rollup);
+        l1Contracts[1] = address(l1.bridge);
+        l1Contracts[2] = address(l1.gateway);
+        l1Contracts[3] = address(l1.factory);
+        l1Contracts[4] = address(l1.peggedImpl);
+        l1Contracts[5] = address(l1.verifier);
+        l1Contracts[6] = address(l1.oracle);
+        vmStd.makePersistent(l1Contracts);
     }
 
     function _deployL2() internal {
@@ -173,38 +203,72 @@ abstract contract BaseDualFork {
         _assertOnL2();
         l2.chainId = block.chainid;
 
-        l2.bridge = new Bridge();
-        l2.bridge.initialize(
-            address(this),
-            BRIDGE_AUTHORITY,
-            address(0), // rollup is not used on L2 in these tests
-            100, // non-zero deadline to allow rollback window
-            address(0),
-            address(0)
+        l2.oracle = new L1BlockOracle();
+        Bridge bridgeImplL2 = new Bridge();
+        ERC1967Proxy bridgeProxyL2 = new ERC1967Proxy(
+            address(bridgeImplL2),
+            abi.encodeCall(
+                Bridge.initialize,
+                (
+                    address(this),
+                    BRIDGE_AUTHORITY,
+                    address(0), // rollup is not used on L2 in these tests
+                    100, // non-zero deadline to allow rollback window
+                    address(0),
+                    address(l2.oracle)
+                )
+            )
         );
+        l2.bridge = Bridge(payable(address(bridgeProxyL2)));
 
         l2.peggedImpl = new ERC20PeggedToken();
-        l2.factory = new ERC20TokenFactory();
-        l2.factory.initialize(address(this), address(l2.peggedImpl));
 
-        l2.gateway = new PaymentsGateway();
-        l2.gateway.initialize(address(this), address(l2.bridge), address(l2.factory));
+        // Deploy ERC20TokenFactory behind an ERC1967 proxy and initialize it.
+        ERC20TokenFactory factoryImplL2 = new ERC20TokenFactory();
+        ERC1967Proxy factoryProxyL2 = new ERC1967Proxy(
+            address(factoryImplL2),
+            abi.encodeCall(ERC20TokenFactory.initialize, (address(this), address(l2.peggedImpl)))
+        );
+        l2.factory = ERC20TokenFactory(payable(address(factoryProxyL2)));
+
+        // Deploy PaymentsGateway behind an ERC1967 proxy and initialize it.
+        PaymentsGateway gatewayImplL2 = new PaymentsGateway();
+        ERC1967Proxy gatewayProxyL2 = new ERC1967Proxy(
+            address(gatewayImplL2),
+            abi.encodeCall(PaymentsGateway.initialize, (address(this), address(l2.bridge), address(l2.factory)))
+        );
+        l2.gateway = PaymentsGateway(payable(address(gatewayProxyL2)));
         l2.factory.transferOwnership(address(l2.gateway));
         l2.gateway.acceptTokenFactory();
 
         l2.originToken = new MockERC20Token("Mock Token", "TKN", INITIAL_SUPPLY, USER_A);
+
+        // Make core L2 contracts persistent across forks so they can be referenced safely from L1.
+        address[] memory l2Contracts = new address[](6);
+        l2Contracts[0] = address(l2.bridge);
+        l2Contracts[1] = address(l2.gateway);
+        l2Contracts[2] = address(l2.factory);
+        l2Contracts[3] = address(l2.peggedImpl);
+        l2Contracts[4] = address(l2.originToken);
+        l2Contracts[5] = address(l2.oracle);
+        vmStd.makePersistent(l2Contracts);
     }
 
     function _linkCrossChain() internal {
+        _switchToL2();
+        _assertOnL2();
+        address l2Beacon = l2.factory.beacon();
+
         _switchToL1();
         _assertOnL1();
+        address l1Beacon = l1.factory.beacon();
         l1.bridge.setOtherBridge(address(l2.bridge));
-        l1.gateway.setOtherSide(address(l2.gateway), address(l2.peggedImpl), address(l2.factory));
+        l1.gateway.setOtherSide(address(l2.gateway), address(l2.peggedImpl), address(l2.factory), l2Beacon);
 
         _switchToL2();
         _assertOnL2();
         l2.bridge.setOtherBridge(address(l1.bridge));
-        l2.gateway.setOtherSide(address(l1.gateway), address(l1.peggedImpl), address(l1.factory));
+        l2.gateway.setOtherSide(address(l1.gateway), address(l1.peggedImpl), address(l1.factory), l1Beacon);
     }
 
     function _buildCommitment(

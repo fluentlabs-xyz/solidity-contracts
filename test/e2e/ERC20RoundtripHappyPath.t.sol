@@ -79,6 +79,7 @@ contract ERC20RoundtripHappyPathTest is BaseDualFork {
         );
 
         address l1PeggedTokenAddress = l1.gateway.computePeggedTokenAddress(address(l2.originToken));
+        vmStd.makePersistent(l1PeggedTokenAddress);
         ERC20PeggedToken l1PeggedToken = ERC20PeggedToken(l1PeggedTokenAddress);
         assertEq(l1PeggedToken.balanceOf(USER_B), TRANSFER_AMOUNT, "L1 pegged mint failed");
         assertEq(
@@ -145,9 +146,10 @@ contract ERC20RoundtripHappyPathTest is BaseDualFork {
     }
 
     function test_acceptBatch_reverts_whenDaBlobHashMissing() public {
-        // Step 1: Build a valid batch but do not attach blob data.
+        // Step 1: Build a valid batch but do not attach blob data. Enable DA check first.
         _switchToL1();
         _assertOnL1();
+        l1.rollup.setDaCheck(true);
 
         RollupStorageLayout.BlockCommitment[] memory batch = new RollupStorageLayout.BlockCommitment[](1);
         batch[0] = _buildCommitment(MOCK_GENESIS_HASH, keccak256("DA-MISMATCH-BLOCK"), ZERO_HASH, ZERO_HASH);

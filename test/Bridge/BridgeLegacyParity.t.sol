@@ -8,8 +8,24 @@ import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
 import {RollupStorageLayout} from "../../contracts/rollup/RollupStorageLayout.sol";
 import {VerifierMock} from "../../contracts/mocks/VerifierMock.sol";
-import {RollupBase} from "../Rollup/Base.t.sol";
+import {RollupBase, Vm} from "../Rollup/Base.t.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+
+// Receiver that increments a counter; used to verify deadline rollback path.
+contract NoopReceiver {
+    uint256 public calls;
+
+    function handle() external payable {
+        calls++;
+    }
+}
+
+// Receiver that always reverts; used to drive MessageStatus.Failed.
+contract RevertingReceiver {
+    function fail() external payable {
+        revert("revert-in-receiver");
+    }
+}
 
 contract BridgeLegacyParityTest is RollupBase {
     address internal constant USER = address(0x1234);
@@ -131,17 +147,65 @@ contract BridgeLegacyParityTest is RollupBase {
 
         oracle.updateL1BlockNumber(1000);
 
-        uint256 receiverBalanceBefore = RECEIVER.balance;
-        bridge.receiveMessage(DESTINATION, RECEIVER, 200, sourceChainId, sourceBlock, nonce, "");
-        uint256 receiverBalanceAfter = RECEIVER.balance;
+        // Use a contract receiver to ensure its handler is never called when deadline has passed.
+        NoopReceiver receiver = new NoopReceiver();
+        uint256 receiverBalanceBefore = address(receiver).balance;
+        bytes memory payload = abi.encodeWithSignature("handle()");
+        bridge.receiveMessage(DESTINATION, address(receiver), 200, sourceChainId, sourceBlock, nonce, payload);
+        uint256 receiverBalanceAfter = address(receiver).balance;
 
         assertEq(receiverBalanceAfter - receiverBalanceBefore, 0, "message must not execute after deadline");
 
-        bytes32 messageHash = _bridgeMessageHash(DESTINATION, RECEIVER, 200, sourceChainId, sourceBlock, nonce, "");
+        bytes32 messageHash =
+            _bridgeMessageHash(DESTINATION, address(receiver), 200, sourceChainId, sourceBlock, nonce, payload);
         assertEq(
             uint256(bridge.receivedMessage(messageHash)),
             uint256(IFluentBridge.MessageStatus.None),
             "deadline path keeps status unchanged"
+        );
+    }
+
+    function test_receiveFailedMessage_replaysFailedCall() public {
+        // Arrange: send a message to a receiver that always reverts so status becomes Failed.
+        RevertingReceiver receiver = new RevertingReceiver();
+        uint256 nonce = bridge.receivedNonce();
+        uint256 sourceChainId = block.chainid + 1;
+        uint256 sourceBlock = 1;
+        bytes memory payload = abi.encodeWithSignature("fail()");
+
+        bytes32 messageHash =
+            _bridgeMessageHash(OTHER_BRIDGE, address(receiver), 0, sourceChainId, sourceBlock, nonce, payload);
+
+        bridge.receiveMessage(OTHER_BRIDGE, address(receiver), 0, sourceChainId, sourceBlock, nonce, payload);
+        assertEq(
+            uint256(bridge.receivedMessage(messageHash)),
+            uint256(IFluentBridge.MessageStatus.Failed),
+            "initial receive should mark message as failed"
+        );
+
+        // Act: call receiveFailedMessage with the same parameters.
+        vm.recordLogs();
+        bridge.receiveFailedMessage(OTHER_BRIDGE, address(receiver), 0, sourceChainId, sourceBlock, nonce, payload);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+
+        bool replayed;
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].emitter == address(bridge) && logs[i].topics.length == 1) {
+                // ReceivedMessage(bytes32,bool,bytes)
+                (bytes32 loggedHash,,) = abi.decode(logs[i].data, (bytes32, bool, bytes));
+                if (loggedHash == messageHash) {
+                    replayed = true;
+                    break;
+                }
+            }
+        }
+        assertTrue(replayed, "failed replay path must emit ReceivedMessage for the same hash");
+
+        // Assert: status remains Failed but the failed-path entrypoint is exercised.
+        assertEq(
+            uint256(bridge.receivedMessage(messageHash)),
+            uint256(IFluentBridge.MessageStatus.Failed),
+            "status should remain failed after failed replay"
         );
     }
 

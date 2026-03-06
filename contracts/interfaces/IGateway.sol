@@ -45,6 +45,11 @@ interface IGatewayErrors {
     /// @dev Thrown when the recipient is zero.
     /// @dev selector: 0x9c8d2cd2
     error InvalidRecipient();
+
+    /// @notice Thrown when a supplied gas limit is zero or otherwise invalid for gateway execution.
+    /// @dev Raised by gas-limit validation (e.g. `setGasLimit`) when the configured `_gasLimit` would render
+    ///      cross-chain native transfers unsafe or non-functional.
+    error InvalidGasLimit();
 }
 
 interface IGatewayEvents {
@@ -61,14 +66,27 @@ interface IGatewayEvents {
         address indexed _oldImplementation,
         address _newImplementation,
         address _oldFactory,
-        address _newFactory
+        address _newFactory,
+        address _oldBeacon,
+        address _newBeacon
     );
 
-    event TokenFactoryUpdated(address indexed oldTokenFactory, address indexed newTokenFactory);
+    /**
+     * @notice Emitted when the token factory is updated.
+     */
+    event TokenFactoryUpdated(address indexed prevValue, address indexed newValue);
 
-    event OtherSideGatewayUpdated(address indexed oldOtherSide, address indexed newOtherSide);
+    event OtherSideGatewayUpdated(address indexed prevValue, address indexed newValue);
 
-    event OtherSideTokenImplementationUpdated(address indexed oldImplementation, address indexed newImplementation);
+    event OtherSideTokenImplementationUpdated(address indexed prevValue, address indexed newValue);
+
+    /// @notice Emitted when the address of the bridge contract is updated.
+    event BridgeContractUpdated(address indexed prevValue, address indexed newValue);
+
+    /**
+     * @notice Emitted when the gas limit is updated.
+     */
+    event GasLimitUpdated(uint256 prevValue, uint256 newValue);
 }
 
 interface IGateway is IGatewayErrors, IGatewayEvents {

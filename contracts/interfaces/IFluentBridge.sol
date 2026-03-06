@@ -35,6 +35,10 @@ interface IBridgeErrorCodes {
     error InvalidDestinationAddress();
     /// @dev Thrown when the contract is paused.
     error ContractPaused();
+    /// @dev Thrown when the address is zero.
+    error ZeroAddressNotAllowed(string field);
+    /// @dev Thrown when setting rollup to zero while the sent message queue is non-empty.
+    error QueueNotEmpty();
 }
 
 interface IFluentBridgeEvents {
@@ -50,8 +54,9 @@ interface IFluentBridgeEvents {
         bytes data
     );
 
-    /// @notice Emitted after a message is received and executed (success or failure).
-    /// @
+    /// @notice Emitted after a cross-chain message hash has been processed.
+    /// @dev `successfulCall` is true when the target call succeeded, and false when execution failed
+    ///      or when a rollback/timeout path was taken without invoking the target.
     event ReceivedMessage(bytes32 messageHash, bool successfulCall, bytes returnData);
 
     /// @notice Emitted when a rollback is triggered (message not received on L2 within deadline).
@@ -71,6 +76,9 @@ interface IFluentBridgeEvents {
 
     /// @notice Emitted when the address of the L1 block oracle is updated.
     event L1BlockOracleUpdated(address indexed prevValue, address indexed newValue);
+
+    // Intentionally no duplicate BridgeContractUpdated event here; gateway-related bridge contract
+    // updates are modeled in `IGatewayEvents` to keep event ABIs unambiguous.
 }
 
 interface IFluentBridge is IBridgeErrorCodes, IFluentBridgeEvents {
