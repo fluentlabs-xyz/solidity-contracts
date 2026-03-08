@@ -4,7 +4,7 @@
 # Optional .env: PRIVATE_KEY, INITIAL_OWNER, RELAYER_ADDRESS, RECEIVE_MSG_DEADLINE, L1_L1BLOCK_ORACLE, L2_L1BLOCK_ORACLE, MOCK_SUPPLY, MOCK_RECIPIENT, L1_RPC_URL, L2_RPC_URL.
 #
 # Usage:
-#   ./scripts/deploy/bash/verify-sepolia-fluent-devnet.sh
+#   ./scripts/deploy/bash/verify-sepolia-fluent-testnet.sh
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,8 +26,8 @@ fi
 ETHERSCAN_API_KEY="${ETHERSCAN_API_KEY:-}"
 [ -n "$ETHERSCAN_API_KEY" ] || { echo "ETHERSCAN_API_KEY is required (set in .env)"; exit 1; }
 
-[ -f deployments/sepolia.json ] || { echo "deployments/sepolia.json not found; run deploy-sepolia-fluent-devnet.sh first"; exit 1; }
-[ -f deployments/fluent_testnet.json ] || { echo "deployments/fluent_testnet.json not found; run deploy-sepolia-fluent-devnet.sh first"; exit 1; }
+[ -f deployments/sepolia.json ] || { echo "deployments/sepolia.json not found; run deploy-sepolia-fluent-testnet.sh first"; exit 1; }
+[ -f deployments/fluent_testnet.json ] || { echo "deployments/fluent_testnet.json not found; run deploy-sepolia-fluent-testnet.sh first"; exit 1; }
 
 DEPLOYMENT_JSON_SCRIPT="$PROJECT_ROOT/scripts/deploy/deployment_json.py"
 

@@ -25,8 +25,8 @@ contract UniversalTokenSDKHarness {
         return UniversalTokenSDK.bytes32ToString(value);
     }
 
-    function computeBridgeTokenSalt(address l1Token, uint256 chainId) external pure returns (bytes32) {
-        return UniversalTokenSDK.computeBridgeTokenSalt(l1Token, chainId);
+    function computeBridgeTokenSalt(address originToken) external pure returns (bytes32) {
+        return UniversalTokenSDK.computeBridgeTokenSalt(originToken);
     }
 
     function deployToken(
@@ -79,15 +79,13 @@ contract UniversalTokenSDKTest is FactoryTestBase {
     }
 
     function testComputeBridgeTokenSaltIsDeterministicAndDistinct() public view {
-        address l1Token = address(0x1234);
-        bytes32 saltA = harness.computeBridgeTokenSalt(l1Token, 1);
-        bytes32 saltB = harness.computeBridgeTokenSalt(l1Token, 1);
-        bytes32 saltC = harness.computeBridgeTokenSalt(l1Token, 2);
-        bytes32 saltD = harness.computeBridgeTokenSalt(address(0x5678), 1);
+        address originToken = address(0x1234);
+        bytes32 saltA = harness.computeBridgeTokenSalt(originToken);
+        bytes32 saltB = harness.computeBridgeTokenSalt(originToken);
+        bytes32 saltD = harness.computeBridgeTokenSalt(address(0x5678));
 
-        require(saltA == saltB, "same inputs must produce same salt");
-        require(saltA != saltC, "different chain IDs must produce distinct salts");
-        require(saltA != saltD, "different L1 tokens must produce distinct salts");
+        require(saltA == saltB, "same origin token must produce same salt");
+        require(saltA != saltD, "different origin tokens must produce distinct salts");
     }
 
     function testDeployTokenViaPrecompileRuntime() public {

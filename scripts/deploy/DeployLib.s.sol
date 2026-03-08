@@ -8,16 +8,14 @@ import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol
 import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
 import {UniversalTokenFactory} from "../../contracts/factories/UniversalTokenFactory.sol";
 import {MockERC20Token} from "../../contracts/mocks/MockERC20.sol";
+
 import {Upgrades, UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {Options} from "openzeppelin-foundry-upgrades/Options.sol";
 
 /**
  * @notice Shared deployment logic for L1/L2 stacks. No broadcast; caller must vm.startBroadcast/stopBroadcast.
- * @dev Uses Upgrades.deployUUPSProxy(contractName, ...) with unsafeSkipAllChecks.
- *      L2 deploy must run WITH simulation (no --skip-simulation): the Upgrades lib uses vm.getCode(contractName)
- *      to load bytecode from artifacts; with --skip-simulation the broadcast context has no artifact access, so getCode fails.
- *      Contracts that use external libraries (e.g. UniversalTokenFactory uses UniversalTokenSDK) have "unlinked" artifacts
- *      and vm.getCode fails for them; those are deployed by instantiating the impl (new Contract()) then UnsafeUpgrades.deployUUPSProxy.
+ * @dev Uses Upgrades.deployUUPSProxy(contractName, ...) with unsafeSkipAllChecks where vm.getCode(contractName) works.
+ *      UniversalTokenFactory uses UniversalTokenSDK (unlinked artifact); it uses UnsafeUpgrades.deployUUPSProxy(impl, ...) with new Impl().
  */
 abstract contract DeployLib is BaseScript {
     struct ERC20FactoryResult {
@@ -74,24 +72,23 @@ abstract contract DeployLib is BaseScript {
         r.factoryBeacon = ERC20TokenFactory(r.factory).beacon();
     }
 
-    /// @dev Deploys UniversalTokenFactory via UUPS proxy. Uses UnsafeUpgrades because the contract uses UniversalTokenSDK library; artifact is "unlinked" and vm.getCode fails. Caller must be in broadcast.
-    function _deployUniversalTokenFactory(address initialOwner) internal returns (address factoryProxy, address factoryImpl) {
-        UniversalTokenFactory impl = new UniversalTokenFactory();
-        factoryImpl = address(impl);
-        bytes memory initializerData = abi.encodeCall(UniversalTokenFactory.initialize, (initialOwner));
-        factoryProxy = UnsafeUpgrades.deployUUPSProxy(factoryImpl, initializerData);
-    }
-
-    /// @dev Deploys PaymentGateway via UUPS proxy. Uses UnsafeUpgrades because the contract uses UniversalTokenSDK library (unlinked artifact). Caller must call factory.setPaymentGateway(gateway) after.
+    /// @dev Deploys PaymentGateway via UUPS proxy. Caller must call factory.setPaymentGateway(gateway) after.
     function _deployPaymentGateway(
         address initialOwner,
         address bridgeAddress,
         address factoryAddress
     ) internal returns (PaymentGatewayResult memory r) {
-        PaymentGateway impl = new PaymentGateway();
-        r.gatewayImpl = address(impl);
         bytes memory initializerData = abi.encodeCall(PaymentGateway.initialize, (initialOwner, bridgeAddress, factoryAddress));
-        r.gateway = UnsafeUpgrades.deployUUPSProxy(r.gatewayImpl, initializerData);
+        r.gateway = Upgrades.deployUUPSProxy(PAYMENT_GATEWAY, initializerData, _upgradesOpts());
+        r.gatewayImpl = Upgrades.getImplementationAddress(r.gateway);
+    }
+
+    /// @dev Deploys UniversalTokenFactory via UUPS proxy. Uses UnsafeUpgrades because artifact is unlinked (UniversalTokenSDK). Caller must be in broadcast.
+    function _deployUniversalTokenFactory(address initialOwner) internal returns (address factoryProxy, address factoryImpl) {
+        UniversalTokenFactory impl = new UniversalTokenFactory();
+        factoryImpl = address(impl);
+        bytes memory initializerData = abi.encodeCall(UniversalTokenFactory.initialize, (initialOwner));
+        factoryProxy = UnsafeUpgrades.deployUUPSProxy(factoryImpl, initializerData);
     }
 
     /// @dev Deploys a mock ERC20. Caller must be in broadcast.

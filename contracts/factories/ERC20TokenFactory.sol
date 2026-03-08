@@ -75,22 +75,7 @@ contract ERC20TokenFactory is GenericTokenFactory {
         return bytes("");
     }
 
-    /// @inheritdoc GenericTokenFactory
-    function computeOtherSidePeggedTokenAddress(bytes calldata keyData, bytes calldata) external view override returns (address) {
-        (address _gateway, address _originToken) = _decodeKeyData(keyData);
-        bytes32 _salt = _calculateSalt(_gateway, _originToken);
-        bytes memory bytecode = _beaconProxyBytecode(beacon());
-        return Create2.computeAddress(_salt, keccak256(bytecode));
-    }
-
-    /// @inheritdoc GenericTokenFactory
-    function computePeggedTokenAddress(bytes calldata keyData, bytes calldata) external view override returns (address) {
-        (address _gateway, address _originToken) = _decodeKeyData(keyData);
-        bytes32 _salt = _calculateSalt(_gateway, _originToken);
-        bytes memory bytecode = _beaconProxyBytecode(beacon());
-        return Create2.computeAddress(_salt, keccak256(bytecode));
-    }
-
+    /// @dev Single implementation for both this chain and other chain (same salt + beacon proxy).
     /// @inheritdoc GenericTokenFactory
     function _computeTokenAddress(bytes calldata keyData, bytes calldata) internal view override returns (address) {
         (address _gateway, address _originToken) = _decodeKeyData(keyData);
