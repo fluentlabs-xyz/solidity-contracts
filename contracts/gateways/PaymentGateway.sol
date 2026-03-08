@@ -142,12 +142,7 @@ contract PaymentGateway is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
         } else {
             address originAddress = $.tokenMapping[_token];
             require(originAddress != address(0), TokenMappingCheckFailed());
-            // Use tokenMapping for origin (supports Universal tokens that do not implement getOrigin())
-            try ERC20PeggedToken(_token).getOrigin() returns (address, address reportedOrigin) {
-                require(reportedOrigin == originAddress, TokenMappingCheckFailed());
-            } catch {
-                // Universal / precompile pegged tokens may not implement getOrigin; tokenMapping is source of truth
-            }
+            // tokenMapping is the single source of truth (set on receive); no getOrigin() call so Universal tokens need not implement it
             ERC20PeggedToken(_token).burn(_from, _amount);
 
             _message = abi.encodeCall(PaymentGateway.receiveOriginTokens, (originAddress, _sender, _to, _amount));
