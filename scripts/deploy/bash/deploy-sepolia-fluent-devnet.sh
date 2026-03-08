@@ -1,18 +1,12 @@
 #!/usr/bin/env bash
-# Deploy L1 (Sepolia) + L2 (Fluent Devnet) using standalone scripts only.
+# Deploy L1 (Sepolia) + L2 (Fluent testnet) from scratch in a single run.
+# No .openzeppelin or Hardhat; uses Foundry (forge) only.
 #
-# 1. Bridge: DeployFluentBridge.s.sol (both chains)
-# 2. Gateways: DeployPaymentGateway.s.sol (both chains)
-# 3. L1 factory: DeployERC20TokenFactory.s.sol
-# 4. L2 factory: DeployUniversalTokenFactory.s.sol
-# 5. Mock token (L1 only): DeployMockERC20Token.s.sol (dedicated step; can be removed later)
-# 6. Set all configurations and link bridges/gateways
-# 7. Save all addresses to deployments/sepolia.json and deployments/fluent_testnet.json
+# Steps: (1) L1 bridge (2) L2 bridge (3) link bridges (4) L1 factory (5) L1 gateway
+#        (6) L2 factory (7) L2 gateway (8) mock token L1 (9) link gateways (10) write deployment JSONs
 #
-# Public config: ./config/sepolia.json and ./config/fluent_testnet.json
-#   - initialOwner, bridgeAuthority, receiveMessageDeadline, l1BlockOracle (per chain)
-#   - rpcUrl, blockExplorerUrl may use placeholders: ${SEPOLIA_RPC_URL}, ${SEPOLIA_BLOCK_EXPLORER_URL}, ${FLUENT_TESTNET_RPC_URL}, ${FLUENT_TESTNET_BLOCK_EXPLORER_URL} (set in .env)
-# Private config: .env (PRIVATE_KEY, SEPOLIA_RPC_URL, SEPOLIA_BLOCK_EXPLORER_URL, FLUENT_TESTNET_RPC_URL, FLUENT_TESTNET_BLOCK_EXPLORER_URL required)
+# Config: config/sepolia.json, config/fluent_testnet.json
+# Env: .env with PRIVATE_KEY, SEPOLIA_RPC_URL, FLUENT_TESTNET_RPC_URL (and optional *_BLOCK_EXPLORER_URL)
 #
 # Usage:
 #   ./scripts/deploy/bash/deploy-sepolia-fluent-devnet.sh
@@ -25,6 +19,9 @@ cd "$PROJECT_ROOT"
 command -v forge >/dev/null || { echo "forge is required"; exit 1; }
 command -v cast >/dev/null || { echo "cast is required"; exit 1; }
 if command -v python3 >/dev/null; then PYTHON=python3; elif command -v python >/dev/null; then PYTHON=python; else echo "python3 or python is required"; exit 1; fi
+
+echo "=== Build (from scratch) ==="
+forge build --force
 
 # Load .env (private values)
 if [ -f .env ]; then
@@ -161,7 +158,7 @@ echo "=== Step 2: Deploy L2 bridge (DeployFluentBridge.s.sol) ==="
 INITIAL_OWNER="$L2_INITIAL_OWNER" BRIDGE_AUTHORITY="$L2_BRIDGE_AUTHORITY" RECEIVE_MSG_DEADLINE="$L2_RECEIVE_MSG_DEADLINE" \
   L1_BLOCK_ORACLE="$L2_L1BLOCK_ORACLE" OTHER_BRIDGE_PLACEHOLDER="0x0000000000000000000000000000000000000001" \
   OUTPUT_PATH="$L2_BRIDGE_JSON" \
-  run_forge "$L2_RPC_URL" scripts/deploy/DeployFluentBridge.s.sol:DeployFluentBridge
+  run_forge_skip_sim "$L2_RPC_URL" scripts/deploy/DeployFluentBridge.s.sol:DeployFluentBridge
 L2_BRIDGE="$(read_json_key "$L2_BRIDGE_JSON" bridge)"
 require_nonzero "L2 bridge" "$L2_BRIDGE"
 echo "L2 FluentBridge: $L2_BRIDGE"

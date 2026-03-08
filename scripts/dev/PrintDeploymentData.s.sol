@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {BaseScript} from "./Base.sol";
-import {UniversalTokenSDK} from "../contracts/libraries/UniversalTokenSDK.sol";
+import {BaseScript} from "../Base.sol";
+import {UniversalTokenSDK} from "../../contracts/libraries/UniversalTokenSDK.sol";
 
 /// @notice Prints UniversalTokenSDK deployment data and its hash via an event.
 /// @dev Environment (all optional, with sensible defaults):

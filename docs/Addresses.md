@@ -11,15 +11,15 @@ Source: `deployments/sepolia.json`, `deployments/fluent_testnet.json`.
 
 | Contract | Address | Explorer |
 |----------|---------|----------|
-| **FluentBridge** (proxy) | `0x2E0a1bB6406Cae9012B43EAf01DA2BD10Ca98b3D` | [View](https://sepolia.etherscan.io/address/0x2E0a1bB6406Cae9012B43EAf01DA2BD10Ca98b3D) |
-| FluentBridge (impl) | `0xEf0898f69A6851cA927fA67650b2118D69BC969F` | [View](https://sepolia.etherscan.io/address/0xEf0898f69A6851cA927fA67650b2118D69BC969F) |
-| **ERC20TokenFactory** (proxy) | `0xe96e07560D31840c1E8b25C1c6D83Cb4AD3718Af` | [View](https://sepolia.etherscan.io/address/0xe96e07560D31840c1E8b25C1c6D83Cb4AD3718Af) |
-| ERC20TokenFactory (impl) | `0xE6e4Fca4E3d48b54dF016dB5aD49e10e5b723612` | [View](https://sepolia.etherscan.io/address/0xE6e4Fca4E3d48b54dF016dB5aD49e10e5b723612) |
-| UpgradeableBeacon | `0x747B34293b03dCeC5EaF6AB1D9C1974d0f4636e8` | [View](https://sepolia.etherscan.io/address/0x747B34293b03dCeC5EaF6AB1D9C1974d0f4636e8) |
-| ERC20PeggedToken (impl) | `0x97F9747F1C6Da86e7C4c441bE50567214045484A` | [View](https://sepolia.etherscan.io/address/0x97F9747F1C6Da86e7C4c441bE50567214045484A) |
-| **PaymentGateway** (proxy) | `0x0b72DDB11Ca801f5D14a86a9Fd2C96A1E068E3F7` | [View](https://sepolia.etherscan.io/address/0x0b72DDB11Ca801f5D14a86a9Fd2C96A1E068E3F7) |
-| PaymentGateway (impl) | `0x4946B09ec17708d6b5dcC5FBA661D232D8f57d39` | [View](https://sepolia.etherscan.io/address/0x4946B09ec17708d6b5dcC5FBA661D232D8f57d39) |
-| **MockERC20** (test token) | `0x3f92d2104c6b61aC9240980a6D570776D7e1558b` | [View](https://sepolia.etherscan.io/address/0x3f92d2104c6b61aC9240980a6D570776D7e1558b) |
+| **FluentBridge** (proxy) | `0x45B7Db9A02E62719fD6Fa9c16bEFCB6Dd24d0827` | [View](https://sepolia.etherscan.io/address/0x45B7Db9A02E62719fD6Fa9c16bEFCB6Dd24d0827) |
+| FluentBridge (impl) | `0x894beE8112342163FcbFC7B460360B78b4eb68dc` | [View](https://sepolia.etherscan.io/address/0x894beE8112342163FcbFC7B460360B78b4eb68dc) |
+| **ERC20TokenFactory** (proxy) | `0x4DF8aD1da9605d4F2cC0DF3a3Af74274b0521F90` | [View](https://sepolia.etherscan.io/address/0x4DF8aD1da9605d4F2cC0DF3a3Af74274b0521F90) |
+| ERC20TokenFactory (impl) | `0x37E5aF59DAC28e7e572EFF34F01E6d90E27FcF43` | [View](https://sepolia.etherscan.io/address/0x37E5aF59DAC28e7e572EFF34F01E6d90E27FcF43) |
+| UpgradeableBeacon | `0x69F1e3d5F5cBCD16242AC251de7C093a4A603797` | [View](https://sepolia.etherscan.io/address/0x69F1e3d5F5cBCD16242AC251de7C093a4A603797) |
+| ERC20PeggedToken (impl) | `0x68Cf6B409d21D08CC68E0c484c70661fB26C9470` | [View](https://sepolia.etherscan.io/address/0x68Cf6B409d21D08CC68E0c484c70661fB26C9470) |
+| **PaymentGateway** (proxy) | `0x0fa56ec76447a4B331f288e31DB4F4a0F957Af6e` | [View](https://sepolia.etherscan.io/address/0x0fa56ec76447a4B331f288e31DB4F4a0F957Af6e) |
+| PaymentGateway (impl) | `0xC1a070A9BC36335118857Db4a8E9e83c5AE585af` | [View](https://sepolia.etherscan.io/address/0xC1a070A9BC36335118857Db4a8E9e83c5AE585af) |
+| **MockERC20** (test token) | `0xaFCAeb5Da2a026080a4D12Bf7fCE88742bb1B2aD` | [View](https://sepolia.etherscan.io/address/0xaFCAeb5Da2a026080a4D12Bf7fCE88742bb1B2aD) |
 
 - **Chain ID:** 11155111
 - **RPC:** https://ethereum-sepolia-rpc.publicnode.com
@@ -31,12 +31,12 @@ Source: `deployments/sepolia.json`, `deployments/fluent_testnet.json`.
 
 | Contract | Address | Explorer |
 |----------|---------|----------|
-| **FluentBridge** (proxy) | `0x1c4b74359f47e9ceF645167FD9834E5b5512665e` | [View](https://testnet.fluentscan.xyz/address/0x1c4b74359f47e9ceF645167FD9834E5b5512665e) |
-| FluentBridge (impl) | `0xaBf18b892AA851b26b06118330F077529474FC16` | [View](https://testnet.fluentscan.xyz/address/0xaBf18b892AA851b26b06118330F077529474FC16) |
-| **UniversalTokenFactory** (proxy) | `0x3092cC68Dc5eE1be55a588c09C7c10E834d1BABB` | [View](https://testnet.fluentscan.xyz/address/0x3092cC68Dc5eE1be55a588c09C7c10E834d1BABB) |
-| UniversalTokenFactory (impl) | `0xc1de75246e41D7104d357332A77b717a9A2BAC7e` | [View](https://testnet.fluentscan.xyz/address/0xc1de75246e41D7104d357332A77b717a9A2BAC7e) |
-| **PaymentGateway** (proxy) | `0xF5E8528151a3413F1eb1F3415cd939eF26E89b8b` | [View](https://testnet.fluentscan.xyz/address/0xF5E8528151a3413F1eb1F3415cd939eF26E89b8b) |
-| PaymentGateway (impl) | `0x7BE6D0CEb37a10B43F61c3762D09C9a477d134EA` | [View](https://testnet.fluentscan.xyz/address/0x7BE6D0CEb37a10B43F61c3762D09C9a477d134EA) |
+| **FluentBridge** (proxy) | `0x8D1919f5419ECC66A38680C088A941d66e57f6a2` | [View](https://testnet.fluentscan.xyz/address/0x8D1919f5419ECC66A38680C088A941d66e57f6a2) |
+| FluentBridge (impl) | `0x51fEB71fDB7899275c1D533f227B687F4fb5fC1D` | [View](https://testnet.fluentscan.xyz/address/0x51fEB71fDB7899275c1D533f227B687F4fb5fC1D) |
+| **UniversalTokenFactory** (proxy) | `0x8E17248117cf7523eCaCaE5e6a1062b2e7e579Ea` | [View](https://testnet.fluentscan.xyz/address/0x8E17248117cf7523eCaCaE5e6a1062b2e7e579Ea) |
+| UniversalTokenFactory (impl) | `0xda5950F1b47daCE5aFa26144B2E889efF96FD1d5` | [View](https://testnet.fluentscan.xyz/address/0xda5950F1b47daCE5aFa26144B2E889efF96FD1d5) |
+| **PaymentGateway** (proxy) | `0x443688cb80Bec4b5280E8f6C64D99C603F504560` | [View](https://testnet.fluentscan.xyz/address/0x443688cb80Bec4b5280E8f6C64D99C603F504560) |
+| PaymentGateway (impl) | `0x011E1aa0857420951e323599704Ac276bCECDfe9` | [View](https://testnet.fluentscan.xyz/address/0x011E1aa0857420951e323599704Ac276bCECDfe9) |
 | Pegged token (precompile) | `0x0000000000000000000000000000000000520008` | — |
 
 - **Chain ID:** 20994 (confirm at runtime with `cast chain-id --rpc-url <L2_RPC>`)
@@ -47,7 +47,7 @@ Source: `deployments/sepolia.json`, `deployments/fluent_testnet.json`.
 
 ## Pegged token address (L1 → L2)
 
-The L2 pegged token address is computed with CREATE2 using the **L2 chain id** in the salt. The L1 gateway’s `otherSideChainId` must equal L2’s actual `block.chainid`, or the relayer will hit `WrongPeggedToken` on L2. The deploy script `deploy-sepolia-fluent-devnet.sh` now sets `otherSideChainId` from L2 RPC (`cast chain-id`) so it matches. If you deployed earlier with a wrong chain id, call on L1 gateway (as owner): `setOtherSideUniversal(L2_GATEWAY, L2_PEGGED_IMPL, L2_FACTORY, <L2_CHAIN_ID_FROM_RPC>)` with the real L2 chain id from `cast chain-id --rpc-url <L2_RPC>`.
+The L2 pegged token address is computed with CREATE2 using the **L2 chain id** in the salt. The L1 gateway's `otherSideChainId` must equal L2's actual `block.chainid`, or the relayer will hit `WrongPeggedToken` on L2. The deploy script `deploy-sepolia-fluent-devnet.sh` now sets `otherSideChainId` from L2 RPC (`cast chain-id`) so it matches. If you deployed earlier with a wrong chain id, call on L1 gateway (as owner): `setOtherSideUniversal(L2_GATEWAY, L2_PEGGED_IMPL, L2_FACTORY, <L2_CHAIN_ID_FROM_RPC>)` with the real L2 chain id from `cast chain-id --rpc-url <L2_RPC>`.
 
 ---
 
@@ -57,8 +57,8 @@ Use these as **from-block** when indexing `SentMessage` (and other bridge events
 
 | Chain        | FluentBridge (proxy) | Deployment block |
 |-------------|----------------------|------------------|
-| **Sepolia** | `0x2E0a1bB6406Cae9012B43EAf01DA2BD10Ca98b3D` | **10408787** |
-| **Fluent testnet** | `0x1c4b74359f47e9ceF645167FD9834E5b5512665e` | **20995147** |
+| **Sepolia** | `0x45B7Db9A02E62719fD6Fa9c16bEFCB6Dd24d0827` | **10408951** |
+| **Fluent testnet** | `0x8D1919f5419ECC66A38680C088A941d66e57f6a2` | **20995183** |
 
 Source: `broadcast/DeployFluentBridge.s.sol/{chainId}/run-latest.json` (receipts).
 
@@ -81,4 +81,4 @@ With `ETHERSCAN_API_KEY` in `.env`:
 ./scripts/deploy/bash/verify-sepolia-fluent-devnet.sh
 ```
 
-Sepolia contracts are verified via Etherscan; Fluent testnet contracts via Blockscout at https://testnet.fluentscan.xyz/.
+Runs L1 (Etherscan) and L2 (Blockscout) verification in a single execution. Sepolia contracts are verified via Etherscan; Fluent testnet contracts via Blockscout at https://testnet.fluentscan.xyz/.
