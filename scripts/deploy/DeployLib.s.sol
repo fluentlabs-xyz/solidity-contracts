@@ -36,12 +36,18 @@ abstract contract DeployLib is BaseScript {
         address l1BlockOracle
     ) internal returns (address bridgeProxy, address bridgeImpl) {
         FluentBridge impl = new FluentBridge();
+        FluentBridge.InitConfiguration memory params = FluentBridge.InitConfiguration({
+            initialOwner: initialOwner,
+            bridgeAuthority: bridgeAuthority,
+            rollup: address(0),
+            receiveMessageDeadline: receiveMessageDeadline,
+            otherBridge: otherBridgePlaceholder,
+            l1BlockOracle: l1BlockOracle
+        });
+        bytes memory initData = abi.encode(params);
         ERC1967Proxy proxyContract = new ERC1967Proxy(
             address(impl),
-            abi.encodeCall(
-                FluentBridge.initialize,
-                (initialOwner, bridgeAuthority, address(0), receiveMessageDeadline, otherBridgePlaceholder, l1BlockOracle)
-            )
+            abi.encodeCall(FluentBridge.initialize, (initData))
         );
         return (address(proxyContract), address(impl));
     }
@@ -64,16 +70,16 @@ abstract contract DeployLib is BaseScript {
     /// @dev Deploys UniversalTokenFactory (L2): impl + proxy. Caller must be in broadcast.
     function _deployUniversalTokenFactory(address initialOwner) internal returns (address factoryProxy, address factoryImpl) {
         UniversalTokenFactory impl = new UniversalTokenFactory();
-        ERC1967Proxy proxyContract =
-            new ERC1967Proxy(address(impl), abi.encodeCall(UniversalTokenFactory.initialize, (initialOwner)));
+        ERC1967Proxy proxyContract = new ERC1967Proxy(address(impl), abi.encodeCall(UniversalTokenFactory.initialize, (initialOwner)));
         return (address(proxyContract), address(impl));
     }
 
     /// @dev Deploys PaymentGateway impl + proxy. Caller must call factory.setPaymentGateway(gateway) after.
-    function _deployPaymentGateway(address initialOwner, address bridgeAddress, address factoryAddress)
-        internal
-        returns (PaymentGatewayResult memory r)
-    {
+    function _deployPaymentGateway(
+        address initialOwner,
+        address bridgeAddress,
+        address factoryAddress
+    ) internal returns (PaymentGatewayResult memory r) {
         PaymentGateway gatewayImpl = new PaymentGateway();
         ERC1967Proxy gatewayProxyContract = new ERC1967Proxy(
             address(gatewayImpl),
@@ -84,10 +90,7 @@ abstract contract DeployLib is BaseScript {
     }
 
     /// @dev Deploys a mock ERC20. Caller must be in broadcast.
-    function _deployMockERC20(string memory name, string memory symbol, uint256 supply, address recipient)
-        internal
-        returns (address token)
-    {
+    function _deployMockERC20(string memory name, string memory symbol, uint256 supply, address recipient) internal returns (address token) {
         MockERC20Token t = new MockERC20Token(name, symbol, supply, recipient);
         return address(t);
     }

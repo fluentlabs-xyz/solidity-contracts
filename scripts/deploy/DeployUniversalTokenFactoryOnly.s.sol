@@ -3,7 +3,7 @@ pragma solidity 0.8.30;
 
 import {BaseScript} from "../Base.sol";
 import {UniversalTokenFactory} from "../../contracts/factories/UniversalTokenFactory.sol";
-import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 /// @notice Deploys only the UniversalTokenFactory (no token). Use this to get real on-chain txs when token deploy fails.
 /// @dev Environment: INITIAL_OWNER (address). Optional: OUTPUT_PATH (string).
@@ -20,9 +20,8 @@ contract DeployUniversalTokenFactoryOnly is BaseScript {
         vm.startBroadcast();
 
         UniversalTokenFactory factoryImpl = new UniversalTokenFactory();
-        TransparentUpgradeableProxy factoryProxyContract = new TransparentUpgradeableProxy(
+        ERC1967Proxy factoryProxyContract = new ERC1967Proxy(
             address(factoryImpl),
-            initialOwner,
             abi.encodeCall(UniversalTokenFactory.initialize, (initialOwner))
         );
 

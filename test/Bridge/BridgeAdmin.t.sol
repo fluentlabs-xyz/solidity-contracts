@@ -18,19 +18,17 @@ contract BridgeAdminTest is MinimalTest {
 
     function setUp() public {
         Bridge bridgeImpl = new Bridge();
+        Bridge.InitConfiguration memory params = Bridge.InitConfiguration({
+            initialOwner: address(this),
+            bridgeAuthority: INITIAL_AUTHORITY,
+            rollup: INITIAL_ROLLUP,
+            receiveMessageDeadline: INITIAL_DEADLINE,
+            otherBridge: INITIAL_OTHER_BRIDGE,
+            l1BlockOracle: INITIAL_ORACLE
+        });
         ERC1967Proxy proxy = new ERC1967Proxy(
             address(bridgeImpl),
-            abi.encodeCall(
-                Bridge.initialize,
-                (
-                    address(this),
-                    INITIAL_AUTHORITY,
-                    INITIAL_ROLLUP,
-                    INITIAL_DEADLINE,
-                    INITIAL_OTHER_BRIDGE,
-                    INITIAL_ORACLE
-                )
-            )
+            abi.encodeCall(Bridge.initialize, (abi.encode(params)))
         );
         bridge = Bridge(payable(address(proxy)));
     }
@@ -78,19 +76,17 @@ contract BridgeAdminTest is MinimalTest {
 
         // When queue is empty, rollup can be set to zero.
         Bridge bridgeImpl2 = new Bridge();
+        Bridge.InitConfiguration memory params2 = Bridge.InitConfiguration({
+            initialOwner: address(this),
+            bridgeAuthority: INITIAL_AUTHORITY,
+            rollup: INITIAL_ROLLUP,
+            receiveMessageDeadline: INITIAL_DEADLINE,
+            otherBridge: INITIAL_OTHER_BRIDGE,
+            l1BlockOracle: INITIAL_ORACLE
+        });
         ERC1967Proxy proxy2 = new ERC1967Proxy(
             address(bridgeImpl2),
-            abi.encodeCall(
-                Bridge.initialize,
-                (
-                    address(this),
-                    INITIAL_AUTHORITY,
-                    INITIAL_ROLLUP,
-                    INITIAL_DEADLINE,
-                    INITIAL_OTHER_BRIDGE,
-                    INITIAL_ORACLE
-                )
-            )
+            abi.encodeCall(Bridge.initialize, (abi.encode(params2)))
         );
         Bridge freshBridge = Bridge(payable(address(proxy2)));
         assertEq(freshBridge.sentMessageQueueSize(), 0, "fresh bridge queue should be empty");

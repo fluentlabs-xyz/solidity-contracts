@@ -508,9 +508,18 @@ contract PaymentGatewayTest {
 
     function _deployBridge() internal returns (FluentBridge deployed) {
         FluentBridge impl = new FluentBridge();
+        FluentBridge.InitConfiguration memory params = FluentBridge.InitConfiguration({
+            initialOwner: address(this),
+            bridgeAuthority: address(this),
+            rollup: address(0),
+            receiveMessageDeadline: 0,
+            otherBridge: address(0x1234),
+            l1BlockOracle: address(0x5678)
+        });
+        bytes memory initData = abi.encode(params);
         ERC1967Proxy proxy = new ERC1967Proxy(
             address(impl),
-            abi.encodeCall(FluentBridge.initialize, (address(this), address(this), address(0), 0, address(0x1234), address(0x5678)))
+            abi.encodeCall(FluentBridge.initialize, (initData))
         );
         deployed = FluentBridge(payable(address(proxy)));
     }

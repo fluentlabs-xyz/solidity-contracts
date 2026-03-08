@@ -7,7 +7,7 @@ import {RollupStorageLayout} from "../../contracts/rollup/RollupStorageLayout.so
 import {SP1Verifier} from "../../contracts/verifier/SP1VerifierGroth16.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-/// @notice Deployment script for the Rollup contract behind an ERC1967 proxy (transparent upgradeable).
+/// @notice Deployment script for the Rollup contract behind an ERC1967 proxy (UUPS upgradeable).
 contract DeployRollup is BaseScript {
     event RollupDeployed(address indexed implementation, address indexed proxy);
 

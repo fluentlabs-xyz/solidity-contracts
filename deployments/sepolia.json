@@ -1,0 +1,18 @@
+{
+  "chainId": 11155111,
+  "chainName": "sepolia",
+  "rpcUrl": "https://ethereum-sepolia-rpc.publicnode.com",
+  "blockExplorerUrl": "https://sepolia.etherscan.io",
+  "deployment": {
+    "bridge": "0x2E0a1bB6406Cae9012B43EAf01DA2BD10Ca98b3D",
+    "bridge_impl": "0xEf0898f69A6851cA927fA67650b2118D69BC969F",
+    "factory": "0xe96e07560D31840c1E8b25C1c6D83Cb4AD3718Af",
+    "factory_beacon": "0x747B34293b03dCeC5EaF6AB1D9C1974d0f4636e8",
+    "factory_impl": "0xE6e4Fca4E3d48b54dF016dB5aD49e10e5b723612",
+    "pegged_impl": "0x97F9747F1C6Da86e7C4c441bE50567214045484A",
+    "gateway": "0x0b72DDB11Ca801f5D14a86a9Fd2C96A1E068E3F7",
+    "gateway_impl": "0x4946B09ec17708d6b5dcC5FBA661D232D8f57d39",
+    "mock_erc20": "0x3f92d2104c6b61aC9240980a6D570776D7e1558b",
+    "mock_token": "0x3f92d2104c6b61aC9240980a6D570776D7e1558b"
+  }
+}

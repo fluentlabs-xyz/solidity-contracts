@@ -66,11 +66,17 @@ contract BridgeLegacyParityTest is RollupBase {
         oracle = new L1BlockOracle();
 
         Bridge bridgeImpl = new Bridge();
+        Bridge.InitConfiguration memory bridgeParams = Bridge.InitConfiguration({
+            initialOwner: address(this),
+            bridgeAuthority: address(this),
+            rollup: address(rollup),
+            receiveMessageDeadline: 10,
+            otherBridge: OTHER_BRIDGE,
+            l1BlockOracle: address(oracle)
+        });
         ERC1967Proxy bridgeProxy = new ERC1967Proxy(
             address(bridgeImpl),
-            abi.encodeCall(
-                Bridge.initialize, (address(this), address(this), address(rollup), 10, OTHER_BRIDGE, address(oracle))
-            )
+            abi.encodeCall(Bridge.initialize, (abi.encode(bridgeParams)))
         );
         bridge = Bridge(payable(address(bridgeProxy)));
         rollup.setBridge(address(bridge));

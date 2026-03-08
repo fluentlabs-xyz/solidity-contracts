@@ -5,12 +5,9 @@ import {DeployLib} from "./DeployLib.s.sol";
 import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol";
 
 /**
- * @notice L1 orchestrator: deploys ERC20TokenFactory stack + PaymentGateway; optionally FluentBridge and MockERC20.
+ * @notice L1 gateway stack only: deploys ERC20TokenFactory + PaymentGateway. Bridge must be deployed separately.
  * @dev Environment:
- *   INITIAL_OWNER (address), BRIDGE_ADDRESS (address; if set, use it; else deploy bridge),
- *   BRIDGE_AUTHORITY (optional), RECEIVE_MSG_DEADLINE (optional),
- *   OTHER_BRIDGE_PLACEHOLDER (optional), L1_BLOCK_ORACLE (optional),
- *   DEPLOY_MOCK (bool, optional), MOCK_SUPPLY (optional), MOCK_RECIPIENT (optional),
+ *   INITIAL_OWNER (address), BRIDGE_ADDRESS (address, required),
  *   OUTPUT_PATH (string, optional).
  */
 contract DeployL1 is DeployLib {
@@ -28,35 +25,17 @@ contract DeployL1 is DeployLib {
 
     function run() external returns (address gateway) {
         address initialOwner = vm.envAddress("INITIAL_OWNER");
-        address bridgeAddress = vm.envOr("BRIDGE_ADDRESS", address(0));
-        address bridgeAuthority = vm.envOr("BRIDGE_AUTHORITY", initialOwner);
-        uint256 receiveMessageDeadline = vm.envOr("RECEIVE_MSG_DEADLINE", uint256(0));
-        address otherBridgePlaceholder = vm.envOr("OTHER_BRIDGE_PLACEHOLDER", address(0x1));
-        address l1BlockOracle = vm.envOr("L1_BLOCK_ORACLE", address(0));
-        bool deployMock = vm.envOr("DEPLOY_MOCK", false);
-        uint256 mockSupply = vm.envOr("MOCK_SUPPLY", uint256(100_000_000 ether));
-        address mockRecipient = vm.envOr("MOCK_RECIPIENT", initialOwner);
+        require(initialOwner != address(0), "INITIAL_OWNER required");
+        address bridgeAddress = vm.envAddress("BRIDGE_ADDRESS");
+        require(bridgeAddress != address(0), "BRIDGE_ADDRESS required");
         string memory outputPath = vm.envOr("OUTPUT_PATH", string(""));
 
         vm.startBroadcast();
 
-        address bridgeImpl = address(0);
-        if (bridgeAddress == address(0)) {
-            (bridgeAddress, bridgeImpl) = _deployFluentBridge(
-                initialOwner, bridgeAuthority, receiveMessageDeadline, otherBridgePlaceholder, l1BlockOracle
-            );
-        }
-
         ERC20FactoryResult memory factoryResult = _deployERC20TokenFactory(initialOwner);
 
-        PaymentGatewayResult memory gatewayResult =
-            _deployPaymentGateway(initialOwner, bridgeAddress, factoryResult.factory);
+        PaymentGatewayResult memory gatewayResult = _deployPaymentGateway(initialOwner, bridgeAddress, factoryResult.factory);
         ERC20TokenFactory(factoryResult.factory).setPaymentGateway(gatewayResult.gateway);
-
-        address mockToken = address(0);
-        if (deployMock) {
-            mockToken = _deployMockERC20("Mock Deposit Token", "MDT", mockSupply, mockRecipient);
-        }
 
         vm.stopBroadcast();
 
@@ -65,14 +44,14 @@ contract DeployL1 is DeployLib {
         if (bytes(outputPath).length != 0) {
             Deployment memory d;
             d.bridge = bridgeAddress;
-            d.bridgeImpl = bridgeImpl;
+            d.bridgeImpl = address(0);
             d.peggedImpl = factoryResult.peggedImpl;
             d.factoryImpl = factoryResult.factoryImpl;
             d.factory = factoryResult.factory;
             d.factoryBeacon = factoryResult.factoryBeacon;
             d.gatewayImpl = gatewayResult.gatewayImpl;
             d.gateway = gatewayResult.gateway;
-            d.mockToken = mockToken;
+            d.mockToken = address(0);
             _writeOutput(outputPath, d);
         }
     }

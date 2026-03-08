@@ -2,6 +2,7 @@
 pragma solidity 0.8.30;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
@@ -20,7 +21,7 @@ import {IL1BlockOracle} from "./interfaces/IL1BlockOracle.sol";
  * @author Fluent Labs
  * @notice Core bridge contract for sending and receiving cross-chain messages between L1 and L2 using rollup validation.
  * @dev Deployed on both L1 and L2 with different config (L1: rollup set, deadline 0; L2: rollup zero, deadline non-zero).
- *      Upgradeable via transparent proxy (TransparentUpgradeableProxy + ProxyAdmin).
+ *      Upgradeable via UUPS proxy (ERC1967Proxy); upgrade authorized by owner.
  *      Native token handling: on send, msg.value is locked in this contract; on receive, caller must supply msg.value
  *      equal to message value (relayer liquidity); on rollback, this contract refunds from its locked balance (msg.value must be 0).
  * @notice Workflows:
@@ -44,7 +45,7 @@ import {IL1BlockOracle} from "./interfaces/IL1BlockOracle.sol";
  *    - Bridge Authority invokes receiveFailedMessage(...) with msg.value == value for a message previously marked Failed.
  *    - Allows retrying after fixing conditions (e.g. gateway config).
  */
-contract FluentBridge is Initializable, ReentrancyGuardUpgradeable, Ownable2StepUpgradeable, PausableUpgradeable, IFluentBridge {
+contract FluentBridge is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradeable, Ownable2StepUpgradeable, PausableUpgradeable, IFluentBridge {
     /// @notice Configuration for the FluentBridge initialization.
     struct InitConfiguration {
         /// @notice Owner of the contract (e.g. multisig or deployer).
@@ -121,9 +122,13 @@ contract FluentBridge is Initializable, ReentrancyGuardUpgradeable, Ownable2Step
         __Ownable2Step_init();
         __ReentrancyGuard_init();
         __Pausable_init();
+        __UUPSUpgradeable_init();
 
         __FluentBridge_init(params);
     }
+
+    /// @inheritdoc UUPSUpgradeable
+    function _authorizeUpgrade(address) internal override onlyOwner {}
 
     /// @inheritdoc IFluentBridge
     function sendMessage(address to, bytes calldata message) external payable whenNotPaused {
@@ -482,7 +487,6 @@ contract FluentBridge is Initializable, ReentrancyGuardUpgradeable, Ownable2Step
 
     function __FluentBridge_init(InitConfiguration memory params) internal {
         require(params.bridgeAuthority != address(0), ZeroAddressNotAllowed("bridgeAuthority"));
-        require(params.receiveMessageDeadline != 0, ZeroValueNotAllowed("receiveMessageDeadline"));
         require(params.otherBridge != address(0), ZeroAddressNotAllowed("otherBridge"));
         if (params.receiveMessageDeadline != 0) {
             require(params.l1BlockOracle != address(0), ZeroAddressNotAllowed("l1BlockOracle"));

@@ -1,0 +1,16 @@
+{
+  "chainId": 20994,
+  "chainName": "fluent_testnet",
+  "rpcUrl": "https://rpc.testnet.fluent.xyz/",
+  "blockExplorerUrl": "https://testnet.fluentscan.xyz/",
+  "deployment": {
+    "bridge": "0x1c4b74359f47e9ceF645167FD9834E5b5512665e",
+    "bridge_impl": "0xaBf18b892AA851b26b06118330F077529474FC16",
+    "factory": "0x3092cC68Dc5eE1be55a588c09C7c10E834d1BABB",
+    "factory_impl": "0xc1de75246e41D7104d357332A77b717a9A2BAC7e",
+    "gateway": "0xF5E8528151a3413F1eb1F3415cd939eF26E89b8b",
+    "gateway_impl": "0x7BE6D0CEb37a10B43F61c3762D09C9a477d134EA",
+    "pegged_impl": "0x0000000000000000000000000000000000520008",
+    "factory_beacon": "0x0000000000000000000000000000000000000000"
+  }
+}

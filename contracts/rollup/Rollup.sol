@@ -27,6 +27,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite {
         __ReentrancyGuard_init();
         __AccessControl_init();
         __Pausable_init();
+        __UUPSUpgradeable_init();
         __initRollupStorage(data);
     }
 

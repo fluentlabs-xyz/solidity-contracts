@@ -3,7 +3,7 @@ pragma solidity 0.8.30;
 
 import {BaseScript} from "../Base.sol";
 import {UniversalTokenFactory} from "../../contracts/factories/UniversalTokenFactory.sol";
-import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 /// @notice Deploys a UniversalTokenFactory behind an ERC1967 proxy on Fluent Testnet and deploys a single Universal token via deployToken().
 /// @dev Environment (required unless noted otherwise):
@@ -59,11 +59,10 @@ contract DeployUniversalTokenFactoryAndToken is BaseScript {
     ) internal returns (Deployment memory deployed) {
         vm.startBroadcast();
 
-        // Deploy factory implementation + proxy
+        // Deploy factory implementation + proxy (UUPS)
         UniversalTokenFactory factoryImpl = new UniversalTokenFactory();
-        TransparentUpgradeableProxy factoryProxyContract = new TransparentUpgradeableProxy(
+        ERC1967Proxy factoryProxyContract = new ERC1967Proxy(
             address(factoryImpl),
-            initialOwner,
             abi.encodeCall(UniversalTokenFactory.initialize, (initialOwner))
         );
 

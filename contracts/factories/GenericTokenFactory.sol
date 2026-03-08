@@ -6,6 +6,7 @@ import {IBeacon} from "@openzeppelin/contracts/proxy/beacon/IBeacon.sol";
 import {UpgradeableBeacon} from "@openzeppelin/contracts/proxy/beacon/UpgradeableBeacon.sol";
 import {BeaconProxy} from "@openzeppelin/contracts/proxy/beacon/BeaconProxy.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 
 /**
@@ -21,7 +22,7 @@ import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/acces
  * 3. Address prediction (other chain): computeOtherSidePeggedTokenAddress(keyData, deployArgs) — subclasses may use another factory address for remote prediction.
  * 4. Upgrade: owner calls upgradeTo(newImplementation) to upgrade all beacon-proxy tokens (ERC20 factory); Universal factory uses CREATE2, no beacon.
  */
-abstract contract GenericTokenFactory is Initializable, Ownable2StepUpgradeable, IGenericTokenFactory {
+abstract contract GenericTokenFactory is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, IGenericTokenFactory {
     /// @custom:storage-location erc7201:fluent.storage.GenericTokenFactoryStorage
     struct GenericTokenFactoryStorage {
         address beacon;
@@ -56,15 +57,13 @@ abstract contract GenericTokenFactory is Initializable, Ownable2StepUpgradeable,
     function __GenericTokenFactory_init(address initialOwner) internal onlyInitializing {
         __Ownable_init(initialOwner);
         __Ownable2Step_init();
+        __UUPSUpgradeable_init();
     }
+
+    /// @inheritdoc UUPSUpgradeable
+    function _authorizeUpgrade(address) internal override onlyOwner {}
 
     // ========== Public write functions ==========
-
-    /// @notice Sets the payment gateway allowed to call deployToken. Only callable by owner.
-    /// @param _paymentGateway Address of the PaymentGateway contract.
-    function setPaymentGateway(address _paymentGateway) external onlyOwner {
-        _setPaymentGateway(_paymentGateway);
-    }
 
     /// @inheritdoc IGenericTokenFactory
     function deployToken(bytes calldata keyData, bytes calldata deployArgs) external virtual override returns (address);
@@ -136,6 +135,34 @@ abstract contract GenericTokenFactory is Initializable, Ownable2StepUpgradeable,
 
     // ======== Storage functions ========
 
+    /**
+     * @notice Sets the payment gateway allowed to call deployToken. Only callable by owner.
+     * @param newPaymentGateway Address of the PaymentGateway contract.
+     */
+    function setPaymentGateway(address newPaymentGateway) external onlyOwner {
+        _setPaymentGateway(newPaymentGateway);
+    }
+
+    function _setPaymentGateway(address _paymentGateway) internal {
+        require(_paymentGateway != address(0), ZeroAddressNotAllowed("PaymentGateway"));
+        emit PaymentGatewaySet(paymentGateway(), _paymentGateway);
+        _getGenericTokenFactoryStorage().PaymentGateway = _paymentGateway;
+    }
+
+    /**
+     * @notice Sets the beacon address once the UpgradeableBeacon is deployed.
+     * @param newBeacon Address of the Beacon contract.
+     */
+    function setBeacon(address newBeacon) external onlyOwner {
+        _setBeacon(newBeacon);
+    }
+
+    function _setBeacon(address _beacon) internal {
+        require(_beacon != address(0), ZeroAddressNotAllowed("Beacon"));
+        emit BeaconSet(beacon(), _beacon);
+        _getGenericTokenFactoryStorage().beacon = _beacon;
+    }
+
     /// @dev Subclasses use this to update bridged token storage (ERC-7201).
     function _setBridgedToken(address _originToken, address _peggedToken) internal {
         _getGenericTokenFactoryStorage().bridgedTokens[_originToken] = _peggedToken;
@@ -144,19 +171,5 @@ abstract contract GenericTokenFactory is Initializable, Ownable2StepUpgradeable,
     /// @dev Subclasses use this to update token info storage (ERC-7201).
     function _setTokenInfo(address _tokenAddress, TokenInfo memory _info) internal {
         _getGenericTokenFactoryStorage().tokenInfo[_tokenAddress] = _info;
-    }
-
-    /// @dev Sets the payment gateway address.
-    function _setPaymentGateway(address _paymentGateway) internal {
-        require(_paymentGateway != address(0), ZeroAddressNotAllowed("PaymentGateway"));
-        emit PaymentGatewaySet(paymentGateway(), _paymentGateway);
-        _getGenericTokenFactoryStorage().PaymentGateway = _paymentGateway;
-    }
-
-    /// @dev Sets the beacon address once the UpgradeableBeacon is deployed.
-    function _setBeacon(address _beacon) internal {
-        require(_beacon != address(0), ZeroAddressNotAllowed("Beacon"));
-        emit BeaconSet(beacon(), _beacon);
-        _getGenericTokenFactoryStorage().beacon = _beacon;
     }
 }

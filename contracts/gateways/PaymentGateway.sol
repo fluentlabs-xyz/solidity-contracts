@@ -7,6 +7,7 @@ import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
@@ -21,7 +22,7 @@ import {IGenericTokenFactory} from "../interfaces/IGenericTokenFactory.sol";
  * @title PaymentGateway
  * @author Fluent Labs
  * @notice Gateway for bridging native (ETH) and ERC20 tokens between two chains via FluentBridge.
- * @dev Upgradeable via transparent proxy; state in PaymentGatewayStorage (ERC-7201). Only the configured bridge
+ * @dev Upgradeable via UUPS proxy (ERC1967Proxy); upgrade authorized by owner. State in PaymentGatewayStorage (ERC-7201). Only the configured bridge
  *      may call receive* entrypoints; native receive requires msg.value == amount (bridge forwards value from its receive caller).
  *      Token mapping (peggedToken => originToken) is set on first receive of a pegged token and can be updated by owner.
  * @notice Workflows:
@@ -43,7 +44,7 @@ import {IGenericTokenFactory} from "../interfaces/IGenericTokenFactory.sol";
  *    - Bridge calls receiveOriginTokens(origin, from, to, amount); gateway safeTransfers origin token to recipient.
  * Admin: setOtherSide, setTokenFactory, setGasLimit, updateTokenMapping, rescueNative (recover stuck ETH).
  */
-contract PaymentGateway is Initializable, Ownable2StepUpgradeable, ReentrancyGuardUpgradeable, IGateway {
+contract PaymentGateway is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuardUpgradeable, IGateway {
     using SafeERC20 for IERC20;
 
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
@@ -89,12 +90,16 @@ contract PaymentGateway is Initializable, Ownable2StepUpgradeable, ReentrancyGua
         __Ownable_init(_initialOwner);
         __Ownable2Step_init();
         __ReentrancyGuard_init();
+        __UUPSUpgradeable_init();
 
         // ============ Storage ============
         _setGasLimit(DEFAULT_GAS_LIMIT);
         _setBridgeContract(_bridgeContract);
         _setTokenFactory(_tokenFactory);
     }
+
+    /// @inheritdoc UUPSUpgradeable
+    function _authorizeUpgrade(address) internal override onlyOwner {}
 
     /// @inheritdoc IGateway
     function sendNativeTokens(address _to, uint256 _amount) external payable nonReentrant {
@@ -131,12 +136,18 @@ contract PaymentGateway is Initializable, Ownable2StepUpgradeable, ReentrancyGua
             string memory name = ERC20(_token).name();
             uint8 decimals = ERC20(_token).decimals();
             bytes memory rawTokenMetadata = abi.encode(symbol, name, decimals);
+
             address peggedToken = _computeOtherSidePeggedTokenAddress(_token, name, symbol, decimals);
             _message = abi.encodeCall(PaymentGateway.receivePeggedTokens, (_token, peggedToken, _sender, _to, _amount, rawTokenMetadata));
         } else {
-            (, address originAddress) = ERC20PeggedToken(_token).getOrigin();
-            require($.tokenMapping[_token] == originAddress, TokenMappingCheckFailed());
-
+            address originAddress = $.tokenMapping[_token];
+            require(originAddress != address(0), TokenMappingCheckFailed());
+            // Use tokenMapping for origin (supports Universal tokens that do not implement getOrigin())
+            try ERC20PeggedToken(_token).getOrigin() returns (address, address reportedOrigin) {
+                require(reportedOrigin == originAddress, TokenMappingCheckFailed());
+            } catch {
+                // Universal / precompile pegged tokens may not implement getOrigin; tokenMapping is source of truth
+            }
             ERC20PeggedToken(_token).burn(_from, _amount);
 
             _message = abi.encodeCall(PaymentGateway.receiveOriginTokens, (originAddress, _sender, _to, _amount));
