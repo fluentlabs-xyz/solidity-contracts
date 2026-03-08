@@ -55,7 +55,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite {
         }
 
         uint256 depositIndex = 0;
-        uint256 queueSize = IFluentBridge($.bridge).getQueueSize();
+        uint256 queueSize = IFluentBridge($.bridge).sentMessageQueueSize();
 
         for (uint256 i = 0; i < $.batchSize - 1; ++i) {
             require(
@@ -73,9 +73,9 @@ contract Rollup is RollupStorageLayout, IRollupWrite {
         }
 
         /// @dev we check
-        if (IFluentBridge($.bridge).getQueueSize() == 0) {
+        if (IFluentBridge($.bridge).sentMessageQueueSize() == 0) {
             $.lastDepositAcceptedBlockNumber = 0;
-        } else if (queueSize > IFluentBridge($.bridge).getQueueSize() || (queueSize != 0 && $.lastDepositAcceptedBlockNumber == 0)) {
+        } else if (queueSize > IFluentBridge($.bridge).sentMessageQueueSize() || (queueSize != 0 && $.lastDepositAcceptedBlockNumber == 0)) {
             $.lastDepositAcceptedBlockNumber = block.number;
         } else {
             require(

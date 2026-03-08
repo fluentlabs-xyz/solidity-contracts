@@ -1,0 +1,14 @@
+{
+    "chainName": "sepolia",
+    "chainId": 11155111,
+    "rpcUrl": "https://ethereum-sepolia-rpc.publicnode.com",
+    "blockExplorerUrl": "https://sepolia.etherscan.io",
+    "nativeCurrency": {
+        "name": "Ether",
+        "symbol": "ETH",
+        "decimals": 18
+    },
+    "otherSide": {
+        "chainName": "fluent_testnet"
+    }
+}

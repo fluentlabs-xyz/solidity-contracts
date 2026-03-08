@@ -25,4 +25,3 @@ contract CheckBlobHash is BaseScript {
         emit Checked(commitment);
     }
 }
-

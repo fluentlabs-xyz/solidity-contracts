@@ -71,7 +71,7 @@ contract BridgeAdminTest is MinimalTest {
         // QueueNotEmpty guard when unsetting rollup.
         vm.deal(address(this), 1 ether);
         bridge.sendMessage{value: 1}(address(0xDEAD), "");
-        assertEq(bridge.getQueueSize(), 1, "queue should contain one message before unsetting rollup");
+        assertEq(bridge.sentMessageQueueSize(), 1, "queue should contain one message before unsetting rollup");
 
         vm.expectRevert(bytes4(keccak256("QueueNotEmpty()")));
         bridge.setRollup(address(0));
@@ -93,7 +93,7 @@ contract BridgeAdminTest is MinimalTest {
             )
         );
         Bridge freshBridge = Bridge(payable(address(proxy2)));
-        assertEq(freshBridge.getQueueSize(), 0, "fresh bridge queue should be empty");
+        assertEq(freshBridge.sentMessageQueueSize(), 0, "fresh bridge queue should be empty");
         freshBridge.setRollup(address(0));
         assertEq(freshBridge.rollup(), address(0), "fresh bridge rollup should be unset successfully");
     }

@@ -4,7 +4,7 @@ pragma solidity ^0.8.30;
 import "forge-std/Vm.sol";
 
 import {FluentBridge as Bridge} from "../../contracts/FluentBridge.sol";
-import {PaymentsGateway} from "../../contracts/gateways/PaymentsGateway.sol";
+import {PaymentGateway} from "../../contracts/gateways/PaymentGateway.sol";
 import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
 import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
@@ -68,7 +68,7 @@ abstract contract BaseDualFork {
         uint256 forkId;
         uint256 chainId;
         Bridge bridge;
-        PaymentsGateway gateway;
+        PaymentGateway gateway;
         ERC20TokenFactory factory;
         ERC20PeggedToken peggedImpl;
         MockERC20Token originToken;
@@ -176,15 +176,14 @@ abstract contract BaseDualFork {
         );
         l1.factory = ERC20TokenFactory(payable(address(factoryProxyL1)));
 
-        // Deploy PaymentsGateway behind an ERC1967 proxy and initialize it.
-        PaymentsGateway gatewayImplL1 = new PaymentsGateway();
+        // Deploy PaymentGateway behind an ERC1967 proxy and initialize it.
+        PaymentGateway gatewayImplL1 = new PaymentGateway();
         ERC1967Proxy gatewayProxyL1 = new ERC1967Proxy(
             address(gatewayImplL1),
-            abi.encodeCall(PaymentsGateway.initialize, (address(this), address(l1.bridge), address(l1.factory)))
+            abi.encodeCall(PaymentGateway.initialize, (address(this), address(l1.bridge), address(l1.factory)))
         );
-        l1.gateway = PaymentsGateway(payable(address(gatewayProxyL1)));
-        l1.factory.transferOwnership(address(l1.gateway));
-        l1.gateway.acceptTokenFactory();
+        l1.gateway = PaymentGateway(payable(address(gatewayProxyL1)));
+        l1.factory.setPaymentGateway(address(l1.gateway));
 
         // Make core L1 contracts persistent across forks so they can be referenced safely from L2.
         address[] memory l1Contracts = new address[](7);
@@ -231,15 +230,14 @@ abstract contract BaseDualFork {
         );
         l2.factory = ERC20TokenFactory(payable(address(factoryProxyL2)));
 
-        // Deploy PaymentsGateway behind an ERC1967 proxy and initialize it.
-        PaymentsGateway gatewayImplL2 = new PaymentsGateway();
+        // Deploy PaymentGateway behind an ERC1967 proxy and initialize it.
+        PaymentGateway gatewayImplL2 = new PaymentGateway();
         ERC1967Proxy gatewayProxyL2 = new ERC1967Proxy(
             address(gatewayImplL2),
-            abi.encodeCall(PaymentsGateway.initialize, (address(this), address(l2.bridge), address(l2.factory)))
+            abi.encodeCall(PaymentGateway.initialize, (address(this), address(l2.bridge), address(l2.factory)))
         );
-        l2.gateway = PaymentsGateway(payable(address(gatewayProxyL2)));
-        l2.factory.transferOwnership(address(l2.gateway));
-        l2.gateway.acceptTokenFactory();
+        l2.gateway = PaymentGateway(payable(address(gatewayProxyL2)));
+        l2.factory.setPaymentGateway(address(l2.gateway));
 
         l2.originToken = new MockERC20Token("Mock Token", "TKN", INITIAL_SUPPLY, USER_A);
 

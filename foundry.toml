@@ -1,5 +1,9 @@
 [profile.default]
 cache_path = "forge-cache"
+fs_permissions = [
+    { access = "read-write", path = "./deployments" },
+    { access = "read-write", path = "./config" }
+]
 evm_version = "cancun"
 libs = ["lib"]
 optimizer = true
@@ -17,7 +21,7 @@ l2 = "https://rpc.dev.fluent.xyz"
 
 # Additional named endpoints (optional env-driven)
 mainnet = "${MAINNET_RPC}"
-sepoliaEth = "${RPC_URL_SEPOLIA_ETH}"
+sepolia = "${RPC_URL_SEPOLIA_ETH}"
 fluentTestnet = "${RPC_URL_FLUENT_TESTNET}"
 fluentDev = "${RPC_URL_FLUENT_DEV}"
 

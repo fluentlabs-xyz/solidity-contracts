@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Full deploy using Foundry scripts:
-# - Deploy FluentBridge proxies on Sepolia (L1) and Fluent Devnet (L2) via DeployFluents.s.sol
-# - Link bridges as other-side peers
-# - Deploy ERC20 gateway stack on both sides via DeployL1.s.sol
-# - Link gateways and configure other-side settings
+# Single deploy script: L1 (Sepolia) + L2 (Fluent Devnet) with Foundry.
+# - Deploy FluentBridge on L1 and L2 (DeployFluentBridge.s.sol), link bridges
+# - Deploy L1 gateway stack: ERC20 factory + PaymentGateway (DeployL1.s.sol)
+# - Deploy L2 gateway stack: UniversalTokenFactory + PaymentGateway (DeployL2.s.sol)
+# - Link gateways: L1 uses setOtherSideUniversal(L2), L2 uses setOtherSide(L1)
+# Writes: deployments/sepolia-l1-bridge.json, sepolia-l1-stack.json, fluent-testnet-l2-bridge.json, fluent-testnet-l2-stack.json
 #
 # Required env vars:
 #   PRIVATE_KEY
@@ -11,6 +12,7 @@
 # Optional env vars:
 #   L1_RPC_URL           (default: Sepolia public RPC)
 #   L2_RPC_URL           (default: Fluent dev RPC)
+#   L2_CHAIN_ID          (default: 901, for setOtherSideUniversal)
 #   RELAYER_ADDRESS      (defaults to deployer address)
 #   INITIAL_OWNER        (defaults to deployer address)
 #   RECEIVE_MSG_DEADLINE (defaults to 0)
@@ -23,7 +25,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 cd "$PROJECT_ROOT"
 
 command -v forge >/dev/null || { echo "forge is required"; exit 1; }
@@ -50,16 +52,12 @@ read_json_key() {
   local file="$1"
   local key="$2"
   python3 - "$file" "$key" <<'PY'
-import json
-import sys
-
+import json, sys
 path, key = sys.argv[1], sys.argv[2]
 with open(path, "r", encoding="utf-8") as f:
     data = json.load(f)
-value = data.get(key, "")
-if value is None:
-    value = ""
-print(value)
+value = data.get(key) or (data.get("deployment") or {}).get(key)
+print(value or "")
 PY
 }
 
@@ -81,13 +79,13 @@ run_bridge_deploy() {
   L1_BLOCK_ORACLE="$oracle" \
   OTHER_BRIDGE_PLACEHOLDER="0x0000000000000000000000000000000000000001" \
   OUTPUT_PATH="$output" \
-  forge script scripts/deploy/DeployFluents.s.sol:DeployFluents \
+  forge script scripts/deploy/DeployFluentBridge.s.sol:DeployFluentBridge \
     --rpc-url "$rpc" \
     --private-key "$PRIVATE_KEY" \
     --broadcast
 }
 
-run_gateway_deploy() {
+run_l1_gateway_deploy() {
   local rpc="$1"
   local bridge="$2"
   local deploy_mock="$3"
@@ -104,18 +102,31 @@ run_gateway_deploy() {
     --broadcast
 }
 
+run_l2_gateway_deploy() {
+  local rpc="$1"
+  local bridge="$2"
+  local output="$3"
+  INITIAL_OWNER="$INITIAL_OWNER" \
+  BRIDGE_ADDRESS="$bridge" \
+  OUTPUT_PATH="$output" \
+  forge script scripts/deploy/DeployL2.s.sol:DeployL2 \
+    --rpc-url "$rpc" \
+    --private-key "$PRIVATE_KEY" \
+    --broadcast
+}
+
 L1_BRIDGE_JSON="$TMP_DIR/l1-bridge.json"
 L2_BRIDGE_JSON="$TMP_DIR/l2-bridge.json"
 L1_STACK_JSON="$TMP_DIR/l1-stack.json"
 L2_STACK_JSON="$TMP_DIR/l2-stack.json"
 
-echo "=== Step 1: Deploy L1 bridge with DeployFluents.s.sol ==="
+echo "=== Step 1: Deploy L1 bridge with DeployFluentBridge.s.sol ==="
 run_bridge_deploy "$L1_RPC_URL" "$L1_L1BLOCK_ORACLE" "$L1_BRIDGE_JSON"
 L1_BRIDGE="$(read_json_key "$L1_BRIDGE_JSON" "bridge")"
 echo "L1 FluentBridge: $L1_BRIDGE"
 
 echo ""
-echo "=== Step 2: Deploy L2 bridge with DeployFluents.s.sol ==="
+echo "=== Step 2: Deploy L2 bridge with DeployFluentBridge.s.sol ==="
 run_bridge_deploy "$L2_RPC_URL" "$L2_L1BLOCK_ORACLE" "$L2_BRIDGE_JSON"
 L2_BRIDGE="$(read_json_key "$L2_BRIDGE_JSON" "bridge")"
 echo "L2 FluentBridge: $L2_BRIDGE"
@@ -128,7 +139,7 @@ echo "Bridges linked."
 
 echo ""
 echo "=== Step 4: Deploy L1 gateway stack with DeployL1.s.sol ==="
-run_gateway_deploy "$L1_RPC_URL" "$L1_BRIDGE" "true" "$L1_STACK_JSON"
+run_l1_gateway_deploy "$L1_RPC_URL" "$L1_BRIDGE" "true" "$L1_STACK_JSON"
 L1_FACTORY="$(read_json_key "$L1_STACK_JSON" "factory")"
 L1_BEACON="$(read_json_key "$L1_STACK_JSON" "factory_beacon")"
 L1_PEGGED_IMPL="$(read_json_key "$L1_STACK_JSON" "pegged_impl")"
@@ -137,19 +148,25 @@ MOCK_TOKEN="$(read_json_key "$L1_STACK_JSON" "mock_token")"
 echo "L1 Gateway: $L1_GATEWAY  Factory: $L1_FACTORY  Beacon: $L1_BEACON"
 
 echo ""
-echo "=== Step 5: Deploy L2 gateway stack with DeployL1.s.sol ==="
-run_gateway_deploy "$L2_RPC_URL" "$L2_BRIDGE" "false" "$L2_STACK_JSON"
+echo "=== Step 5: Deploy L2 gateway stack with DeployL2.s.sol (UniversalTokenFactory) ==="
+run_l2_gateway_deploy "$L2_RPC_URL" "$L2_BRIDGE" "$L2_STACK_JSON"
 L2_FACTORY="$(read_json_key "$L2_STACK_JSON" "factory")"
-L2_BEACON="$(read_json_key "$L2_STACK_JSON" "factory_beacon")"
 L2_PEGGED_IMPL="$(read_json_key "$L2_STACK_JSON" "pegged_impl")"
 L2_GATEWAY="$(read_json_key "$L2_STACK_JSON" "gateway")"
-echo "L2 Gateway: $L2_GATEWAY  Factory: $L2_FACTORY  Beacon: $L2_BEACON"
+echo "L2 Gateway: $L2_GATEWAY  Factory: $L2_FACTORY"
 
+L2_CHAIN_ID="${L2_CHAIN_ID:-901}"
 echo ""
 echo "=== Step 6: Set other side gateway config ==="
-send_tx "$L1_RPC_URL" "$L1_GATEWAY" "setOtherSide(address,address,address,address)" "$L2_GATEWAY" "$L2_PEGGED_IMPL" "$L2_FACTORY" "$L2_BEACON"
+send_tx "$L1_RPC_URL" "$L1_GATEWAY" "setOtherSideUniversal(address,address,address,uint256)" "$L2_GATEWAY" "$L2_PEGGED_IMPL" "$L2_FACTORY" "$L2_CHAIN_ID"
 send_tx "$L2_RPC_URL" "$L2_GATEWAY" "setOtherSide(address,address,address,address)" "$L1_GATEWAY" "$L1_PEGGED_IMPL" "$L1_FACTORY" "$L1_BEACON"
 echo "Gateways linked."
+
+mkdir -p deployments
+cp "$L1_BRIDGE_JSON" deployments/sepolia-l1-bridge.json
+cp "$L2_BRIDGE_JSON" deployments/fluent-testnet-l2-bridge.json
+cp "$L1_STACK_JSON" deployments/sepolia-l1-stack.json
+cp "$L2_STACK_JSON" deployments/fluent-testnet-l2-stack.json
 
 echo ""
 echo "=== Deployment complete ==="
@@ -167,4 +184,4 @@ echo "  cast send \$MOCK_TOKEN_ADDRESS \"approve(address,uint256)\" \$L1_GATEWAY
 echo "  cast send \$L1_GATEWAY_ADDRESS \"sendTokens(address,address,uint256)\" \$MOCK_TOKEN_ADDRESS \$RECIPIENT_ADDRESS \$AMOUNT --rpc-url \"$L1_RPC_URL\" --private-key <key>"
 echo ""
 echo "=== Relayer ==="
-echo "  L1_BRIDGE_ADDRESS=$L1_BRIDGE L2_BRIDGE_ADDRESS=$L2_BRIDGE RELAYER_PRIVATE_KEY=<key> yarn relay:no-rollup"
+echo "  L1_BRIDGE_ADDRESS=$L1_BRIDGE L2_BRIDGE_ADDRESS=$L2_BRIDGE run your relayer with these addresses"

@@ -52,7 +52,7 @@ contract AcceptBatchParityTest is BaseDualFork {
         assertEq(l1PeggedToken.balanceOf(USER_B), MESSAGE_COUNT * TRANSFER_AMOUNT, "unexpected minted pegged token balance on L1");
 
         SentMessageData[] memory l1ToL2 = _sendBulkL1ToL2WithPeggedToken(l1PeggedTokenAddress, MESSAGE_COUNT, TRANSFER_AMOUNT);
-        assertEq(l1.bridge.getQueueSize(), MESSAGE_COUNT, "L1 queue must hold one deposit per outbound message");
+        assertEq(l1.bridge.sentMessageQueueSize(), MESSAGE_COUNT, "L1 queue must hold one deposit per outbound message");
 
         _switchToL2();
         _assertOnL2();
@@ -87,9 +87,9 @@ contract AcceptBatchParityTest is BaseDualFork {
         _switchToL1();
         _assertOnL1();
         _acceptBatchL1(depositBatchA, depositsA);
-        assertEq(l1.bridge.getQueueSize(), MESSAGE_COUNT - BATCH_SIZE, "queue should shrink after first deposit batch");
+        assertEq(l1.bridge.sentMessageQueueSize(), MESSAGE_COUNT - BATCH_SIZE, "queue should shrink after first deposit batch");
         _acceptBatchL1(depositBatchB, depositsB);
-        assertEq(l1.bridge.getQueueSize(), 0, "queue should be fully consumed");
+        assertEq(l1.bridge.sentMessageQueueSize(), 0, "queue should be fully consumed");
 
         assertEq(l1.rollup.nextBatchIndex(), 5, "unexpected final nextBatchIndex");
     }
@@ -115,7 +115,7 @@ contract AcceptBatchParityTest is BaseDualFork {
             l1ToL2[i] = _findSentMessage(logs, address(l1.bridge));
         }
         vm.stopPrank();
-        assertEq(l1.bridge.getQueueSize(), MESSAGE_COUNT, "queue should contain all outbound L1 messages");
+        assertEq(l1.bridge.sentMessageQueueSize(), MESSAGE_COUNT, "queue should contain all outbound L1 messages");
 
         // Step 2: Execute on L2 through bridge authority.
         _switchToL2();
@@ -153,12 +153,12 @@ contract AcceptBatchParityTest is BaseDualFork {
         _acceptBatchL1(depositBatchA, depositsA);
         bytes32 expectedRootA = l1.rollup.calculateBatchRoot(depositBatchA);
         assertEq(l1.rollup.acceptedBatchHash(1), expectedRootA, "accepted root mismatch for first deposit batch");
-        assertEq(l1.bridge.getQueueSize(), MESSAGE_COUNT - BATCH_SIZE, "queue transition after first batch is wrong");
+        assertEq(l1.bridge.sentMessageQueueSize(), MESSAGE_COUNT - BATCH_SIZE, "queue transition after first batch is wrong");
 
         _acceptBatchL1(depositBatchB, depositsB);
         bytes32 expectedRootB = l1.rollup.calculateBatchRoot(depositBatchB);
         assertEq(l1.rollup.acceptedBatchHash(2), expectedRootB, "accepted root mismatch for second deposit batch");
-        assertEq(l1.bridge.getQueueSize(), 0, "queue should be empty");
+        assertEq(l1.bridge.sentMessageQueueSize(), 0, "queue should be empty");
         assertEq(l1.rollup.nextBatchIndex(), 3, "nextBatchIndex mismatch");
     }
 

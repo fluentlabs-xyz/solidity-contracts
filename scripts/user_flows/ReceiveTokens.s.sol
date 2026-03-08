@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {BaseScript} from "./Base.sol";
-import {FluentBridge} from "../contracts/FluentBridge.sol";
+import {BaseScript} from "../Base.sol";
+import {FluentBridge} from "../../contracts/FluentBridge.sol";
 
 /// @notice Low-level helper script to call FluentBridge.receiveMessage on a target chain.
 /// @dev Primarily for debugging/manual recovery. Environment:
@@ -71,4 +71,3 @@ contract ReceiveTokens is BaseScript {
         revert("invalid hex char");
     }
 }
-

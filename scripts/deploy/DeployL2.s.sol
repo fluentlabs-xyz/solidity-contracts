@@ -2,61 +2,54 @@
 pragma solidity 0.8.30;
 
 import {DeployLib} from "./DeployLib.s.sol";
-import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol";
+import {UniversalTokenFactory} from "../../contracts/factories/UniversalTokenFactory.sol";
+import {UniversalTokenSDK} from "../../contracts/libraries/UniversalTokenSDK.sol";
 
 /**
- * @notice L1 orchestrator: deploys ERC20TokenFactory stack + PaymentGateway; optionally FluentBridge and MockERC20.
+ * @notice L2 orchestrator: deploys UniversalTokenFactory, PaymentGateway; optionally FluentBridge if BRIDGE_ADDRESS not set.
  * @dev Environment:
- *   INITIAL_OWNER (address), BRIDGE_ADDRESS (address; if set, use it; else deploy bridge),
- *   BRIDGE_AUTHORITY (optional), RECEIVE_MSG_DEADLINE (optional),
- *   OTHER_BRIDGE_PLACEHOLDER (optional), L1_BLOCK_ORACLE (optional),
- *   DEPLOY_MOCK (bool, optional), MOCK_SUPPLY (optional), MOCK_RECIPIENT (optional),
- *   OUTPUT_PATH (string, optional).
+ *   INITIAL_OWNER (address), BRIDGE_ADDRESS (address; if not set and DEPLOY_BRIDGE=true, bridge is deployed),
+ *   DEPLOY_BRIDGE (bool, optional), BRIDGE_AUTHORITY (optional), RECEIVE_MSG_DEADLINE (optional),
+ *   OTHER_BRIDGE_PLACEHOLDER (optional), L1_BLOCK_ORACLE (optional), OUTPUT_PATH (string, optional).
  */
-contract DeployL1 is DeployLib {
+contract DeployL2 is DeployLib {
     struct Deployment {
         address bridge;
         address bridgeImpl;
-        address peggedImpl;
         address factoryImpl;
         address factory;
-        address factoryBeacon;
         address gatewayImpl;
         address gateway;
-        address mockToken;
     }
 
     function run() external returns (address gateway) {
         address initialOwner = vm.envAddress("INITIAL_OWNER");
         address bridgeAddress = vm.envOr("BRIDGE_ADDRESS", address(0));
+        bool deployBridge = vm.envOr("DEPLOY_BRIDGE", false);
         address bridgeAuthority = vm.envOr("BRIDGE_AUTHORITY", initialOwner);
         uint256 receiveMessageDeadline = vm.envOr("RECEIVE_MSG_DEADLINE", uint256(0));
         address otherBridgePlaceholder = vm.envOr("OTHER_BRIDGE_PLACEHOLDER", address(0x1));
         address l1BlockOracle = vm.envOr("L1_BLOCK_ORACLE", address(0));
-        bool deployMock = vm.envOr("DEPLOY_MOCK", false);
-        uint256 mockSupply = vm.envOr("MOCK_SUPPLY", uint256(100_000_000 ether));
-        address mockRecipient = vm.envOr("MOCK_RECIPIENT", initialOwner);
         string memory outputPath = vm.envOr("OUTPUT_PATH", string(""));
 
         vm.startBroadcast();
 
         address bridgeImpl = address(0);
-        if (bridgeAddress == address(0)) {
+        if (bridgeAddress == address(0) && deployBridge) {
             (bridgeAddress, bridgeImpl) = _deployFluentBridge(
-                initialOwner, bridgeAuthority, receiveMessageDeadline, otherBridgePlaceholder, l1BlockOracle
+                initialOwner,
+                bridgeAuthority,
+                receiveMessageDeadline,
+                otherBridgePlaceholder,
+                l1BlockOracle
             );
         }
+        require(bridgeAddress != address(0), "BRIDGE_ADDRESS or DEPLOY_BRIDGE required");
 
-        ERC20FactoryResult memory factoryResult = _deployERC20TokenFactory(initialOwner);
+        (address factoryProxy, address factoryImpl) = _deployUniversalTokenFactory(initialOwner);
 
-        PaymentGatewayResult memory gatewayResult =
-            _deployPaymentGateway(initialOwner, bridgeAddress, factoryResult.factory);
-        ERC20TokenFactory(factoryResult.factory).setPaymentGateway(gatewayResult.gateway);
-
-        address mockToken = address(0);
-        if (deployMock) {
-            mockToken = _deployMockERC20("Mock Deposit Token", "MDT", mockSupply, mockRecipient);
-        }
+        PaymentGatewayResult memory gatewayResult = _deployPaymentGateway(initialOwner, bridgeAddress, factoryProxy);
+        UniversalTokenFactory(factoryProxy).setPaymentGateway(gatewayResult.gateway);
 
         vm.stopBroadcast();
 
@@ -66,13 +59,10 @@ contract DeployL1 is DeployLib {
             Deployment memory d;
             d.bridge = bridgeAddress;
             d.bridgeImpl = bridgeImpl;
-            d.peggedImpl = factoryResult.peggedImpl;
-            d.factoryImpl = factoryResult.factoryImpl;
-            d.factory = factoryResult.factory;
-            d.factoryBeacon = factoryResult.factoryBeacon;
+            d.factoryImpl = factoryImpl;
+            d.factory = factoryProxy;
             d.gatewayImpl = gatewayResult.gatewayImpl;
             d.gateway = gatewayResult.gateway;
-            d.mockToken = mockToken;
             _writeOutput(outputPath, d);
         }
     }
@@ -80,13 +70,13 @@ contract DeployL1 is DeployLib {
     function _writeOutput(string memory outputPath, Deployment memory d) internal {
         string memory json = vm.serializeAddress("deployment", "bridge", d.bridge);
         json = vm.serializeAddress("deployment", "bridge_impl", d.bridgeImpl);
-        json = vm.serializeAddress("deployment", "pegged_impl", d.peggedImpl);
+        json = vm.serializeAddress("deployment", "pegged_impl", UniversalTokenSDK.UNIVERSAL_TOKEN_RUNTIME);
         json = vm.serializeAddress("deployment", "factory_impl", d.factoryImpl);
         json = vm.serializeAddress("deployment", "factory", d.factory);
-        json = vm.serializeAddress("deployment", "factory_beacon", d.factoryBeacon);
+        json = vm.serializeAddress("deployment", "factory_beacon", address(0));
         json = vm.serializeAddress("deployment", "gateway_impl", d.gatewayImpl);
         json = vm.serializeAddress("deployment", "gateway", d.gateway);
-        json = vm.serializeAddress("deployment", "mock_token", d.mockToken);
+        json = vm.serializeAddress("deployment", "mock_token", address(0));
         vm.writeJson(json, outputPath);
     }
 }

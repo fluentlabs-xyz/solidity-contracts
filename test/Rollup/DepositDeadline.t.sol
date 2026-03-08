@@ -41,12 +41,12 @@ contract RollupDepositDeadlineTest is RollupBase {
         RollupStorageLayout.DepositsInBlock[] memory deposits = new RollupStorageLayout.DepositsInBlock[](1);
         deposits[0] = RollupStorageLayout.DepositsInBlock({blockHash: blockHash, depositCount: 1});
 
-        assertEq(bridge.getQueueSize(), 1, "queue size before accept mismatch");
+        assertEq(bridge.sentMessageQueueSize(), 1, "queue size before accept mismatch");
 
         vm.prank(SEQUENCER);
         rollup.acceptNextBatch(batch, deposits, 0);
 
-        assertEq(bridge.getQueueSize(), 0, "queue must be fully consumed");
+        assertEq(bridge.sentMessageQueueSize(), 0, "queue must be fully consumed");
         assertEq(rollup.nextBatchIndex(), 2, "nextBatchIndex must increment");
     }
 
@@ -99,7 +99,7 @@ contract RollupDepositDeadlineTest is RollupBase {
         vm.prank(SEQUENCER);
         rollup.acceptNextBatch(firstBatch, firstDeposits, 0);
 
-        assertEq(bridge.getQueueSize(), 1, "one deposit must remain pending");
+        assertEq(bridge.sentMessageQueueSize(), 1, "one deposit must remain pending");
 
         vm.roll(block.number + ACCEPT_DEPOSIT_DEADLINE + 1);
 

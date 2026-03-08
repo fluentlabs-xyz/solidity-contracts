@@ -3,8 +3,22 @@ pragma solidity ^0.8.30;
 
 /**
  * @title UniversalTokenSDK
- * @notice Solidity SDK for deploying and interacting with Universal Tokens
- * @dev Universal Tokens use a precompile/runtime pattern with magic bytes for deployment
+ * @author Fluent Labs
+ * @notice Solidity library for deploying and addressing Universal Tokens (L2 precompile-backed tokens) in a bridge-compatible way.
+ * @dev Universal Tokens use a runtime at a fixed precompile (UNIVERSAL_TOKEN_RUNTIME) and deployment payload prefixed with
+ *      UNIVERSAL_TOKEN_MAGIC_BYTES ("ERC "). Encoding (createDeploymentData / _encodeInitialSettingsRustCompatible) matches
+ *      the Rust SDK exactly for cross-tooling compatibility.
+ * @notice Main flows:
+ * 1. Create deployment data:
+ *    - createDeploymentData(name, symbol, decimals, initialSupply, minter, pauser) returns ABI-compatible bytes (magic + InitialSettings).
+ *    - Used by UniversalTokenFactory for CREATE2 deployment; layout must match Rust SolidityABI::encode(InitialSettings).
+ * 2. Deterministic address (CREATE2):
+ *    - computeBridgeTokenSalt(l1Token, chainId) = keccak256(BRIDGE_TOKEN_PREFIX, l1Token, chainId).
+ *    - computeTokenAddress(factory, originToken, chainId, name, symbol, decimals, initialSupply, minter, pauser) returns the
+ *      CREATE2 address for the token when deployed by `factory` with the above salt and init code hash from createDeploymentData.
+ * 3. Helpers:
+ *    - stringToBytes32 / bytes32ToString for name/symbol; createDeploymentDataBytes32 for bytes32 name/symbol.
+ *    - deployToken (CREATE) and deployTokenCreate2 (CREATE2) for direct deployment outside factory.
  */
 library UniversalTokenSDK {
     /// @notice Prefix for bridge token deployment
@@ -78,6 +92,37 @@ library UniversalTokenSDK {
      */
     function computeBridgeTokenSalt(address l1Token, uint256 chainId) internal pure returns (bytes32 salt) {
         return keccak256(abi.encodePacked(BRIDGE_TOKEN_PREFIX, l1Token, chainId));
+    }
+
+    /**
+     * @notice Computes the deterministic Universal token address for a given deploying factory.
+     * @param factory The factory address that will execute CREATE2
+     * @param originToken The bridged origin token
+     * @param chainId The chain id encoded into the bridge-token salt
+     * @param name Token name
+     * @param symbol Token symbol
+     * @param decimals Token decimals
+     * @param initialSupply Initial supply
+     * @param minter Minter address
+     * @param pauser Pauser address
+     * @return predicted The predicted token address
+     */
+    function computeTokenAddress(
+        address factory,
+        address originToken,
+        uint256 chainId,
+        string memory name,
+        string memory symbol,
+        uint8 decimals,
+        uint256 initialSupply,
+        address minter,
+        address pauser
+    ) internal pure returns (address predicted) {
+        bytes memory deploymentData = createDeploymentData(name, symbol, decimals, initialSupply, minter, pauser);
+        bytes32 salt = computeBridgeTokenSalt(originToken, chainId);
+        bytes32 initCodeHash = keccak256(deploymentData);
+        bytes32 hash = keccak256(abi.encodePacked(bytes1(0xff), factory, salt, initCodeHash));
+        return address(uint160(uint256(hash)));
     }
 
     /**

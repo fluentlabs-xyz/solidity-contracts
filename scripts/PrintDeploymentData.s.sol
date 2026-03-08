@@ -23,12 +23,9 @@ contract PrintDeploymentData is BaseScript {
         address minter = vm.envOr("MINTER", address(0));
         address pauser = vm.envOr("PAUSER", address(0));
 
-        bytes memory deploymentData = UniversalTokenSDK.createDeploymentData(
-            name, symbol, uint8(decimals), initialSupply, minter, pauser
-        );
+        bytes memory deploymentData = UniversalTokenSDK.createDeploymentData(name, symbol, uint8(decimals), initialSupply, minter, pauser);
         bytes32 hash = keccak256(deploymentData);
 
         emit DeploymentData(deploymentData, hash);
     }
 }
-
