@@ -31,6 +31,7 @@ contract DeployPaymentGateway is DeployLib {
     }
 
     function _setPaymentGatewayOnFactory(address factoryAddress, address gateway) internal {
+        if (factoryAddress.code.length == 0) return; // skip when factory is EOA or not deployed (e.g. random params)
         try ERC20TokenFactory(factoryAddress).setPaymentGateway(gateway) {} catch {}
         try UniversalTokenFactory(factoryAddress).setPaymentGateway(gateway) {} catch {}
     }

@@ -4,12 +4,12 @@
   "rpcUrl": "https://rpc.testnet.fluent.xyz/",
   "blockExplorerUrl": "https://testnet.fluentscan.xyz/",
   "deployment": {
-    "bridge": "0x8D1919f5419ECC66A38680C088A941d66e57f6a2",
-    "bridge_impl": "0x51fEB71fDB7899275c1D533f227B687F4fb5fC1D",
-    "factory": "0x8E17248117cf7523eCaCaE5e6a1062b2e7e579Ea",
-    "factory_impl": "0xda5950F1b47daCE5aFa26144B2E889efF96FD1d5",
-    "gateway": "0x443688cb80Bec4b5280E8f6C64D99C603F504560",
-    "gateway_impl": "0x011E1aa0857420951e323599704Ac276bCECDfe9",
+    "bridge": "0x509d762A611Df2877925AF5Eed38d772fDC062B0",
+    "bridge_impl": "0xaFCAeb5Da2a026080a4D12Bf7fCE88742bb1B2aD",
+    "factory": "0x08640D6dF235AA084081A151fd2b2bBF8315377c",
+    "factory_impl": "0x2aa8E7385Ba4d8753911a5559ffEdd54aC0eC593",
+    "gateway": "0xc09881B61c2f1A447B3F6565c12bE5b5934741E7",
+    "gateway_impl": "0x1A2a2aD377c580567E3f09388e55806b4c573DbB",
     "pegged_impl": "0x0000000000000000000000000000000000520008",
     "factory_beacon": "0x0000000000000000000000000000000000000000"
   }

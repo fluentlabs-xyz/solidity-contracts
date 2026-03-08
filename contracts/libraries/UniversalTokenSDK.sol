@@ -13,8 +13,8 @@ pragma solidity ^0.8.30;
  *    - createDeploymentData(name, symbol, decimals, initialSupply, minter, pauser) returns ABI-compatible bytes (magic + InitialSettings).
  *    - Used by UniversalTokenFactory for CREATE2 deployment; layout must match Rust SolidityABI::encode(InitialSettings).
  * 2. Deterministic address (CREATE2):
- *    - computeBridgeTokenSalt(l1Token, chainId) = keccak256(BRIDGE_TOKEN_PREFIX, l1Token, chainId).
- *    - computeTokenAddress(factory, originToken, chainId, name, symbol, decimals, initialSupply, minter, pauser) returns the
+ *    - computeBridgeTokenSalt(originToken) = keccak256(BRIDGE_TOKEN_PREFIX, originToken). No chainId: same origin token => same pegged address per factory.
+ *    - computeTokenAddress(factory, originToken, name, symbol, decimals, initialSupply, minter, pauser) returns the
  *      CREATE2 address for the token when deployed by `factory` with the above salt and init code hash from createDeploymentData.
  * 3. Helpers:
  *    - stringToBytes32 / bytes32ToString for name/symbol; createDeploymentDataBytes32 for bytes32 name/symbol.
@@ -80,25 +80,22 @@ library UniversalTokenSDK {
     ) public pure returns (bytes memory deploymentData) {
         bytes32 nameBytes = stringToBytes32(name);
         bytes32 symbolBytes = stringToBytes32(symbol);
-        deploymentData =
-            _encodeInitialSettingsRustCompatible(nameBytes, symbolBytes, decimals, initialSupply, minter, pauser);
+        deploymentData = _encodeInitialSettingsRustCompatible(nameBytes, symbolBytes, decimals, initialSupply, minter, pauser);
     }
 
     /**
-     * @notice Computes a salt for bridge token deployment from L1 token address
-     * @param l1Token L1 token address
-     * @param chainId Chain ID to ensure uniqueness across chains
+     * @notice Computes a salt for bridge token deployment from origin token address.
+     * @param originToken Origin (e.g. L1) token address. No chainId: same origin => same pegged address per factory across chains.
      * @return salt Deterministic salt for CREATE2
      */
-    function computeBridgeTokenSalt(address l1Token, uint256 chainId) internal pure returns (bytes32 salt) {
-        return keccak256(abi.encodePacked(BRIDGE_TOKEN_PREFIX, l1Token, chainId));
+    function computeBridgeTokenSalt(address originToken) internal pure returns (bytes32 salt) {
+        return keccak256(abi.encodePacked(BRIDGE_TOKEN_PREFIX, originToken));
     }
 
     /**
      * @notice Computes the deterministic Universal token address for a given deploying factory.
      * @param factory The factory address that will execute CREATE2
      * @param originToken The bridged origin token
-     * @param chainId The chain id encoded into the bridge-token salt
      * @param name Token name
      * @param symbol Token symbol
      * @param decimals Token decimals
@@ -110,7 +107,6 @@ library UniversalTokenSDK {
     function computeTokenAddress(
         address factory,
         address originToken,
-        uint256 chainId,
         string memory name,
         string memory symbol,
         uint8 decimals,
@@ -119,7 +115,7 @@ library UniversalTokenSDK {
         address pauser
     ) internal pure returns (address predicted) {
         bytes memory deploymentData = createDeploymentData(name, symbol, decimals, initialSupply, minter, pauser);
-        bytes32 salt = computeBridgeTokenSalt(originToken, chainId);
+        bytes32 salt = computeBridgeTokenSalt(originToken);
         bytes32 initCodeHash = keccak256(deploymentData);
         bytes32 hash = keccak256(abi.encodePacked(bytes1(0xff), factory, salt, initCodeHash));
         return address(uint160(uint256(hash)));
@@ -352,7 +348,11 @@ library UniversalTokenSDK {
 
             // Copy all encoded data
             let copyLen := dataLen
-            for { let i := 0 } lt(i, copyLen) { i := add(i, 32) } {
+            for {
+                let i := 0
+            } lt(i, copyLen) {
+                i := add(i, 32)
+            } {
                 mstore(add(targetPtr, i), mload(add(encodedDataPtr, i)))
             }
         }
@@ -369,11 +369,7 @@ library UniversalTokenSDK {
         uint256 initialSupply,
         address minter,
         address pauser
-    )
-        public
-        pure
-        returns (bytes memory simpleEncode, uint256 simpleLen, bytes memory structLikeEncode, uint256 structLikeLen)
-    {
+    ) public pure returns (bytes memory simpleEncode, uint256 simpleLen, bytes memory structLikeEncode, uint256 structLikeLen) {
         // Simple encoding (what we currently do)
         simpleEncode = abi.encode(name, symbol, decimals, initialSupply, minter, pauser);
         simpleLen = simpleEncode.length;

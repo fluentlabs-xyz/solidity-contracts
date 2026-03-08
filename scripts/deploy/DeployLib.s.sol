@@ -8,11 +8,14 @@ import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol
 import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
 import {UniversalTokenFactory} from "../../contracts/factories/UniversalTokenFactory.sol";
 import {MockERC20Token} from "../../contracts/mocks/MockERC20.sol";
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {UpgradeableBeacon} from "@openzeppelin/contracts/proxy/beacon/UpgradeableBeacon.sol";
+
+import {Upgrades, UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
+import {Options} from "openzeppelin-foundry-upgrades/Options.sol";
 
 /**
  * @notice Shared deployment logic for L1/L2 stacks. No broadcast; caller must vm.startBroadcast/stopBroadcast.
+ * @dev Uses Upgrades.deployUUPSProxy(contractName, ...) with unsafeSkipAllChecks where vm.getCode(contractName) works.
+ *      UniversalTokenFactory uses UniversalTokenSDK (unlinked artifact); it uses UnsafeUpgrades.deployUUPSProxy(impl, ...) with new Impl().
  */
 abstract contract DeployLib is BaseScript {
     struct ERC20FactoryResult {
@@ -27,7 +30,17 @@ abstract contract DeployLib is BaseScript {
         address gatewayImpl;
     }
 
-    /// @dev Deploys FluentBridge impl + proxy. Caller must be in broadcast. Returns (proxy, impl).
+    /// @dev Contract name for Upgrades lib: Foundry artifact is out/<ContractName>.sol/<ContractName>.json (no contracts/ prefix)
+    string constant FLUENT_BRIDGE = "FluentBridge.sol:FluentBridge";
+    string constant PAYMENT_GATEWAY = "PaymentGateway.sol:PaymentGateway";
+    string constant ERC20_TOKEN_FACTORY = "ERC20TokenFactory.sol:ERC20TokenFactory";
+    string constant UNIVERSAL_TOKEN_FACTORY = "UniversalTokenFactory.sol:UniversalTokenFactory";
+
+    function _upgradesOpts() internal pure returns (Options memory opts) {
+        opts.unsafeSkipAllChecks = true;
+    }
+
+    /// @dev Deploys FluentBridge via UUPS proxy. Caller must be in broadcast. Returns (proxy, impl).
     function _deployFluentBridge(
         address initialOwner,
         address bridgeAuthority,
@@ -35,7 +48,6 @@ abstract contract DeployLib is BaseScript {
         address otherBridgePlaceholder,
         address l1BlockOracle
     ) internal returns (address bridgeProxy, address bridgeImpl) {
-        FluentBridge impl = new FluentBridge();
         FluentBridge.InitConfiguration memory params = FluentBridge.InitConfiguration({
             initialOwner: initialOwner,
             bridgeAuthority: bridgeAuthority,
@@ -45,48 +57,38 @@ abstract contract DeployLib is BaseScript {
             l1BlockOracle: l1BlockOracle
         });
         bytes memory initData = abi.encode(params);
-        ERC1967Proxy proxyContract = new ERC1967Proxy(
-            address(impl),
-            abi.encodeCall(FluentBridge.initialize, (initData))
-        );
-        return (address(proxyContract), address(impl));
+        bytes memory initializerData = abi.encodeCall(FluentBridge.initialize, (initData));
+        bridgeProxy = Upgrades.deployUUPSProxy(FLUENT_BRIDGE, initializerData, _upgradesOpts());
+        bridgeImpl = Upgrades.getImplementationAddress(bridgeProxy);
     }
 
-    /// @dev Deploys ERC20 factory stack (L1): pegged impl, beacon, factory impl, factory proxy. Caller must be in broadcast.
+    /// @dev Deploys ERC20 factory stack (L1): pegged impl, then factory UUPS proxy (factory creates beacon in initialize). Caller must be in broadcast.
     function _deployERC20TokenFactory(address initialOwner) internal returns (ERC20FactoryResult memory r) {
         ERC20PeggedToken peggedImpl = new ERC20PeggedToken();
-        ERC20TokenFactory factoryImpl = new ERC20TokenFactory();
-        ERC1967Proxy factoryProxyContract = new ERC1967Proxy(
-            address(factoryImpl),
-            abi.encodeCall(ERC20TokenFactory.initialize, (initialOwner, address(peggedImpl)))
-        );
-        ERC20TokenFactory factoryProxy = ERC20TokenFactory(address(factoryProxyContract));
-        r.factory = address(factoryProxy);
-        r.factoryImpl = address(factoryImpl);
-        r.factoryBeacon = factoryProxy.beacon();
         r.peggedImpl = address(peggedImpl);
+        bytes memory initializerData = abi.encodeCall(ERC20TokenFactory.initialize, (initialOwner, address(peggedImpl)));
+        r.factory = Upgrades.deployUUPSProxy(ERC20_TOKEN_FACTORY, initializerData, _upgradesOpts());
+        r.factoryImpl = Upgrades.getImplementationAddress(r.factory);
+        r.factoryBeacon = ERC20TokenFactory(r.factory).beacon();
     }
 
-    /// @dev Deploys UniversalTokenFactory (L2): impl + proxy. Caller must be in broadcast.
-    function _deployUniversalTokenFactory(address initialOwner) internal returns (address factoryProxy, address factoryImpl) {
-        UniversalTokenFactory impl = new UniversalTokenFactory();
-        ERC1967Proxy proxyContract = new ERC1967Proxy(address(impl), abi.encodeCall(UniversalTokenFactory.initialize, (initialOwner)));
-        return (address(proxyContract), address(impl));
-    }
-
-    /// @dev Deploys PaymentGateway impl + proxy. Caller must call factory.setPaymentGateway(gateway) after.
+    /// @dev Deploys PaymentGateway via UUPS proxy. Caller must call factory.setPaymentGateway(gateway) after.
     function _deployPaymentGateway(
         address initialOwner,
         address bridgeAddress,
         address factoryAddress
     ) internal returns (PaymentGatewayResult memory r) {
-        PaymentGateway gatewayImpl = new PaymentGateway();
-        ERC1967Proxy gatewayProxyContract = new ERC1967Proxy(
-            address(gatewayImpl),
-            abi.encodeCall(PaymentGateway.initialize, (initialOwner, bridgeAddress, factoryAddress))
-        );
-        r.gateway = address(gatewayProxyContract);
-        r.gatewayImpl = address(gatewayImpl);
+        bytes memory initializerData = abi.encodeCall(PaymentGateway.initialize, (initialOwner, bridgeAddress, factoryAddress));
+        r.gateway = Upgrades.deployUUPSProxy(PAYMENT_GATEWAY, initializerData, _upgradesOpts());
+        r.gatewayImpl = Upgrades.getImplementationAddress(r.gateway);
+    }
+
+    /// @dev Deploys UniversalTokenFactory via UUPS proxy. Uses UnsafeUpgrades because artifact is unlinked (UniversalTokenSDK). Caller must be in broadcast.
+    function _deployUniversalTokenFactory(address initialOwner) internal returns (address factoryProxy, address factoryImpl) {
+        UniversalTokenFactory impl = new UniversalTokenFactory();
+        factoryImpl = address(impl);
+        bytes memory initializerData = abi.encodeCall(UniversalTokenFactory.initialize, (initialOwner));
+        factoryProxy = UnsafeUpgrades.deployUUPSProxy(factoryImpl, initializerData);
     }
 
     /// @dev Deploys a mock ERC20. Caller must be in broadcast.

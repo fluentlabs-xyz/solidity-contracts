@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Deploy L1 (Sepolia) + L2 (Fluent testnet) from scratch in a single run.
-# No .openzeppelin or Hardhat; uses Foundry (forge) only.
+# Uses Foundry (forge) only.
 #
 # Steps: (1) L1 bridge (2) L2 bridge (3) link bridges (4) L1 factory (5) L1 gateway
 #        (6) L2 factory (7) L2 gateway (8) mock token L1 (9) link gateways (10) write deployment JSONs
@@ -20,8 +20,9 @@ command -v forge >/dev/null || { echo "forge is required"; exit 1; }
 command -v cast >/dev/null || { echo "cast is required"; exit 1; }
 if command -v python3 >/dev/null; then PYTHON=python3; elif command -v python >/dev/null; then PYTHON=python; else echo "python3 or python is required"; exit 1; fi
 
-echo "=== Build (from scratch) ==="
-forge build --force
+
+# OpenZeppelin Foundry Upgrades lib reads artifacts from FOUNDRY_OUT (default "out"); we use forge-out
+export FOUNDRY_OUT="${FOUNDRY_OUT:-forge-out}"
 
 # Load .env (private values)
 if [ -f .env ]; then
@@ -130,14 +131,19 @@ send_tx() {
 run_forge() {
   local rpc="$1"
   shift 1
-  forge script "$@" --rpc-url "$rpc" --private-key "$PRIVATE_KEY" --broadcast
+  FOUNDRY_OUT="${FOUNDRY_OUT:-forge-out}" forge script "$@" --rpc-url "$rpc" --private-key "$PRIVATE_KEY" --broadcast
 }
 
-# Use for L2 (Fluent) when simulation fails due to chain-specific precompiles (e.g. Create2Deployer)
+# Use for L2 (Fluent) when simulation fails due to chain-specific precompiles (e.g. Create2Deployer).
+# --slow: estimate gas immediately before each tx (avoids missing gas_limit when RPC doesn't return it up front).
+# --legacy + --with-gas-price: L2 may not support EIP-1559; explicit price so tx can be built.
+# Set L2_GAS_PRICE in .env if needed (e.g. "0.00000002ether"). On nonce errors, remove broadcast/.../20994/ and retry.
 run_forge_skip_sim() {
   local rpc="$1"
   shift 1
-  forge script "$@" --rpc-url "$rpc" --private-key "$PRIVATE_KEY" --broadcast --skip-simulation
+  local gas_price="${L2_GAS_PRICE:-0.00000002ether}"
+  FOUNDRY_OUT="${FOUNDRY_OUT:-forge-out}" forge script "$@" --rpc-url "$rpc" --private-key "$PRIVATE_KEY" \
+    --broadcast --skip-simulation --slow --legacy --with-gas-price "$gas_price" --gas-estimate-multiplier 150
 }
 
 # ---------- 1. Bridges (standalone DeployFluentBridge.s.sol) ----------
@@ -158,7 +164,7 @@ echo "=== Step 2: Deploy L2 bridge (DeployFluentBridge.s.sol) ==="
 INITIAL_OWNER="$L2_INITIAL_OWNER" BRIDGE_AUTHORITY="$L2_BRIDGE_AUTHORITY" RECEIVE_MSG_DEADLINE="$L2_RECEIVE_MSG_DEADLINE" \
   L1_BLOCK_ORACLE="$L2_L1BLOCK_ORACLE" OTHER_BRIDGE_PLACEHOLDER="0x0000000000000000000000000000000000000001" \
   OUTPUT_PATH="$L2_BRIDGE_JSON" \
-  run_forge_skip_sim "$L2_RPC_URL" scripts/deploy/DeployFluentBridge.s.sol:DeployFluentBridge
+  run_forge "$L2_RPC_URL" scripts/deploy/DeployFluentBridge.s.sol:DeployFluentBridge
 L2_BRIDGE="$(read_json_key "$L2_BRIDGE_JSON" bridge)"
 require_nonzero "L2 bridge" "$L2_BRIDGE"
 echo "L2 FluentBridge: $L2_BRIDGE"
@@ -175,11 +181,12 @@ echo ""
 echo "=== Step 4: Deploy L1 ERC20TokenFactory (DeployERC20TokenFactory.s.sol) ==="
 INITIAL_OWNER="$L1_INITIAL_OWNER" OUTPUT_PATH="$L1_FACTORY_JSON" \
   run_forge "$L1_RPC_URL" scripts/deploy/DeployERC20TokenFactory.s.sol:DeployERC20TokenFactory
+[ -f "$L1_FACTORY_JSON" ] || { echo "Missing deployment JSON: $L1_FACTORY_JSON"; exit 1; }
 L1_FACTORY="$(read_json_key "$L1_FACTORY_JSON" factory)"
 L1_BEACON="$(read_json_key "$L1_FACTORY_JSON" factory_beacon)"
 L1_PEGGED_IMPL="$(read_json_key "$L1_FACTORY_JSON" pegged_impl)"
-require_nonzero "L1 factory" "$L1_FACTORY"
-echo "L1 Factory: $L1_FACTORY  Beacon: $L1_BEACON"
+require_nonzero "L1 factory" "${L1_FACTORY:-}"
+echo "L1 Factory: ${L1_FACTORY:-}  Beacon: ${L1_BEACON:-}"
 
 # ---------- 3. L1 gateway (standalone DeployPaymentGateway.s.sol) ----------
 L1_GATEWAY_JSON="$TMP_DIR/l1-gateway.json"
@@ -192,9 +199,11 @@ require_nonzero "L1 gateway" "$L1_GATEWAY"
 echo "L1 Gateway: $L1_GATEWAY"
 
 # ---------- 4. L2 factory (standalone DeployUniversalTokenFactory.s.sol) ----------
+# Skip simulation only for this step: L2 Create2Deployer precompile causes OpcodeNotFound in simulation.
 L2_FACTORY_JSON="$TMP_DIR/l2-factory.json"
 echo ""
-echo "=== Step 6: Deploy L2 UniversalTokenFactory (DeployUniversalTokenFactory.s.sol) ==="
+echo "=== Step 6: Deploy L2 UniversalTokenFactory (DeployUniversalTokenFactory.s.sol) [--skip-simulation] ==="
+sleep 2
 INITIAL_OWNER="$L2_INITIAL_OWNER" OUTPUT_PATH="$L2_FACTORY_JSON" \
   run_forge_skip_sim "$L2_RPC_URL" scripts/deploy/DeployUniversalTokenFactory.s.sol:DeployUniversalTokenFactory
 L2_FACTORY="$(read_json_key "$L2_FACTORY_JSON" factory)"
@@ -202,9 +211,10 @@ require_nonzero "L2 factory" "$L2_FACTORY"
 echo "L2 Factory: $L2_FACTORY"
 
 # ---------- 5. L2 gateway (standalone DeployPaymentGateway.s.sol) ----------
+# Skip simulation: L2 simulation hits OpcodeNotFound (e.g. in factory.setPaymentGateway flow). Same gas opts as Step 6.
 L2_GATEWAY_JSON="$TMP_DIR/l2-gateway.json"
 echo ""
-echo "=== Step 7: Deploy L2 PaymentGateway (DeployPaymentGateway.s.sol) ==="
+echo "=== Step 7: Deploy L2 PaymentGateway (DeployPaymentGateway.s.sol) [--skip-simulation] ==="
 INITIAL_OWNER="$L2_INITIAL_OWNER" BRIDGE_ADDRESS="$L2_BRIDGE" FACTORY_ADDRESS="$L2_FACTORY" OUTPUT_PATH="$L2_GATEWAY_JSON" \
   run_forge_skip_sim "$L2_RPC_URL" scripts/deploy/DeployPaymentGateway.s.sol:DeployPaymentGateway
 L2_GATEWAY="$(read_json_key "$L2_GATEWAY_JSON" gateway)"
@@ -259,7 +269,7 @@ echo "L2_FACTORY=$L2_FACTORY"
 echo "MOCK_TOKEN=${MOCK_TOKEN:-}"
 echo ""
 echo "=== Next: verify ==="
-echo "  ETHERSCAN_API_KEY in .env then: ./scripts/deploy/bash/verify-sepolia-fluent-devnet.sh"
+echo "  ETHERSCAN_API_KEY in .env then: ./scripts/deploy/bash/verify-sepolia-fluent-testnet.sh"
 echo ""
 echo "=== Deposit (L1 -> L2) example ==="
 echo "  TOKEN_ADDRESS=\${MOCK_TOKEN:-<l1-erc20>} RECIPIENT_ADDRESS=<l2-recipient> AMOUNT=1000000000000000000"

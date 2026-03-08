@@ -4,15 +4,15 @@
   "rpcUrl": "https://ethereum-sepolia-rpc.publicnode.com",
   "blockExplorerUrl": "https://sepolia.etherscan.io",
   "deployment": {
-    "bridge": "0x45B7Db9A02E62719fD6Fa9c16bEFCB6Dd24d0827",
-    "bridge_impl": "0x894beE8112342163FcbFC7B460360B78b4eb68dc",
-    "factory": "0x4DF8aD1da9605d4F2cC0DF3a3Af74274b0521F90",
-    "factory_beacon": "0x69F1e3d5F5cBCD16242AC251de7C093a4A603797",
-    "factory_impl": "0x37E5aF59DAC28e7e572EFF34F01E6d90E27FcF43",
-    "pegged_impl": "0x68Cf6B409d21D08CC68E0c484c70661fB26C9470",
-    "gateway": "0x0fa56ec76447a4B331f288e31DB4F4a0F957Af6e",
-    "gateway_impl": "0xC1a070A9BC36335118857Db4a8E9e83c5AE585af",
-    "mock_erc20": "0xaFCAeb5Da2a026080a4D12Bf7fCE88742bb1B2aD",
-    "mock_token": "0xaFCAeb5Da2a026080a4D12Bf7fCE88742bb1B2aD"
+    "bridge": "0x4C5e91Eb110d39896E9d4aEbC6122Ea1335963d9",
+    "bridge_impl": "0xb7DbEb4779728da06Ea0f00aBE249bC424A235a4",
+    "factory": "0x2748B8068DEb5229AcD420bf9E2Daa7DDE04098C",
+    "factory_beacon": "0x9adEEA65c560bCc32Da8A0e082DE6585cCa87644",
+    "factory_impl": "0xBFbeEC28d16c227453dEc576120F006c258FDDaC",
+    "pegged_impl": "0xfCF23A4F72c481ed9C8e5BC1433B5800bC58aD3F",
+    "gateway": "0x22BC1D0b22CD5C2696c4a05Deaeb18c91226B37A",
+    "gateway_impl": "0x6317faa6389184308903A81b4989F88aBB044A4F",
+    "mock_erc20": "0xeDeA99d586a5d536d3a64e491FCc58ed65E37F5B",
+    "mock_token": "0xeDeA99d586a5d536d3a64e491FCc58ed65E37F5B"
   }
 }

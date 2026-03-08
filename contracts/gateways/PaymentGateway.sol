@@ -13,7 +13,6 @@ import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/ut
 
 import {FluentBridge} from "../FluentBridge.sol";
 import {ERC20PeggedToken} from "../tokens/ERC20PeggedToken.sol";
-import {UniversalTokenSDK} from "../libraries/UniversalTokenSDK.sol";
 
 import {IGateway} from "../interfaces/IGateway.sol";
 import {IGenericTokenFactory} from "../interfaces/IGenericTokenFactory.sol";
@@ -235,34 +234,6 @@ contract PaymentGateway is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
         return _peggedToken;
     }
 
-    function _computeOtherSidePeggedTokenAddress(
-        address _originToken,
-        string memory _name,
-        string memory _symbol,
-        uint8 _decimals
-    ) internal view returns (address) {
-        PaymentGatewayStorage storage $ = _getPaymentGatewayStorage();
-
-        if ($.otherSideChainId != 0) {
-            return
-                UniversalTokenSDK.computeTokenAddress(
-                    $.otherSideFactory,
-                    _originToken,
-                    $.otherSideChainId,
-                    _name,
-                    _symbol,
-                    _decimals,
-                    0,
-                    $.otherSide,
-                    $.otherSide
-                );
-        }
-
-        bytes32 salt = keccak256(abi.encodePacked($.otherSide, _originToken));
-        bytes memory bytecode = abi.encodePacked(type(BeaconProxy).creationCode, abi.encode($.otherSideBeacon, ""));
-        return Create2.computeAddress(salt, keccak256(bytecode), $.otherSideFactory);
-    }
-
     // ============ Public getters ============
 
     function bridgeContract() public view returns (address) {
@@ -297,33 +268,64 @@ contract PaymentGateway is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
         return _getPaymentGatewayStorage().tokenMapping[key];
     }
 
+    function gasLimit() public view returns (uint256) {
+        return _getPaymentGatewayStorage().gasLimit;
+    }
+
     /// @inheritdoc IGateway
     function computePeggedTokenAddress(address _token) external view returns (address) {
+        return _computePeggedTokenAddress(_token, ERC20(_token).name(), ERC20(_token).symbol(), ERC20(_token).decimals());
+    }
+
+    function _computePeggedTokenAddress(
+        address _token,
+        string memory _name,
+        string memory _symbol,
+        uint8 _decimals
+    ) internal view returns (address) {
         PaymentGatewayStorage storage $ = _getPaymentGatewayStorage();
         bytes memory deployArgs;
         bytes memory keyData;
-
         if (IGenericTokenFactory($.tokenFactory).beacon() != address(0)) {
             keyData = abi.encode(address(this), _token);
             deployArgs = "";
         } else {
-            string memory symbol = ERC20(_token).symbol();
-            string memory name = ERC20(_token).name();
-            uint8 decimals = ERC20(_token).decimals();
-            deployArgs = IGenericTokenFactory($.tokenFactory).getDeployArgs(name, symbol, decimals);
-            keyData = abi.encode(_token, block.chainid);
+            deployArgs = IGenericTokenFactory($.tokenFactory).getDeployArgs(_name, _symbol, _decimals);
+            keyData = abi.encode(_token);
         }
-
         return IGenericTokenFactory($.tokenFactory).computePeggedTokenAddress(keyData, deployArgs);
     }
 
     /// @inheritdoc IGateway
-    function computeOtherSidePeggedTokenAddress(address _token) external view returns (address) {
-        return _computeOtherSidePeggedTokenAddress(_token, ERC20(_token).name(), ERC20(_token).symbol(), ERC20(_token).decimals());
+    function computeOtherSidePeggedTokenAddress(address _originToken) external view returns (address) {
+        return
+            _computeOtherSidePeggedTokenAddress(
+                _originToken,
+                ERC20(_originToken).name(),
+                ERC20(_originToken).symbol(),
+                ERC20(_originToken).decimals()
+            );
     }
 
-    function gasLimit() public view returns (uint256) {
-        return _getPaymentGatewayStorage().gasLimit;
+    function _computeOtherSidePeggedTokenAddress(
+        address _originToken,
+        string memory _name,
+        string memory _symbol,
+        uint8 _decimals
+    ) internal view returns (address) {
+        PaymentGatewayStorage storage $ = _getPaymentGatewayStorage();
+        bytes memory deployArgs;
+        bytes memory keyData;
+
+        if ($.otherSideBeacon != address(0)) {
+            keyData = abi.encode($.otherSide, _originToken);
+            deployArgs = "";
+        } else {
+            deployArgs = IGenericTokenFactory($.otherSideFactory).getDeployArgs(_name, _symbol, _decimals);
+            keyData = abi.encode(_originToken);
+        }
+
+        return IGenericTokenFactory($.otherSideFactory).computeOtherSidePeggedTokenAddress(keyData, deployArgs);
     }
 
     // ============ Admin functions ============

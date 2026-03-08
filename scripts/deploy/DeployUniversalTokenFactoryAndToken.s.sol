@@ -69,7 +69,7 @@ contract DeployUniversalTokenFactoryAndToken is BaseScript {
         UniversalTokenFactory factory = UniversalTokenFactory(address(factoryProxyContract));
 
         // Build keyData and deployArgs for deployToken()
-        bytes memory keyData = abi.encode(originToken, block.chainid);
+        bytes memory keyData = abi.encode(originToken);
         bytes memory deployArgs =
             abi.encode(name, symbol, decimals, initialSupply, minter, pauser);
 
