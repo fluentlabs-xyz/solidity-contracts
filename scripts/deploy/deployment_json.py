@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Helpers for deployment JSON: read a key, or merge deployment files into chain outputs.
+Helpers for deployment JSON: read a key, merge deployment files.
 Usage:
   deployment_json.py get <file> <key>
   deployment_json.py merge <l1_bridge> <l1_stack> <l1_config> <l2_bridge> <l2_stack> <l2_config> <out_sepolia> <out_fluent>
