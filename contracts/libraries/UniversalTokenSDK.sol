@@ -78,8 +78,8 @@ library UniversalTokenSDK {
         address minter,
         address pauser
     ) public pure returns (bytes memory deploymentData) {
-        bytes32 nameBytes = stringToBytes32(name);
-        bytes32 symbolBytes = stringToBytes32(symbol);
+        bytes32 nameBytes = _stringToBytes32(name);
+        bytes32 symbolBytes = _stringToBytes32(symbol);
         deploymentData = _encodeInitialSettingsRustCompatible(nameBytes, symbolBytes, decimals, initialSupply, minter, pauser);
     }
 
@@ -88,7 +88,7 @@ library UniversalTokenSDK {
      * @param originToken Origin (e.g. L1) token address. No chainId: same origin => same pegged address per factory across chains.
      * @return salt Deterministic salt for CREATE2
      */
-    function computeBridgeTokenSalt(address originToken) internal pure returns (bytes32 salt) {
+    function _computeBridgeTokenSalt(address originToken) internal pure returns (bytes32 salt) {
         return keccak256(abi.encodePacked(BRIDGE_TOKEN_PREFIX, originToken));
     }
 
@@ -100,8 +100,8 @@ library UniversalTokenSDK {
      * @param symbol Token symbol
      * @param decimals Token decimals
      * @param initialSupply Initial supply
-     * @param minter Minter address
-     * @param pauser Pauser address
+     * @param minter Minter address (for remote prediction use the other-side gateway)
+     * @param pauser Pauser address (for remote prediction use the other-side gateway)
      * @return predicted The predicted token address
      */
     function computeTokenAddress(
@@ -113,65 +113,12 @@ library UniversalTokenSDK {
         uint256 initialSupply,
         address minter,
         address pauser
-    ) internal pure returns (address predicted) {
+    ) public pure returns (address predicted) {
         bytes memory deploymentData = createDeploymentData(name, symbol, decimals, initialSupply, minter, pauser);
-        bytes32 salt = computeBridgeTokenSalt(originToken);
+        bytes32 salt = _computeBridgeTokenSalt(originToken);
         bytes32 initCodeHash = keccak256(deploymentData);
         bytes32 hash = keccak256(abi.encodePacked(bytes1(0xff), factory, salt, initCodeHash));
         return address(uint160(uint256(hash)));
-    }
-
-    /**
-     * @notice Converts bytes32 to string (truncates at first null byte)
-     * @param data bytes32 value
-     * @return str String representation
-     */
-    function bytes32ToString(bytes32 data) internal pure returns (string memory str) {
-        // Convert bytes32 to bytes first, then find length
-        bytes memory bytesArray = new bytes(32);
-        assembly {
-            mstore(add(bytesArray, 32), data)
-        }
-
-        // Find first null byte
-        uint8 length = 0;
-        while (length < 32 && bytesArray[length] != 0) {
-            length++;
-        }
-
-        // Create new bytes array with correct length
-        bytes memory result = new bytes(length);
-        for (uint8 i = 0; i < length; i++) {
-            result[i] = bytesArray[i];
-        }
-        return string(result);
-    }
-
-    /**
-     * @notice Creates deployment transaction data for a Universal Token (bytes32 version)
-     * @param name Token name as bytes32
-     * @param symbol Token symbol as bytes32
-     * @param decimals Number of decimals
-     * @param initialSupply Initial supply to mint
-     * @param minter Minter address (address(0) if not mintable)
-     * @param pauser Pauser address (address(0) if not pausable)
-     * @return deploymentData Complete deployment data with magic bytes prefix
-     * @dev Matches Rust SDK encoding exactly:
-     *      Rust: output.extend_from_slice(&UNIVERSAL_TOKEN_MAGIC_BYTES[..]);
-     *            output.extend_from_slice(encoded.as_ref());
-     *      Where encoded is abi.encode(bytes32, bytes32, uint8, uint256, address, address)
-     *      Format: magic_bytes (4) + encoded_struct_data
-     *      Note: abi.encode returns bytes memory with length prefix, we extract just the data
-     */
-    function createDeploymentDataBytes32(
-        bytes32 name,
-        bytes32 symbol,
-        uint8 decimals,
-        uint256 initialSupply,
-        address minter,
-        address pauser
-    ) internal pure returns (bytes memory deploymentData) {
-        deploymentData = _encodeInitialSettingsRustCompatible(name, symbol, decimals, initialSupply, minter, pauser);
     }
 
     /**
@@ -179,7 +126,7 @@ library UniversalTokenSDK {
      * @param str Input string
      * @return result bytes32 representation
      */
-    function stringToBytes32(string memory str) public pure returns (bytes32 result) {
+    function _stringToBytes32(string memory str) internal pure returns (bytes32 result) {
         bytes memory tempBytes = bytes(str);
         if (tempBytes.length == 0) {
             return 0x0;
@@ -261,124 +208,5 @@ library UniversalTokenSDK {
         for (uint256 i = 0; i < 32; i++) {
             deploymentData[offset + i] = pauserBE[i];
         }
-    }
-
-    /**
-     * @notice Deploys a Universal Token using CREATE
-     * @param name Token name (will be truncated to 32 bytes if longer)
-     * @param symbol Token symbol (will be truncated to 32 bytes if longer)
-     * @param decimals Number of decimals (typically 18)
-     * @param initialSupply Initial supply to mint to deployer
-     * @param minter Minter address (address(0) if not mintable)
-     * @param pauser Pauser address (address(0) if not pausable)
-     * @return tokenAddress Address of the deployed token
-     * @dev Uses CREATE opcode; the actual address is returned by the EVM.
-     *      This is the recommended way to deploy Universal Tokens directly.
-     */
-    function deployToken(
-        string memory name,
-        string memory symbol,
-        uint8 decimals,
-        uint256 initialSupply,
-        address minter,
-        address pauser
-    ) public returns (address tokenAddress) {
-        bytes memory deploymentData = createDeploymentData(name, symbol, decimals, initialSupply, minter, pauser);
-
-        assembly {
-            // CREATE(value, offset, length)
-            // value = 0 (no ETH sent)
-            // offset = deploymentData + 0x20 (skip length word)
-            // length = mload(deploymentData) (get length from first word)
-            let dataPtr := add(deploymentData, 0x20)
-            let dataLen := mload(deploymentData)
-            tokenAddress := create(0, dataPtr, dataLen)
-        }
-
-        require(tokenAddress != address(0), "UniversalTokenSDK: deployment failed");
-    }
-
-    /**
-     * @notice EXPERIMENTAL: Try encoding as a struct-like format
-     * @dev This attempts to match Rust's struct encoding which might include metadata
-     *      The Rust struct has nested TokenNameOrSymbol structs which might encode differently
-     */
-    function createDeploymentDataExperimental(
-        string memory name,
-        string memory symbol,
-        uint8 decimals,
-        uint256 initialSupply,
-        address minter,
-        address pauser
-    ) public pure returns (bytes memory deploymentData) {
-        bytes32 nameBytes = stringToBytes32(name);
-        bytes32 symbolBytes = stringToBytes32(symbol);
-
-        // Try encoding as if it's a struct with nested structs
-        // Rust's InitialSettings struct has:
-        //   token_name: TokenNameOrSymbol (which is #[repr(transparent)] [u8; 32])
-        //   token_symbol: TokenNameOrSymbol
-        //   decimals: u8
-        //   initial_supply: U256
-        //   minter: Address
-        //   pauser: Address
-
-        // When Rust encodes a struct with Codec derive, it might add:
-        // - Struct metadata/offsets for nested structs
-        // - Length prefixes for dynamic types
-        // Let's try encoding each field as if TokenNameOrSymbol is a struct itself
-
-        // For now, just use the simple format and see what the actual difference is
-        // We'll need to reverse-engineer the Rust encoding format
-        bytes memory encoded = abi.encode(nameBytes, symbolBytes, decimals, initialSupply, minter, pauser);
-
-        // Prepend magic bytes
-        uint256 dataLen = encoded.length;
-        deploymentData = new bytes(4 + dataLen);
-
-        assembly {
-            let dataPtr := add(deploymentData, 32)
-            mstore8(dataPtr, 0x45)
-            mstore8(add(dataPtr, 1), 0x52)
-            mstore8(add(dataPtr, 2), 0x43)
-            mstore8(add(dataPtr, 3), 0x20)
-
-            let encodedDataPtr := add(encoded, 32)
-            let targetPtr := add(dataPtr, 4)
-
-            // Copy all encoded data
-            let copyLen := dataLen
-            for {
-                let i := 0
-            } lt(i, copyLen) {
-                i := add(i, 32)
-            } {
-                mstore(add(targetPtr, i), mload(add(encodedDataPtr, i)))
-            }
-        }
-    }
-
-    /**
-     * @notice EXPERIMENTAL: Debug function to see what Rust encoding might look like
-     * @dev This helps us understand the format difference
-     */
-    function debugEncodingComparison(
-        bytes32 name,
-        bytes32 symbol,
-        uint8 decimals,
-        uint256 initialSupply,
-        address minter,
-        address pauser
-    ) public pure returns (bytes memory simpleEncode, uint256 simpleLen, bytes memory structLikeEncode, uint256 structLikeLen) {
-        // Simple encoding (what we currently do)
-        simpleEncode = abi.encode(name, symbol, decimals, initialSupply, minter, pauser);
-        simpleLen = simpleEncode.length;
-
-        // Try encoding as if TokenNameOrSymbol is a struct (might add metadata)
-        // In Rust, TokenNameOrSymbol is #[repr(transparent)] with [u8; 32]
-        // When encoded as part of InitialSettings struct, it might add struct metadata
-        // For now, return the same (we need to reverse-engineer the actual format)
-        structLikeEncode = simpleEncode;
-        structLikeLen = structLikeEncode.length;
     }
 }

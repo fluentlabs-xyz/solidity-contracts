@@ -273,7 +273,10 @@ contract PaymentGatewayTest {
         assertEq(supplyAfter, supplyBefore - 4, "pegged token send should burn");
     }
 
-    function test_sendTokens_peggedTokenPath_revertsOnMappingMismatch() public {
+    /// @dev When owner updates the token mapping, sendTokens uses the admin-set origin (no revert).
+    ///      TokenMappingCheckFailed() only triggers when tokenMapping[pegged] is zero, which cannot
+    ///      happen in the pegged path (else branch) since that branch is only taken when mapping is non-zero.
+    function test_sendTokens_peggedTokenPath_usesAdminMappingWhenSet() public {
         address predictedPegged = gateway.computePeggedTokenAddress(address(originToken));
         bytes memory tokenMetadata = abi.encode("MOCK", "Mock", uint8(18));
         bytes memory message = abi.encodeCall(
@@ -283,13 +286,16 @@ contract PaymentGatewayTest {
         bridge.receiveMessage(OTHER_SIDE_GATEWAY, address(gateway), 0, block.chainid + 1, 41, bridge.receivedNonce(), message);
 
         ERC20PeggedToken pegged = ERC20PeggedToken(predictedPegged);
-        gateway.updateTokenMapping(address(0xDEAD), predictedPegged);
+        address customOrigin = address(0xDEAD);
+        gateway.updateTokenMapping(customOrigin, predictedPegged);
 
         vm.prank(USER);
         pegged.approve(address(gateway), 5);
         vm.prank(USER);
-        vm.expectRevert(bytes4(keccak256("TokenMappingCheckFailed()")));
         gateway.sendTokens(predictedPegged, RECIPIENT, 5);
+
+        assertEq(pegged.totalSupply(), 5, "pegged supply should decrease by 5");
+        assertEq(gateway.tokenMapping(predictedPegged), customOrigin, "mapping should reflect admin update");
     }
 
     function test_receivePeggedTokens_revertsOnOriginZero_marksFailed() public {

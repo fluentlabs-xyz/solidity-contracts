@@ -45,7 +45,14 @@ import {IL1BlockOracle} from "./interfaces/IL1BlockOracle.sol";
  *    - Bridge Authority invokes receiveFailedMessage(...) with msg.value == value for a message previously marked Failed.
  *    - Allows retrying after fixing conditions (e.g. gateway config).
  */
-contract FluentBridge is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradeable, Ownable2StepUpgradeable, PausableUpgradeable, IFluentBridge {
+contract FluentBridge is
+    Initializable,
+    UUPSUpgradeable,
+    ReentrancyGuardUpgradeable,
+    Ownable2StepUpgradeable,
+    PausableUpgradeable,
+    IFluentBridge
+{
     /// @notice Configuration for the FluentBridge initialization.
     struct InitConfiguration {
         /// @notice Owner of the contract (e.g. multisig or deployer).
@@ -139,7 +146,7 @@ contract FluentBridge is Initializable, UUPSUpgradeable, ReentrancyGuardUpgradea
         uint256 messageNonce = _takeNextNonce();
         bytes32 messageHash = keccak256(_encodeMessage(from, to, value, block.chainid, block.number, messageNonce, message));
 
-        /// @TODO: remove 'if' later on when rollup is always initialized
+        /// @custom:todo remove 'if' later on when rollup is always initialized
         if (rollup() != address(0)) Queue.enqueue(_getFluentBridgeStorage().sentMessageQueue, messageHash);
 
         emit SentMessage(from, to, value, block.chainid, block.number, messageNonce, messageHash, message);

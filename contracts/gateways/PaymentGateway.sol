@@ -16,6 +16,7 @@ import {ERC20PeggedToken} from "../tokens/ERC20PeggedToken.sol";
 
 import {IGateway} from "../interfaces/IGateway.sol";
 import {IGenericTokenFactory} from "../interfaces/IGenericTokenFactory.sol";
+import {UniversalTokenSDK} from "../libraries/UniversalTokenSDK.sol";
 
 /**
  * @title PaymentGateway
@@ -307,6 +308,12 @@ contract PaymentGateway is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
             );
     }
 
+    /// @dev Computes the remote (other-chain) pegged token address from stored config only.
+    ///      CRITICAL: Do not call the destination factory (otherSideFactory) from send paths. It is a
+    ///      destination-chain address; a local call would hit the same address on this chain (wrong or no code).
+    ///      For Universal flows, getDeployArgs() on the remote would also derive minter/pauser from the
+    ///      source gateway. We use only local CREATE2 math: Beacon path = _computeBeaconProxyAddress (pure);
+    ///      Universal path = UniversalTokenSDK.computeTokenAddress (pure) with remote gateway as minter/pauser.
     function _computeOtherSidePeggedTokenAddress(
         address _originToken,
         string memory _name,
@@ -314,18 +321,25 @@ contract PaymentGateway is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
         uint8 _decimals
     ) internal view returns (address) {
         PaymentGatewayStorage storage $ = _getPaymentGatewayStorage();
-        bytes memory deployArgs;
-        bytes memory keyData;
 
         if ($.otherSideBeacon != address(0)) {
-            keyData = abi.encode($.otherSide, _originToken);
-            deployArgs = "";
-        } else {
-            deployArgs = IGenericTokenFactory($.otherSideFactory).getDeployArgs(_name, _symbol, _decimals);
-            keyData = abi.encode(_originToken);
+            return _computeBeaconProxyAddress($.otherSideFactory, $.otherSideBeacon, $.otherSide, _originToken);
         }
+        // Universal (otherSideChainId != 0): minter/pauser must be the remote gateway so L2 deployment matches.
+        return UniversalTokenSDK.computeTokenAddress($.otherSideFactory, _originToken, _name, _symbol, _decimals, 0, $.otherSide, $.otherSide);
+    }
 
-        return IGenericTokenFactory($.otherSideFactory).computeOtherSidePeggedTokenAddress(keyData, deployArgs);
+    /// @dev CREATE2 address for a BeaconProxy deployed by the remote factory (same formula as ERC20TokenFactory).
+    function _computeBeaconProxyAddress(
+        address _factory,
+        address _beacon,
+        address _gateway,
+        address _originToken
+    ) internal pure returns (address) {
+        bytes memory bytecode = abi.encodePacked(type(BeaconProxy).creationCode, abi.encode(_beacon, ""));
+        bytes32 salt = keccak256(abi.encodePacked(_gateway, _originToken));
+        bytes32 bytecodeHash = keccak256(bytecode);
+        return address(uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), _factory, salt, bytecodeHash)))));
     }
 
     // ============ Admin functions ============
