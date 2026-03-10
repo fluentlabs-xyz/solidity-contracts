@@ -66,11 +66,17 @@ contract BridgeLegacyParityTest is RollupBase {
         oracle = new L1BlockOracle();
 
         Bridge bridgeImpl = new Bridge();
+        Bridge.InitConfiguration memory bridgeParams = Bridge.InitConfiguration({
+            initialOwner: address(this),
+            bridgeAuthority: address(this),
+            rollup: address(rollup),
+            receiveMessageDeadline: 10,
+            otherBridge: OTHER_BRIDGE,
+            l1BlockOracle: address(oracle)
+        });
         ERC1967Proxy bridgeProxy = new ERC1967Proxy(
             address(bridgeImpl),
-            abi.encodeCall(
-                Bridge.initialize, (address(this), address(this), address(rollup), 10, OTHER_BRIDGE, address(oracle))
-            )
+            abi.encodeCall(Bridge.initialize, (abi.encode(bridgeParams)))
         );
         bridge = Bridge(payable(address(bridgeProxy)));
         rollup.setBridge(address(bridge));
@@ -89,7 +95,7 @@ contract BridgeLegacyParityTest is RollupBase {
         bridge.sendMessage{value: MSG_VALUE}(DESTINATION, PAYLOAD);
 
         assertEq(address(bridge).balance, MSG_VALUE, "bridge balance should include sent value");
-        assertEq(bridge.getQueueSize(), 1, "queue should include the message");
+        assertEq(bridge.sentMessageQueueSize(), 1, "queue should include the message");
 
         bytes32 blockHash1 = keccak256("bridge-send-block-1");
         bytes32 blockHash2 = keccak256("bridge-send-block-2");
@@ -104,18 +110,18 @@ contract BridgeLegacyParityTest is RollupBase {
         vm.prank(SEQUENCER);
         rollup.acceptNextBatch(batch, deposits, 0);
 
-        assertEq(bridge.getQueueSize(), 0, "queue should be consumed");
+        assertEq(bridge.sentMessageQueueSize(), 0, "queue should be consumed");
     }
 
     function test_receiveMessage_marksSuccessAndRejectsOutOfOrderNonce() public {
-        vm.deal(address(bridge), 1 ether);
+        vm.deal(address(this), 1 ether);
 
         uint256 nonce = bridge.receivedNonce();
         uint256 receiverBalanceBefore = RECEIVER.balance;
         uint256 sourceChainId = block.chainid + 1;
         uint256 sourceBlock = 10;
 
-        bridge.receiveMessage(DESTINATION, RECEIVER, 200, sourceChainId, sourceBlock, nonce, "");
+        bridge.receiveMessage{value: 200}(DESTINATION, RECEIVER, 200, sourceChainId, sourceBlock, nonce, "");
 
         uint256 receiverBalanceAfter = RECEIVER.balance;
         assertEq(receiverBalanceAfter - receiverBalanceBefore, 200, "receiver should be paid");
@@ -128,11 +134,11 @@ contract BridgeLegacyParityTest is RollupBase {
         );
 
         vm.expectRevert(bytes4(keccak256("MessageReceivedOutOfOrder()")));
-        bridge.receiveMessage(DESTINATION, RECEIVER, 200, sourceChainId, sourceBlock, nonce, "");
+        bridge.receiveMessage{value: 200}(DESTINATION, RECEIVER, 200, sourceChainId, sourceBlock, nonce, "");
     }
 
     function test_receiveMessageWithProof_executesTransfer() public {
-        vm.deal(address(bridge), 1 ether);
+        vm.deal(address(this), 1 ether);
         uint256 receiverBalanceBefore = RECEIVER.balance;
         _acceptBatchAndExecuteReceiveWithProof();
         uint256 receiverBalanceAfter = RECEIVER.balance;
@@ -141,6 +147,7 @@ contract BridgeLegacyParityTest is RollupBase {
     }
 
     function test_receiveMessage_afterDeadline_emitsRollbackBehavior() public {
+        vm.deal(address(this), 1 ether);
         uint256 nonce = bridge.receivedNonce();
         uint256 sourceChainId = block.chainid + 1;
         uint256 sourceBlock = 10;
@@ -151,7 +158,7 @@ contract BridgeLegacyParityTest is RollupBase {
         NoopReceiver receiver = new NoopReceiver();
         uint256 receiverBalanceBefore = address(receiver).balance;
         bytes memory payload = abi.encodeWithSignature("handle()");
-        bridge.receiveMessage(DESTINATION, address(receiver), 200, sourceChainId, sourceBlock, nonce, payload);
+        bridge.receiveMessage{value: 200}(DESTINATION, address(receiver), 200, sourceChainId, sourceBlock, nonce, payload);
         uint256 receiverBalanceAfter = address(receiver).balance;
 
         assertEq(receiverBalanceAfter - receiverBalanceBefore, 0, "message must not execute after deadline");
@@ -265,7 +272,7 @@ contract BridgeLegacyParityTest is RollupBase {
 
         vm.prank(USER);
         bridge.sendMessage{value: MSG_VALUE}(DESTINATION, PAYLOAD);
-        assertEq(bridge.getQueueSize(), 1, "send should work after unpause");
+        assertEq(bridge.sentMessageQueueSize(), 1, "send should work after unpause");
     }
 
     function _executeRollback(
@@ -297,7 +304,7 @@ contract BridgeLegacyParityTest is RollupBase {
         bytes32 withdrawalSibling,
         bytes32 blockSibling
     ) internal {
-        bridge.receiveMessageWithProof(
+        bridge.receiveMessageWithProof{value: 100}(
             1,
             commitment,
             DESTINATION,

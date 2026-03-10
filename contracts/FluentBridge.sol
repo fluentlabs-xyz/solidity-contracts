@@ -2,6 +2,7 @@
 pragma solidity 0.8.30;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
@@ -18,31 +19,56 @@ import {IL1BlockOracle} from "./interfaces/IL1BlockOracle.sol";
 /**
  * @title FluentBridge
  * @author Fluent Labs
- * @notice A contract that handles sending and receiving cross-chain messages between L1 and L2 using rollup validation.
- * @dev This contract is deployed on both L1 and L2, with different configurations on each side.
- *      It supports message rollback logic in case messages are not processed within a deadline.
- *      Upgradeable via transparent proxy (TransparentUpgradeableProxy + ProxyAdmin).
+ * @notice Core bridge contract for sending and receiving cross-chain messages between L1 and L2 using rollup validation.
+ * @dev Deployed on both L1 and L2 with different config (L1: rollup set, deadline 0; L2: rollup zero, deadline non-zero).
+ *      Upgradeable via UUPS proxy (ERC1967Proxy); upgrade authorized by owner.
+ *      Native token handling: on send, msg.value is locked in this contract; on receive, caller must supply msg.value
+ *      equal to message value (relayer liquidity); on rollback, this contract refunds from its locked balance (msg.value must be 0).
  * @notice Workflows:
- * 1. Send message from L1 to L2:
- *    - User sends message to FluentBridge.sendMessage(to, message)
- *    - Message is encoded and hashed
- *    - Message is enqueued in the sent message queue
- *    - Event SentMessage is emitted
- * 2. Receive message from L2 to L1:
- *    - User sends message to FluentBridge.receiveMessage(from, to, value, chainId, blockNumber, nonce, message)
- *    - Message is encoded and hashed
- *    - Message is verified and executed
- *    - Event ReceivedMessage is emitted
- * 3. Rollback message from L2 to L1:
- *    - User sends message to FluentBridge.rollbackMessageWithProof(...)
- *    - Message is encoded and hashed
- *    - Message is verified and executed
- *    - Event ReceivedMessageRollback is emitted
- * 4. Receive failed message:
- *    - User sends message to FluentBridge.receiveFailedMessage(...)
- *    - Event ReceivedMessageFailed is emitted
+ * 1. Send message (L1 -> L2 or L2 -> L1):
+ *    - Caller invokes sendMessage(to, message) with optional msg.value (native lock).
+ *    - Message is encoded, hashed, and enqueued in the sent message queue when rollup is set.
+ *    - Event SentMessage(from, to, value, chainId, blockNumber, nonce, messageHash, data) is emitted.
+ * 2. Receive message with proof (L2 -> L1 only, when rollup is set):
+ *    - Caller invokes receiveMessageWithProof(batchIndex, commitment, from, to, value, chainId, blockNumber, nonce, message, withdrawalProof, blockProof)
+ *      with msg.value == value (caller supplies native for destination payout).
+ *    - Withdrawal and block Merkle proofs are verified; message is executed (target receives value and calldata).
+ *    - Event ReceivedMessage(messageHash, success, returnData) is emitted.
+ * 3. Receive message by authority (L2 side or Trusted Relayer/Bridge Authority):
+ *    - Bridge Authority invokes receiveMessage(from, to, value, chainId, blockNumber, nonce, message) with msg.value == value.
+ *    - Sequential receivedNonce is enforced; message is executed.
+ * 4. Rollback message (L2 -> L1, deadline exceeded):
+ *    - Bridge Authority invokes rollbackMessageWithProof(...) with msg.value == 0.
+ *    - This contract must hold at least `value` (locked from original send); refund is sent to original sender.
+ *    - Event ReceivedMessageRollback(messageHash, success, returnData) is emitted.
+ * 5. Replay failed message (Bridge Authority):
+ *    - Bridge Authority invokes receiveFailedMessage(...) with msg.value == value for a message previously marked Failed.
+ *    - Allows retrying after fixing conditions (e.g. gateway config).
  */
-contract FluentBridge is Initializable, ReentrancyGuardUpgradeable, Ownable2StepUpgradeable, PausableUpgradeable, IFluentBridge {
+contract FluentBridge is
+    Initializable,
+    UUPSUpgradeable,
+    ReentrancyGuardUpgradeable,
+    Ownable2StepUpgradeable,
+    PausableUpgradeable,
+    IFluentBridge
+{
+    /// @notice Configuration for the FluentBridge initialization.
+    struct InitConfiguration {
+        /// @notice Owner of the contract (e.g. multisig or deployer).
+        address initialOwner;
+        /// @notice Address authorized to send authorized messages (usually a trusted relayer or bridge controller).
+        address bridgeAuthority;
+        /// @notice Address of the rollup contract.
+        address rollup;
+        /// @notice Number of blocks after which a message becomes eligible for rollback.
+        uint256 receiveMessageDeadline;
+        /// @notice Address of the bridge contract on the other chain.
+        address otherBridge;
+        /// @notice Address for L1 block number lookups
+        address l1BlockOracle;
+    }
+
     /// @custom:storage-location erc7201:fluent.storage.FluentBridgeStorage
     struct FluentBridgeStorage {
         uint256 nonce;
@@ -87,151 +113,134 @@ contract FluentBridge is Initializable, ReentrancyGuardUpgradeable, Ownable2Step
 
     /**
      * @notice Initializes the upgradeable bridge (replaces constructor when used behind a proxy).
-     * @param _initialOwner Owner of the contract (e.g. multisig or deployer).
-     * @param _bridgeAuthority Address permitted to send authorized messages (usually a trusted relayer or bridge controller).
-     * @param _rollup Address of the rollup contract.
-     *        - On L1: should be the actual Rollup contract address.
-     *        - On L2: should be set to address(0), as rollup verification is not needed.
-     * @param _receiveMessageDeadline Number of blocks after which a message becomes eligible for rollback.
-     *        - On L2: should be set to a non-zero value to enable rollback after timeout.
-     *        - On L1: should be set to 0, as rollback is not applicable.
-     * @param _otherBridge Address of the Bridge contract on the other chain.
-     * @param _l1BlockOracle Address for L1 block number lookups
-     * @dev Invariant: if `_receiveMessageDeadline` is non-zero, `_l1BlockOracle` must also be non-zero.
+     * @param data Configuration data encoded as InitConfiguration struct.
+     * * - initialOwner: Owner of the contract (e.g. multisig or deployer).
+     * * - bridgeAuthority: Address authorized to send authorized messages (usually a trusted relayer or bridge controller).
+     * * - rollup: Address of the rollup contract.
+     * * - receiveMessageDeadline: Number of blocks after which a message becomes eligible for rollback.
+     * * - otherBridge: Address of the bridge contract on the other chain.
+     * * - l1BlockOracle: Address for L1 block number lookups
      */
-    function initialize(
-        address _initialOwner,
-        address _bridgeAuthority,
-        address _rollup,
-        uint256 _receiveMessageDeadline,
-        address _otherBridge,
-        address _l1BlockOracle
-    ) external initializer {
-        require(_initialOwner != address(0), ZeroAddressNotAllowed("initialOwner"));
-        require(_bridgeAuthority != address(0), ZeroAddressNotAllowed("bridgeAuthority"));
-        if (_receiveMessageDeadline != 0) {
-            require(_l1BlockOracle != address(0), ZeroAddressNotAllowed("l1BlockOracle"));
-        }
+    function initialize(bytes calldata data) external initializer {
+        (InitConfiguration memory params) = abi.decode(data, (InitConfiguration));
 
-        __ReentrancyGuard_init();
-        __Ownable_init(_initialOwner);
+        /// the requirement of initialOwner not being address(0) exists in the __Ownable_init()
+        __Ownable_init(params.initialOwner);
         __Ownable2Step_init();
+        __ReentrancyGuard_init();
         __Pausable_init();
+        __UUPSUpgradeable_init();
 
-        FluentBridgeStorage storage $ = _getFluentBridgeStorage();
-        $.bridgeAuthority = _bridgeAuthority;
-        $.rollup = _rollup;
-        $.receiveMessageDeadline = _receiveMessageDeadline;
-        $.otherBridge = _otherBridge;
-        $.l1BlockOracle = _l1BlockOracle;
-
-        if ($.rollup != address(0)) Queue.initialize($.sentMessageQueue);
+        __FluentBridge_init(params);
     }
 
+    /// @inheritdoc UUPSUpgradeable
+    function _authorizeUpgrade(address) internal override onlyOwner {}
+
     /// @inheritdoc IFluentBridge
-    function sendMessage(address _to, bytes calldata _message) external payable whenNotPaused {
-        FluentBridgeStorage storage $ = _getFluentBridgeStorage();
-        require(_to != address(this) && _to != $.otherBridge, InvalidDestinationAddress());
+    function sendMessage(address to, bytes calldata message) external payable whenNotPaused {
+        require(to != address(this) && to != otherBridge(), InvalidDestinationAddress());
 
         address from = msg.sender;
         uint256 value = msg.value;
         uint256 messageNonce = _takeNextNonce();
-        bytes32 messageHash = keccak256(_encodeMessage(from, _to, value, block.chainid, block.number, messageNonce, _message));
+        bytes32 messageHash = keccak256(_encodeMessage(from, to, value, block.chainid, block.number, messageNonce, message));
 
-        /// @TODO: remove 'if' later on when rollup is always initialized
-        if ($.rollup != address(0)) Queue.enqueue($.sentMessageQueue, messageHash);
+        /// @custom:todo remove 'if' later on when rollup is always initialized
+        if (rollup() != address(0)) Queue.enqueue(_getFluentBridgeStorage().sentMessageQueue, messageHash);
 
-        emit SentMessage(from, _to, value, block.chainid, block.number, messageNonce, messageHash, _message);
+        emit SentMessage(from, to, value, block.chainid, block.number, messageNonce, messageHash, message);
     }
 
     /// @inheritdoc IFluentBridge
     function receiveMessageWithProof(
-        uint256 _batchIndex,
-        RollupStorageLayout.BlockCommitment calldata _commitmentBatch,
-        address _from,
-        address payable _to,
-        uint256 _value,
-        uint256 _chainId,
-        uint256 _blockNumber,
-        uint256 _nonce,
-        bytes calldata _message,
-        MerkleTree.MerkleProof calldata _withdrawal_proof,
-        MerkleTree.MerkleProof calldata _block_proof
+        uint256 batchIndex,
+        RollupStorageLayout.BlockCommitment calldata commitmentBatch,
+        address from,
+        address payable to,
+        uint256 value,
+        uint256 chainId,
+        uint256 blockNumber,
+        uint256 messageNonce,
+        bytes calldata message,
+        MerkleTree.MerkleProof calldata withdrawalProof,
+        MerkleTree.MerkleProof calldata blockProof
     ) external payable nonReentrant whenNotPaused {
-        FluentBridgeStorage storage $ = _getFluentBridgeStorage();
-
-        require($.rollup != address(0), OnlyWhenRollupInited());
-        require(Rollup($.rollup).ensureBatchApproved(_batchIndex), InvalidBlockProof());
+        require(rollup() != address(0), OnlyWhenRollupInited());
+        require(Rollup(rollup()).ensureBatchApproved(batchIndex), InvalidBlockProof());
         // _chainId is the source chain id encoded at send time; it must differ from destination chain id here.
-        require(_chainId != block.chainid, ForbiddenReceiveRollbackedMessage());
+        require(chainId != block.chainid, ForbiddenReceiveRollbackedMessage());
+        require(msg.value == value, InvalidMessageValue(value, msg.value));
 
-        bytes32 messageHash = keccak256(_encodeMessage(_from, _to, _value, _chainId, _blockNumber, _nonce, _message));
-        require($.receivedMessage[messageHash] == MessageStatus.None, MessageAlreadyReceived());
+        bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, blockNumber, messageNonce, message));
+        require(receivedMessage(messageHash) == MessageStatus.None, MessageAlreadyReceived());
 
-        _verifyWithdrawal(_batchIndex, _commitmentBatch, _withdrawal_proof, _block_proof, messageHash);
-        _receiveMessage(_from, _to, _value, _chainId, _blockNumber, _nonce, _message, messageHash);
+        _verifyWithdrawal(batchIndex, commitmentBatch, withdrawalProof, blockProof, messageHash);
+        _receiveMessage(from, to, value, chainId, blockNumber, messageNonce, message, messageHash);
     }
 
     /// @inheritdoc IFluentBridge
     function rollbackMessageWithProof(
-        uint256 _batchIndex,
-        RollupStorageLayout.BlockCommitment calldata _commitmentBatch,
-        address _from,
-        address _to,
-        uint256 _value,
-        uint256 _chainId,
-        uint256 _blockNumber,
-        uint256 _nonce,
-        bytes calldata _message,
-        MerkleTree.MerkleProof calldata _rollback_proof,
-        MerkleTree.MerkleProof calldata _block_proof
+        uint256 batchIndex,
+        RollupStorageLayout.BlockCommitment calldata commitmentBatch,
+        address from,
+        address to,
+        uint256 value,
+        uint256 chainId,
+        uint256 blockNumber,
+        uint256 messageNonce,
+        bytes calldata message,
+        MerkleTree.MerkleProof calldata rollbackProof,
+        MerkleTree.MerkleProof calldata blockProof
     ) external payable nonReentrant whenNotPaused {
-        FluentBridgeStorage storage $ = _getFluentBridgeStorage();
-
-        require($.rollup != address(0), OnlyWhenRollupInited());
+        require(rollup() != address(0), OnlyWhenRollupInited());
         // _chainId is the source chain id encoded at send time; it must differ from destination chain id here.
-        require(_chainId != block.chainid, ForbiddenRollbackReceivedMessage());
-        require(Rollup($.rollup).ensureBatchApproved(_batchIndex), InvalidBlockProof());
+        require(chainId != block.chainid, ForbiddenRollbackReceivedMessage());
+        require(msg.value == 0, InvalidMessageValue(0, msg.value));
+        if (value > 0) require(address(this).balance >= value, InsufficientBridgeBalance(value));
+        require(Rollup(rollup()).ensureBatchApproved(batchIndex), InvalidBlockProof());
 
-        bytes32 messageHash = keccak256(_encodeMessage(_from, _to, _value, _chainId, _blockNumber, _nonce, _message));
-        require($.receivedMessage[messageHash] == MessageStatus.None, MessageAlreadyReceived());
+        bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, blockNumber, messageNonce, message));
+        require(receivedMessage(messageHash) == MessageStatus.None, MessageAlreadyReceived());
 
-        _verifyWithdrawal(_batchIndex, _commitmentBatch, _rollback_proof, _block_proof, messageHash);
-        _rollbackMessage(_from, _to, _value, _blockNumber, _nonce, _message, messageHash);
+        _verifyWithdrawal(batchIndex, commitmentBatch, rollbackProof, blockProof, messageHash);
+        _rollbackMessage(from, to, value, blockNumber, messageNonce, message, messageHash);
     }
 
     /// @inheritdoc IFluentBridge
     function receiveMessage(
-        address _from,
-        address _to,
-        uint256 _value,
-        uint256 _chainId,
-        uint256 _blockNumber,
-        uint256 _nonce,
-        bytes calldata _message
+        address from,
+        address to,
+        uint256 value,
+        uint256 chainId,
+        uint256 blockNumber,
+        uint256 messageNonce,
+        bytes calldata message
     ) external payable onlyBridgeAuthority nonReentrant whenNotPaused {
-        require(_nonce == _takeNextReceivedNonce(), MessageReceivedOutOfOrder());
+        require(msg.value == value, InvalidMessageValue(value, msg.value));
+        require(messageNonce == _takeNextReceivedNonce(), MessageReceivedOutOfOrder());
 
-        bytes32 messageHash = keccak256(_encodeMessage(_from, _to, _value, _chainId, _blockNumber, _nonce, _message));
-        require(_getFluentBridgeStorage().receivedMessage[messageHash] == MessageStatus.None, MessageAlreadyReceived());
+        bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, blockNumber, messageNonce, message));
+        require(receivedMessage(messageHash) == MessageStatus.None, MessageAlreadyReceived());
 
-        _receiveMessage(_from, _to, _value, _chainId, _blockNumber, _nonce, _message, messageHash);
+        _receiveMessage(from, to, value, chainId, blockNumber, messageNonce, message, messageHash);
     }
 
     /// @inheritdoc IFluentBridge
     function receiveFailedMessage(
-        address _from,
-        address _to,
-        uint256 _value,
-        uint256 _chainId,
-        uint256 _blockNumber,
-        uint256 _nonce,
-        bytes calldata _message
+        address from,
+        address to,
+        uint256 value,
+        uint256 chainId,
+        uint256 blockNumber,
+        uint256 messageNonce,
+        bytes calldata message
     ) external payable onlyBridgeAuthority nonReentrant whenNotPaused {
-        bytes32 messageHash = keccak256(_encodeMessage(_from, _to, _value, _chainId, _blockNumber, _nonce, _message));
-        require(_getFluentBridgeStorage().receivedMessage[messageHash] == MessageStatus.Failed, MessageNotFailed());
+        require(msg.value == value, InvalidMessageValue(value, msg.value));
+        bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, blockNumber, messageNonce, message));
+        require(receivedMessage(messageHash) == MessageStatus.Failed, MessageNotFailed());
 
-        _receiveMessage(_from, _to, _value, _chainId, _blockNumber, _nonce, _message, messageHash);
+        _receiveMessage(from, to, value, chainId, blockNumber, messageNonce, message, messageHash);
     }
 
     // ============ Internal functions ============
@@ -292,8 +301,8 @@ contract FluentBridge is Initializable, ReentrancyGuardUpgradeable, Ownable2Step
     function _verifyWithdrawal(
         uint256 _batchIndex,
         RollupStorageLayout.BlockCommitment calldata _commitmentBatch,
-        MerkleTree.MerkleProof calldata _withdrawal_proof,
-        MerkleTree.MerkleProof calldata _block_proof,
+        MerkleTree.MerkleProof calldata _withdrawalProof,
+        MerkleTree.MerkleProof calldata _blockProof,
         bytes32 _messageHash
     ) internal view {
         bool blockValid = MerkleTree.verifyMerkleProof(
@@ -306,16 +315,16 @@ contract FluentBridge is Initializable, ReentrancyGuardUpgradeable, Ownable2Step
                     _commitmentBatch.depositHash
                 )
             ),
-            _block_proof.nonce,
-            _block_proof.proof
+            _blockProof.nonce,
+            _blockProof.proof
         );
         require(blockValid, InvalidBlockProof());
 
         bool withdrawalValid = MerkleTree.verifyMerkleProof(
             _commitmentBatch.withdrawalHash,
             _messageHash,
-            _withdrawal_proof.nonce,
-            _withdrawal_proof.proof
+            _withdrawalProof.nonce,
+            _withdrawalProof.proof
         );
         require(withdrawalValid, InvalidWithdrawalProof());
     }
@@ -340,7 +349,7 @@ contract FluentBridge is Initializable, ReentrancyGuardUpgradeable, Ownable2Step
         return abi.encode(_from, _to, _value, _chainId, _blockNumber, _nonce, _message);
     }
 
-    // ============ Public getters ============
+    // ============ Public view functions ============
 
     /// @inheritdoc IFluentBridge
     function nonce() public view returns (uint256) {
@@ -393,7 +402,7 @@ contract FluentBridge is Initializable, ReentrancyGuardUpgradeable, Ownable2Step
     }
 
     /// @inheritdoc IFluentBridge
-    function getQueueSize() external view returns (uint256) {
+    function sentMessageQueueSize() public view returns (uint256) {
         FluentBridgeStorage storage $ = _getFluentBridgeStorage();
         if ($.rollup != address(0)) return Queue.size($.sentMessageQueue);
         return 0;
@@ -404,48 +413,103 @@ contract FluentBridge is Initializable, ReentrancyGuardUpgradeable, Ownable2Step
         return Queue.dequeue(_getFluentBridgeStorage().sentMessageQueue);
     }
 
+    // ============ Pauser functions ============
+
+    function pause() external onlyOwner {
+        _pause();
+    }
+
+    function unpause() external onlyOwner {
+        _unpause();
+    }
+
     // ============ Admin functions ============
 
-    /// @inheritdoc IFluentBridge
-    function setOtherBridge(address _otherBridge) external onlyOwner {
+    function setOtherBridge(address newOtherBridge) external onlyOwner {
+        _setOtherBridge(newOtherBridge);
+    }
+
+    function _setOtherBridge(address _otherBridge) internal {
         require(_otherBridge != address(0), ZeroAddressNotAllowed("otherBridge"));
         emit OtherBridgeUpdated(_getFluentBridgeStorage().otherBridge, _otherBridge);
         _getFluentBridgeStorage().otherBridge = _otherBridge;
     }
 
-    /// @inheritdoc IFluentBridge
-    function setBridgeAuthority(address _bridgeAuthority) external onlyOwner {
+    function setBridgeAuthority(address newBridgeAuthority) external onlyOwner {
+        _setBridgeAuthority(newBridgeAuthority);
+    }
+
+    function _setBridgeAuthority(address _bridgeAuthority) internal {
         require(_bridgeAuthority != address(0), ZeroAddressNotAllowed("bridgeAuthority"));
         emit BridgeAuthorityUpdated(_getFluentBridgeStorage().bridgeAuthority, _bridgeAuthority);
         _getFluentBridgeStorage().bridgeAuthority = _bridgeAuthority;
     }
 
-    /// @inheritdoc IFluentBridge
-    function setRollup(address _rollup) external onlyOwner {
-        if (_rollup == address(0)) require(this.getQueueSize() == 0, QueueNotEmpty());
-        emit RollupUpdated(rollup(), _rollup);
+    /**
+     * @notice Sets the address of the rollup contract from the owner.
+     * @param newRollup The address of the rollup contract.
+     * @dev This function can only be called by the owner.
+     */
+    function setRollup(address newRollup) external onlyOwner {
+        _setRollup(newRollup);
+    }
+
+    function _setRollup(address _rollup) internal {
+        if (_rollup == address(0)) require(sentMessageQueueSize() == 0, QueueNotEmpty());
+        emit RollupUpdated(_getFluentBridgeStorage().rollup, _rollup);
         _getFluentBridgeStorage().rollup = _rollup;
     }
 
-    /// @inheritdoc IFluentBridge
-    function setL1BlockOracle(address _l1BlockOracle) external onlyOwner {
-        FluentBridgeStorage storage $ = _getFluentBridgeStorage();
-        if ($.receiveMessageDeadline != 0) {
-            require(_l1BlockOracle != address(0), ZeroAddressNotAllowed("l1BlockOracle"));
+    /**
+     * @notice Sets the address of the L1 block oracle.
+     * @param newL1BlockOracle The address of the L1 block oracle used for rollback deadline checks.
+     * @dev This function can only be called by the owner.
+     */
+    function setL1BlockOracle(address newL1BlockOracle) external onlyOwner {
+        _setL1BlockOracle(newL1BlockOracle);
+    }
+
+    function _setL1BlockOracle(address _l1BlockOracle) internal {
+        if (receiveMessageDeadline() != 0) require(_l1BlockOracle != address(0), ZeroAddressNotAllowed("l1BlockOracle"));
+        emit L1BlockOracleUpdated(l1BlockOracle(), _l1BlockOracle);
+        _getFluentBridgeStorage().l1BlockOracle = _l1BlockOracle;
+    }
+
+    /**
+     * @notice Sets the number of L1 blocks after which a message becomes eligible for rollback.
+     * @param newReceiveMessageDeadline The number of L1 blocks after which a message becomes eligible for rollback.
+     * @dev This function can only be called by the owner.
+     */
+    function setReceiveMessageDeadline(uint256 newReceiveMessageDeadline) external onlyOwner {
+        _setReceiveMessageDeadline(newReceiveMessageDeadline);
+    }
+
+    function _setReceiveMessageDeadline(uint256 _receiveMessageDeadline) internal {
+        require(_receiveMessageDeadline != 0, ZeroValueNotAllowed("receiveMessageDeadline"));
+        emit ReceiveMessageDeadlineUpdated(receiveMessageDeadline(), _receiveMessageDeadline);
+        _getFluentBridgeStorage().receiveMessageDeadline = _receiveMessageDeadline;
+    }
+
+    // ============ Configuration ============
+
+    function __FluentBridge_init(InitConfiguration memory params) internal {
+        require(params.bridgeAuthority != address(0), ZeroAddressNotAllowed("bridgeAuthority"));
+        require(params.otherBridge != address(0), ZeroAddressNotAllowed("otherBridge"));
+        if (params.receiveMessageDeadline != 0) {
+            require(params.l1BlockOracle != address(0), ZeroAddressNotAllowed("l1BlockOracle"));
         }
-        emit L1BlockOracleUpdated($.l1BlockOracle, _l1BlockOracle);
-        $.l1BlockOracle = _l1BlockOracle;
-    }
 
-    // ============ Pauser functions ============
+        _setBridgeAuthority(params.bridgeAuthority);
+        _setOtherBridge(params.otherBridge);
 
-    /// @inheritdoc IFluentBridge
-    function pause() external onlyOwner {
-        _pause();
-    }
+        if (params.receiveMessageDeadline != 0) {
+            _setReceiveMessageDeadline(params.receiveMessageDeadline);
+            _setL1BlockOracle(params.l1BlockOracle);
+        }
 
-    /// @inheritdoc IFluentBridge
-    function unpause() external onlyOwner {
-        _unpause();
+        if (params.rollup != address(0)) {
+            _setRollup(params.rollup);
+            Queue.initialize(_getFluentBridgeStorage().sentMessageQueue);
+        }
     }
 }

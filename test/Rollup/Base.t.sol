@@ -104,9 +104,18 @@ abstract contract RollupBase is MinimalTest {
         address l1BlockOracle
     ) internal returns (Bridge) {
         Bridge bridgeImpl = new Bridge();
+        Bridge.InitConfiguration memory params = Bridge.InitConfiguration({
+            initialOwner: initialOwner,
+            bridgeAuthority: bridgeAuthority,
+            rollup: rollupAddress,
+            receiveMessageDeadline: receiveMessageDeadline,
+            otherBridge: otherBridge,
+            l1BlockOracle: l1BlockOracle
+        });
+        bytes memory initData = abi.encode(params);
         ERC1967Proxy proxy = new ERC1967Proxy(
             address(bridgeImpl),
-            abi.encodeCall(Bridge.initialize, (initialOwner, bridgeAuthority, rollupAddress, receiveMessageDeadline, otherBridge, l1BlockOracle))
+            abi.encodeCall(Bridge.initialize, (initData))
         );
         return Bridge(payable(address(proxy)));
     }

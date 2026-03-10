@@ -6,39 +6,44 @@ import {MerkleTree} from "../libraries/MerkleTree.sol";
 import {RollupStorageLayout} from "../rollup/RollupStorageLayout.sol";
 
 interface IBridgeErrorCodes {
-    /// @dev Thrown when the caller is not the bridge authority.
-    /// @dev Functions used: sendMessage (authorized path), receiveMessage, receiveFailedMessage.
+    /// @dev Caller is not the configured bridge authority (trusted relayer path).
     error OnlyBridgeAuthority();
-    /// @dev Thrown when the caller is not the rollup contract.
-    /// @dev Functions used: popSentMessage.
+    /// @dev Caller is not the configured rollup contract.
     error OnlyRollupAuthority();
-    /// @dev Thrown when the rollup is not initialized (e.g. rollback on L2).
+    /// @dev Rollup address is unset where a rollup-backed operation is required.
     error OnlyWhenRollupInited();
-    /// @dev Thrown when the message has already been received (duplicate).
+    /// @dev Message hash has already been processed (duplicate receive or rollback).
     error MessageAlreadyReceived();
-    /// @dev Thrown when the message was received out of order (L2 receiveMessage nonce).
+    /// @dev Inbound message nonce does not match the expected sequential receivedNonce.
     error MessageReceivedOutOfOrder();
-    /// @dev Thrown when retrying a message that is not in Failed status.
+    /// @dev receiveFailedMessage was called for a hash that is not marked as Failed.
     error MessageNotFailed();
-    /// @dev Thrown when the destination is the bridge itself or otherBridge (forbidden).
+    /// @dev Target address is this bridge (self-call) when executing a message or rollback.
     error ForbiddenSelfCall();
-    /// @dev Thrown when receiving a message that was already rollbacked (chainId check).
+    /// @dev Receive-with-proof attempted on the same chain that originated the message.
     error ForbiddenReceiveRollbackedMessage();
-    /// @dev Thrown when executing rollback on the wrong chain.
+    /// @dev Rollback-with-proof attempted on the wrong chain for the encoded source chainId.
     error ForbiddenRollbackReceivedMessage();
+    /// @dev Encoded rollback data does not match the expected message hash.
     error RollbackMessageMismatch();
-    /// @dev Thrown when the batch is not approved or block proof is invalid.
+    /// @dev Rollup batch is not approved or supplied block proof is invalid.
     error InvalidBlockProof();
-    /// @dev Thrown when the withdrawal Merkle proof is invalid.
+    /// @dev Withdrawal Merkle proof does not prove the message hash under the batch root.
     error InvalidWithdrawalProof();
-    /// @dev Thrown when sendMessage destination is this contract or otherBridge.
+    /// @dev sendMessage destination is this bridge or the configured otherBridge, which is forbidden.
     error InvalidDestinationAddress();
-    /// @dev Thrown when the contract is paused.
+    /// @dev Operation is disallowed because the bridge is paused.
     error ContractPaused();
-    /// @dev Thrown when the address is zero.
+    /// @dev Zero address supplied for a required configuration field.
     error ZeroAddressNotAllowed(string field);
-    /// @dev Thrown when setting rollup to zero while the sent message queue is non-empty.
+    /// @dev Attempted to unset rollup while the outbound message queue is non-empty.
     error QueueNotEmpty();
+    /// @dev msg.value does not match the message's native value (receive: caller must supply value; rollback: must be 0).
+    error InvalidMessageValue(uint256 expected, uint256 provided);
+    /// @dev Bridge balance too low to execute rollback refund (locked native on source chain).
+    error InsufficientBridgeBalance(uint256 required);
+    /// @dev Zero value supplied for a required configuration field.
+    error ZeroValueNotAllowed(string field);
 }
 
 interface IFluentBridgeEvents {
@@ -77,8 +82,8 @@ interface IFluentBridgeEvents {
     /// @notice Emitted when the address of the L1 block oracle is updated.
     event L1BlockOracleUpdated(address indexed prevValue, address indexed newValue);
 
-    // Intentionally no duplicate BridgeContractUpdated event here; gateway-related bridge contract
-    // updates are modeled in `IGatewayEvents` to keep event ABIs unambiguous.
+    /// @notice Emitted when the number of L1 blocks after which a message becomes eligible for rollback is updated.
+    event ReceiveMessageDeadlineUpdated(uint256 indexed prevValue, uint256 indexed newValue);
 }
 
 interface IFluentBridge is IBridgeErrorCodes, IFluentBridgeEvents {
@@ -122,19 +127,7 @@ interface IFluentBridge is IBridgeErrorCodes, IFluentBridgeEvents {
     function l1BlockOracle() external view returns (address);
 
     /// @notice Returns the size of the sent message queue (L1; 0 on L2 when rollup is not set).
-    function getQueueSize() external view returns (uint256);
-
-    // ---------- Admin ----------
-
-    /// @notice Sets the address of the bridge contract on the other chain.
-    /// @param _otherBridge The address of the bridge on the other chain.
-    function setOtherBridge(address _otherBridge) external;
-
-    /// @notice Pauses the bridge (sendMessage, receive, rollback, etc. disabled). Only owner.
-    function pause() external;
-
-    /// @notice Unpauses the bridge. Only owner.
-    function unpause() external;
+    function sentMessageQueueSize() external view returns (uint256);
 
     // ---------- L1 queue (Rollup) ----------
 
@@ -243,22 +236,4 @@ interface IFluentBridge is IBridgeErrorCodes, IFluentBridgeEvents {
         uint256 _nonce,
         bytes calldata _message
     ) external payable;
-
-    /**
-     * @notice Sets the address of the bridge authority.
-     * @param _bridgeAuthority The address of the bridge authority.
-     */
-    function setBridgeAuthority(address _bridgeAuthority) external;
-
-    /**
-     * @notice Sets the address of the rollup contract.
-     * @param _rollup The address of the rollup contract.
-     */
-    function setRollup(address _rollup) external;
-
-    /**
-     * @notice Sets the address of the L1 block oracle.
-     * @param _l1BlockOracle The address of the L1 block oracle.
-     */
-    function setL1BlockOracle(address _l1BlockOracle) external;
 }

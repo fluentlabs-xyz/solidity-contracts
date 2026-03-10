@@ -99,7 +99,7 @@ contract ERC20RoundtripHappyPathTest is BaseDualFork {
         SentMessageData memory l1ToL2 = _findSentMessage(l1Logs, address(l1.bridge));
         assertEq(l1ToL2.sender, address(l1.gateway), "wrong L1 sender");
         assertEq(l1ToL2.to, address(l2.gateway), "wrong L1 destination");
-        assertEq(l1.bridge.getQueueSize(), 1, "L1 queue must contain one deposit");
+        assertEq(l1.bridge.sentMessageQueueSize(), 1, "L1 queue must contain one deposit");
 
         // Step 5: L2 bridge authority executes return message on destination gateway.
         _switchToL2();
@@ -133,7 +133,7 @@ contract ERC20RoundtripHappyPathTest is BaseDualFork {
 
         // Step 7: Verify final invariants for balances, queue state, and message status.
         assertEq(l1.rollup.nextBatchIndex(), 3, "unexpected nextBatchIndex");
-        assertEq(l1.bridge.getQueueSize(), 0, "L1 queue should be consumed after deposit validation");
+        assertEq(l1.bridge.sentMessageQueueSize(), 0, "L1 queue should be consumed after deposit validation");
         assertEq(l1PeggedToken.balanceOf(USER_B), 0, "L1 pegged token should be burned after return transfer");
 
         _switchToL2();

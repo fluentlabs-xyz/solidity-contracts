@@ -12,9 +12,7 @@ interface Vm {
     function envOr(string calldata name, bool defaultValue) external returns (bool);
     function envOr(string calldata name, string calldata defaultValue) external returns (string memory);
 
-    function serializeAddress(string calldata objectKey, string calldata valueKey, address value)
-        external
-        returns (string memory);
+    function serializeAddress(string calldata objectKey, string calldata valueKey, address value) external returns (string memory);
     function writeJson(string calldata json, string calldata path) external;
 }
 

@@ -18,19 +18,17 @@ contract BridgeAdminTest is MinimalTest {
 
     function setUp() public {
         Bridge bridgeImpl = new Bridge();
+        Bridge.InitConfiguration memory params = Bridge.InitConfiguration({
+            initialOwner: address(this),
+            bridgeAuthority: INITIAL_AUTHORITY,
+            rollup: INITIAL_ROLLUP,
+            receiveMessageDeadline: INITIAL_DEADLINE,
+            otherBridge: INITIAL_OTHER_BRIDGE,
+            l1BlockOracle: INITIAL_ORACLE
+        });
         ERC1967Proxy proxy = new ERC1967Proxy(
             address(bridgeImpl),
-            abi.encodeCall(
-                Bridge.initialize,
-                (
-                    address(this),
-                    INITIAL_AUTHORITY,
-                    INITIAL_ROLLUP,
-                    INITIAL_DEADLINE,
-                    INITIAL_OTHER_BRIDGE,
-                    INITIAL_ORACLE
-                )
-            )
+            abi.encodeCall(Bridge.initialize, (abi.encode(params)))
         );
         bridge = Bridge(payable(address(proxy)));
     }
@@ -71,29 +69,27 @@ contract BridgeAdminTest is MinimalTest {
         // QueueNotEmpty guard when unsetting rollup.
         vm.deal(address(this), 1 ether);
         bridge.sendMessage{value: 1}(address(0xDEAD), "");
-        assertEq(bridge.getQueueSize(), 1, "queue should contain one message before unsetting rollup");
+        assertEq(bridge.sentMessageQueueSize(), 1, "queue should contain one message before unsetting rollup");
 
         vm.expectRevert(bytes4(keccak256("QueueNotEmpty()")));
         bridge.setRollup(address(0));
 
         // When queue is empty, rollup can be set to zero.
         Bridge bridgeImpl2 = new Bridge();
+        Bridge.InitConfiguration memory params2 = Bridge.InitConfiguration({
+            initialOwner: address(this),
+            bridgeAuthority: INITIAL_AUTHORITY,
+            rollup: INITIAL_ROLLUP,
+            receiveMessageDeadline: INITIAL_DEADLINE,
+            otherBridge: INITIAL_OTHER_BRIDGE,
+            l1BlockOracle: INITIAL_ORACLE
+        });
         ERC1967Proxy proxy2 = new ERC1967Proxy(
             address(bridgeImpl2),
-            abi.encodeCall(
-                Bridge.initialize,
-                (
-                    address(this),
-                    INITIAL_AUTHORITY,
-                    INITIAL_ROLLUP,
-                    INITIAL_DEADLINE,
-                    INITIAL_OTHER_BRIDGE,
-                    INITIAL_ORACLE
-                )
-            )
+            abi.encodeCall(Bridge.initialize, (abi.encode(params2)))
         );
         Bridge freshBridge = Bridge(payable(address(proxy2)));
-        assertEq(freshBridge.getQueueSize(), 0, "fresh bridge queue should be empty");
+        assertEq(freshBridge.sentMessageQueueSize(), 0, "fresh bridge queue should be empty");
         freshBridge.setRollup(address(0));
         assertEq(freshBridge.rollup(), address(0), "fresh bridge rollup should be unset successfully");
     }

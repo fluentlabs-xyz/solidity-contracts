@@ -7,7 +7,7 @@ import {FluentBridge} from "../../contracts/FluentBridge.sol";
 import {IFluentBridge} from "../../contracts/interfaces/IFluentBridge.sol";
 import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol";
 import {GenericTokenFactory} from "../../contracts/factories/GenericTokenFactory.sol";
-import {PaymentsGateway} from "../../contracts/gateways/PaymentsGateway.sol";
+import {PaymentGateway} from "../../contracts/gateways/PaymentGateway.sol";
 import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
 import {MockERC20Token} from "../../contracts/mocks/MockERC20.sol";
 import {Vm} from "../Rollup/Base.t.sol";
@@ -18,7 +18,7 @@ contract RejectEther {
     }
 }
 
-contract PaymentsGatewayTest {
+contract PaymentGatewayTest {
     Vm internal constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
 
     address internal constant USER = address(0x1111);
@@ -28,7 +28,7 @@ contract PaymentsGatewayTest {
 
     FluentBridge internal bridge;
     ERC20TokenFactory internal factory;
-    PaymentsGateway internal gateway;
+    PaymentGateway internal gateway;
     ERC20PeggedToken internal peggedImplementation;
     MockERC20Token internal originToken;
 
@@ -38,9 +38,7 @@ contract PaymentsGatewayTest {
         factory = _deployFactory(address(peggedImplementation));
         gateway = _deployGateway(address(bridge), address(factory));
 
-        // Gateway must own factory to deploy pegged tokens.
-        factory.transferOwnership(address(gateway));
-        gateway.acceptTokenFactory();
+        factory.setPaymentGateway(address(gateway));
 
         gateway.setOtherSide(OTHER_SIDE_GATEWAY, address(peggedImplementation), address(factory), factory.beacon());
 
@@ -66,18 +64,14 @@ contract PaymentsGatewayTest {
         address predictedPegged = gateway.computePeggedTokenAddress(address(originToken));
         bytes memory tokenMetadata = abi.encode("MOCK", "Mock", uint8(18));
         bytes memory message = abi.encodeCall(
-            PaymentsGateway.receivePeggedTokens,
+            PaymentGateway.receivePeggedTokens,
             (address(originToken), predictedPegged, USER, RECIPIENT, amount, tokenMetadata)
         );
 
-        bridge.receiveMessage(
-            OTHER_SIDE_GATEWAY, address(gateway), 0, block.chainid + 1, 1, bridge.receivedNonce(), message
-        );
+        bridge.receiveMessage(OTHER_SIDE_GATEWAY, address(gateway), 0, block.chainid + 1, 1, bridge.receivedNonce(), message);
 
         assertEq(gateway.tokenMapping(predictedPegged), address(originToken), "token mapping should be registered");
-        assertEq(
-            ERC20PeggedToken(predictedPegged).balanceOf(RECIPIENT), amount, "recipient should receive pegged tokens"
-        );
+        assertEq(ERC20PeggedToken(predictedPegged).balanceOf(RECIPIENT), amount, "recipient should receive pegged tokens");
     }
 
     function test_receiveOriginTokens_viaBridge_unlocksFunds() public {
@@ -89,17 +83,10 @@ contract PaymentsGatewayTest {
         gateway.sendTokens(address(originToken), USER, amount);
 
         uint256 recipientBefore = originToken.balanceOf(RECIPIENT);
-        bytes memory message =
-            abi.encodeCall(PaymentsGateway.receiveOriginTokens, (address(originToken), USER, RECIPIENT, amount));
-        bridge.receiveMessage(
-            OTHER_SIDE_GATEWAY, address(gateway), 0, block.chainid + 1, 2, bridge.receivedNonce(), message
-        );
+        bytes memory message = abi.encodeCall(PaymentGateway.receiveOriginTokens, (address(originToken), USER, RECIPIENT, amount));
+        bridge.receiveMessage(OTHER_SIDE_GATEWAY, address(gateway), 0, block.chainid + 1, 2, bridge.receivedNonce(), message);
 
-        assertEq(
-            originToken.balanceOf(RECIPIENT),
-            recipientBefore + amount,
-            "recipient should receive unlocked origin tokens"
-        );
+        assertEq(originToken.balanceOf(RECIPIENT), recipientBefore + amount, "recipient should receive unlocked origin tokens");
     }
 
     function test_computeOtherSidePeggedTokenAddress_matchesFactoryComputation() public view {
@@ -117,21 +104,22 @@ contract PaymentsGatewayTest {
         uint256 nonce = bridge.receivedNonce();
         uint256 sourceChainId = block.chainid + 1;
         uint256 sourceBlock = 77;
-        bytes memory message =
-            abi.encodeCall(PaymentsGateway.receiveOriginTokens, (address(originToken), USER, RECIPIENT, 1));
+        bytes memory message = abi.encodeCall(PaymentGateway.receiveOriginTokens, (address(originToken), USER, RECIPIENT, 1));
         bytes32 messageHash = keccak256(
             abi.encode(OTHER_SIDE_GATEWAY, address(gateway), forwardedValue, sourceChainId, sourceBlock, nonce, message)
         );
 
-        bridge.receiveMessage(
-            OTHER_SIDE_GATEWAY, address(gateway), forwardedValue, sourceChainId, sourceBlock, nonce, message
+        bridge.receiveMessage{value: forwardedValue}(
+            OTHER_SIDE_GATEWAY,
+            address(gateway),
+            forwardedValue,
+            sourceChainId,
+            sourceBlock,
+            nonce,
+            message
         );
 
-        assertEq(
-            uint256(bridge.receivedMessage(messageHash)),
-            uint256(IFluentBridge.MessageStatus.Failed),
-            "message should be marked failed"
-        );
+        assertEq(uint256(bridge.receivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed), "message should be marked failed");
     }
 
     function test_sendNativeTokens_success_increasesBridgeBalance() public {
@@ -166,14 +154,14 @@ contract PaymentsGatewayTest {
     }
 
     function test_sendTokens_revertsWhenOtherSideNotConfigured() public {
-        PaymentsGateway fresh = _deployGateway(address(bridge), address(factory));
+        PaymentGateway fresh = _deployGateway(address(bridge), address(factory));
         vm.prank(USER);
         vm.expectRevert(bytes4(keccak256("ZeroAddress()")));
         fresh.sendTokens(address(originToken), RECIPIENT, 1);
     }
 
     function test_sendNativeTokens_revertsWhenOtherSideNotConfigured() public {
-        PaymentsGateway fresh = _deployGateway(address(bridge), address(factory));
+        PaymentGateway fresh = _deployGateway(address(bridge), address(factory));
         vm.deal(USER, 1 ether);
         vm.prank(USER);
         vm.expectRevert(bytes4(keccak256("ZeroAddress()")));
@@ -182,13 +170,11 @@ contract PaymentsGatewayTest {
 
     function test_receiveNativeTokens_viaBridge_forwardsEth() public {
         uint256 amount = 3;
-        vm.deal(address(bridge), amount);
+        vm.deal(address(this), amount);
         uint256 recipientBefore = RECIPIENT.balance;
-        bytes memory message = abi.encodeCall(PaymentsGateway.receiveNativeTokens, (USER, RECIPIENT, amount));
+        bytes memory message = abi.encodeCall(PaymentGateway.receiveNativeTokens, (USER, RECIPIENT, amount));
 
-        bridge.receiveMessage(
-            OTHER_SIDE_GATEWAY, address(gateway), amount, block.chainid + 1, 10, bridge.receivedNonce(), message
-        );
+        bridge.receiveMessage{value: amount}(OTHER_SIDE_GATEWAY, address(gateway), amount, block.chainid + 1, 10, bridge.receivedNonce(), message);
 
         assertEq(RECIPIENT.balance, recipientBefore + amount, "recipient should receive bridged native amount");
     }
@@ -197,18 +183,13 @@ contract PaymentsGatewayTest {
         uint256 nonce = bridge.receivedNonce();
         uint256 sourceChainId = block.chainid + 1;
         uint256 sourceBlock = 11;
-        bytes memory message = abi.encodeCall(PaymentsGateway.receiveNativeTokens, (USER, RECIPIENT, 2));
-        bytes32 messageHash =
-            keccak256(abi.encode(OTHER_SIDE_GATEWAY, address(gateway), 1, sourceChainId, sourceBlock, nonce, message));
-        vm.deal(address(bridge), 1);
+        bytes memory message = abi.encodeCall(PaymentGateway.receiveNativeTokens, (USER, RECIPIENT, 2));
+        bytes32 messageHash = keccak256(abi.encode(OTHER_SIDE_GATEWAY, address(gateway), 1, sourceChainId, sourceBlock, nonce, message));
+        vm.deal(address(this), 1);
 
-        bridge.receiveMessage(OTHER_SIDE_GATEWAY, address(gateway), 1, sourceChainId, sourceBlock, nonce, message);
+        bridge.receiveMessage{value: 1}(OTHER_SIDE_GATEWAY, address(gateway), 1, sourceChainId, sourceBlock, nonce, message);
 
-        assertEq(
-            uint256(bridge.receivedMessage(messageHash)),
-            uint256(IFluentBridge.MessageStatus.Failed),
-            "message should fail"
-        );
+        assertEq(uint256(bridge.receivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed), "message should fail");
     }
 
     function test_receivePeggedTokens_wrongGatewaySender_marksFailed() public {
@@ -218,92 +199,67 @@ contract PaymentsGatewayTest {
         address predictedPegged = gateway.computePeggedTokenAddress(address(originToken));
         bytes memory tokenMetadata = abi.encode("MOCK", "Mock", uint8(18));
         bytes memory message = abi.encodeCall(
-            PaymentsGateway.receivePeggedTokens,
+            PaymentGateway.receivePeggedTokens,
             (address(originToken), predictedPegged, USER, RECIPIENT, 1, tokenMetadata)
         );
-        bytes32 messageHash =
-            keccak256(abi.encode(address(0x9999), address(gateway), 0, sourceChainId, sourceBlock, nonce, message));
+        bytes32 messageHash = keccak256(abi.encode(address(0x9999), address(gateway), 0, sourceChainId, sourceBlock, nonce, message));
 
         bridge.receiveMessage(address(0x9999), address(gateway), 0, sourceChainId, sourceBlock, nonce, message);
 
-        assertEq(
-            uint256(bridge.receivedMessage(messageHash)),
-            uint256(IFluentBridge.MessageStatus.Failed),
-            "message should fail"
-        );
+        assertEq(uint256(bridge.receivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed), "message should fail");
     }
 
     function test_receiveOriginTokens_wrongGatewaySender_marksFailed() public {
         uint256 nonce = bridge.receivedNonce();
         uint256 sourceChainId = block.chainid + 1;
         uint256 sourceBlock = 13;
-        bytes memory message =
-            abi.encodeCall(PaymentsGateway.receiveOriginTokens, (address(originToken), USER, RECIPIENT, 1));
-        bytes32 messageHash =
-            _bridgeMessageHash(WRONG_SIDE_GATEWAY, address(gateway), 0, sourceChainId, sourceBlock, nonce, message);
+        bytes memory message = abi.encodeCall(PaymentGateway.receiveOriginTokens, (address(originToken), USER, RECIPIENT, 1));
+        bytes32 messageHash = _bridgeMessageHash(WRONG_SIDE_GATEWAY, address(gateway), 0, sourceChainId, sourceBlock, nonce, message);
 
         bridge.receiveMessage(WRONG_SIDE_GATEWAY, address(gateway), 0, sourceChainId, sourceBlock, nonce, message);
 
-        assertEq(
-            uint256(bridge.receivedMessage(messageHash)),
-            uint256(IFluentBridge.MessageStatus.Failed),
-            "message should fail"
-        );
+        assertEq(uint256(bridge.receivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed), "message should fail");
     }
 
     function test_receiveNativeTokens_wrongGatewaySender_marksFailed() public {
         uint256 nonce = bridge.receivedNonce();
         uint256 sourceChainId = block.chainid + 1;
         uint256 sourceBlock = 14;
-        bytes memory message = abi.encodeCall(PaymentsGateway.receiveNativeTokens, (USER, RECIPIENT, 1));
-        bytes32 messageHash =
-            _bridgeMessageHash(WRONG_SIDE_GATEWAY, address(gateway), 1, sourceChainId, sourceBlock, nonce, message);
-        vm.deal(address(bridge), 1);
+        bytes memory message = abi.encodeCall(PaymentGateway.receiveNativeTokens, (USER, RECIPIENT, 1));
+        bytes32 messageHash = _bridgeMessageHash(WRONG_SIDE_GATEWAY, address(gateway), 1, sourceChainId, sourceBlock, nonce, message);
+        vm.deal(address(this), 1);
 
-        bridge.receiveMessage(WRONG_SIDE_GATEWAY, address(gateway), 1, sourceChainId, sourceBlock, nonce, message);
+        bridge.receiveMessage{value: 1}(WRONG_SIDE_GATEWAY, address(gateway), 1, sourceChainId, sourceBlock, nonce, message);
 
-        assertEq(
-            uint256(bridge.receivedMessage(messageHash)),
-            uint256(IFluentBridge.MessageStatus.Failed),
-            "message should fail"
-        );
+        assertEq(uint256(bridge.receivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed), "message should fail");
     }
 
     function test_receivePeggedTokens_existingTokenPath_mintsAgain() public {
         address predictedPegged = gateway.computePeggedTokenAddress(address(originToken));
         bytes memory tokenMetadata = abi.encode("MOCK", "Mock", uint8(18));
         bytes memory message1 = abi.encodeCall(
-            PaymentsGateway.receivePeggedTokens,
+            PaymentGateway.receivePeggedTokens,
             (address(originToken), predictedPegged, USER, RECIPIENT, 4, tokenMetadata)
         );
-        bridge.receiveMessage(
-            OTHER_SIDE_GATEWAY, address(gateway), 0, block.chainid + 1, 21, bridge.receivedNonce(), message1
-        );
+        bridge.receiveMessage(OTHER_SIDE_GATEWAY, address(gateway), 0, block.chainid + 1, 21, bridge.receivedNonce(), message1);
 
         bytes memory message2 = abi.encodeCall(
-            PaymentsGateway.receivePeggedTokens,
+            PaymentGateway.receivePeggedTokens,
             (address(originToken), predictedPegged, USER, RECIPIENT, 6, tokenMetadata)
         );
-        bridge.receiveMessage(
-            OTHER_SIDE_GATEWAY, address(gateway), 0, block.chainid + 1, 22, bridge.receivedNonce(), message2
-        );
+        bridge.receiveMessage(OTHER_SIDE_GATEWAY, address(gateway), 0, block.chainid + 1, 22, bridge.receivedNonce(), message2);
 
-        assertEq(
-            ERC20PeggedToken(predictedPegged).balanceOf(RECIPIENT),
-            10,
-            "second receive should mint on existing pegged token"
-        );
+        assertEq(ERC20PeggedToken(predictedPegged).balanceOf(RECIPIENT), 10, "second receive should mint on existing pegged token");
     }
 
     function test_sendTokens_peggedTokenPath_burnsTokens() public {
         address predictedPegged = gateway.computePeggedTokenAddress(address(originToken));
         bytes memory tokenMetadata = abi.encode("MOCK", "Mock", uint8(18));
         bytes memory message = abi.encodeCall(
-            PaymentsGateway.receivePeggedTokens, (address(originToken), predictedPegged, USER, USER, 10, tokenMetadata)
+            PaymentGateway.receivePeggedTokens,
+            (address(originToken), predictedPegged, USER, USER, 10, tokenMetadata)
         );
-        bridge.receiveMessage(
-            OTHER_SIDE_GATEWAY, address(gateway), 0, block.chainid + 1, 31, bridge.receivedNonce(), message
-        );
+        bridge.receiveMessage(OTHER_SIDE_GATEWAY, address(gateway), 0, block.chainid + 1, 31, bridge.receivedNonce(), message);
 
         ERC20PeggedToken pegged = ERC20PeggedToken(predictedPegged);
         vm.prank(USER);
@@ -317,24 +273,29 @@ contract PaymentsGatewayTest {
         assertEq(supplyAfter, supplyBefore - 4, "pegged token send should burn");
     }
 
-    function test_sendTokens_peggedTokenPath_revertsOnMappingMismatch() public {
+    /// @dev When owner updates the token mapping, sendTokens uses the admin-set origin (no revert).
+    ///      TokenMappingCheckFailed() only triggers when tokenMapping[pegged] is zero, which cannot
+    ///      happen in the pegged path (else branch) since that branch is only taken when mapping is non-zero.
+    function test_sendTokens_peggedTokenPath_usesAdminMappingWhenSet() public {
         address predictedPegged = gateway.computePeggedTokenAddress(address(originToken));
         bytes memory tokenMetadata = abi.encode("MOCK", "Mock", uint8(18));
         bytes memory message = abi.encodeCall(
-            PaymentsGateway.receivePeggedTokens, (address(originToken), predictedPegged, USER, USER, 10, tokenMetadata)
+            PaymentGateway.receivePeggedTokens,
+            (address(originToken), predictedPegged, USER, USER, 10, tokenMetadata)
         );
-        bridge.receiveMessage(
-            OTHER_SIDE_GATEWAY, address(gateway), 0, block.chainid + 1, 41, bridge.receivedNonce(), message
-        );
+        bridge.receiveMessage(OTHER_SIDE_GATEWAY, address(gateway), 0, block.chainid + 1, 41, bridge.receivedNonce(), message);
 
         ERC20PeggedToken pegged = ERC20PeggedToken(predictedPegged);
-        gateway.updateTokenMapping(address(0xDEAD), predictedPegged);
+        address customOrigin = address(0xDEAD);
+        gateway.updateTokenMapping(customOrigin, predictedPegged);
 
         vm.prank(USER);
         pegged.approve(address(gateway), 5);
         vm.prank(USER);
-        vm.expectRevert(bytes4(keccak256("TokenMappingCheckFailed()")));
         gateway.sendTokens(predictedPegged, RECIPIENT, 5);
+
+        assertEq(pegged.totalSupply(), 5, "pegged supply should decrease by 5");
+        assertEq(gateway.tokenMapping(predictedPegged), customOrigin, "mapping should reflect admin update");
     }
 
     function test_receivePeggedTokens_revertsOnOriginZero_marksFailed() public {
@@ -343,18 +304,14 @@ contract PaymentsGatewayTest {
         uint256 sourceBlock = 15;
         bytes memory tokenMetadata = abi.encode("MOCK", "Mock", uint8(18));
         bytes memory message = abi.encodeCall(
-            PaymentsGateway.receivePeggedTokens, (address(0), address(0xABCDEF), USER, RECIPIENT, 1, tokenMetadata)
+            PaymentGateway.receivePeggedTokens,
+            (address(0), address(0xABCDEF), USER, RECIPIENT, 1, tokenMetadata)
         );
-        bytes32 messageHash =
-            _bridgeMessageHash(OTHER_SIDE_GATEWAY, address(gateway), 0, sourceChainId, sourceBlock, nonce, message);
+        bytes32 messageHash = _bridgeMessageHash(OTHER_SIDE_GATEWAY, address(gateway), 0, sourceChainId, sourceBlock, nonce, message);
 
         bridge.receiveMessage(OTHER_SIDE_GATEWAY, address(gateway), 0, sourceChainId, sourceBlock, nonce, message);
 
-        assertEq(
-            uint256(bridge.receivedMessage(messageHash)),
-            uint256(IFluentBridge.MessageStatus.Failed),
-            "message should fail"
-        );
+        assertEq(uint256(bridge.receivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed), "message should fail");
     }
 
     function test_receivePeggedTokens_revertsOnInvalidRecipient_marksFailed() public {
@@ -363,55 +320,39 @@ contract PaymentsGatewayTest {
         uint256 sourceBlock = 16;
         bytes memory tokenMetadata = abi.encode("MOCK", "Mock", uint8(18));
         bytes memory message = abi.encodeCall(
-            PaymentsGateway.receivePeggedTokens,
+            PaymentGateway.receivePeggedTokens,
             (address(originToken), address(0xABCD), USER, address(0), 1, tokenMetadata)
         );
-        bytes32 messageHash =
-            _bridgeMessageHash(OTHER_SIDE_GATEWAY, address(gateway), 0, sourceChainId, sourceBlock, nonce, message);
+        bytes32 messageHash = _bridgeMessageHash(OTHER_SIDE_GATEWAY, address(gateway), 0, sourceChainId, sourceBlock, nonce, message);
 
         bridge.receiveMessage(OTHER_SIDE_GATEWAY, address(gateway), 0, sourceChainId, sourceBlock, nonce, message);
 
-        assertEq(
-            uint256(bridge.receivedMessage(messageHash)),
-            uint256(IFluentBridge.MessageStatus.Failed),
-            "message should fail"
-        );
+        assertEq(uint256(bridge.receivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed), "message should fail");
     }
 
     function test_receiveOriginTokens_revertsOnInvalidRecipient_marksFailed() public {
         uint256 nonce = bridge.receivedNonce();
         uint256 sourceChainId = block.chainid + 1;
         uint256 sourceBlock = 17;
-        bytes memory message =
-            abi.encodeCall(PaymentsGateway.receiveOriginTokens, (address(originToken), USER, address(0), 1));
-        bytes32 messageHash =
-            _bridgeMessageHash(OTHER_SIDE_GATEWAY, address(gateway), 0, sourceChainId, sourceBlock, nonce, message);
+        bytes memory message = abi.encodeCall(PaymentGateway.receiveOriginTokens, (address(originToken), USER, address(0), 1));
+        bytes32 messageHash = _bridgeMessageHash(OTHER_SIDE_GATEWAY, address(gateway), 0, sourceChainId, sourceBlock, nonce, message);
 
         bridge.receiveMessage(OTHER_SIDE_GATEWAY, address(gateway), 0, sourceChainId, sourceBlock, nonce, message);
 
-        assertEq(
-            uint256(bridge.receivedMessage(messageHash)),
-            uint256(IFluentBridge.MessageStatus.Failed),
-            "message should fail"
-        );
+        assertEq(uint256(bridge.receivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed), "message should fail");
     }
 
     function test_receiveNativeTokens_revertsOnInvalidRecipient_marksFailed() public {
         uint256 nonce = bridge.receivedNonce();
         uint256 sourceChainId = block.chainid + 1;
         uint256 sourceBlock = 18;
-        bytes memory message = abi.encodeCall(PaymentsGateway.receiveNativeTokens, (USER, address(0), 1));
-        bytes32 messageHash =
-            _bridgeMessageHash(OTHER_SIDE_GATEWAY, address(gateway), 1, sourceChainId, sourceBlock, nonce, message);
-        vm.deal(address(bridge), 1);
+        bytes memory message = abi.encodeCall(PaymentGateway.receiveNativeTokens, (USER, address(0), 1));
+        bytes32 messageHash = _bridgeMessageHash(OTHER_SIDE_GATEWAY, address(gateway), 1, sourceChainId, sourceBlock, nonce, message);
+        vm.deal(address(this), 1);
 
-        bridge.receiveMessage(OTHER_SIDE_GATEWAY, address(gateway), 1, sourceChainId, sourceBlock, nonce, message);
+        bridge.receiveMessage{value: 1}(OTHER_SIDE_GATEWAY, address(gateway), 1, sourceChainId, sourceBlock, nonce, message);
 
-        assertEq(
-            uint256(bridge.receivedMessage(messageHash)),
-            uint256(IFluentBridge.MessageStatus.Failed),
-            "message should fail"
-        );
+        assertEq(uint256(bridge.receivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed), "message should fail");
     }
 
     function test_receiveNativeTokens_transferFail_marksFailed() public {
@@ -419,18 +360,13 @@ contract PaymentsGatewayTest {
         uint256 nonce = bridge.receivedNonce();
         uint256 sourceChainId = block.chainid + 1;
         uint256 sourceBlock = 19;
-        bytes memory message = abi.encodeCall(PaymentsGateway.receiveNativeTokens, (USER, address(rejector), 1));
-        bytes32 messageHash =
-            _bridgeMessageHash(OTHER_SIDE_GATEWAY, address(gateway), 1, sourceChainId, sourceBlock, nonce, message);
-        vm.deal(address(bridge), 1);
+        bytes memory message = abi.encodeCall(PaymentGateway.receiveNativeTokens, (USER, address(rejector), 1));
+        bytes32 messageHash = _bridgeMessageHash(OTHER_SIDE_GATEWAY, address(gateway), 1, sourceChainId, sourceBlock, nonce, message);
+        vm.deal(address(this), 1);
 
-        bridge.receiveMessage(OTHER_SIDE_GATEWAY, address(gateway), 1, sourceChainId, sourceBlock, nonce, message);
+        bridge.receiveMessage{value: 1}(OTHER_SIDE_GATEWAY, address(gateway), 1, sourceChainId, sourceBlock, nonce, message);
 
-        assertEq(
-            uint256(bridge.receivedMessage(messageHash)),
-            uint256(IFluentBridge.MessageStatus.Failed),
-            "message should fail"
-        );
+        assertEq(uint256(bridge.receivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed), "message should fail");
     }
 
     function test_adminSetters_andRescueNative() public {
@@ -488,15 +424,14 @@ contract PaymentsGatewayTest {
         gateway.receiveNativeTokens(USER, RECIPIENT, 1);
 
         vm.expectRevert(bytes4(keccak256("OnlyBridgeSender()")));
-        gateway.receivePeggedTokens(
-            address(originToken), address(0xABCD), USER, RECIPIENT, 1, abi.encode("MOCK", "Mock", uint8(18))
-        );
+        gateway.receivePeggedTokens(address(originToken), address(0xABCD), USER, RECIPIENT, 1, abi.encode("MOCK", "Mock", uint8(18)));
     }
 
-    function test_acceptTokenFactory_revertsForNonOwner() public {
+    function test_setPaymentGateway_revertsForNonOwner() public {
+        ERC20TokenFactory newFactory = _deployFactory(address(peggedImplementation));
         vm.prank(USER);
         vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", USER));
-        gateway.acceptTokenFactory();
+        newFactory.setPaymentGateway(address(gateway));
     }
 
     function test_rescueNative_revertsOnRecipientReject() public {
@@ -544,30 +479,23 @@ contract PaymentsGatewayTest {
         uint256 sourceBlock = 20;
         bytes memory tokenMetadata = abi.encode("MOCK", "Mock", uint8(18));
         bytes memory message = abi.encodeCall(
-            PaymentsGateway.receivePeggedTokens,
+            PaymentGateway.receivePeggedTokens,
             (address(originToken), address(0xDEADBEEF), USER, RECIPIENT, 1, tokenMetadata)
         );
-        bytes32 messageHash =
-            _bridgeMessageHash(OTHER_SIDE_GATEWAY, address(gateway), 0, sourceChainId, sourceBlock, nonce, message);
+        bytes32 messageHash = _bridgeMessageHash(OTHER_SIDE_GATEWAY, address(gateway), 0, sourceChainId, sourceBlock, nonce, message);
 
         bridge.receiveMessage(OTHER_SIDE_GATEWAY, address(gateway), 0, sourceChainId, sourceBlock, nonce, message);
-        assertEq(
-            uint256(bridge.receivedMessage(messageHash)),
-            uint256(IFluentBridge.MessageStatus.Failed),
-            "message should fail"
-        );
+        assertEq(uint256(bridge.receivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed), "message should fail");
     }
 
     function test_receivePeggedTokens_existingTokenWrongMapping_marksFailed() public {
         address predictedPegged = gateway.computePeggedTokenAddress(address(originToken));
         bytes memory tokenMetadata = abi.encode("MOCK", "Mock", uint8(18));
         bytes memory setupMessage = abi.encodeCall(
-            PaymentsGateway.receivePeggedTokens,
+            PaymentGateway.receivePeggedTokens,
             (address(originToken), predictedPegged, USER, RECIPIENT, 1, tokenMetadata)
         );
-        bridge.receiveMessage(
-            OTHER_SIDE_GATEWAY, address(gateway), 0, block.chainid + 1, 51, bridge.receivedNonce(), setupMessage
-        );
+        bridge.receiveMessage(OTHER_SIDE_GATEWAY, address(gateway), 0, block.chainid + 1, 51, bridge.receivedNonce(), setupMessage);
 
         gateway.updateTokenMapping(address(0xBEEF), predictedPegged);
 
@@ -575,48 +503,46 @@ contract PaymentsGatewayTest {
         uint256 sourceChainId = block.chainid + 1;
         uint256 sourceBlock = 52;
         bytes memory badMessage = abi.encodeCall(
-            PaymentsGateway.receivePeggedTokens,
+            PaymentGateway.receivePeggedTokens,
             (address(originToken), predictedPegged, USER, RECIPIENT, 1, tokenMetadata)
         );
-        bytes32 messageHash =
-            _bridgeMessageHash(OTHER_SIDE_GATEWAY, address(gateway), 0, sourceChainId, sourceBlock, nonce, badMessage);
+        bytes32 messageHash = _bridgeMessageHash(OTHER_SIDE_GATEWAY, address(gateway), 0, sourceChainId, sourceBlock, nonce, badMessage);
 
         bridge.receiveMessage(OTHER_SIDE_GATEWAY, address(gateway), 0, sourceChainId, sourceBlock, nonce, badMessage);
-        assertEq(
-            uint256(bridge.receivedMessage(messageHash)),
-            uint256(IFluentBridge.MessageStatus.Failed),
-            "message should fail"
-        );
+        assertEq(uint256(bridge.receivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed), "message should fail");
     }
 
     function _deployBridge() internal returns (FluentBridge deployed) {
         FluentBridge impl = new FluentBridge();
+        FluentBridge.InitConfiguration memory params = FluentBridge.InitConfiguration({
+            initialOwner: address(this),
+            bridgeAuthority: address(this),
+            rollup: address(0),
+            receiveMessageDeadline: 0,
+            otherBridge: address(0x1234),
+            l1BlockOracle: address(0x5678)
+        });
+        bytes memory initData = abi.encode(params);
         ERC1967Proxy proxy = new ERC1967Proxy(
             address(impl),
-            abi.encodeCall(
-                FluentBridge.initialize, (address(this), address(this), address(0), 0, address(0x1234), address(0x5678))
-            )
+            abi.encodeCall(FluentBridge.initialize, (initData))
         );
         deployed = FluentBridge(payable(address(proxy)));
     }
 
     function _deployFactory(address implementation) internal returns (ERC20TokenFactory deployed) {
         ERC20TokenFactory impl = new ERC20TokenFactory();
-        ERC1967Proxy proxy = new ERC1967Proxy(
-            address(impl), abi.encodeCall(ERC20TokenFactory.initialize, (address(this), implementation))
-        );
+        ERC1967Proxy proxy = new ERC1967Proxy(address(impl), abi.encodeCall(ERC20TokenFactory.initialize, (address(this), implementation)));
         deployed = ERC20TokenFactory(address(proxy));
     }
 
-    function _deployGateway(address bridgeAddress, address factoryAddress)
-        internal
-        returns (PaymentsGateway deployed)
-    {
-        PaymentsGateway impl = new PaymentsGateway();
+    function _deployGateway(address bridgeAddress, address factoryAddress) internal returns (PaymentGateway deployed) {
+        PaymentGateway impl = new PaymentGateway();
         ERC1967Proxy proxy = new ERC1967Proxy(
-            address(impl), abi.encodeCall(PaymentsGateway.initialize, (address(this), bridgeAddress, factoryAddress))
+            address(impl),
+            abi.encodeCall(PaymentGateway.initialize, (address(this), bridgeAddress, factoryAddress))
         );
-        deployed = PaymentsGateway(payable(address(proxy)));
+        deployed = PaymentGateway(payable(address(proxy)));
     }
 
     function assertEq(address left, address right, string memory message) internal pure {

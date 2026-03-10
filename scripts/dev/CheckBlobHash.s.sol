@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {BaseScript} from "./Base.sol";
-import {BlobHashMock} from "../contracts/mocks/BlobHashMock.sol";
+import {BaseScript} from "../Base.sol";
+import {BlobHashMock} from "../../contracts/mocks/BlobHashMock.sol";
 
 /// @notice Calls BlobHashMock.CheckBlobHash with a provided commitment to emit the blob/hash pair.
 /// @dev Environment:
@@ -25,4 +25,3 @@ contract CheckBlobHash is BaseScript {
         emit Checked(commitment);
     }
 }
-

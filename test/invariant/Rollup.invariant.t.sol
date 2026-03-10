@@ -20,9 +20,17 @@ contract RollupInvariantTest is MinimalTest {
 
         verifierMock = new VerifierMock();
         Bridge bridgeImpl = new Bridge();
+        Bridge.InitConfiguration memory bridgeParams = Bridge.InitConfiguration({
+            initialOwner: address(this),
+            bridgeAuthority: address(this),
+            rollup: address(0),
+            receiveMessageDeadline: 0,
+            otherBridge: address(0x1111),
+            l1BlockOracle: address(0x2222)
+        });
         ERC1967Proxy bridgeProxy = new ERC1967Proxy(
             address(bridgeImpl),
-            abi.encodeCall(Bridge.initialize, (address(this), address(this), address(0), 0, address(0x1111), address(0x2222)))
+            abi.encodeCall(Bridge.initialize, (abi.encode(bridgeParams)))
         );
         bridge = Bridge(payable(address(bridgeProxy)));
         Rollup rollupImpl = new Rollup();
