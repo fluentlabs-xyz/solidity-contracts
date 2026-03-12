@@ -29,6 +29,8 @@ contract DeployRollup is BaseScript {
         params.incentiveFee = vm.envOr("ROLLUP_INCENTIVE_FEE", uint256(0.001 ether));
         params.challenger = vm.envOr("ROLLUP_CHALLENGER", address(0));
         params.prover = vm.envOr("ROLLUP_PROVER", address(0));
+        params.nitroVerifier = vm.envOr("ROLLUP_NITRO_VERIFIER", address(0));
+        params.preconfirmationRole = vm.envOr("ROLLUP_PRECONFIRMATION_ROLE", address(0));
 
         string memory outputPath = vm.envOr("ROLLUP_OUTPUT_PATH", string(""));
 

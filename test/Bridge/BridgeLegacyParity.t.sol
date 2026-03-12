@@ -56,7 +56,9 @@ contract BridgeLegacyParityTest is RollupBase {
             acceptDepositDeadline: 10,
             incentiveFee: 0,
             challenger: address(0),
-            prover: address(0)
+            prover: address(0),
+            nitroVerifier: address(0),
+            preconfirmationRole: address(0)
         });
         ERC1967Proxy rollupProxy = new ERC1967Proxy(
             address(rollupImpl),
@@ -113,10 +115,10 @@ contract BridgeLegacyParityTest is RollupBase {
         assertEq(bridge.sentMessageQueueSize(), 0, "queue should be consumed");
     }
 
-    function test_receiveMessage_marksSuccessAndRejectsOutOfOrderNonce() public {
+    function test_receiveMessage_marksSuccessAndRejectsDuplicateMessage() public {
         vm.deal(address(this), 1 ether);
 
-        uint256 nonce = bridge.receivedNonce();
+        uint256 nonce = 0;
         uint256 receiverBalanceBefore = RECEIVER.balance;
         uint256 sourceChainId = block.chainid + 1;
         uint256 sourceBlock = 10;
@@ -133,7 +135,7 @@ contract BridgeLegacyParityTest is RollupBase {
             "message should be successful"
         );
 
-        vm.expectRevert(bytes4(keccak256("MessageReceivedOutOfOrder()")));
+        vm.expectRevert(bytes4(keccak256("MessageAlreadyReceived()")));
         bridge.receiveMessage{value: 200}(DESTINATION, RECEIVER, 200, sourceChainId, sourceBlock, nonce, "");
     }
 

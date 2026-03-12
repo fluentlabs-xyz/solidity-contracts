@@ -78,6 +78,7 @@ contract FluentBridge is
         address otherBridge;
         mapping(bytes32 => MessageStatus) receivedMessage;
         mapping(bytes32 => MessageStatus) rollbackMessage;
+        /// @dev deposit queue
         Queue.QueueStorage sentMessageQueue;
         address bridgeAuthority;
         address rollup;
@@ -146,7 +147,7 @@ contract FluentBridge is
         uint256 messageNonce = _takeNextNonce();
         bytes32 messageHash = keccak256(_encodeMessage(from, to, value, block.chainid, block.number, messageNonce, message));
 
-        /// @custom:todo remove 'if' later on when rollup is always initialized
+        /// @custom:todo remove 'if' later on when rollup is always initialized!!!!!!
         if (rollup() != address(0)) Queue.enqueue(_getFluentBridgeStorage().sentMessageQueue, messageHash);
 
         emit SentMessage(from, to, value, block.chainid, block.number, messageNonce, messageHash, message);
@@ -194,9 +195,11 @@ contract FluentBridge is
         MerkleTree.MerkleProof calldata blockProof
     ) external payable nonReentrant whenNotPaused {
         require(rollup() != address(0), OnlyWhenRollupInited());
+
         // _chainId is the source chain id encoded at send time; it must differ from destination chain id here.
         require(chainId != block.chainid, ForbiddenRollbackReceivedMessage());
         require(msg.value == 0, InvalidMessageValue(0, msg.value));
+
         if (value > 0) require(address(this).balance >= value, InsufficientBridgeBalance(value));
         require(Rollup(rollup()).ensureBatchApproved(batchIndex), InvalidBlockProof());
 
@@ -217,9 +220,6 @@ contract FluentBridge is
         uint256 messageNonce,
         bytes calldata message
     ) external payable onlyBridgeAuthority nonReentrant whenNotPaused {
-        require(msg.value == value, InvalidMessageValue(value, msg.value));
-        require(messageNonce == _takeNextReceivedNonce(), MessageReceivedOutOfOrder());
-
         bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, blockNumber, messageNonce, message));
         require(receivedMessage(messageHash) == MessageStatus.None, MessageAlreadyReceived());
 
@@ -236,7 +236,6 @@ contract FluentBridge is
         uint256 messageNonce,
         bytes calldata message
     ) external payable onlyBridgeAuthority nonReentrant whenNotPaused {
-        require(msg.value == value, InvalidMessageValue(value, msg.value));
         bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, blockNumber, messageNonce, message));
         require(receivedMessage(messageHash) == MessageStatus.Failed, MessageNotFailed());
 
@@ -255,9 +254,10 @@ contract FluentBridge is
         bytes calldata _message,
         bytes32 _messageHash
     ) internal {
-        require(_to != address(this), ForbiddenSelfCall());
-
         FluentBridgeStorage storage $ = _getFluentBridgeStorage();
+
+        require(_to != address(this), ForbiddenSelfCall());
+        /// @dev L2 related logic
         if ($.receiveMessageDeadline != 0) {
             if ($.l1BlockOracle == address(0)) {
                 emit RollbackMessage(_messageHash, block.number);
@@ -272,6 +272,15 @@ contract FluentBridge is
                 }
             }
         }
+
+        // if ($.receiveMessageDeadline != 0) {
+        //     uint256 l1BlockNumber = IL1BlockOracle($.l1BlockOracle).getL1BlockNumber();
+        //     if (_blockNumber + $.receiveMessageDeadline < l1BlockNumber) {
+        //         emit RollbackMessage(_messageHash, block.number);
+        //         emit ReceivedMessage(_messageHash, true, "");
+        //         return;
+        //     }
+        // }
 
         $.nativeSender = _from;
         (bool success, bytes memory data) = ExcessivelySafeCall.excessivelySafeCall(_to, _value, _message);
@@ -311,8 +320,8 @@ contract FluentBridge is
                 abi.encodePacked(
                     _commitmentBatch.previousBlockHash,
                     _commitmentBatch.blockHash,
-                    _commitmentBatch.withdrawalHash,
-                    _commitmentBatch.depositHash
+                    _commitmentBatch.sentMessageRoot,
+                    _commitmentBatch.receivedMessageRoot
                 )
             ),
             _blockProof.nonce,
@@ -321,7 +330,7 @@ contract FluentBridge is
         require(blockValid, InvalidBlockProof());
 
         bool withdrawalValid = MerkleTree.verifyMerkleProof(
-            _commitmentBatch.withdrawalHash,
+            _commitmentBatch.sentMessageRoot,
             _messageHash,
             _withdrawalProof.nonce,
             _withdrawalProof.proof
@@ -404,13 +413,12 @@ contract FluentBridge is
     /// @inheritdoc IFluentBridge
     function sentMessageQueueSize() public view returns (uint256) {
         FluentBridgeStorage storage $ = _getFluentBridgeStorage();
-        if ($.rollup != address(0)) return Queue.size($.sentMessageQueue);
-        return 0;
+        return Queue.size($.sentMessageQueue);
     }
 
     /// @inheritdoc IFluentBridge
     function popSentMessage() public onlyRollup returns (bytes32) {
-        return Queue.dequeue(_getFluentBridgeStorage().sentMessageQueue);
+        return Queue.dequeue(_getFluentBridgeStorage().sentMessageQueue).value;
     }
 
     // ============ Pauser functions ============

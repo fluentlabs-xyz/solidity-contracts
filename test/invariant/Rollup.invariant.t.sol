@@ -49,7 +49,9 @@ contract RollupInvariantTest is MinimalTest {
             acceptDepositDeadline: 100,
             incentiveFee: 0,
             challenger: address(0),
-            prover: address(0)
+            prover: address(0),
+            nitroVerifier: address(0),
+            preconfirmationRole: address(0)
         });
 
         ERC1967Proxy rollupProxy = new ERC1967Proxy(address(rollupImpl), abi.encodeCall(Rollup.initialize, (abi.encode(initParams))));

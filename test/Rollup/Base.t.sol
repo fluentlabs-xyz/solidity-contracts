@@ -153,7 +153,9 @@ abstract contract RollupBase is MinimalTest {
                 acceptDepositDeadline: acceptDepositDeadline_,
                 incentiveFee: incentiveFee_,
                 challenger: CHALLENGER,
-                prover: PROOF_PROVIDER
+                prover: PROOF_PROVIDER,
+                nitroVerifier: address(0),
+                preconfirmationRole: address(0)
             })
         );
         rollup.setDaCheck(false);
@@ -184,7 +186,9 @@ abstract contract RollupBase is MinimalTest {
                 acceptDepositDeadline: acceptDepositDeadline_,
                 incentiveFee: incentiveFee_,
                 challenger: CHALLENGER,
-                prover: PROOF_PROVIDER
+                prover: PROOF_PROVIDER,
+                nitroVerifier: address(0),
+                preconfirmationRole: address(0)
             })
         );
         bridge = _deployBridge(address(this), address(this), address(rollup), 0, address(0x1111), address(0x2222));
@@ -211,7 +215,9 @@ abstract contract RollupBase is MinimalTest {
                 acceptDepositDeadline: 10,
                 incentiveFee: 1000,
                 challenger: CHALLENGER,
-                prover: PROOF_PROVIDER
+                prover: PROOF_PROVIDER,
+                nitroVerifier: address(0),
+                preconfirmationRole: address(0)
             })
         );
         rollup.setDaCheck(false);
@@ -234,6 +240,14 @@ abstract contract RollupBase is MinimalTest {
     function _commitmentHash(RollupStorageLayout.BlockCommitment memory commitment) internal pure returns (bytes32) {
         return
             keccak256(abi.encodePacked(commitment.previousBlockHash, commitment.blockHash, commitment.withdrawalHash, commitment.depositHash));
+    }
+
+    function _buildLinkedBatch(bytes32 prevHash) internal pure returns (RollupStorageLayout.BlockCommitment[] memory batch) {
+        batch = new RollupStorageLayout.BlockCommitment[](2);
+        bytes32 blockHash1 = keccak256("accept-batch-1");
+        bytes32 blockHash2 = keccak256("accept-batch-2");
+        batch[0] = _buildCommitment(prevHash, blockHash1, ZERO_HASH, ZERO_HASH);
+        batch[1] = _buildCommitment(blockHash1, blockHash2, ZERO_HASH, ZERO_HASH);
     }
 
     function _proofForSingleLeaf() internal pure returns (MerkleTree.MerkleProof memory) {

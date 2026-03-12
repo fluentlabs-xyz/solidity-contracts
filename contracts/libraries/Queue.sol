@@ -2,8 +2,13 @@
 pragma solidity ^0.8.30;
 
 library Queue {
+    struct QueueItem {
+        bytes32 value;
+        uint256 blockNumber;
+    }
+
     struct QueueStorage {
-        mapping(uint256 => bytes32) data;
+        mapping(uint256 => QueueItem) data;
         uint256 front;
         uint256 back;
     }
@@ -14,19 +19,19 @@ library Queue {
     }
 
     function enqueue(QueueStorage storage self, bytes32 value) internal {
-        self.data[self.back] = value;
+        self.data[self.back] = QueueItem(value, block.number);
         self.back++;
     }
 
-    function dequeue(QueueStorage storage self) internal returns (bytes32) {
+    function dequeue(QueueStorage storage self) internal returns (QueueItem memory) {
         require(!isEmpty(self), "Queue is empty");
-        bytes32 value = self.data[self.front];
+        QueueItem memory item = self.data[self.front];
         delete self.data[self.front];
         self.front++;
-        return value;
+        return item;
     }
 
-    function peek(QueueStorage storage self) internal view returns (bytes32) {
+    function peek(QueueStorage storage self) internal view returns (QueueItem memory) {
         require(!isEmpty(self), "Queue is empty");
         return self.data[self.front];
     }
