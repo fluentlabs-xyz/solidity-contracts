@@ -73,7 +73,7 @@ contract RollupStorageLayout is
         uint32 batchSize;
         bool daCheck;
         mapping(uint256 => bytes32) lastBlockHashInBatch;
-        mapping(uint256 => bytes32) acceptedBatchHash;
+        mapping(uint256 => bytes32) acceptedBatchRoot;
         mapping(uint256 => uint256) acceptedBlock;
         mapping(bytes32 => bool) provenBlockCommitment;
         /// @dev commitment hash -> challenger -> challenge deposit
@@ -81,17 +81,17 @@ contract RollupStorageLayout is
         mapping(address => uint256) challengerReadyForWithdrawal;
         mapping(address => uint256) proverReadyForWithdrawal;
         mapping(bytes32 => address) blockCommitmentChallenger;
-        mapping(bytes32 => uint256) challengeDeadline;
+        // Challenge queue implemented as a min-heap based on challenge deadline for efficient retrieval of the earliest challenged batch.
         Heap.HeapStorage challengeQueue;
+        mapping(bytes32 => uint256) challengeDeadline;
         /// @dev commitment hash -> batch index (priority in min-heap)
         mapping(bytes32 => uint256) challengeBatchIndex;
         mapping(bytes32 => uint256) commitmentQueueIndex;
         mapping(uint256 => bytes32[]) batchBlobHashes;
         mapping(uint256 => bytes32[]) batchChallengedCommitments;
-        mapping(uint256 => bytes32[]) provenCommitmentInBatch;
+        mapping(uint256 => bytes32[]) batchProvenCommitments;
         mapping(uint256 => BatchStatus) batchStatus;
         mapping(uint256 => bool) batchChallenged;
-        mapping(uint256 => bool) batchWasPreConfirmedBeforeChallenge;
         mapping(address => bool) enabledNitroVerifiers;
         /**
          * @dev commitment hash -> challenge
@@ -156,7 +156,7 @@ contract RollupStorageLayout is
     function __initRollupStorage(bytes memory data) internal {
         RollupStorage storage $ = _getRollupStorage();
 
-        (InitConfiguration memory params) = abi.decode(data, (InitConfiguration));
+        InitConfiguration memory params = abi.decode(data, (InitConfiguration));
 
         require(params.admin != address(0), ZeroAddressNotAllowed("admin"));
         require(params.sp1Verifier != address(0), ZeroAddressNotAllowed("sp1Verifier"));
@@ -245,8 +245,8 @@ contract RollupStorageLayout is
         return uint256(_getRollupStorage().acceptDepositDeadline);
     }
 
-    function acceptedBatchHash(uint256 batchIndex) public view returns (bytes32) {
-        return _getRollupStorage().acceptedBatchHash[batchIndex];
+    function acceptedBatchRoot(uint256 batchIndex) public view returns (bytes32) {
+        return _getRollupStorage().acceptedBatchRoot[batchIndex];
     }
 
     function alreadyApprovedBatch(uint256 batchIndex) public view returns (bool) {
@@ -293,16 +293,12 @@ contract RollupStorageLayout is
         return _getRollupStorage().batchChallengedCommitments[batchIndex];
     }
 
-    function provenCommitmentInBatch(uint256 batchIndex) public view returns (bytes32[] memory) {
-        return _getRollupStorage().provenCommitmentInBatch[batchIndex];
+    function batchProvenCommitments(uint256 batchIndex) public view returns (bytes32[] memory) {
+        return _getRollupStorage().batchProvenCommitments[batchIndex];
     }
 
     function batchStatus(uint256 batchIndex) public view returns (BatchStatus) {
         return _getRollupStorage().batchStatus[batchIndex];
-    }
-
-    function batchWasPreConfirmedBeforeChallenge(uint256 batchIndex) public view returns (bool) {
-        return _getRollupStorage().batchWasPreConfirmedBeforeChallenge[batchIndex];
     }
 
     /**

@@ -123,7 +123,7 @@ contract FluentBridge is
      * * - l1BlockOracle: Address for L1 block number lookups
      */
     function initialize(bytes calldata data) external initializer {
-        (InitConfiguration memory params) = abi.decode(data, (InitConfiguration));
+        InitConfiguration memory params = abi.decode(data, (InitConfiguration));
 
         /// the requirement of initialOwner not being address(0) exists in the __Ownable_init()
         __Ownable_init(params.initialOwner);
@@ -168,7 +168,8 @@ contract FluentBridge is
         MerkleTree.MerkleProof calldata blockProof
     ) external payable nonReentrant whenNotPaused {
         require(rollup() != address(0), OnlyWhenRollupInited());
-        require(Rollup(rollup()).ensureBatchApproved(batchIndex), InvalidBlockProof());
+        // False positive: nonReentrant guard prevents re-entry; rollup is a trusted admin-set contract
+        require(Rollup(rollup()).ensureBatchFinalized(batchIndex), InvalidBlockProof()); // wake-disable-line reentrancy
         // _chainId is the source chain id encoded at send time; it must differ from destination chain id here.
         require(chainId != block.chainid, ForbiddenReceiveRollbackedMessage());
         require(msg.value == value, InvalidMessageValue(value, msg.value));
@@ -201,7 +202,8 @@ contract FluentBridge is
         require(msg.value == 0, InvalidMessageValue(0, msg.value));
 
         if (value > 0) require(address(this).balance >= value, InsufficientBridgeBalance(value));
-        require(Rollup(rollup()).ensureBatchApproved(batchIndex), InvalidBlockProof());
+        // False positive: nonReentrant guard prevents re-entry; rollup is a trusted admin-set contract
+        require(Rollup(rollup()).ensureBatchFinalized(batchIndex), InvalidBlockProof()); // wake-disable-line reentrancy
 
         bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, blockNumber, messageNonce, message));
         require(receivedMessage(messageHash) == MessageStatus.None, MessageAlreadyReceived());
@@ -315,7 +317,7 @@ contract FluentBridge is
         bytes32 _messageHash
     ) internal view {
         bool blockValid = MerkleTree.verifyMerkleProof(
-            Rollup(rollup()).acceptedBatchHash(_batchIndex),
+            Rollup(rollup()).acceptedBatchRoot(_batchIndex),
             keccak256(
                 abi.encodePacked(
                     _commitmentBatch.previousBlockHash,
@@ -417,8 +419,9 @@ contract FluentBridge is
     }
 
     /// @inheritdoc IFluentBridge
-    function popSentMessage() public onlyRollup returns (bytes32) {
-        return Queue.dequeue(_getFluentBridgeStorage().sentMessageQueue).value;
+    function popSentMessage() public onlyRollup returns (bytes32, uint256) {
+        Queue.QueueItem memory item = Queue.dequeue(_getFluentBridgeStorage().sentMessageQueue);
+        return (item.value, item.blockNumber);
     }
 
     // ============ Pauser functions ============

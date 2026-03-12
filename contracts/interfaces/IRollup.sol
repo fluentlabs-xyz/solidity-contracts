@@ -48,7 +48,9 @@ interface IRollupErrors {
     error InvalidSP1Proof();
     error NitroVerifierNotSet();
     error InsufficientGas();
-    error InvalidBatchStatus();
+    error InvalidBatchStatus(uint256 batchIndex, uint8 current);
+    error BlockCommitmentAlreadyChallenged(bytes32 commitmentHash);
+    error BlockCommitmentNotChallenged(bytes32 commitmentHash);
     error NitroVerifierNotEnabled(address nitroVerifier);
 
     error NextBatchIndexOverflow();
@@ -68,9 +70,8 @@ interface IRollupEvents {
     event BatchPreConfirmed(uint256 batchIndex);
     event BatchFinalized(uint256 batchIndex);
 
-    event BatchProofed(uint256 batchIndex);
-
     event BlockCommitmentChallenged(uint256 batchIndex, bytes32 commitmentHash, address indexed challenger);
+    event BlockCommitmentProved(uint256 batchIndex, bytes32 commitmentHash, address indexed prover);
 
     event ForceRevertBatch(uint256 batchIndex);
 
