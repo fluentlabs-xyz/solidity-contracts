@@ -7,7 +7,7 @@ import {INitroEnclaveVerifier} from "../interfaces/INitroEnclaveVerifier.sol";
  * @title NitroEnclaveVerifierMock
  * @dev Mock for testing: always accepts verifyBlock and reports attestation verified.
  */
-contract NitroEnclaveVerifierMock is INitroEnclaveVerifier {
+abstract contract NitroEnclaveVerifierMock is INitroEnclaveVerifier {
     address public constant MOCK_ENCLAVE = address(0xE1C14E0);
 
     function isAttestationVerified() external pure returns (bool) {
@@ -18,13 +18,7 @@ contract NitroEnclaveVerifierMock is INitroEnclaveVerifier {
         return MOCK_ENCLAVE;
     }
 
-    function verifyBlock(
-        bytes32,
-        bytes32,
-        bytes32,
-        bytes32,
-        bytes calldata
-    ) external pure returns (bool) {
+    function verifyBlock(bytes32, bytes32, bytes32, bytes32, bytes calldata) external pure returns (bool) {
         return true;
     }
 }

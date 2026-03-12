@@ -2,6 +2,7 @@
 pragma solidity 0.8.30;
 
 import {MerkleTree} from "../libraries/MerkleTree.sol";
+import {Heap} from "../libraries/Heap.sol";
 import {RollupStorageLayout} from "./RollupStorageLayout.sol";
 
 import {IRollupWrite} from "../interfaces/IRollup.sol";
@@ -30,6 +31,8 @@ import {INitroEnclaveVerifier} from "../interfaces/INitroEnclaveVerifier.sol";
  *   pre-confirmation.
  */
 contract Rollup is RollupStorageLayout, IRollupWrite {
+    using Heap for Heap.HeapStorage;
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -63,29 +66,32 @@ contract Rollup is RollupStorageLayout, IRollupWrite {
         uint256 batchIndex = $.nextBatchIndex;
         require(!_rollupCorrupted(), RollupCorrupted());
 
+        /// @dev finalize the previous batch
+        _finalizeBatch();
+
         uint256 batchSize = blockCommitments.length;
+        /// @dev even if the block are empty we need to pass it in the acceptNextBatch
         require(
             blockCommitments[0].previousBlockHash == $.lastBlockHashInBatch[batchIndex - 1],
             WrongPreviousBlockHash($.lastBlockHashInBatch[batchIndex - 1], blockCommitments[0].previousBlockHash)
         );
 
-        // TODO: gasleft as a storage variable
+        uint256 gasLeft = $.gasLeft;
         for (uint256 i = 0; i < batchSize - 1; ++i) {
+            require(gasleft() >= gasLeft, InsufficientGas());
             require(
                 blockCommitments[i].blockHash == blockCommitments[i + 1].previousBlockHash,
                 InvalidBlockSequence(i, blockCommitments[i].blockHash, blockCommitments[i + 1].previousBlockHash)
             );
 
             if (blockCommitments[i].receivedMessageRoot != ZERO_BYTES_HASH) _checkDeposit(blockCommitments[i]);
-            if (gasleft() < 100_000) revert InsufficientGas();
         }
 
         if (blockCommitments[batchSize - 1].receivedMessageRoot != ZERO_BYTES_HASH) _checkDeposit(blockCommitments[batchSize - 1]);
 
-        bytes32 batchRoot = calculateBatchRoot(blockCommitments);
-
+        /// @dev will be removed 'if' in the future making the daCheck mandatory
         if ($.daCheck) {
-            // Verify at least one blob is provided
+            // require at least one blob is provided
             require(numBlobs != 0, ZeroValueNotAllowed("numBlobs"));
 
             // `blobhash(i)` is the versioned hash of the KZG commitment (EIP-4844),
@@ -99,35 +105,35 @@ contract Rollup is RollupStorageLayout, IRollupWrite {
             }
         }
 
+        bytes32 batchRoot = calculateBatchRoot(blockCommitments);
         $.acceptedBatchHash[batchIndex] = batchRoot;
-        /// TODO: custom error
-        require(batchIndex + 1 <= type(uint96).max, "nextBatchIndex overflow");
-        $.nextBatchIndex = uint96(batchIndex + 1);
         $.lastBlockHashInBatch[batchIndex] = blockCommitments[$.batchSize - 1].blockHash;
+        /// @dev start the timer for the batch to be finalized
         $.acceptedBlock[batchIndex] = block.number;
         $.batchStatus[batchIndex] = BatchStatus.Accepted;
+        require(batchIndex + 1 <= type(uint96).max, NextBatchIndexOverflow());
+        $.nextBatchIndex = uint96(batchIndex + 1);
 
         emit BatchAccepted(batchIndex, batchRoot);
     }
 
-    function commitPreConfirmation(uint256 batchIndex, bytes32 signature) external onlyRole(PRECONFIRMATION_ROLE) nonReentrant {
+    function commitPreConfirmation(
+        address nitroVerifier,
+        uint256 batchIndex,
+        bytes32 signature
+    ) external onlyRole(PRECONFIRMATION_ROLE) nonReentrant {
         RollupStorage storage $ = _getRollupStorage();
 
-        require(_acceptedBatch(batchIndex), BatchNotAccepted(batchIndex));
-        require($.nitroVerifier != address(0), NitroVerifierNotSet());
-        require(INitroEnclaveVerifier($.nitroVerifier).isAttestationVerified(), InvalidNitroSignature());
-
-        if ($.batchStatus[batchIndex] != BatchStatus.Accepted) {
-            revert InvalidBatchStatus(batchIndex, uint8($.batchStatus[batchIndex]), uint8(BatchStatus.Accepted));
-        }
-
         require(
-            _proveBatchWithNitro($.nitroVerifier, $.acceptedBatchHash[batchIndex], $.batchBlobHashes[batchIndex], signature),
+            $.batchStatus[batchIndex] == BatchStatus.Accepted,
+            InvalidBatchStatus(batchIndex, uint8($.batchStatus[batchIndex]), uint8(BatchStatus.Accepted))
+        );
+        require(
+            _proveBatchWithNitro(nitroVerifier, $.acceptedBatchHash[batchIndex], $.batchBlobHashes[batchIndex], signature),
             InvalidNitroSignature()
         );
 
         $.batchStatus[batchIndex] = BatchStatus.PreConfirmed;
-        $.acceptedBlock[batchIndex] = block.number;
 
         emit BatchPreConfirmed(batchIndex);
     }
@@ -141,6 +147,11 @@ contract Rollup is RollupStorageLayout, IRollupWrite {
         bytes memory signature,
         bytes32[] memory blobHashes
     ) internal returns (bool) {
+        RollupStorage storage $ = _getRollupStorage();
+
+        require($.enabledNitroVerifiers[verifier], NitroVerifierNotEnabled(verifier));
+        require(INitroEnclaveVerifier(verifier).isAttestationVerified(), InvalidNitroSignature());
+
         return INitroEnclaveVerifier(verifier).verifyBlock(parentHash, blockHash, withdrawalHash, depositHash, signature, blobHashes);
     }
 
@@ -150,6 +161,11 @@ contract Rollup is RollupStorageLayout, IRollupWrite {
         bytes32[] memory blobHashes,
         bytes memory signature
     ) internal returns (bool) {
+        RollupStorage storage $ = _getRollupStorage();
+
+        require($.enabledNitroVerifiers[verifier], NitroVerifierNotEnabled(verifier));
+        require(INitroEnclaveVerifier(verifier).isAttestationVerified(), InvalidNitroSignature());
+
         return INitroEnclaveVerifier(verifier).verifyBatch(batchHash, blobHashes, signature);
     }
 
@@ -182,13 +198,8 @@ contract Rollup is RollupStorageLayout, IRollupWrite {
         RollupStorage storage $ = _getRollupStorage();
 
         uint256 providedDeposit = msg.value;
-        require(providedDeposit == $.challengeDepositAmount, IncorrectChallengeDeposit($.challengeDepositAmount, providedDeposit));
-        require(_acceptedBatch(batchIndex), BatchNotAccepted(batchIndex));
-        require($.batchChallenged[batchIndex], BatchAlreadyChallenged(batchIndex));
-
         address challenger = _msgSender();
         bytes32 batchRoot = $.acceptedBatchHash[batchIndex];
-
         bytes32 commitmentHash = keccak256(
             abi.encodePacked(
                 blockCommitment.previousBlockHash,
@@ -199,37 +210,48 @@ contract Rollup is RollupStorageLayout, IRollupWrite {
         );
         // Verify block commitment is part of the batch
         bool blockValid = MerkleTree.verifyMerkleProof(batchRoot, commitmentHash, blockProof.nonce, blockProof.proof);
+
         require(blockValid, InvalidBlockProof());
-
-        require(!_ensureBatchFinalized(batchIndex), BatchAlreadyFinalized(batchIndex));
+        require(providedDeposit == $.challengeDepositAmount, IncorrectChallengeDeposit($.challengeDepositAmount, providedDeposit));
+        require(isBatchAcceptedOrPreConfirmed(batchIndex), InvalidBatchStatus());
         require(!$.provenBlockCommitment[commitmentHash], BlockCommitmentAlreadyProofed(commitmentHash));
-        require($.blockCommitmentChallenger[commitmentHash] == address(0), BatchAlreadyChallenged(batchIndex));
+        require(!$.batchChallenged[batchIndex], BatchAlreadyChallenged(batchIndex));
+        require($.blockCommitmentChallenges[commitmentHash].batchIndex == 0, BlockCommitmentChallenge(commitmentHash));
 
-        /// TODO: optimize this
-        $.blockCommitmentChallenges[commitmentHash][challenger] = providedDeposit;
-        $.blockCommitmentChallenger[commitmentHash] = challenger;
-
-        $.challengeDeadline[commitmentHash] = block.number + $.challengeBlockCount;
-
-        $.challengeQueue.push(commitmentHash);
-        $.challengeQueueIndex[commitmentHash] = $.challengeQueue.length;
-
-        //   $.batchChallengedCommitments[batchIndex].push(commitmentHash);
-
-        /// TODO: check if we need this
-
-        // if ($.batchStatus[batchIndex] == BatchStatus.PreConfirmed) {
-        //     $.batchWasPreConfirmedBeforeChallenge[batchIndex] = true;
-        // }
-
+        /// @dev it implies that the batch has proved with Nitro Verifier
+        if ($.batchStatus[batchIndex] == BatchStatus.PreConfirmed) {
+            $.batchWasPreConfirmedBeforeChallenge[batchIndex] = true;
+        }
         $.batchStatus[batchIndex] = BatchStatus.Challenged;
+        $.blockCommitmentChallenges[commitmentHash] = BlockCommitmentChallenge({
+            challengeDeposit: providedDeposit,
+            challenger: challenger,
+            challengeDeadline: block.number + $.challengeBlockCount,
+            batchIndex: batchIndex
+        });
+        $.challengeQueue.push($.challengeBatchIndex, $.commitmentQueueIndex, commitmentHash);
 
         emit BlockCommitmentChallenged(batchIndex, commitmentHash, challenger);
     }
 
-    function proofBlockCommitment(
+    /**
+     * Batch can be either Accepted or PreConfirmed
+     * - If it's Accepted -> has not been proven with SP1 or Nitro
+     * - >>> Got a challenge ->
+     *
+     *
+     * - If it's PreConfirmed -> has been proven with Nitro but not yet with SP1
+     *
+     */
+
+    /**
+     * @notice Proves the challenged block commitment with SP1 proof
+     */
+    function proofBlockCommitmentWithNitroAndSp1(
+        address nitroVerifier,
         uint256 batchIndex,
         BlockCommitment calldata blockCommitment,
+        bytes32 nitroSignature,
         uint256 startBlobIndex,
         uint256 endBlobIndex,
         bytes calldata sp1Proof,
@@ -246,17 +268,82 @@ contract Rollup is RollupStorageLayout, IRollupWrite {
                 blockCommitment.receivedMessageRoot
             )
         );
-        require(!$.provenBlockCommitment[commitmentHash], BlockCommitmentAlreadyProofed(commitmentHash));
-
         // Verify block commitment is part of the batch
         bool blockValid = MerkleTree.verifyMerkleProof(batchHash, commitmentHash, blockProof.nonce, blockProof.proof);
         require(blockValid, InvalidBlockProof());
+        require(!$.provenBlockCommitment[commitmentHash], BlockCommitmentAlreadyProofed(commitmentHash));
 
-        if ($.daCheck) {
-            /// todo: $.batchBlobHashes[startBlobIndex:endBlobIndex] -- add a requirement on the number of blobs
-            // bytes memory publicValues = _getPublicValuesFromCommitmentAndBlob(blockCommitment, $.batchBlobHashes[startBlobIndex:endBlobIndex]);
-            // IVerifier($.verifier).verifyProof($.programVKey, publicValues, sp1Proof);
+        /// @dev we verify either via Nitro Verifier or SP1 Verifier
+        if ($.batchStatus[batchIndex] == BatchStatus.PreConfirmed) {
+            require(_proveBlockWithSp1(sp1Verifier(), $.batchBlobHashes[batchIndex], blockCommitment, sp1Proof), InvalidSP1Proof());
+        } else {
+            require(_proveBlockWithNitro($.verifier, batchHash, $.batchBlobHashes[batchIndex], sp1Proof), InvalidNitroSignature());
         }
+
+        address challenger = $.blockCommitmentChallenger[commitmentHash];
+        $.provenBlockCommitment[commitmentHash] = true;
+        delete $.challengeDeadline[commitmentHash];
+        $.provenCommitmentInBatch[batchIndex].push(commitmentHash);
+
+        //$.blockCommitmentChallenger[commitmentHash] = address(0);
+        if ($.blockCommitmentChallenges[commitmentHash][challenger] >= $.challengeDepositAmount) {
+            $.blockCommitmentChallenges[commitmentHash][challenger] -= $.challengeDepositAmount;
+            $.proverReadyForWithdrawal[msg.sender] += $.challengeDepositAmount;
+        }
+
+        _removeChallengeFromQueue(commitmentHash);
+
+        // // Remove from batch challenged commitments
+        // bytes32[] storage challengedCommitments = $.batchChallengedCommitments[batchIndex];
+        // for (uint256 i = 0; i < challengedCommitments.length; i++) {
+        //     if (challengedCommitments[i] == commitmentHash) {
+        //         // Replace with last element and pop
+        //         challengedCommitments[i] = challengedCommitments[challengedCommitments.length - 1];
+        //         challengedCommitments.pop();
+        //         break;
+        //     }
+        // }
+
+        // Restore state after all challenges are resolved without minting pre-confirmation.
+        if ($.batchStatus[batchIndex] == BatchStatus.Challenged) {
+            if ($.batchWasPreConfirmedBeforeChallenge[batchIndex]) {
+                $.batchStatus[batchIndex] = BatchStatus.PreConfirmed;
+            } else {
+                $.batchStatus[batchIndex] = BatchStatus.Accepted;
+            }
+            delete $.batchWasPreConfirmedBeforeChallenge[batchIndex];
+        }
+
+        emit BatchProofed(batchIndex);
+    }
+
+    function proofBlockCommitmentWithNitro(
+        address nitroVerifier,
+        uint256 batchIndex,
+        BlockCommitment calldata blockCommitment,
+        uint256 startBlobIndex,
+        uint256 endBlobIndex,
+        bytes32 signature,
+        MerkleTree.MerkleProof calldata blockProof
+    ) external payable nonReentrant whenNotPaused onlyRole(PROVER_ROLE) {
+        RollupStorage storage $ = _getRollupStorage();
+
+        bytes32 batchHash = $.acceptedBatchHash[batchIndex];
+        bytes32 commitmentHash = keccak256(
+            abi.encodePacked(
+                blockCommitment.previousBlockHash,
+                blockCommitment.blockHash,
+                blockCommitment.sentMessageRoot,
+                blockCommitment.receivedMessageRoot
+            )
+        );
+        // Verify block commitment is part of the batch
+        bool blockValid = MerkleTree.verifyMerkleProof(batchHash, commitmentHash, blockProof.nonce, blockProof.proof);
+        require(blockValid, InvalidBlockProof());
+        require(!$.provenBlockCommitment[commitmentHash], BlockCommitmentAlreadyProofed(commitmentHash));
+
+        /// @dev we prove the block commitment with Nitro Verifier
+        require(_proveBlockWithNitro(nitroVerifier, batchHash, $.batchBlobHashes[batchIndex], signature), InvalidNitroSignature());
 
         address challenger = $.blockCommitmentChallenger[commitmentHash];
         $.provenBlockCommitment[commitmentHash] = true;
@@ -343,41 +430,10 @@ contract Rollup is RollupStorageLayout, IRollupWrite {
 
         require(msg.value >= incentiveFees, NotEnoughValueIncentiveFee(msg.value, incentiveFees));
 
-        _cleanQueue();
-
         // Update the next batch index
         $.nextBatchIndex = uint96(_revertedBatchIndex);
 
         emit ForceRevertBatch(_revertedBatchIndex);
-    }
-
-    /**
-     * @notice Ensures a batch is marked as finalized if eligible.
-     * @dev Eligibility: batch accepted; when nitroVerifier is set, batch must be PreConfirmed;
-     *      no unresolved challenges; and at least approveBlockCount blocks since acceptance.
-     *      When eligible, sets batch status to Finalized. The bridge relies on this for processing messages.
-     * @param _batchIndex The index of the batch to evaluate.
-     * @return True if the batch is finalized (either previously or by this call); false otherwise.
-     */
-    function ensureBatchFinalized(uint256 _batchIndex) external returns (bool) {
-        return _ensureBatchFinalized(_batchIndex);
-    }
-
-    /**
-     * @dev Internal version of `ensureBatchFinalized`. Sets batch status to Finalized when eligible.
-     * @param _batchIndex The index of the batch.
-     * @return True if the batch is finalized (either previously or by this call); false otherwise.
-     */
-    function _ensureBatchFinalized(uint256 _batchIndex) internal returns (bool) {
-        RollupStorage storage $ = _getRollupStorage();
-        if (_finalizedBatch(_batchIndex)) {
-            if ($.batchStatus[_batchIndex] != BatchStatus.Finalized) {
-                $.batchStatus[_batchIndex] = BatchStatus.Finalized;
-                emit BatchFinalized(_batchIndex);
-            }
-            return true;
-        }
-        return false;
     }
 
     /**
@@ -424,6 +480,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite {
         uint256 acceptDepositDeadline = $.acceptDepositDeadline;
         bytes32[] memory depositIds = new bytes32[](_blockCommitments.receivedMessageCount);
         for (uint256 i = 0; i < _blockCommitments.receivedMessageCount; ++i) {
+            /// @dev we remove deposits from the bridge(L1 -> L2)
             (bytes32 depositId, uint256 depositBlockNumber) = IFluentBridge($.bridge).popSentMessage();
             require(
                 depositBlockNumber + acceptDepositDeadline >= block.number,
@@ -431,37 +488,17 @@ contract Rollup is RollupStorageLayout, IRollupWrite {
             );
             depositIds[i] = depositId;
         }
-
+        /// @dev we verify that we've received all the messages the have been send through the $.bridge
         require(
             keccak256(abi.encodePacked(depositIds)) == _blockCommitments.receivedMessageRoot,
             DepositVerificationFailed(_blockCommitments.blockHash)
         );
     }
 
-    function _cleanQueue() internal {
-        RollupStorage storage $ = _getRollupStorage();
-        while ($.challengeQueue.length != 0 && $.challengeQueue[$.challengeQueueStart] == bytes32(0)) {
-            ++$.challengeQueueStart;
-            if ($.challengeQueueStart >= $.challengeQueue.length) {
-                $.challengeQueueStart = 0;
-                delete $.challengeQueue;
-                return;
-            }
-        }
-    }
-
     function _removeChallengeFromQueue(bytes32 commitmentHash) internal {
         RollupStorage storage $ = _getRollupStorage();
-        uint256 indexPlusOne = $.challengeQueueIndex[commitmentHash];
-        if (indexPlusOne == 0) {
-            return;
-        }
-
-        uint256 index = indexPlusOne - 1;
-        delete $.challengeQueue[index];
-        delete $.challengeQueueIndex[commitmentHash];
-        if (index == $.challengeQueueStart) {
-            _cleanQueue();
+        if ($.challengeQueue.remove($.challengeBatchIndex, $.commitmentQueueIndex, commitmentHash)) {
+            delete $.challengeBatchIndex[commitmentHash];
         }
     }
 }

@@ -31,7 +31,7 @@ interface IRollupErrors {
     error EthTransferFailed(address recipient, uint256 amount);
     error InvalidRevertIndex(uint256 index);
     error BlockHashMismatch(bytes32 expected, bytes32 provided);
-    error InvalidBatchIndex(uint256 expected, uint256 provided);
+    error InvalidBatchIndex(uint256 providedBatchIndex, uint256 currentBatchIndex);
     error InvalidBatchSize(uint256 expected, uint256 provided);
     error InvalidBlockSequence(uint256 index, bytes32 currentHash, bytes32 nextPrevHash);
     error InvalidDepositsArrayLength();
@@ -45,9 +45,13 @@ interface IRollupErrors {
     error ZeroValueNotAllowed(string field);
     error OnlySequencer();
     error InvalidNitroSignature();
+    error InvalidSP1Proof();
     error NitroVerifierNotSet();
     error InsufficientGas();
-    error InvalidBatchStatus(uint256 batchIndex, uint8 currentStatus, uint8 expectedStatus);
+    error InvalidBatchStatus();
+    error NitroVerifierNotEnabled(address nitroVerifier);
+
+    error NextBatchIndexOverflow();
 }
 
 interface IRollupEvents {
@@ -83,10 +87,10 @@ interface IRollupRead {
     function rollupCorrupted() external view returns (bool);
 
     /// @notice Checks if a batch has been accepted.
-    function acceptedBatch(uint256 _batchIndex) external view returns (bool);
+    ///  function acceptedBatch(uint256 _batchIndex) external view returns (bool);
 
     /// @notice Checks if a batch has been finalized.
-    function finalizedBatch(uint256 _batchIndex) external view returns (bool);
+    //  function finalizedBatch(uint256 _batchIndex) external view returns (bool);
 }
 
 interface IRollupWrite {
