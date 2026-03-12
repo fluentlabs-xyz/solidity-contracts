@@ -26,7 +26,7 @@ contract RollupBatchAcceptanceTest is RollupBase {
         rollup.acceptNextBatch(batch, new RollupStorageLayout.DepositsInBlock[](0), 0);
 
         assertEq(rollup.nextBatchIndex(), 2, "next batch index not incremented");
-        assertEq(rollup.acceptedBatchHash(1), expectedRoot, "accepted root mismatch");
+        assertEq(rollup.acceptedBatchRoot(1), expectedRoot, "accepted root mismatch");
         assertEq(rollup.lastBlockHashInBatch(1), batch[1].blockHash, "last block hash mismatch");
     }
 
@@ -43,9 +43,7 @@ contract RollupBatchAcceptanceTest is RollupBase {
         bytes32 wrongPrevHash = keccak256("wrong-prev-hash");
         RollupStorageLayout.BlockCommitment[] memory batch = _buildLinkedBatch(wrongPrevHash);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(IRollupErrors.WrongPreviousBlockHash.selector, MOCK_GENESIS_HASH, wrongPrevHash)
-        );
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.WrongPreviousBlockHash.selector, MOCK_GENESIS_HASH, wrongPrevHash));
         vm.prank(SEQUENCER);
         rollup.acceptNextBatch(batch, new RollupStorageLayout.DepositsInBlock[](0), 0);
     }

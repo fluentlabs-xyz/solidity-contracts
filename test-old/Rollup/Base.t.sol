@@ -5,27 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
-import {FluentBridge} from "../../contracts/FluentBridge.sol";
 import {RollupStorageLayout} from "../../contracts/rollup/RollupStorageLayout.sol";
-import {INitroEnclaveVerifier} from "../../contracts/interfaces/INitroEnclaveVerifier.sol";
-
-/// @dev Nitro verifier stub — always passes
-contract MockNitroVerifier is INitroEnclaveVerifier {
-    function isAttestationVerified() external pure returns (bool) {
-        return true;
-    }
-    function enclaveAddress() external pure returns (address) {
-        return address(0);
-    }
-
-    function verifyBatch(bytes32, bytes32[] calldata, bytes32) external pure returns (bool) {
-        return true;
-    }
-
-    function verifyBlock(bytes32, bytes32, bytes32, bytes32, bytes32, bytes32[] calldata) external pure returns (bool) {
-        return true;
-    }
-}
 
 abstract contract RollupBase is Test {
     // ============ Actors ============
@@ -39,7 +19,6 @@ abstract contract RollupBase is Test {
     // ============ Contracts ============
 
     Rollup internal rollup;
-    FluentBridge internal bridge;
 
     // ============ Constants ============
 
@@ -53,25 +32,10 @@ abstract contract RollupBase is Test {
     // ============ Setup ============
 
     function setUp() public virtual {
-        bridge = _deployBridge();
-        rollup = _deployRollup(address(bridge));
+        rollup = _deployRollup();
     }
 
-    function _deployBridge() internal returns (FluentBridge) {
-        FluentBridge bridgeImpl = new FluentBridge();
-        FluentBridge.InitConfiguration memory params = FluentBridge.InitConfiguration({
-            initialOwner: admin,
-            bridgeAuthority: makeAddr("bridgeAuthority"),
-            rollup: address(rollup),
-            receiveMessageDeadline: 10,
-            otherBridge: makeAddr("otherBridge"),
-            l1BlockOracle: makeAddr("oracle")
-        });
-        ERC1967Proxy proxy = new ERC1967Proxy(address(bridgeImpl), abi.encodeCall(FluentBridge.initialize, (abi.encode(params))));
-        return FluentBridge(payable(address(proxy)));
-    }
-
-    function _deployRollup(address bridgeAddr) internal returns (Rollup) {
+    function _deployRollup() internal returns (Rollup) {
         address sp1Verifier = _deployMockSp1Verifier();
 
         RollupStorageLayout.InitConfiguration memory cfg = RollupStorageLayout.InitConfiguration({
@@ -84,7 +48,7 @@ abstract contract RollupBase is Test {
             sp1Verifier: sp1Verifier,
             programVKey: PROGRAM_VKEY,
             genesisHash: GENESIS_HASH,
-            bridge: bridgeAddr,
+            bridge: makeAddr("bridge"),
             batchSize: BATCH_SIZE,
             challengeDepositAmount: CHALLENGE_DEPOSIT,
             challengeBlockCount: CHALLENGE_BLOCK_COUNT,
@@ -117,8 +81,8 @@ abstract contract RollupBase is Test {
             batch[i] = RollupStorageLayout.BlockCommitment({
                 previousBlockHash: prev,
                 blockHash: blockHash,
-                sentMessageRoot: ZERO_BYTES_HASH,
-                receivedMessageRoot: ZERO_BYTES_HASH,
+                sentMessageRoot: bytes32(0),
+                receivedMessageRoot: bytes32(0),
                 receivedMessageCount: 0
             });
             prev = blockHash;
@@ -128,10 +92,7 @@ abstract contract RollupBase is Test {
     /// @dev Accept the next batch as sequencer and return the batch index used.
     function _acceptBatch(bytes32 parentHash) internal returns (uint256 batchIndex) {
         batchIndex = rollup.nextBatchIndex();
-        console.log("Accepting batch with index", batchIndex);
         RollupStorageLayout.BlockCommitment[] memory batch = _makeBatch(parentHash);
-        console.log("Batch size", batch.length);
-        console.log("Batch first block hash", batch[0].blockHash);
         vm.prank(sequencer);
         rollup.acceptNextBatch(batch, 0);
     }

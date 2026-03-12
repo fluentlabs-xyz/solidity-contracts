@@ -21,7 +21,11 @@ contract RollupChallengeProofTest is RollupBase {
 
     function _acceptChallengeableBatch()
         internal
-        returns (RollupStorageLayout.BlockCommitment[] memory batch, MerkleTree.MerkleProof memory blockProofForFirst, bytes32 firstCommitmentHash)
+        returns (
+            RollupStorageLayout.BlockCommitment[] memory batch,
+            MerkleTree.MerkleProof memory blockProofForFirst,
+            bytes32 firstCommitmentHash
+        )
     {
         batch = new RollupStorageLayout.BlockCommitment[](2);
         bytes32 blockHash1 = keccak256("challenge-batch-1");
@@ -113,7 +117,7 @@ contract RollupChallengeProofTest is RollupBase {
 
         assertEq(rollup.nextBatchIndex(), 1, "nextBatchIndex not reverted");
         assertEq(rollup.rollupCorrupted(), false, "corruption state must be cleared");
-        assertEq(rollup.acceptedBatchHash(1), bytes32(0), "accepted batch hash must be cleared");
+        assertEq(rollup.acceptedBatchRoot(1), bytes32(0), "accepted batch hash must be cleared");
     }
 
     function test_challenge_revertsWhenDepositTooLow() public {

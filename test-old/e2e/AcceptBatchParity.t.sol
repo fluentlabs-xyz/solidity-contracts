@@ -35,11 +35,11 @@ contract AcceptBatchParityTest is BaseDualFork {
         _assertOnL1();
         _acceptBatchL1(withdrawBatchA, new RollupStorageLayout.DepositsInBlock[](0));
         bytes32 expectedRootA = l1.rollup.calculateBatchRoot(withdrawBatchA);
-        assertEq(l1.rollup.acceptedBatchHash(1), expectedRootA, "accepted root mismatch for batch A");
+        assertEq(l1.rollup.acceptedBatchRoot(1), expectedRootA, "accepted root mismatch for batch A");
 
         _acceptBatchL1(withdrawBatchB, new RollupStorageLayout.DepositsInBlock[](0));
         bytes32 expectedRootB = l1.rollup.calculateBatchRoot(withdrawBatchB);
-        assertEq(l1.rollup.acceptedBatchHash(2), expectedRootB, "accepted root mismatch for batch B");
+        assertEq(l1.rollup.acceptedBatchRoot(2), expectedRootB, "accepted root mismatch for batch B");
         assertEq(l1.rollup.nextBatchIndex(), 3, "nextBatchIndex must move after two withdrawal batches");
 
         // Step 3: Prove each withdrawal with block-proof index coverage (0..3 in each batch).
@@ -152,12 +152,12 @@ contract AcceptBatchParityTest is BaseDualFork {
         _assertOnL1();
         _acceptBatchL1(depositBatchA, depositsA);
         bytes32 expectedRootA = l1.rollup.calculateBatchRoot(depositBatchA);
-        assertEq(l1.rollup.acceptedBatchHash(1), expectedRootA, "accepted root mismatch for first deposit batch");
+        assertEq(l1.rollup.acceptedBatchRoot(1), expectedRootA, "accepted root mismatch for first deposit batch");
         assertEq(l1.bridge.sentMessageQueueSize(), MESSAGE_COUNT - BATCH_SIZE, "queue transition after first batch is wrong");
 
         _acceptBatchL1(depositBatchB, depositsB);
         bytes32 expectedRootB = l1.rollup.calculateBatchRoot(depositBatchB);
-        assertEq(l1.rollup.acceptedBatchHash(2), expectedRootB, "accepted root mismatch for second deposit batch");
+        assertEq(l1.rollup.acceptedBatchRoot(2), expectedRootB, "accepted root mismatch for second deposit batch");
         assertEq(l1.bridge.sentMessageQueueSize(), 0, "queue should be empty");
         assertEq(l1.rollup.nextBatchIndex(), 3, "nextBatchIndex mismatch");
     }
