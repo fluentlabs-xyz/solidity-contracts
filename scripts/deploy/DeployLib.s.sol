@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {BaseScript} from "../Base.sol";
+import {Script} from "forge-std/Script.sol";
+
+import {Upgrades, UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
+import {Options} from "openzeppelin-foundry-upgrades/Options.sol";
+
 import {FluentBridge} from "../../contracts/FluentBridge.sol";
 import {PaymentGateway} from "../../contracts/gateways/PaymentGateway.sol";
 import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol";
@@ -9,15 +13,12 @@ import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
 import {UniversalTokenFactory} from "../../contracts/factories/UniversalTokenFactory.sol";
 import {MockERC20Token} from "../../contracts/mocks/MockERC20.sol";
 
-import {Upgrades, UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
-import {Options} from "openzeppelin-foundry-upgrades/Options.sol";
-
 /**
  * @notice Shared deployment logic for L1/L2 stacks. No broadcast; caller must vm.startBroadcast/stopBroadcast.
  * @dev Uses Upgrades.deployUUPSProxy(contractName, ...) with unsafeSkipAllChecks where vm.getCode(contractName) works.
  *      UniversalTokenFactory uses UniversalTokenSDK (unlinked artifact); it uses UnsafeUpgrades.deployUUPSProxy(impl, ...) with new Impl().
  */
-abstract contract DeployLib is BaseScript {
+abstract contract DeployLib is Script {
     struct ERC20FactoryResult {
         address factory;
         address factoryImpl;
@@ -79,8 +80,9 @@ abstract contract DeployLib is BaseScript {
         address factoryAddress
     ) internal returns (PaymentGatewayResult memory r) {
         bytes memory initializerData = abi.encodeCall(PaymentGateway.initialize, (initialOwner, bridgeAddress, factoryAddress));
-        r.gateway = Upgrades.deployUUPSProxy(PAYMENT_GATEWAY, initializerData, _upgradesOpts());
-        r.gatewayImpl = Upgrades.getImplementationAddress(r.gateway);
+        PaymentGateway impl = new PaymentGateway();
+        r.gatewayImpl = address(impl);
+        r.gateway = UnsafeUpgrades.deployUUPSProxy(r.gatewayImpl, initializerData);
     }
 
     /// @dev Deploys UniversalTokenFactory via UUPS proxy. Uses UnsafeUpgrades because artifact is unlinked (UniversalTokenSDK). Caller must be in broadcast.

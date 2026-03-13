@@ -5,10 +5,19 @@ import {DeployLib} from "./DeployLib.s.sol";
 import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol";
 
 /**
- * @notice L1 gateway stack only: deploys ERC20TokenFactory + PaymentGateway. Bridge must be deployed separately.
- * @dev Environment:
- *   INITIAL_OWNER (address), BRIDGE_ADDRESS (address, required),
- *   OUTPUT_PATH (string, optional).
+ * @notice L1 deploy orchestrator (Sepolia-style): bridge + ERC20 factory + gateway + mock token.
+ * @dev Mirrors scripts/deploy/bash/sepolia_deploy.bash deployment steps in Solidity.
+ *      Environment:
+ *      - INITIAL_OWNER (address, required)
+ *      - BRIDGE_AUTHORITY (address, optional; defaults to INITIAL_OWNER)
+ *      - RECEIVE_MSG_DEADLINE (uint256, optional; default 0)
+ *      - OTHER_BRIDGE_PLACEHOLDER (address, optional; default 0x1)
+ *      - L1_BLOCK_ORACLE (address, optional; default 0)
+ *      - MOCK_ERC20_NAME (string, optional; default "Mock Deposit Token")
+ *      - MOCK_ERC20_SYMBOL (string, optional; default "MDT")
+ *      - MOCK_ERC20_SUPPLY (uint256, optional; default 1_000_000 ether)
+ *      - MOCK_ERC20_RECIPIENT (address, optional; defaults to INITIAL_OWNER)
+ *      - OUTPUT_PATH (string, optional; default "deployments/sepolia.json")
  */
 contract DeployL1 is DeployLib {
     struct Deployment {
@@ -20,21 +29,37 @@ contract DeployL1 is DeployLib {
         address factoryBeacon;
         address gatewayImpl;
         address gateway;
+        address mockErc20;
         address mockToken;
     }
 
     function run() external returns (address gateway) {
         address initialOwner = vm.envAddress("INITIAL_OWNER");
         require(initialOwner != address(0), "INITIAL_OWNER required");
-        address bridgeAddress = vm.envAddress("BRIDGE_ADDRESS");
-        require(bridgeAddress != address(0), "BRIDGE_ADDRESS required");
-        string memory outputPath = vm.envOr("OUTPUT_PATH", string(""));
+
+        address bridgeAuthority = vm.envOr("BRIDGE_AUTHORITY", initialOwner);
+        uint256 receiveMessageDeadline = vm.envOr("RECEIVE_MSG_DEADLINE", uint256(0));
+        address otherBridgePlaceholder = vm.envOr("OTHER_BRIDGE_PLACEHOLDER", address(0x1));
+        address l1BlockOracle = vm.envOr("L1_BLOCK_ORACLE", address(0));
+
+        string memory mockName = vm.envOr("MOCK_ERC20_NAME", string("Mock Deposit Token"));
+        string memory mockSymbol = vm.envOr("MOCK_ERC20_SYMBOL", string("MDT"));
+        uint256 mockSupply = vm.envOr("MOCK_ERC20_SUPPLY", uint256(1_000_000 ether));
+        address mockRecipient = vm.envOr("MOCK_ERC20_RECIPIENT", initialOwner);
+        string memory outputPath = vm.envOr("OUTPUT_PATH", string("deployments/sepolia.json"));
 
         vm.startBroadcast();
 
-        ERC20FactoryResult memory factoryResult = _deployERC20TokenFactory(initialOwner);
+        (address bridgeProxy, address bridgeImpl) = _deployFluentBridge(
+            initialOwner,
+            bridgeAuthority,
+            receiveMessageDeadline,
+            otherBridgePlaceholder,
+            l1BlockOracle
+        );
 
-        PaymentGatewayResult memory gatewayResult = _deployPaymentGateway(initialOwner, bridgeAddress, factoryResult.factory);
+        ERC20FactoryResult memory factoryResult = _deployERC20TokenFactory(initialOwner);
+        PaymentGatewayResult memory gatewayResult = _deployPaymentGateway(initialOwner, bridgeProxy, factoryResult.factory);
         ERC20TokenFactory(factoryResult.factory).setPaymentGateway(gatewayResult.gateway);
 
         vm.stopBroadcast();
@@ -43,15 +68,14 @@ contract DeployL1 is DeployLib {
 
         if (bytes(outputPath).length != 0) {
             Deployment memory d;
-            d.bridge = bridgeAddress;
-            d.bridgeImpl = address(0);
+            d.bridge = bridgeProxy;
+            d.bridgeImpl = bridgeImpl;
             d.peggedImpl = factoryResult.peggedImpl;
             d.factoryImpl = factoryResult.factoryImpl;
             d.factory = factoryResult.factory;
             d.factoryBeacon = factoryResult.factoryBeacon;
             d.gatewayImpl = gatewayResult.gatewayImpl;
             d.gateway = gatewayResult.gateway;
-            d.mockToken = address(0);
             _writeOutput(outputPath, d);
         }
     }
