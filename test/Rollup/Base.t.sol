@@ -98,7 +98,6 @@ abstract contract RollupBase is Test, IRollupEvents {
             programVKey: PROGRAM_VKEY,
             genesisHash: GENESIS_HASH,
             bridge: bridgeAddr,
-            batchSize: BATCH_SIZE,
             acceptDepositDeadline: 1000,
             incentiveFee: 0.1 ether,
             challenger: challenger,
@@ -114,13 +113,7 @@ abstract contract RollupBase is Test, IRollupEvents {
             address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg)))
         );
 
-        Rollup r = Rollup(address(proxy));
-
-        // disable DA check so tests don't need real blobs by default
-        vm.prank(admin);
-        r.setDaCheck(false);
-
-        return r;
+        return Rollup(address(proxy));
     }
 
     // ============ Batch Construction Helpers ============

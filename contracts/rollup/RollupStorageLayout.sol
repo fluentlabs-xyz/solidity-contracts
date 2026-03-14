@@ -95,13 +95,11 @@ contract RollupStorageLayout is
         uint256 challengeDepositAmount;
         // ─── Slot 6: uint256(32) ───
         uint256 incentiveFee;
-        // ─── Slot 7: uint64(8) + uint64(8) + uint32(4) + uint32(4) + uint32(4) + bool(1) = 29 bytes ───
+        // ─── Slot 7: uint64(8) + uint64(8) + uint32(4) + uint32(4) = 24 bytes ───
         uint64 lastFinalizedBatchIndex;
         uint64 lastDepositAcceptedBlockNumber;
-        uint32 batchSize;
         uint32 gasLeft;
         uint32 acceptDepositDeadline;
-        bool daCheck;
         // ─── Per-batch record ───
         mapping(uint256 => BatchRecord) batches;
         // ─── Per-batch chain linking ───
@@ -157,7 +155,6 @@ contract RollupStorageLayout is
         bytes32 programVKey;
         bytes32 genesisHash;
         address bridge;
-        uint256 batchSize;
         uint256 acceptDepositDeadline;
         uint256 incentiveFee;
         address challenger;
@@ -177,8 +174,6 @@ contract RollupStorageLayout is
         require(params.sp1Verifier != address(0), ZeroAddressNotAllowed("sp1Verifier"));
         require(params.programVKey != bytes32(0), ZeroValueNotAllowed("programVKey"));
         require(params.genesisHash != bytes32(0), ZeroValueNotAllowed("genesisHash"));
-        require(params.batchSize != 0, ZeroValueNotAllowed("batchSize"));
-        require(params.batchSize <= type(uint32).max, ZeroValueNotAllowed("batchSize"));
         require(params.approveBlockCount <= type(uint64).max, ZeroValueNotAllowed("approveBlockCount"));
         require(params.challengeBlockCount <= type(uint64).max, ZeroValueNotAllowed("challengeBlockCount"));
         require(params.acceptDepositDeadline <= type(uint32).max, ZeroValueNotAllowed("acceptDepositDeadline"));
@@ -199,11 +194,9 @@ contract RollupStorageLayout is
         $.programVKey = params.programVKey;
         $.lastBlockHashInBatch[0] = params.genesisHash;
         $.bridge = params.bridge;
-        $.batchSize = uint32(params.batchSize);
         $.acceptDepositDeadline = uint32(params.acceptDepositDeadline);
         $.incentiveFee = params.incentiveFee;
         $.nextBatchIndex = 1;
-        $.daCheck = true;
         $.daDeadlineBlocks = uint64(params.daDeadlineBlocks);
         $.preconfirmDeadlineBlocks = uint64(params.preconfirmDeadlineBlocks);
     }
@@ -245,10 +238,6 @@ contract RollupStorageLayout is
         return uint256(_getRollupStorage().challengeBlockCount);
     }
 
-    function batchSize() public view returns (uint256) {
-        return uint256(_getRollupStorage().batchSize);
-    }
-
     function lastBlockHashInBatch(uint256 batchIndex) public view returns (bytes32) {
         return _getRollupStorage().lastBlockHashInBatch[batchIndex];
     }
@@ -281,10 +270,6 @@ contract RollupStorageLayout is
         return _getRollupStorage().provenBlockCommitment[commitmentHash];
     }
 
-    // function challengerDeposit(address challenger) public view returns (uint256) {
-    //     return _getRollupStorage().challengerDeposit[challenger];
-    // }
-
     function challengerReadyForWithdrawal(address challenger) public view returns (uint256) {
         return _getRollupStorage().challengerReadyForWithdrawal[challenger];
     }
@@ -295,10 +280,6 @@ contract RollupStorageLayout is
 
     function batchBlobHashes(uint256 batchIndex) public view returns (bytes32[] memory) {
         return _getRollupStorage().batchBlobHashes[batchIndex];
-    }
-
-    function daCheck() public view returns (bool) {
-        return _getRollupStorage().daCheck;
     }
 
     function batchChallengedCommitments(uint256 batchIndex) public view returns (bytes32[] memory) {
@@ -359,8 +340,8 @@ contract RollupStorageLayout is
         BatchStatus status = batch.status;
         uint256 accepted = uint256(batch.acceptedBlock);
 
-        if (status == BatchStatus.Accepted && block.number > accepted + $.daDeadlineBlocks) return true;
-        if (status == BatchStatus.DAReady && block.number > accepted + $.preconfirmDeadlineBlocks) return true;
+        if (status == BatchStatus.Accepted && $.daDeadlineBlocks != 0 && block.number > accepted + $.daDeadlineBlocks) return true;
+        if (status == BatchStatus.DAReady && $.preconfirmDeadlineBlocks != 0 && block.number > accepted + $.preconfirmDeadlineBlocks) return true;
         if (status == BatchStatus.Challenged) {
             if (!$.challengeQueue.isEmpty()) {
                 bytes32 oldest = $.challengeQueue.peek();
@@ -370,76 +351,7 @@ contract RollupStorageLayout is
         return false;
     }
 
-    /**
-     * @notice Checks if a batch has been approved.
-     * @param _batchIndex The index of the batch to check.
-     * @return True if the batch has been approved, either because enough blocks have passed since acceptance,
-     *         or the batch has already been proven.
-     */
-    // function finalizedBatch(uint256 _batchIndex) external view returns (bool) {
-    //     return _finalizedBatch(_batchIndex);
-    // }
-
-    // function _approvedBatch(uint256 _batchIndex) internal view returns (bool) {
-    //     if (!_acceptedBatch(_batchIndex)) {
-    //         return false;
-    //     }
-    //     if (alreadyApprovedBatch[_batchIndex]) {
-    //         return true;
-    //     }
-
-    //     for (uint256 idx = _batchIndex; idx > 0 && !alreadyApprovedBatch[idx]; --idx) {
-    //         bytes32[] storage challengedCommitments = batchChallengedCommitments[idx];
-    //         for (uint256 j = 0; j < challengedCommitments.length; j++) {
-    //             if (blockCommitmentChallenger[challengedCommitments[j]] != address(0)) {
-    //                 return false;
-    //             }
-    //         }
-    //     }
-
-    //     bytes32[] storage challengedCommitments = batchChallengedCommitments[_batchIndex];
-    //     for (uint256 j = 0; j < challengedCommitments.length; j++) {
-    //         bytes32 commitmentHash = challengedCommitments[j];
-    //         if (blockCommitmentChallenger[commitmentHash] != address(0)) {
-    //             return false;
-    //         }
-    //     }
-
-    //     return block.number - acceptedBlock[_batchIndex] > approveBlockCount;
-    // }
-
-    /**
-     * @dev Internal helper to determine whether a batch is approved (eligible for Finalized).
-     * @param batchIndex The index of the batch.
-     * @return True if: the batch is accepted; not already approved; when Nitro is set, status is PreConfirmed;
-     *         no unresolved challenges in this or earlier batches; and approveBlockCount blocks have passed since acceptance.
-     */
-    // function _finalizeBatch(uint256 batchIndex) internal {
-    //     RollupStorage storage $ = _getRollupStorage();
-
-    //     if (!isBatchAccepted(batchIndex)) return false;
-    //     if ($.batchStatus[batchIndex] == BatchStatus.Finalized) return true;
-    //     // When Nitro verifier is configured, batch must be pre-confirmed before it can be finalized.
-    //     if ($.batchStatus[batchIndex] != BatchStatus.PreConfirmed) return false;
-
-    //     for (uint256 idx = batchIndex; idx > 0 && $.batchStatus[idx] != BatchStatus.Finalized; --idx) {
-    //         bytes32[] storage earlierChallenged = $.batchChallengedCommitments[idx];
-    //         for (uint256 j = 0; j < earlierChallenged.length; j++) {
-    //             if ($.blockCommitmentChallenger[earlierChallenged[j]] != address(0)) return false;
-    //         }
-    //     }
-
-    //     bytes32[] storage challengedCommitments = $.batchChallengedCommitments[batchIndex];
-    //     for (uint256 j = 0; j < challengedCommitments.length; j++) {
-    //         if ($.blockCommitmentChallenger[challengedCommitments[j]] != address(0)) return false;
-    //     }
-    // }
-
-    /**
-     * @dev We finalize a batch that has:
-     * - been PreComfirmed AND
-     * - there is no open challenges
-     */
+    /// @dev Auto-finalizes the batch at lastFinalizedBatchIndex + 1 if eligible.
     function _finalizeBatch() internal {
         RollupStorage storage $ = _getRollupStorage();
         uint256 batchIndex = uint256($.lastFinalizedBatchIndex) + 1;
@@ -519,16 +431,6 @@ contract RollupStorageLayout is
         $.programVKey = _programVKey;
     }
 
-    /**
-     * @notice Toggle data availability check.
-     * @param isCheck Whether to enable the check.
-     */
-    function setDaCheck(bool isCheck) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        RollupStorage storage $ = _getRollupStorage();
-        emit DaCheckUpdated($.daCheck, isCheck);
-        $.daCheck = isCheck;
-    }
-
     /// @notice Set minimum gas threshold per block commitment iteration.
     function setGasLeft(uint32 _gasLeft) external onlyRole(DEFAULT_ADMIN_ROLE) {
         _getRollupStorage().gasLeft = _gasLeft;
@@ -536,10 +438,7 @@ contract RollupStorageLayout is
 
     function setNitroVerifier(address _newVerifier) external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(_newVerifier != address(0), ZeroAddressNotAllowed("nitroVerifier"));
-        RollupStorage storage $ = _getRollupStorage();
-        // TODO: emit event
-        //   emit NitroVerifierUpdated(_newVerifier);
-        $.enabledNitroVerifiers[_newVerifier] = true;
+        _getRollupStorage().enabledNitroVerifiers[_newVerifier] = true;
     }
 
     /**

@@ -15,20 +15,18 @@ import {INitroEnclaveVerifier} from "../interfaces/INitroEnclaveVerifier.sol";
  * @dev Rollup with two verifier paths: AWS Nitro Enclave (pre-confirmation) and SP1 (ZK proof).
  *
  * ## Batch lifecycle
- * 1. **Accepted**: Sequencer publishes block commitments via `acceptNextBatch`. Batch status = Accepted.
- * 2. **PreConfirmed** (Nitro path): A role with PRECONFIRMATION_ROLE calls `commitPreConfirmation` with a
- *    Nitro enclave signature and Merkle proof for one block in the batch. Batch status = PreConfirmed.
- * 3. **Finalized**: Once `approveBlockCount` blocks have passed since acceptance (and, when Nitro is configured,
- *    the batch is PreConfirmed), anyone may call `ensureBatchApproved(batchIndex)` to set status = Finalized.
- *    The bridge only processes messages for finalized batches.
+ * None → Accepted → DAReady → PreConfirmed → Finalized
+ *                                    ↕
+ *                               Challenged → Corrupted (if deadline exceeded)
  *
- * ## Verifiers
- * - **Nitro**: Used for batch pre-confirmation. When `nitroVerifier` is set, a batch must reach PreConfirmed
- *   before it can be approved/finalized. Pre-confirmation is done by the PRECONFIRMATION_ROLE with a
- *   signature from the Nitro enclave.
- * - **SP1**: Used to prove individual block commitments (e.g. when challenged). `proofBlockCommitment` submits
- *   an SP1 ZK proof; when Nitro is not set, batches can be finalized after `approveBlockCount` without
- *   pre-confirmation.
+ * 1. **Accepted**: Sequencer publishes block commitments via `acceptNextBatch`.
+ * 2. **DAReady**: Sequencer submits blob hashes via `submitDAProof`.
+ * 3. **PreConfirmed**: PRECONFIRMATION_ROLE calls `commitPreConfirmation` with Nitro signature.
+ * 4. **Finalized**: After `approveBlockCount` blocks, anyone calls `ensureBatchFinalized`.
+ *
+ * Challenged branches from PreConfirmed when a block commitment is disputed.
+ * Corrupted is terminal — triggered by DA/preconfirm/challenge deadline expiry.
+ * All state-changing functions check `_rollupCorrupted()` and revert if true.
  */
 contract Rollup is RollupStorageLayout, IRollupWrite {
     using Heap for Heap.HeapStorage;
@@ -50,13 +48,9 @@ contract Rollup is RollupStorageLayout, IRollupWrite {
         __initRollupStorage(data);
     }
 
-    /**
-     * TODO: check whether we should pass system transaction like EIP-2935
-     * @notice Accepts the next batch of block commitments (sequencer only).
-     * @dev Publishes block commitments and sets batch status to Accepted. Required before pre-confirmation or finalization.
-     * @param blockCommitments The batch of block commitments.
-     * @param numBlobs The number of blob commitments attached to this transaction.
-     */
+    /// @notice Accepts the next batch of block commitments (sequencer only).
+    /// @param blockCommitments The batch of block commitments.
+    /// @param numBlobs The number of blobs the sequencer commits to submitting via submitDAProof.
     function acceptNextBatch(
         BlockCommitment[] calldata blockCommitments,
         uint256 numBlobs
@@ -95,7 +89,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite {
         batch.acceptedBlock = uint64(block.number);
         batch.expectedBlobs = uint32(numBlobs);
         batch.status = BatchStatus.Accepted;
-        $.lastBlockHashInBatch[batchIndex] = blockCommitments[$.batchSize - 1].blockHash;
+        $.lastBlockHashInBatch[batchIndex] = blockCommitments[blockCommitments.length - 1].blockHash;
         require(batchIndex + 1 <= type(uint96).max, NextBatchIndexOverflow());
         $.nextBatchIndex = uint96(batchIndex + 1);
 
@@ -108,6 +102,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite {
         uint256 numBlobs
     ) external onlyRole(SEQUENCER_ROLE) whenNotPaused {
         RollupStorage storage $ = _getRollupStorage();
+        require(!_rollupCorrupted(), RollupCorrupted());
         BatchRecord storage batch = $.batches[batchIndex];
 
         require(batch.status == BatchStatus.Accepted, InvalidBatchStatus(batchIndex, uint8(batch.status)));
@@ -138,6 +133,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite {
         bytes32 signature
     ) external onlyRole(PRECONFIRMATION_ROLE) nonReentrant {
         RollupStorage storage $ = _getRollupStorage();
+        require(!_rollupCorrupted(), RollupCorrupted());
         BatchRecord storage batch = $.batches[batchIndex];
 
         require(batch.status == BatchStatus.DAReady, InvalidBatchStatus(batchIndex, uint8(batch.status)));
@@ -165,6 +161,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite {
         MerkleTree.MerkleProof calldata blockProof
     ) external payable nonReentrant whenNotPaused onlyRole(CHALLENGER_ROLE) {
         RollupStorage storage $ = _getRollupStorage();
+        require(!_rollupCorrupted(), RollupCorrupted());
         BatchRecord storage batch = $.batches[batchIndex];
 
         require(batch.status == BatchStatus.PreConfirmed, InvalidBatchStatus(batchIndex, uint8(batch.status)));
@@ -184,30 +181,21 @@ contract Rollup is RollupStorageLayout, IRollupWrite {
 
         batch.status = BatchStatus.Challenged;
         $.batchChallengedCommitments[batchIndex].push(commitmentHash);
+        uint256 deadline = block.number + $.challengeBlockCount;
         $.blockCommitmentChallenges[commitmentHash] = BlockCommitmentChallenge({
             challengeDeposit: msg.value,
             challenger: _msgSender(),
-            challengeDeadline: block.number + $.challengeBlockCount,
+            challengeDeadline: deadline,
             batchIndex: batchIndex
         });
+        /// @dev Write deadline as heap priority so the queue is ordered by earliest expiry
+        $.challengeBatchIndex[commitmentHash] = deadline;
         $.challengeQueue.push($.challengeBatchIndex, $.commitmentQueueIndex, commitmentHash);
 
         emit BlockCommitmentChallenged(batchIndex, commitmentHash, _msgSender());
     }
 
-    /**
-     * Batch can be either Accepted or PreConfirmed
-     * - If it's Accepted -> has not been proven with SP1 or Nitro
-     * - >>> Got a challenge ->
-     *
-     *
-     * - If it's PreConfirmed -> has been proven with Nitro but not yet with SP1
-     *
-     */
-
-    /**
-     * @notice Proves the challenged block commitment with SP1 proof
-     */
+    /// @notice Proves a challenged block commitment with both Nitro and SP1 proofs.
     function proofBlockCommitmentWithNitroAndSp1(
         uint256 batchIndex,
         BlockCommitment calldata blockCommitment,
@@ -299,7 +287,11 @@ contract Rollup is RollupStorageLayout, IRollupWrite {
      */
     function forceRevertBatch(uint256 _revertedBatchIndex) external payable onlyRole(DEFAULT_ADMIN_ROLE) nonReentrant {
         RollupStorage storage $ = _getRollupStorage();
-        require($.batches[_revertedBatchIndex].status != BatchStatus.Finalized, BatchAlreadyFinalized(_revertedBatchIndex));
+
+        // Verify no batch in the revert range is finalized
+        for (uint256 i = _revertedBatchIndex; i < $.nextBatchIndex; i++) {
+            require($.batches[i].status != BatchStatus.Finalized, BatchAlreadyFinalized(i));
+        }
 
         uint256 depositAmount = $.challengeDepositAmount;
         uint256 fee = $.incentiveFee;
@@ -312,14 +304,13 @@ contract Rollup is RollupStorageLayout, IRollupWrite {
                 BlockCommitmentChallenge storage challenge = $.blockCommitmentChallenges[commitmentHash];
                 address challenger = challenge.challenger;
                 if (challenger != address(0)) {
-                    challenge.challenger = address(0);
                     if (challenge.challengeDeposit >= depositAmount) {
-                        challenge.challengeDeposit -= depositAmount;
                         $.challengerReadyForWithdrawal[challenger] += depositAmount + fee;
                         incentiveFees += fee;
                     }
                 }
                 _removeChallengeFromQueue(commitmentHash);
+                delete $.blockCommitmentChallenges[commitmentHash];
             }
 
             bytes32[] storage provenCommitments = $.batchProvenCommitments[i];
@@ -330,6 +321,8 @@ contract Rollup is RollupStorageLayout, IRollupWrite {
             delete $.batches[i];
             delete $.batchProvenCommitments[i];
             delete $.batchChallengedCommitments[i];
+            delete $.batchBlobHashes[i];
+            delete $.lastBlockHashInBatch[i];
         }
 
         require(msg.value >= incentiveFees, NotEnoughValueIncentiveFee(msg.value, incentiveFees));
@@ -383,6 +376,8 @@ contract Rollup is RollupStorageLayout, IRollupWrite {
 
         if (batch.status == BatchStatus.Finalized) return true;
         if (batch.status != BatchStatus.PreConfirmed) return false;
+        /// @dev Sequential finalization: batch N can only finalize after batch N-1
+        if (_batchIndex != uint256($.lastFinalizedBatchIndex) + 1) return false;
         if (block.number - uint256(batch.acceptedBlock) <= $.approveBlockCount) return false;
 
         batch.status = BatchStatus.Finalized;
