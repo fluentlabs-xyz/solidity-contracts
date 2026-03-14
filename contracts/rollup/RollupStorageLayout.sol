@@ -53,63 +53,78 @@ contract RollupStorageLayout is
         uint256 challengeDeadline;
     }
 
-    /// @dev Storage layout is packed to use fewer slots (~5 slots saved vs. unpacked).
-    ///      WARNING: This layout is incompatible with the previous unpacked layout. Do not upgrade an existing
-    ///      proxy to this implementation without a storage migration.
-    struct RollupStorage {
-        // Slot 1: address (20) + uint96 (12) = 32
-        address bridge;
-        uint96 nextBatchIndex;
-        address sp1Verifier;
-        bytes32 programVKey;
-        // Slot: 4 x uint64 = 32 (block-related config and state; uint64 is sufficient for block numbers and counts)
-        uint64 approveBlockCount;
-        uint64 challengeBlockCount;
-        uint64 acceptDepositDeadline;
-        uint64 lastDepositAcceptedBlockNumber;
-        uint256 challengeDepositAmount;
-        uint256 incentiveFee;
-        // Slot: uint32 (4) + bool (1) = 5 bytes, rest padding
-        uint32 batchSize;
-        bool daCheck;
-        mapping(uint256 => bytes32) lastBlockHashInBatch;
-        mapping(uint256 => bytes32) acceptedBatchRoot;
-        mapping(uint256 => uint256) acceptedBlock;
-        mapping(bytes32 => bool) provenBlockCommitment;
-        /// @dev commitment hash -> challenger -> challenge deposit
-        //  mapping(bytes32 => mapping(address => uint256)) blockCommitmentChallenges;
-        mapping(address => uint256) challengerReadyForWithdrawal;
-        mapping(address => uint256) proverReadyForWithdrawal;
-        mapping(bytes32 => address) blockCommitmentChallenger;
-        // Challenge queue implemented as a min-heap based on challenge deadline for efficient retrieval of the earliest challenged batch.
-        Heap.HeapStorage challengeQueue;
-        mapping(bytes32 => uint256) challengeDeadline;
-        /// @dev commitment hash -> batch index (priority in min-heap)
-        mapping(bytes32 => uint256) challengeBatchIndex;
-        mapping(bytes32 => uint256) commitmentQueueIndex;
-        mapping(uint256 => bytes32[]) batchBlobHashes;
-        mapping(uint256 => bytes32[]) batchChallengedCommitments;
-        mapping(uint256 => bytes32[]) batchProvenCommitments;
-        mapping(uint256 => BatchStatus) batchStatus;
-        mapping(uint256 => bool) batchChallenged;
-        mapping(address => bool) enabledNitroVerifiers;
-        /**
-         * @dev commitment hash -> challenge
-         */
-        mapping(bytes32 => BlockCommitmentChallenge) blockCommitmentChallenges;
-        uint96 gasLeft;
-        uint64 lastFinalizedBatchIndex;
-        uint256[28] __gap;
-    }
-
-    /// @dev Batch state: None → Accepted (acceptNextBatch) → PreConfirmed (commitPreConfirmation, Nitro) → Finalized (ensureBatchApproved after approveBlockCount).
-    ///      Challenged is a side branch from Accepted when a block is challenged; resolution returns to Accepted or stays Challenged.
+    /// @dev Batch lifecycle: None → Accepted → DAReady → PreConfirmed → Finalized.
+    ///      Challenged branches from PreConfirmed; Corrupted is terminal (DA/preconfirm deadline or challenge timeout).
     enum BatchStatus {
         None,
         Accepted,
+        DAReady,
         PreConfirmed,
         Challenged,
-        Finalized
+        Finalized,
+        Corrupted
+    }
+
+    /// @dev Packed per-batch state. 2 slots per batch entry.
+    struct BatchRecord {
+        /// @dev Merkle root of block commitments for this batch
+        bytes32 batchRoot;
+        /// @dev L1 block number when the batch was accepted via acceptNextBatch
+        uint64 acceptedBlock;
+        /// @dev number of blobs the sequencer committed to at acceptance time
+        uint32 expectedBlobs;
+        /// @dev current lifecycle state of this batch
+        BatchStatus status;
+    }
+
+    /// @dev Storage layout — WARNING: breaking change, incompatible with previous layout.
+    struct RollupStorage {
+        // ─── Slot 1: address(20) + uint96(12) = 32 ───
+        address bridge;
+        uint96 nextBatchIndex;
+        // ─── Slot 2: address(20) + 12 bytes padding ───
+        address sp1Verifier;
+        // ─── Slot 3: bytes32(32) ───
+        bytes32 programVKey;
+        // ─── Slot 4: 4 × uint64 = 32 ───
+        uint64 approveBlockCount;
+        uint64 challengeBlockCount;
+        uint64 daDeadlineBlocks;
+        uint64 preconfirmDeadlineBlocks;
+        // ─── Slot 5: uint256(32) ───
+        uint256 challengeDepositAmount;
+        // ─── Slot 6: uint256(32) ───
+        uint256 incentiveFee;
+        // ─── Slot 7: uint64(8) + uint64(8) + uint32(4) + uint32(4) + uint32(4) + bool(1) = 29 bytes ───
+        uint64 lastFinalizedBatchIndex;
+        uint64 lastDepositAcceptedBlockNumber;
+        uint32 batchSize;
+        uint32 gasLeft;
+        uint32 acceptDepositDeadline;
+        bool daCheck;
+        // ─── Per-batch record ───
+        mapping(uint256 => BatchRecord) batches;
+        // ─── Per-batch chain linking ───
+        mapping(uint256 => bytes32) lastBlockHashInBatch;
+        // ─── Per-batch dynamic arrays ───
+        mapping(uint256 => bytes32[]) batchBlobHashes;
+        mapping(uint256 => bytes32[]) batchProvenCommitments;
+        mapping(uint256 => bytes32[]) batchChallengedCommitments;
+        // ─── Challenge state (keyed by commitment hash) ───
+        mapping(bytes32 => bool) provenBlockCommitment;
+        mapping(bytes32 => BlockCommitmentChallenge) blockCommitmentChallenges;
+        Heap.HeapStorage challengeQueue;
+        /// @dev Heap priority map: commitment hash → batch index
+        mapping(bytes32 => uint256) challengeBatchIndex;
+        /// @dev Heap position map: commitment hash → queue index
+        mapping(bytes32 => uint256) commitmentQueueIndex;
+        // ─── Withdrawal balances ───
+        mapping(address => uint256) challengerReadyForWithdrawal;
+        mapping(address => uint256) proverReadyForWithdrawal;
+        // ─── Verifier whitelist ───
+        mapping(address => bool) enabledNitroVerifiers;
+        // ─── Upgrade gap ───
+        uint256[28] __gap;
     }
 
     /// @dev Structure representing a committed block from L2 -> L1
@@ -147,10 +162,10 @@ contract RollupStorageLayout is
         uint256 incentiveFee;
         address challenger;
         address prover;
-        /// @dev Optional. If set, batches must be pre-confirmed via commitPreConfirmation before finalization.
         address nitroVerifier;
-        /// @dev Optional. Address allowed to call commitPreConfirmation. If zero, admin is granted PRECONFIRMATION_ROLE.
         address preconfirmationRole;
+        uint256 daDeadlineBlocks;
+        uint256 preconfirmDeadlineBlocks;
     }
 
     function __initRollupStorage(bytes memory data) internal {
@@ -166,7 +181,9 @@ contract RollupStorageLayout is
         require(params.batchSize <= type(uint32).max, ZeroValueNotAllowed("batchSize"));
         require(params.approveBlockCount <= type(uint64).max, ZeroValueNotAllowed("approveBlockCount"));
         require(params.challengeBlockCount <= type(uint64).max, ZeroValueNotAllowed("challengeBlockCount"));
-        require(params.acceptDepositDeadline <= type(uint64).max, ZeroValueNotAllowed("acceptDepositDeadline"));
+        require(params.acceptDepositDeadline <= type(uint32).max, ZeroValueNotAllowed("acceptDepositDeadline"));
+        require(params.daDeadlineBlocks <= type(uint64).max, ZeroValueNotAllowed("daDeadlineBlocks"));
+        require(params.preconfirmDeadlineBlocks <= type(uint64).max, ZeroValueNotAllowed("preconfirmDeadlineBlocks"));
 
         _grantRole(DEFAULT_ADMIN_ROLE, params.admin);
         _grantRole(PAUSER_ROLE, params.pauser != address(0) ? params.pauser : params.admin);
@@ -183,13 +200,12 @@ contract RollupStorageLayout is
         $.lastBlockHashInBatch[0] = params.genesisHash;
         $.bridge = params.bridge;
         $.batchSize = uint32(params.batchSize);
-        $.acceptDepositDeadline = uint64(params.acceptDepositDeadline);
+        $.acceptDepositDeadline = uint32(params.acceptDepositDeadline);
         $.incentiveFee = params.incentiveFee;
         $.nextBatchIndex = 1;
         $.daCheck = true;
-        // if (params.nitroVerifier != address(0)) {
-        //     $.nitroVerifier = params.nitroVerifier;
-        // }
+        $.daDeadlineBlocks = uint64(params.daDeadlineBlocks);
+        $.preconfirmDeadlineBlocks = uint64(params.preconfirmDeadlineBlocks);
     }
 
     /// @inheritdoc UUPSUpgradeable
@@ -246,15 +262,19 @@ contract RollupStorageLayout is
     }
 
     function acceptedBatchRoot(uint256 batchIndex) public view returns (bytes32) {
-        return _getRollupStorage().acceptedBatchRoot[batchIndex];
+        return _getRollupStorage().batches[batchIndex].batchRoot;
     }
 
     function alreadyApprovedBatch(uint256 batchIndex) public view returns (bool) {
-        return _getRollupStorage().batchStatus[batchIndex] == BatchStatus.Finalized;
+        return _getRollupStorage().batches[batchIndex].status == BatchStatus.Finalized;
     }
 
     function acceptedBlock(uint256 batchIndex) public view returns (uint256) {
-        return _getRollupStorage().acceptedBlock[batchIndex];
+        return uint256(_getRollupStorage().batches[batchIndex].acceptedBlock);
+    }
+
+    function expectedBlobs(uint256 batchIndex) public view returns (uint256) {
+        return uint256(_getRollupStorage().batches[batchIndex].expectedBlobs);
     }
 
     function provenBlockCommitment(bytes32 commitmentHash) public view returns (bool) {
@@ -271,14 +291,6 @@ contract RollupStorageLayout is
 
     function proverReadyForWithdrawal(address prover) public view returns (uint256) {
         return _getRollupStorage().proverReadyForWithdrawal[prover];
-    }
-
-    function blockCommitmentChallenger(bytes32 commitmentHash) public view returns (address) {
-        return _getRollupStorage().blockCommitmentChallenger[commitmentHash];
-    }
-
-    function challengeDeadline(bytes32 commitmentHash) public view returns (uint256) {
-        return _getRollupStorage().challengeDeadline[commitmentHash];
     }
 
     function batchBlobHashes(uint256 batchIndex) public view returns (bytes32[] memory) {
@@ -298,25 +310,17 @@ contract RollupStorageLayout is
     }
 
     function batchStatus(uint256 batchIndex) public view returns (BatchStatus) {
-        return _getRollupStorage().batchStatus[batchIndex];
+        return _getRollupStorage().batches[batchIndex].status;
     }
 
-    /**
-     * @notice Checks if a batch has been accepted.
-     * @param batchIndex The index of the batch to check.
-     * @return True if the batch has been accepted (i.e., its index is less than the next expected batch index).
-     */
+    /// @notice Checks if a batch is in Accepted status.
     function isBatchAccepted(uint256 batchIndex) public view returns (bool) {
         return batchStatus(batchIndex) == BatchStatus.Accepted;
     }
 
-    /**
-     * @notice Checks if a batch has been accepted or pre-confirmed.
-     * @param batchIndex The index of the batch to check.
-     * @return True if the batch has been accepted (i.e., its index is less than the next expected batch index).
-     */
-    function isBatchAcceptedOrPreConfirmed(uint256 batchIndex) public view returns (bool) {
-        return batchStatus(batchIndex) == BatchStatus.Accepted || batchStatus(batchIndex) == BatchStatus.PreConfirmed;
+    /// @notice Checks if a batch is PreConfirmed (eligible for challenge or finalization).
+    function isBatchPreConfirmed(uint256 batchIndex) public view returns (bool) {
+        return batchStatus(batchIndex) == BatchStatus.PreConfirmed;
     }
 
     /**
@@ -343,19 +347,27 @@ contract RollupStorageLayout is
         return _rollupCorrupted();
     }
 
-    /**
-     * @dev Checks if the rollup is in a corrupted state.
-     * @return True if the earliest challenged batch has exceeded its challenge deadline without resolution.
-     *
-     * A rollup is considered corrupted when:
-     * - There is at least one challenged batch in the challenge queue, AND
-     * - The current block number has exceeded the challenge deadline for the first challenged batch in queue.
-     */
+    /// @dev Checks if the rollup is corrupted by examining the oldest non-finalized batch.
+    ///      Corruption occurs when: DA deadline exceeded (Accepted), preconfirm deadline exceeded (DAReady),
+    ///      or challenge deadline exceeded (Challenged).
     function _rollupCorrupted() internal view returns (bool) {
         RollupStorage storage $ = _getRollupStorage();
-        if ($.challengeQueue.isEmpty()) return false;
+        uint256 batchIndex = uint256($.lastFinalizedBatchIndex) + 1;
+        if (batchIndex >= $.nextBatchIndex) return false;
 
-        return $.challengeDeadline[$.challengeQueue.peek()] < block.number;
+        BatchRecord storage batch = $.batches[batchIndex];
+        BatchStatus status = batch.status;
+        uint256 accepted = uint256(batch.acceptedBlock);
+
+        if (status == BatchStatus.Accepted && block.number > accepted + $.daDeadlineBlocks) return true;
+        if (status == BatchStatus.DAReady && block.number > accepted + $.preconfirmDeadlineBlocks) return true;
+        if (status == BatchStatus.Challenged) {
+            if (!$.challengeQueue.isEmpty()) {
+                bytes32 oldest = $.challengeQueue.peek();
+                return $.blockCommitmentChallenges[oldest].challengeDeadline < block.number;
+            }
+        }
+        return false;
     }
 
     /**
@@ -432,10 +444,11 @@ contract RollupStorageLayout is
         RollupStorage storage $ = _getRollupStorage();
         uint256 batchIndex = uint256($.lastFinalizedBatchIndex) + 1;
 
-        if (batchStatus(batchIndex) != BatchStatus.PreConfirmed) return;
+        BatchRecord storage batch = $.batches[batchIndex];
+        if (batch.status != BatchStatus.PreConfirmed) return;
 
-        if (block.number - $.acceptedBlock[batchIndex] > $.approveBlockCount) {
-            $.batchStatus[batchIndex] = BatchStatus.Finalized;
+        if (block.number - uint256(batch.acceptedBlock) > $.approveBlockCount) {
+            batch.status = BatchStatus.Finalized;
             $.lastFinalizedBatchIndex = uint64(batchIndex);
             emit BatchFinalized(batchIndex);
         }
@@ -514,6 +527,11 @@ contract RollupStorageLayout is
         RollupStorage storage $ = _getRollupStorage();
         emit DaCheckUpdated($.daCheck, isCheck);
         $.daCheck = isCheck;
+    }
+
+    /// @notice Set minimum gas threshold per block commitment iteration.
+    function setGasLeft(uint32 _gasLeft) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _getRollupStorage().gasLeft = _gasLeft;
     }
 
     function setNitroVerifier(address _newVerifier) external onlyRole(DEFAULT_ADMIN_ROLE) {

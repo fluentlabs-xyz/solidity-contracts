@@ -52,8 +52,10 @@ interface IRollupErrors {
     error BlockCommitmentAlreadyChallenged(bytes32 commitmentHash);
     error BlockCommitmentNotChallenged(bytes32 commitmentHash);
     error NitroVerifierNotEnabled(address nitroVerifier);
-
     error NextBatchIndexOverflow();
+    error DADeadlineExceeded(uint256 deadline, uint256 currentBlock);
+    error PreconfirmDeadlineExceeded(uint256 deadline, uint256 currentBlock);
+    error InvalidBlobCount(uint32 expected, uint256 provided);
 }
 
 interface IRollupEvents {
@@ -78,6 +80,9 @@ interface IRollupEvents {
     event ChallengeDepositWithdrawn(address indexed challenger, uint256 amount);
 
     event ProofRewardWithdrawn(address indexed prover, uint256 amount);
+
+    event BatchDAReady(uint256 indexed batchIndex);
+    event BatchCorrupted(uint256 indexed batchIndex);
 }
 
 interface IRollupRead {
@@ -106,6 +111,9 @@ interface IRollupWrite {
 
     /// @notice Withdraws pending proof reward for the caller.
     function withdrawProofReward() external;
+
+    /// @notice Submit DA proof (blob hashes) for a previously accepted batch.
+    function submitDAProof(uint256 batchIndex, uint256 numBlobs) external;
 }
 
 interface IRollup is IRollupRead, IRollupWrite {}
