@@ -23,12 +23,13 @@ import {L2BlockHeader, BatchStatus, BatchRecord, ChallengeRecord} from "../inter
  * 1. **HeadersSubmitted**: Sequencer submits L2 block headers via `acceptNextBatch`.
  * 2. **Accepted**: Sequencer submits blob hashes via `submitBlobs`.
  * 3. **Preconfirmed**: PRECONFIRMATION_ROLE calls `preconfirmBatch` with Nitro signature.
- * 4. **Finalized**: After `approveBlockCount` blocks, anyone calls `finalizeBatches`,
+ * 4. **Finalized**: After `finalizationDelay` blocks, anyone calls `finalizeBatches`,
  *                   or immediately via `finalizeWithProofs` if all blocks are SP1-proven.
  *
  * Challenged branches from Preconfirmed when a block is disputed.
- * Corrupted is a computed state — triggered by DA/preconfirm/challenge deadline expiry.
- * All state-changing functions check `_rollupCorrupted()` and revert if true.
+ * Corrupted is a computed state — triggered by blob submission, preconfirmation, or
+ * challenge window expiry. All state-changing functions check `_rollupCorrupted()` and
+ * revert if true.
  */
 contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
     using Heap for Heap.HeapStorage;
@@ -170,10 +171,10 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         require(blobHashes.length + numBlobs <= batch.expectedBlobs, InvalidBlobCount(batch.expectedBlobs, blobHashes.length + numBlobs));
         require(batch.status == BatchStatus.HeadersSubmitted, InvalidBatchStatus(batchIndex, uint8(batch.status)));
 
-        if ($.daDeadlineBlocks != 0) {
+        if ($.submitBlobsWindow != 0) {
             require(
-                block.number <= uint256(batch.acceptedAtBlock) + $.daDeadlineBlocks,
-                DADeadlineExceeded(uint256(batch.acceptedAtBlock) + $.daDeadlineBlocks, block.number)
+                block.number <= uint256(batch.acceptedAtBlock) + $.submitBlobsWindow,
+                SubmitBlobsWindowExceeded(uint256(batch.acceptedAtBlock) + $.submitBlobsWindow, block.number)
             );
         }
 
@@ -209,6 +210,9 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
 
     /// @inheritdoc IRollupWrite
     /// @dev Caller must send exactly `challengeDepositAmount` in ETH as a deposit.
+    ///      Challenges are only accepted within the first `finalizationDelay - challengeWindow`
+    ///      blocks after batch acceptance, ensuring the prover always has a full `challengeWindow`
+    ///      to respond before the batch becomes eligible for finalization.
     function challengeBlock(
         uint256 batchIndex,
         L2BlockHeader calldata blockHeader,
@@ -221,6 +225,10 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         require(batch.status == BatchStatus.Preconfirmed, InvalidBatchStatus(batchIndex, uint8(batch.status)));
         require(msg.value == $.challengeDepositAmount, IncorrectChallengeDeposit($.challengeDepositAmount, msg.value));
 
+        // Enforce challenge cutoff: challenger must open the challenge early enough that the
+        // prover has a full challengeWindow before finalizationDelay expires.
+        require(block.number + $.challengeWindow <= uint256(batch.acceptedAtBlock) + $.finalizationDelay, ChallengeTooLate(batchIndex));
+
         bytes32 commitment = _computeCommitment(blockHeader);
         require(MerkleTree.verifyMerkleProof(batch.batchRoot, commitment, blockProof.nonce, blockProof.proof), InvalidBlockProof());
         require(!$.provenBlocks[commitment], BlockAlreadyProven(commitment));
@@ -229,7 +237,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         batch.status = BatchStatus.Challenged;
         $.batchChallengedBlocks[batchIndex].push(commitment);
 
-        uint256 deadline = block.number + $.challengeBlockCount;
+        uint256 deadline = block.number + $.challengeWindow;
         $.challenges[commitment] = ChallengeRecord({deposit: msg.value, challenger: _msgSender(), deadline: deadline, batchIndex: batchIndex});
         /// @dev deadline written as heap priority — queue ordered by earliest expiry
         $.challengePriority[commitment] = deadline;
@@ -340,8 +348,10 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
     // ============ Internal — lifecycle ============
 
     /// @dev Checks if the rollup is corrupted by examining the oldest non-finalized batch.
-    ///      Corruption occurs when: DA deadline exceeded (HeadersSubmitted), preconfirm
-    ///      deadline exceeded (Accepted), or challenge deadline exceeded (Challenged).
+    ///      Corruption occurs when any of the following deadlines are exceeded:
+    ///      - `submitBlobsWindow`: blob hashes not submitted in time (HeadersSubmitted).
+    ///      - `preconfirmWindow`: batch not preconfirmed in time (Accepted).
+    ///      - `challengeWindow`: open challenge not resolved before its deadline (Challenged).
     function _rollupCorrupted() internal view returns (bool) {
         RollupStorage storage $ = _getRollupStorage();
         uint256 batchIndex = uint256($.lastFinalizedBatchIndex) + 1;
@@ -351,16 +361,15 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         BatchStatus status = batch.status;
         uint256 accepted = uint256(batch.acceptedAtBlock);
 
-        if (status == BatchStatus.HeadersSubmitted && $.daDeadlineBlocks != 0 && block.number > accepted + $.daDeadlineBlocks) return true;
-        if (status == BatchStatus.Accepted && $.preconfirmDeadlineBlocks != 0 && block.number > accepted + $.preconfirmDeadlineBlocks)
-            return true;
+        if (status == BatchStatus.HeadersSubmitted && $.submitBlobsWindow != 0 && block.number > accepted + $.submitBlobsWindow) return true;
+        if (status == BatchStatus.Accepted && $.preconfirmWindow != 0 && block.number > accepted + $.preconfirmWindow) return true;
         if (status == BatchStatus.Challenged && !$.challengeQueue.isEmpty()) {
             return $.challenges[$.challengeQueue.peek()].deadline < block.number;
         }
         return false;
     }
 
-    /// @dev Attempts to finalize a single batch if cooldown has passed.
+    /// @dev Attempts to finalize a single batch if the finalization delay has passed.
     ///      Returns true if finalized (now or previously), false if not yet eligible.
     function _tryFinalizeBatch(uint256 batchIndex) private returns (bool) {
         RollupStorage storage $ = _getRollupStorage();
@@ -369,7 +378,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         if (batch.status == BatchStatus.Finalized) return true;
         if (batch.status != BatchStatus.Preconfirmed) return false;
         if (batchIndex != uint256($.lastFinalizedBatchIndex) + 1) return false;
-        if (block.number - uint256(batch.acceptedAtBlock) <= $.approveBlockCount) return false;
+        if (block.number - uint256(batch.acceptedAtBlock) <= $.finalizationDelay) return false;
 
         batch.status = BatchStatus.Finalized;
         $.lastFinalizedBatchIndex = uint64(batchIndex);

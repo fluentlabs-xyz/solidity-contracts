@@ -2,58 +2,54 @@
 pragma solidity 0.8.30;
 
 import {RollupBase} from "./Base.t.sol";
-import {RollupStorageLayout} from "../../contracts/rollup/RollupStorageLayout.sol";
+import {Rollup} from "../../contracts/rollup/Rollup.sol";
+import {L2BlockHeader, BatchStatus, BatchRecord, InitConfiguration} from "../../contracts/interfaces/IRollupTypes.sol";
 import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
+import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {MockSp1Verifier} from "./mocks/MockSp1Verifier.sol";
+import {FinalizingBridge} from "./mocks/FinalizingBridge.sol";
 
 contract AcceptBatchTest is RollupBase {
-    /// @dev Full lifecycle: Accepted → DAReady → PreConfirmed → Finalized
     function test_fullBatchLifecycle() public {
-        // ── 1. Accept ──
-        RollupStorageLayout.BlockCommitment[] memory batch = _makeBatch(GENESIS_HASH);
+        L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
         bytes32 expectedRoot = _computeBatchRoot(batch);
 
-        _expectBatchAccepted(1, expectedRoot);
+        _expectBatchHeadersSubmitted(1, expectedRoot, 0);
         uint256 batchIndex = _acceptBatch(GENESIS_HASH, 0);
 
-        _assertBatchRecord(batchIndex, RollupStorageLayout.BatchStatus.Accepted, 0, expectedRoot);
+        _assertBatchRecord(batchIndex, BatchStatus.HeadersSubmitted, 0, expectedRoot);
         assertEq(rollup.nextBatchIndex(), batchIndex + 1);
         _assertRollupHealthy();
 
-        // ── 2. Submit DA ──
-        _expectBatchDAReady(batchIndex);
-        _submitDAProof(batchIndex, 0);
+        _expectBatchAccepted(batchIndex);
+        _submitBlobs(batchIndex, 0);
+        _assertBatchRecord(batchIndex, BatchStatus.Accepted, 0, expectedRoot);
 
-        _assertBatchRecord(batchIndex, RollupStorageLayout.BatchStatus.DAReady, 0, expectedRoot);
-
-        // ── 3. PreConfirm ──
-        _expectBatchPreConfirmed(batchIndex);
+        _expectBatchPreconfirmed(batchIndex);
         _preconfirmBatch(batchIndex);
+        _assertBatchRecord(batchIndex, BatchStatus.Preconfirmed, 0, expectedRoot);
 
-        _assertBatchRecord(batchIndex, RollupStorageLayout.BatchStatus.PreConfirmed, 0, expectedRoot);
-
-        // ── 4. Finalize ──
-        vm.roll(block.number + APPROVE_BLOCK_COUNT + 1);
+        vm.roll(block.number + FINALIZATION_DELAY + 1);
 
         _expectBatchFinalized(batchIndex);
         bool finalized = _finalizeBatch(batchIndex);
 
         assertTrue(finalized);
-        _assertBatchRecord(batchIndex, RollupStorageLayout.BatchStatus.Finalized, 0, expectedRoot);
+        _assertBatchRecord(batchIndex, BatchStatus.Finalized, 0, expectedRoot);
         _assertLastFinalizedBatchIndex(batchIndex);
     }
 
-    /// @dev Accept sets correct batch record fields
     function test_acceptSetsCorrectBatchRecord() public {
-        RollupStorageLayout.BlockCommitment[] memory batch = _makeBatch(GENESIS_HASH);
+        L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
         bytes32 expectedRoot = _computeBatchRoot(batch);
 
         uint256 batchIndex = _acceptBatch(GENESIS_HASH, 3);
 
-        _assertBatchRecord(batchIndex, RollupStorageLayout.BatchStatus.Accepted, 3, expectedRoot);
-        assertEq(rollup.acceptedBlock(batchIndex), block.number);
+        _assertBatchRecord(batchIndex, BatchStatus.HeadersSubmitted, 3, expectedRoot);
+        assertEq(rollup.getBatch(batchIndex).acceptedAtBlock, block.number);
     }
 
-    /// @dev Multiple batches can be accepted sequentially
     function test_multipleBatchesSequential() public {
         uint256 batch1 = _acceptBatch(GENESIS_HASH, 0);
         assertEq(batch1, 1);
@@ -62,16 +58,15 @@ contract AcceptBatchTest is RollupBase {
         uint256 batch2 = _acceptBatch(lastHash, 0);
         assertEq(batch2, 2);
 
-        _assertBatchRecord(batch1, RollupStorageLayout.BatchStatus.Accepted, 0, rollup.acceptedBatchRoot(batch1));
-        _assertBatchRecord(batch2, RollupStorageLayout.BatchStatus.Accepted, 0, rollup.acceptedBatchRoot(batch2));
+        _assertBatchRecord(batch1, BatchStatus.HeadersSubmitted, 0, rollup.getBatch(batch1).batchRoot);
+        _assertBatchRecord(batch2, BatchStatus.HeadersSubmitted, 0, rollup.getBatch(batch2).batchRoot);
     }
 
-    /// @dev Wrong parent hash reverts
     function test_revert_wrongParentHash() public {
         uint256 batch1 = _acceptBatch(GENESIS_HASH, 0);
 
         bytes32 wrongParent = keccak256("wrong");
-        RollupStorageLayout.BlockCommitment[] memory batch = _makeBatch(wrongParent);
+        L2BlockHeader[] memory batch = _makeBatch(wrongParent);
 
         bytes32 expectedParent = rollup.lastBlockHashInBatch(batch1);
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.WrongPreviousBlockHash.selector, expectedParent, wrongParent));
@@ -79,41 +74,15 @@ contract AcceptBatchTest is RollupBase {
         rollup.acceptNextBatch(batch, 0);
     }
 
-    /// @dev Non-sequencer cannot accept batch
-    function test_revert_nonSequencer() public {
-        RollupStorageLayout.BlockCommitment[] memory batch = _makeBatch(GENESIS_HASH);
-
-        vm.prank(user);
-        vm.expectRevert();
-        rollup.acceptNextBatch(batch, 0);
-    }
-
-    /// @dev submitDAProof reverts on wrong status
-    function test_revert_submitDAProofWhenNotAccepted() public {
+    function test_revert_submitBlobs_wrongStatus() public {
         uint256 batchIndex = _acceptBatch(GENESIS_HASH, 0);
-        _submitDAProof(batchIndex, 0);
+        _submitBlobs(batchIndex, 0);
 
-        // batch is now DAReady (2) — calling again should fail
-        vm.expectRevert(abi.encodeWithSelector(
-            IRollupErrors.InvalidBatchStatus.selector, batchIndex, uint8(RollupStorageLayout.BatchStatus.DAReady)
-        ));
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidBatchStatus.selector, batchIndex, uint8(BatchStatus.Accepted)));
         vm.prank(sequencer);
-        rollup.submitDAProof(batchIndex, 0);
+        rollup.submitBlobs(batchIndex, 0);
     }
 
-    /// @dev commitPreConfirmation reverts when batch is not DAReady
-    function test_revert_preconfirmWhenNotDAReady() public {
-        uint256 batchIndex = _acceptBatch(GENESIS_HASH, 0);
-
-        // batch is Accepted (1), not DAReady
-        vm.expectRevert(abi.encodeWithSelector(
-            IRollupErrors.InvalidBatchStatus.selector, batchIndex, uint8(RollupStorageLayout.BatchStatus.Accepted)
-        ));
-        vm.prank(preconfirmer);
-        rollup.commitPreConfirmation(address(nitroVerifier), batchIndex, DUMMY_SIGNATURE);
-    }
-
-    /// @dev ensureBatchFinalized returns false when not PreConfirmed
     function test_finalizeBatchReturnsFalseWhenNotReady() public {
         uint256 batchIndex = _acceptBatch(GENESIS_HASH, 0);
 
@@ -121,30 +90,43 @@ contract AcceptBatchTest is RollupBase {
         assertFalse(result);
     }
 
-    /// @dev ensureBatchFinalized returns false when not enough blocks passed
     function test_finalizeBatchReturnsFalseWhenTooEarly() public {
         uint256 batchIndex = _acceptBatch(GENESIS_HASH, 0);
-        _submitDAProof(batchIndex, 0);
+        _submitBlobs(batchIndex, 0);
         _preconfirmBatch(batchIndex);
 
-        // don't advance blocks
         bool result = _finalizeBatch(batchIndex);
         assertFalse(result);
     }
 
-    /// @dev Accepting next batch auto-finalizes the previous one if eligible
-    function test_acceptNextBatchAutoFinalizes() public {
-        uint256 batch1 = _acceptBatch(GENESIS_HASH, 0);
-        _submitDAProof(batch1, 0);
-        _preconfirmBatch(batch1);
+    function test_acceptNextBatch_cei_bridgeCallsFinalizeDuringDeposit() public {
+        // Bridge that calls finalizeBatches() during popSentMessage —
+        // a realistic attack: no special role needed, finalizeBatches is permissionless.
+        // CEI ensures nextBatchIndex and batch state are already written before the
+        // external call, so the re-entrant finalizeBatches sees HeadersSubmitted status
+        // and returns 0 without corrupting state.
+        FinalizingBridge maliciousBridge = new FinalizingBridge();
 
-        vm.roll(block.number + APPROVE_BLOCK_COUNT + 1);
+        Rollup reentrantRollup = _deployRollup(address(maliciousBridge));
+        maliciousBridge.setTarget(address(reentrantRollup));
 
-        bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);
-        uint256 batch2 = _acceptBatch(lastHash, 0);
+        bytes32 depositRoot = keccak256(abi.encodePacked(keccak256("deposit")));
+        L2BlockHeader[] memory batch = new L2BlockHeader[](1);
+        batch[0] = L2BlockHeader({
+            previousBlockHash: GENESIS_HASH,
+            blockHash: keccak256("block0"),
+            withdrawalRoot: ZERO_BYTES_HASH,
+            depositRoot: depositRoot,
+            depositCount: 1
+        });
 
-        // batch1 should be auto-finalized by acceptNextBatch
-        _assertBatchRecord(batch1, RollupStorageLayout.BatchStatus.Finalized, 0, rollup.acceptedBatchRoot(batch1));
-        _assertBatchRecord(batch2, RollupStorageLayout.BatchStatus.Accepted, 0, rollup.acceptedBatchRoot(batch2));
+        // acceptNextBatch succeeds — CEI means state is written before bridge call
+        vm.prank(sequencer);
+        reentrantRollup.acceptNextBatch(batch, 0);
+
+        // batch is in HeadersSubmitted — finalizeBatches during popSentMessage
+        // found correct state and returned 0, no corruption occurred
+        assertEq(uint8(reentrantRollup.getBatch(1).status), uint8(BatchStatus.HeadersSubmitted));
+        assertEq(reentrantRollup.nextBatchIndex(), 2);
     }
 }

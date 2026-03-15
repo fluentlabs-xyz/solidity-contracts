@@ -5,42 +5,41 @@ import {L2BlockHeader, BatchRecord, ChallengeRecord} from "./IRollupTypes.sol";
 import {MerkleTree} from "../libraries/MerkleTree.sol";
 
 // ============ Interfaces ============
-
 interface IRollupErrors {
-    /// @notice Rollup is in corrupted state, all state-changing functions are blocked.
+    /// @notice Rollup is in a corrupted state — all state-changing functions are blocked.
     error RollupCorrupted();
 
-    /// @notice Block's previousBlockHash does not match expected chain tip.
+    /// @notice Block's previousBlockHash does not match the expected chain tip.
     error WrongPreviousBlockHash(bytes32 expected, bytes32 provided);
 
-    /// @notice Deposit root in block header does not match bridge messages.
+    /// @notice Deposit root in the block header does not match the consumed bridge messages.
     error DepositRootMismatch(bytes32 blockHash);
 
-    /// @notice L1 deposit was submitted too late relative to the L2 block.
+    /// @notice L1 deposit was not consumed within the allowed window.
     error AcceptDepositDeadlineExceeded(uint256 deadline, uint256 currentBlock);
 
     /// @notice Batch has already been finalized and cannot be modified.
     error BatchAlreadyFinalized(uint256 batchIndex);
 
-    /// @notice Block has already been proven, cannot prove again.
+    /// @notice Block commitment has already been proven.
     error BlockAlreadyProven(bytes32 commitment);
 
-    /// @notice Block has already been challenged, cannot challenge again.
+    /// @notice Block commitment has already been challenged.
     error BlockAlreadyChallenged(bytes32 commitment);
 
-    /// @notice Block has not been challenged, cannot resolve.
+    /// @notice Block commitment has not been challenged — cannot resolve.
     error BlockNotChallenged(bytes32 commitment);
 
-    /// @notice Block has not been prooved yet.
+    /// @notice Block commitment has not been proven.
     error BlockNotProven(bytes32 commitment);
 
-    /// @notice Challenge deposit amount does not match required amount.
+    /// @notice Challenge deposit does not match the required amount.
     error IncorrectChallengeDeposit(uint256 required, uint256 provided);
 
     /// @notice Native ETH transfer to recipient failed.
     error EthTransferFailed(address recipient, uint256 amount);
 
-    /// @notice Block sequence is broken — block[i].blockHash != block[i+1].previousBlockHash.
+    /// @notice Block sequence is invalid — block[i].blockHash != block[i+1].previousBlockHash.
     error InvalidBlockSequence(uint256 index, bytes32 currentHash, bytes32 nextPrevHash);
 
     /// @notice Merkle tree construction requires at least one leaf.
@@ -49,14 +48,11 @@ interface IRollupErrors {
     /// @notice Caller has no balance available for withdrawal.
     error NothingToWithdraw();
 
-    /// @notice msg.value insufficient to cover incentive fees for force revert.
+    /// @notice msg.value is insufficient to cover challenger incentive fees for force revert.
     error NotEnoughValueIncentiveFee(uint256 value, uint256 incentiveFee);
 
-    /// @notice Merkle proof for block header is invalid.
+    /// @notice Merkle proof for the block header is invalid.
     error InvalidBlockProof();
-
-    /// @notice Blob hash in DA layer does not match submitted blob hash.
-    error DaBlobHashMismatch(bytes32 expected, bytes32 provided);
 
     /// @notice Address field must not be zero.
     error ZeroAddressNotAllowed(bytes32 field);
@@ -67,32 +63,37 @@ interface IRollupErrors {
     /// @notice Nitro enclave signature verification failed.
     error InvalidNitroSignature();
 
-    /// @notice SP1 ZK proof verification failed.
-    error InvalidSP1Proof();
-
     /// @notice Nitro verifier address is not in the enabled whitelist.
     error NitroVerifierNotEnabled(address nitroVerifier);
 
     /// @notice nextBatchIndex would overflow uint96.
     error NextBatchIndexOverflow();
 
-    /// @notice Blob submission deadline exceeded for this batch.
-    error DADeadlineExceeded(uint256 deadline, uint256 currentBlock);
+    /// @notice Blob hashes were not fully submitted within the `submitBlobsWindow`.
+    error SubmitBlobsWindowExceeded(uint256 deadline, uint256 currentBlock);
 
-    /// @notice Preconfirmation deadline exceeded for this batch.
-    error PreconfirmDeadlineExceeded(uint256 deadline, uint256 currentBlock);
+    /// @notice Batch was not preconfirmed within the `preconfirmWindow`.
+    error PreconfirmWindowExceeded(uint256 deadline, uint256 currentBlock);
 
-    /// @notice Number of submitted blobs exceeds expected blob count.
+    /// @notice Number of submitted blob hashes exceeds the expected count for this batch.
     error InvalidBlobCount(uint32 expected, uint256 provided);
 
     /// @notice Batch is not in the expected status for this operation.
     error InvalidBatchStatus(uint256 batchIndex, uint8 current);
 
-    /// @notice Gas remaining after iteration is below the required threshold.
+    /// @notice Gas remaining is below the required threshold for safe iteration.
     error InsufficientGas();
 
-    /// @notice Provided batch index is out of range.
+    /// @notice Provided batch index is out of the accepted range.
     error InvalidBatchIndex(uint256 providedBatchIndex, uint256 currentBatchIndex);
+
+    /// @notice Challenge submitted too late — insufficient time remains within the
+    ///         finalization window for the prover to respond within `challengeWindow`.
+    error ChallengeTooLate(uint256 batchIndex);
+
+    /// @notice preconfirmWindow must exceed submitBlobsWindow — both are measured from
+    ///         acceptedAtBlock, so preconfirmation cannot be required before blob submission completes.
+    error InvalidWindowConfig(string reason);
 }
 
 interface IRollupEvents {
@@ -158,10 +159,10 @@ interface IRollupConfig {
     function programVKey() external view returns (bytes32);
 
     /// @notice Number of L1 blocks after batch acceptance before finalization is allowed.
-    function approveBlockCount() external view returns (uint256);
+    function finalizationDelay() external view returns (uint256);
 
     /// @notice Number of L1 blocks a challenger has to submit a challenge.
-    function challengeBlockCount() external view returns (uint256);
+    function challengeWindow() external view returns (uint256);
 
     /// @notice ETH deposit required to open a challenge.
     function challengeDepositAmount() external view returns (uint256);
@@ -173,10 +174,10 @@ interface IRollupConfig {
     function acceptDepositDeadline() external view returns (uint256);
 
     /// @notice Max L1 blocks after batch acceptance for blob submission.
-    function daDeadlineBlocks() external view returns (uint256);
+    function submitBlobsWindow() external view returns (uint256);
 
     /// @notice Max L1 blocks after blob submission for preconfirmation.
-    function preconfirmDeadlineBlocks() external view returns (uint256);
+    function preconfirmWindow() external view returns (uint256);
 }
 
 interface IRollupRead {

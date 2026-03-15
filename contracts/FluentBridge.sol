@@ -180,9 +180,8 @@ contract FluentBridge is
         MerkleTree.MerkleProof calldata blockProof
     ) external payable nonReentrant whenNotPaused {
         require(rollup() != address(0), OnlyWhenRollupInited());
-        // Batch must be finalized before withdrawal. Finalization is permissionless —
-        // anyone can call tryFinalizeBatch() or finalizeEligibleBatches() on the rollup.
-        require(Rollup(rollup()).tryFinalizeBatch(batchIndex), InvalidBlockProof()); // wake-disable-line reentrancy
+        // Batch must be finalized before withdrawal. Call rollup.finalizeBatches() first.
+        require(Rollup(rollup()).isBatchFinalized(batchIndex), InvalidBlockProof()); // wake-disable-line reentrancy
         require(chainId != block.chainid, ForbiddenReceiveRollbackedMessage());
         require(msg.value == value, InvalidMessageValue(value, msg.value));
 
@@ -212,8 +211,8 @@ contract FluentBridge is
         require(msg.value == 0, InvalidMessageValue(0, msg.value));
 
         if (value > 0) require(address(this).balance >= value, InsufficientBridgeBalance(value));
-        // False positive: nonReentrant guard prevents re-entry; rollup is a trusted admin-set contract
-        require(Rollup(rollup()).tryFinalizeBatch(batchIndex), InvalidBlockProof()); // wake-disable-line reentrancy
+        // Batch must be finalized before rollback. Call rollup.finalizeBatches() first.
+        require(Rollup(rollup()).isBatchFinalized(batchIndex), InvalidBlockProof()); // wake-disable-line reentrancy
 
         bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, blockNumber, messageNonce, message));
         require(receivedMessage(messageHash) == MessageStatus.None, MessageAlreadyReceived());

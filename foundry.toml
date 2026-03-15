@@ -1,15 +1,15 @@
 [profile.default]
-cache_path = "forge-cache"
-fs_permissions = [
-    { access = "read-write", path = "./deployments" },
-    { access = "read-write", path = "./config" },
-    { access = "read", path = "./forge-out" }
-]
-evm_version = "cancun"
-ffi = true
 ast = true
 build_info = true
+cache_path = "forge-cache"
+evm_version = "cancun"
 extra_output = ["storageLayout"]
+ffi = true
+fs_permissions = [
+  {access = "read-write", path = "./deployments"},
+  {access = "read-write", path = "./config"},
+  {access = "read", path = "./forge-out"},
+]
 libs = ["lib"]
 optimizer = true
 optimizer_runs = 200
@@ -25,13 +25,13 @@ l1 = "https://ethereum-sepolia-rpc.publicnode.com"
 l2 = "https://rpc.dev.fluent.xyz"
 
 # Additional named endpoints (optional env-driven)
+fluentDev = "${RPC_URL_FLUENT_DEV}"
+fluentTestnet = "${RPC_URL_FLUENT_TESTNET}"
 mainnet = "${MAINNET_RPC}"
 sepolia = "${RPC_URL_SEPOLIA_ETH}"
-fluentTestnet = "${RPC_URL_FLUENT_TESTNET}"
-fluentDev = "${RPC_URL_FLUENT_DEV}"
 
 [etherscan]
-sepolia = { key = "${ETHERSCAN_API_KEY}" }
+sepolia = {key = "${ETHERSCAN_API_KEY}"}
 
 [profile.coverage]
 via_ir = true

@@ -59,14 +59,26 @@ contract RollupStorageLayout is
         /// @dev SP1 program verification key; binds proofs to the current rollup program
         bytes32 programVKey;
         // ─── Slot 4: 4 × uint64 = 32 ───
-        /// @dev L1 blocks after batch acceptance before finalization is allowed
-        uint64 approveBlockCount;
-        /// @dev L1 blocks a prover has to resolve a challenge before corruption is triggered
-        uint64 challengeBlockCount;
-        /// @dev max L1 blocks after header acceptance for blob submission; 0 disables the check
-        uint64 daDeadlineBlocks;
-        /// @dev max L1 blocks after blob acceptance for preconfirmation; 0 disables the check
-        uint64 preconfirmDeadlineBlocks;
+        /// @dev Number of L1 blocks after batch acceptance during which challenges can be submitted
+        ///      and proofs verified. After this window elapses, the batch becomes eligible for
+        ///      finalization via `finalizeBatches`. Must be greater than `challengeWindow` to
+        ///      guarantee challengers always have a full `challengeWindow` to respond.
+        uint64 finalizationDelay;
+        /// @dev Number of L1 blocks a prover has to resolve a challenge after it is opened.
+        ///      A challenge may only be submitted if `block.number + challengeWindow <= acceptedAtBlock
+        ///      + finalizationDelay`, ensuring the prover always has the full window to respond and
+        ///      finalization is never delayed beyond `acceptedAtBlock + finalizationDelay + challengeWindow`.
+        ///      Must be strictly less than `finalizationDelay`.
+        uint64 challengeWindow;
+        /// @dev Maximum number of L1 blocks after batch acceptance for the sequencer to submit
+        ///      all expected blob hashes via `submitBlobs`. Exceeding this deadline without
+        ///      completing DA submission triggers the corrupted state. Set to 0 to disable.
+        uint64 submitBlobsWindow;
+        /// @dev Maximum number of L1 blocks after batch acceptance for the preconfirmation service
+        ///      to call `preconfirmBatch`. Both `submitBlobsWindow` and this deadline are measured
+        ///      from `acceptedAtBlock`, so this value must exceed `submitBlobsWindow` to give the
+        ///      preconfirmation service time to act after DA submission completes. Set to 0 to disable.
+        uint64 preconfirmWindow;
         // ─── Slot 5: uint256(32) ───
         /// @dev ETH deposit required to open a challenge; awarded to prover on resolution
         uint256 challengeDepositAmount;
@@ -134,11 +146,12 @@ contract RollupStorageLayout is
         // ─── Value validation ───
         require(params.programVKey != bytes32(0), ZeroValueNotAllowed("programVKey"));
         require(params.genesisHash != bytes32(0), ZeroValueNotAllowed("genesisHash"));
-        require(params.approveBlockCount <= type(uint64).max, ZeroValueNotAllowed("approveBlockCount"));
-        require(params.challengeBlockCount <= type(uint64).max, ZeroValueNotAllowed("challengeBlockCount"));
-        require(params.acceptDepositDeadline <= type(uint32).max, ZeroValueNotAllowed("acceptDepositDeadline"));
-        require(params.daDeadlineBlocks <= type(uint64).max, ZeroValueNotAllowed("daDeadlineBlocks"));
-        require(params.preconfirmDeadlineBlocks <= type(uint64).max, ZeroValueNotAllowed("preconfirmDeadlineBlocks"));
+
+        // ─── Deadline invariants ───
+        if (params.submitBlobsWindow != 0 && params.preconfirmWindow != 0) {
+            require(params.preconfirmWindow > params.submitBlobsWindow, "preconfirmWindow must exceed submitBlobsWindow");
+        }
+        require(params.challengeWindow < params.finalizationDelay, "challengeWindow must be less than finalizationDelay");
 
         // ─── Role setup ───
         address emergency = params.emergency != address(0) ? params.emergency : params.admin;
@@ -161,12 +174,12 @@ contract RollupStorageLayout is
         $.lastBlockHashInBatch[0] = params.genesisHash;
         $.nextBatchIndex = 1;
         $.challengeDepositAmount = params.challengeDepositAmount;
-        $.challengeBlockCount = uint64(params.challengeBlockCount);
-        $.approveBlockCount = uint64(params.approveBlockCount);
+        $.challengeWindow = uint64(params.challengeWindow);
+        $.finalizationDelay = uint64(params.finalizationDelay);
         $.acceptDepositDeadline = uint32(params.acceptDepositDeadline);
         $.incentiveFee = params.incentiveFee;
-        $.daDeadlineBlocks = uint64(params.daDeadlineBlocks);
-        $.preconfirmDeadlineBlocks = uint64(params.preconfirmDeadlineBlocks);
+        $.submitBlobsWindow = uint64(params.submitBlobsWindow);
+        $.preconfirmWindow = uint64(params.preconfirmWindow);
 
         if (params.nitroVerifier != address(0)) {
             $.enabledNitroVerifiers[params.nitroVerifier] = true;
@@ -192,13 +205,13 @@ contract RollupStorageLayout is
     }
 
     /// @inheritdoc IRollupConfig
-    function approveBlockCount() public view returns (uint256) {
-        return uint256(_getRollupStorage().approveBlockCount);
+    function finalizationDelay() public view returns (uint256) {
+        return uint256(_getRollupStorage().finalizationDelay);
     }
 
     /// @inheritdoc IRollupConfig
-    function challengeBlockCount() public view returns (uint256) {
-        return uint256(_getRollupStorage().challengeBlockCount);
+    function challengeWindow() public view returns (uint256) {
+        return uint256(_getRollupStorage().challengeWindow);
     }
 
     /// @inheritdoc IRollupConfig
@@ -217,13 +230,13 @@ contract RollupStorageLayout is
     }
 
     /// @inheritdoc IRollupConfig
-    function daDeadlineBlocks() public view returns (uint256) {
-        return uint256(_getRollupStorage().daDeadlineBlocks);
+    function submitBlobsWindow() public view returns (uint256) {
+        return uint256(_getRollupStorage().submitBlobsWindow);
     }
 
     /// @inheritdoc IRollupConfig
-    function preconfirmDeadlineBlocks() public view returns (uint256) {
-        return uint256(_getRollupStorage().preconfirmDeadlineBlocks);
+    function preconfirmWindow() public view returns (uint256) {
+        return uint256(_getRollupStorage().preconfirmWindow);
     }
 
     // ============ IRollupRead ============
@@ -340,8 +353,8 @@ contract RollupStorageLayout is
     }
 
     /// @inheritdoc IRollupAdmin
-    function setGasLeft(uint32 gasLeft) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        _getRollupStorage().gasLeft = gasLeft;
+    function setGasLeft(uint32 newGasLeft) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _getRollupStorage().gasLeft = newGasLeft;
     }
 
     // ============ Internal helpers ============

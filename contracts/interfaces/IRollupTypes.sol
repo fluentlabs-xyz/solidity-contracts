@@ -74,10 +74,10 @@ struct InitConfiguration {
     bytes32 genesisHash;
     // ─── Parameters ───
     uint256 challengeDepositAmount;
-    uint256 challengeBlockCount;
-    uint256 approveBlockCount;
+    uint256 challengeWindow;
+    uint256 finalizationDelay;
     uint256 acceptDepositDeadline;
     uint256 incentiveFee;
-    uint256 daDeadlineBlocks;
-    uint256 preconfirmDeadlineBlocks;
+    uint256 submitBlobsWindow;
+    uint256 preconfirmWindow;
 }
