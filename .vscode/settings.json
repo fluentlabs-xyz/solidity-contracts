@@ -5,7 +5,7 @@
         "editor.defaultFormatter": "esbenp.prettier-vscode"
     },
     "[solidity]": {
-        "editor.defaultFormatter": "AckeeBlockchain.tools-for-solidity",
+        "editor.defaultFormatter": "JuanBlanco.solidity",
         "editor.formatOnSave": true
     },
     "prettier.requireConfig": true,

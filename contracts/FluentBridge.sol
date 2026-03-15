@@ -8,7 +8,7 @@ import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/acces
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 
 import {Rollup} from "./rollup/Rollup.sol";
-import {RollupStorageLayout} from "./rollup/RollupStorageLayout.sol";
+import {L2BlockHeader} from "./interfaces/IRollupTypes.sol";
 import {Queue} from "./libraries/Queue.sol";
 import {MerkleTree} from "./libraries/MerkleTree.sol";
 import {ExcessivelySafeCall} from "./libraries/ExcessivelySafeCall.sol";
@@ -156,7 +156,7 @@ contract FluentBridge is
     /// @inheritdoc IFluentBridge
     function receiveMessageWithProof(
         uint256 batchIndex,
-        RollupStorageLayout.BlockCommitment calldata commitmentBatch,
+        L2BlockHeader calldata blockHeader,
         address from,
         address payable to,
         uint256 value,
@@ -169,22 +169,21 @@ contract FluentBridge is
     ) external payable nonReentrant whenNotPaused {
         require(rollup() != address(0), OnlyWhenRollupInited());
         // False positive: nonReentrant guard prevents re-entry; rollup is a trusted admin-set contract
-        require(Rollup(rollup()).ensureBatchFinalized(batchIndex), InvalidBlockProof()); // wake-disable-line reentrancy
-        // _chainId is the source chain id encoded at send time; it must differ from destination chain id here.
+        require(Rollup(rollup()).tryFinalizeBatch(batchIndex), InvalidBlockProof()); // wake-disable-line reentrancy
         require(chainId != block.chainid, ForbiddenReceiveRollbackedMessage());
         require(msg.value == value, InvalidMessageValue(value, msg.value));
 
         bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, blockNumber, messageNonce, message));
         require(receivedMessage(messageHash) == MessageStatus.None, MessageAlreadyReceived());
 
-        _verifyWithdrawal(batchIndex, commitmentBatch, withdrawalProof, blockProof, messageHash);
+        _verifyWithdrawal(batchIndex, blockHeader, withdrawalProof, blockProof, messageHash);
         _receiveMessage(from, to, value, chainId, blockNumber, messageNonce, message, messageHash);
     }
 
     /// @inheritdoc IFluentBridge
     function rollbackMessageWithProof(
         uint256 batchIndex,
-        RollupStorageLayout.BlockCommitment calldata commitmentBatch,
+        L2BlockHeader calldata blockHeader,
         address from,
         address to,
         uint256 value,
@@ -196,19 +195,17 @@ contract FluentBridge is
         MerkleTree.MerkleProof calldata blockProof
     ) external payable nonReentrant whenNotPaused {
         require(rollup() != address(0), OnlyWhenRollupInited());
-
-        // _chainId is the source chain id encoded at send time; it must differ from destination chain id here.
         require(chainId != block.chainid, ForbiddenRollbackReceivedMessage());
         require(msg.value == 0, InvalidMessageValue(0, msg.value));
 
         if (value > 0) require(address(this).balance >= value, InsufficientBridgeBalance(value));
         // False positive: nonReentrant guard prevents re-entry; rollup is a trusted admin-set contract
-        require(Rollup(rollup()).ensureBatchFinalized(batchIndex), InvalidBlockProof()); // wake-disable-line reentrancy
+        require(Rollup(rollup()).tryFinalizeBatch(batchIndex), InvalidBlockProof()); // wake-disable-line reentrancy
 
         bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, blockNumber, messageNonce, message));
         require(receivedMessage(messageHash) == MessageStatus.None, MessageAlreadyReceived());
 
-        _verifyWithdrawal(batchIndex, commitmentBatch, rollbackProof, blockProof, messageHash);
+        _verifyWithdrawal(batchIndex, blockHeader, rollbackProof, blockProof, messageHash);
         _rollbackMessage(from, to, value, blockNumber, messageNonce, message, messageHash);
     }
 
@@ -311,20 +308,15 @@ contract FluentBridge is
 
     function _verifyWithdrawal(
         uint256 _batchIndex,
-        RollupStorageLayout.BlockCommitment calldata _commitmentBatch,
+        L2BlockHeader calldata _blockHeader,
         MerkleTree.MerkleProof calldata _withdrawalProof,
         MerkleTree.MerkleProof calldata _blockProof,
         bytes32 _messageHash
     ) internal view {
         bool blockValid = MerkleTree.verifyMerkleProof(
-            Rollup(rollup()).acceptedBatchRoot(_batchIndex),
+            Rollup(rollup()).getBatch(_batchIndex).batchRoot,
             keccak256(
-                abi.encodePacked(
-                    _commitmentBatch.previousBlockHash,
-                    _commitmentBatch.blockHash,
-                    _commitmentBatch.sentMessageRoot,
-                    _commitmentBatch.receivedMessageRoot
-                )
+                abi.encodePacked(_blockHeader.previousBlockHash, _blockHeader.blockHash, _blockHeader.withdrawalRoot, _blockHeader.depositRoot)
             ),
             _blockProof.nonce,
             _blockProof.proof
@@ -332,7 +324,7 @@ contract FluentBridge is
         require(blockValid, InvalidBlockProof());
 
         bool withdrawalValid = MerkleTree.verifyMerkleProof(
-            _commitmentBatch.sentMessageRoot,
+            _blockHeader.withdrawalRoot,
             _messageHash,
             _withdrawalProof.nonce,
             _withdrawalProof.proof

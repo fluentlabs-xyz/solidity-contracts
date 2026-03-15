@@ -1,117 +1,311 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
+import {L2BlockHeader, BatchRecord, ChallengeRecord} from "./IRollupTypes.sol";
+import {MerkleTree} from "../libraries/MerkleTree.sol";
+
+// ============ Interfaces ============
+
 interface IRollupErrors {
-    /**
-     * @notice Error thrown when the rollup is corrupted.
-     */
+    /// @notice Rollup is in corrupted state, all state-changing functions are blocked.
     error RollupCorrupted();
-    /**
-     * @notice Error thrown when the previous block hash is wrong.
-     */
+
+    /// @notice Block's previousBlockHash does not match expected chain tip.
     error WrongPreviousBlockHash(bytes32 expected, bytes32 provided);
-    /**
-     * @notice Error thrown when the deposit verification failed.
-     */
-    error DepositVerificationFailed(bytes32 blockHash);
-    /**
-     * @notice Error thrown when the accept deposit deadline exceeded.
-     */
+
+    /// @notice Deposit root in block header does not match bridge messages.
+    error DepositRootMismatch(bytes32 blockHash);
+
+    /// @notice L1 deposit was submitted too late relative to the L2 block.
     error AcceptDepositDeadlineExceeded(uint256 deadline, uint256 currentBlock);
-    /**
-     * @notice Error thrown when the batch is not accepted.
-     */
-    error BatchNotAccepted(uint256 batchIndex);
+
+    /// @notice Batch has already been finalized and cannot be modified.
     error BatchAlreadyFinalized(uint256 batchIndex);
-    error BlockCommitmentAlreadyProofed(bytes32 commitmentHash);
-    error BatchAlreadyChallenged(uint256 batchIndex);
+
+    /// @notice Block has already been proven, cannot prove again.
+    error BlockAlreadyProven(bytes32 commitment);
+
+    /// @notice Block has already been challenged, cannot challenge again.
+    error BlockAlreadyChallenged(bytes32 commitment);
+
+    /// @notice Block has not been challenged, cannot resolve.
+    error BlockNotChallenged(bytes32 commitment);
+
+    /// @notice Challenge deposit amount does not match required amount.
     error IncorrectChallengeDeposit(uint256 required, uint256 provided);
+
+    /// @notice Native ETH transfer to recipient failed.
     error EthTransferFailed(address recipient, uint256 amount);
-    error InvalidRevertIndex(uint256 index);
-    error BlockHashMismatch(bytes32 expected, bytes32 provided);
-    error InvalidBatchIndex(uint256 providedBatchIndex, uint256 currentBatchIndex);
-    error InvalidBatchSize(uint256 expected, uint256 provided);
+
+    /// @notice Block sequence is broken — block[i].blockHash != block[i+1].previousBlockHash.
     error InvalidBlockSequence(uint256 index, bytes32 currentHash, bytes32 nextPrevHash);
-    error InvalidDepositsArrayLength();
+
+    /// @notice Merkle tree construction requires at least one leaf.
     error NoLeavesProvided();
+
+    /// @notice Caller has no balance available for withdrawal.
     error NothingToWithdraw();
+
+    /// @notice msg.value insufficient to cover incentive fees for force revert.
     error NotEnoughValueIncentiveFee(uint256 value, uint256 incentiveFee);
+
+    /// @notice Merkle proof for block header is invalid.
     error InvalidBlockProof();
-    error ContractPaused();
+
+    /// @notice Blob hash in DA layer does not match submitted blob hash.
     error DaBlobHashMismatch(bytes32 expected, bytes32 provided);
-    error ZeroAddressNotAllowed(string field);
-    error ZeroValueNotAllowed(string field);
-    error OnlySequencer();
+
+    /// @notice Address field must not be zero.
+    error ZeroAddressNotAllowed(bytes32 field);
+
+    /// @notice Value field must not be zero.
+    error ZeroValueNotAllowed(bytes32 field);
+
+    /// @notice Nitro enclave signature verification failed.
     error InvalidNitroSignature();
+
+    /// @notice SP1 ZK proof verification failed.
     error InvalidSP1Proof();
-    error NitroVerifierNotSet();
-    error InsufficientGas();
-    error InvalidBatchStatus(uint256 batchIndex, uint8 current);
-    error BlockCommitmentAlreadyChallenged(bytes32 commitmentHash);
-    error BlockCommitmentNotChallenged(bytes32 commitmentHash);
+
+    /// @notice Nitro verifier address is not in the enabled whitelist.
     error NitroVerifierNotEnabled(address nitroVerifier);
+
+    /// @notice nextBatchIndex would overflow uint96.
     error NextBatchIndexOverflow();
+
+    /// @notice Blob submission deadline exceeded for this batch.
     error DADeadlineExceeded(uint256 deadline, uint256 currentBlock);
+
+    /// @notice Preconfirmation deadline exceeded for this batch.
     error PreconfirmDeadlineExceeded(uint256 deadline, uint256 currentBlock);
+
+    /// @notice Number of submitted blobs exceeds expected blob count.
     error InvalidBlobCount(uint32 expected, uint256 provided);
+
+    /// @notice Batch is not in the expected status for this operation.
+    error InvalidBatchStatus(uint256 batchIndex, uint8 current);
+
+    /// @notice Gas remaining after iteration is below the required threshold.
+    error InsufficientGas();
+
+    /// @notice Provided batch index is out of range.
+    error InvalidBatchIndex(uint256 providedBatchIndex, uint256 currentBatchIndex);
 }
 
 interface IRollupEvents {
-    event VerifierUpdated(address indexed oldVerifier, address indexed newVerifier);
+    // ============ Admin config updates ============
 
-    event DaCheckUpdated(bool oldValue, bool newValue);
+    /// @notice Emitted when the bridge contract address is updated.
+    event BridgeUpdated(address indexed previousBridge, address indexed newBridge);
 
-    event BridgeUpdated(address indexed oldBridge, address indexed newBridge);
+    /// @notice Emitted when the SP1 verifier contract address is updated.
+    event SP1VerifierUpdated(address indexed previousVerifier, address indexed newVerifier);
 
-    event ProgramVKeyUpdated(bytes32 indexed oldValue, bytes32 indexed newValue);
-    event NitroVerifierUpdated(address indexed oldVerifier, address indexed newVerifier);
+    /// @notice Emitted when the SP1 program verification key is updated.
+    event ProgramVKeyUpdated(bytes32 indexed previousVKey, bytes32 indexed newVKey);
 
-    event BatchAccepted(uint256 batchIndex, bytes32 batchRoot);
-    event BatchPreConfirmed(uint256 batchIndex);
-    event BatchFinalized(uint256 batchIndex);
+    /// @notice Emitted when a Nitro verifier is added to the enabled whitelist.
+    event NitroVerifierEnabled(address indexed verifier);
 
-    event BlockCommitmentChallenged(uint256 batchIndex, bytes32 commitmentHash, address indexed challenger);
-    event BlockCommitmentProved(uint256 batchIndex, bytes32 commitmentHash, address indexed prover);
+    // ============ Batch lifecycle ============
 
-    event ForceRevertBatch(uint256 batchIndex);
+    /// @notice Emitted when sequencer submits L2 block headers for a new batch.
+    event BatchHeadersSubmitted(uint256 indexed batchIndex, bytes32 batchRoot, uint256 expectedBlobs);
 
-    event ChallengeDepositWithdrawn(address indexed challenger, uint256 amount);
+    /// @notice Emitted when sequencer submits blob hashes for a batch.
+    event BatchBlobsSubmitted(uint256 indexed batchIndex, uint256 numBlobs, uint256 totalBlobs);
 
-    event ProofRewardWithdrawn(address indexed prover, uint256 amount);
+    /// @notice Emitted when all expected blobs are submitted and batch moves to Accepted.
+    event BatchAccepted(uint256 indexed batchIndex);
 
-    event BatchDAReady(uint256 indexed batchIndex);
-    event BatchCorrupted(uint256 indexed batchIndex);
+    /// @notice Emitted when Nitro preconfirmation is committed for a batch.
+    event BatchPreconfirmed(uint256 indexed batchIndex);
+
+    /// @notice Emitted when a batch is permanently finalized after the challenge period.
+    event BatchFinalized(uint256 indexed batchIndex);
+
+    /// @notice Emitted when admin force-reverts batches from a given index onward.
+    event BatchReverted(uint256 indexed fromBatchIndex);
+
+    // ============ Challenge lifecycle ============
+
+    /// @notice Emitted when a challenger disputes a block in a preconfirmed batch.
+    event BlockChallenged(uint256 indexed batchIndex, bytes32 indexed commitment, address indexed challenger);
+
+    /// @notice Emitted when a prover resolves a challenge with Nitro + SP1 proof.
+    event ChallengeResolved(uint256 indexed batchIndex, bytes32 indexed commitment, address indexed prover);
+
+    // ============ Rewards ============
+
+    /// @notice Emitted when a challenger claims their reward (deposit + incentive fee).
+    event ChallengerRewardClaimed(address indexed challenger, uint256 amount);
+
+    /// @notice Emitted when a prover claims their proof reward.
+    event ProofRewardClaimed(address indexed prover, uint256 amount);
+}
+
+interface IRollupConfig {
+    /// @notice Bridge contract address for L1 <-> L2 message passing.
+    function bridge() external view returns (address);
+
+    /// @notice SP1 verifier contract used for ZK proof verification.
+    function sp1Verifier() external view returns (address);
+
+    /// @notice SP1 program verification key bound to the current rollup program.
+    function programVKey() external view returns (bytes32);
+
+    /// @notice Number of L1 blocks after batch acceptance before finalization is allowed.
+    function approveBlockCount() external view returns (uint256);
+
+    /// @notice Number of L1 blocks a challenger has to submit a challenge.
+    function challengeBlockCount() external view returns (uint256);
+
+    /// @notice ETH deposit required to open a challenge.
+    function challengeDepositAmount() external view returns (uint256);
+
+    /// @notice ETH reward paid to prover on successful challenge resolution.
+    function incentiveFee() external view returns (uint256);
+
+    /// @notice Max L1 blocks between L1 deposit and L2 block acceptance.
+    function acceptDepositDeadline() external view returns (uint256);
+
+    /// @notice Max L1 blocks after batch acceptance for blob submission.
+    function daDeadlineBlocks() external view returns (uint256);
+
+    /// @notice Max L1 blocks after blob submission for preconfirmation.
+    function preconfirmDeadlineBlocks() external view returns (uint256);
 }
 
 interface IRollupRead {
-    /// @notice Returns the challenge queue.
-    function getChallengeQueue() external view returns (bytes32[] memory);
+    // ============ Rollup health ============
 
-    /// @notice Checks if rollup is corrupted.
-    function rollupCorrupted() external view returns (bool);
+    /// @notice Returns true if the rollup is in a corrupted state.
+    function isRollupCorrupted() external view returns (bool);
 
-    /// @notice Checks if a batch has been accepted.
-    ///  function acceptedBatch(uint256 _batchIndex) external view returns (bool);
+    // ============ Batch state ============
 
-    /// @notice Checks if a batch has been finalized.
-    //  function finalizedBatch(uint256 _batchIndex) external view returns (bool);
+    /// @notice Returns the full state record for a batch.
+    function getBatch(uint256 batchIndex) external view returns (BatchRecord memory);
+
+    /// @notice Returns the index of the next batch to be submitted.
+    function nextBatchIndex() external view returns (uint256);
+
+    /// @notice Returns the index of the last finalized batch.
+    function lastFinalizedBatchIndex() external view returns (uint256);
+
+    /// @notice Returns the last block hash in a batch, used for chain linking.
+    function lastBlockHashInBatch(uint256 batchIndex) external view returns (bytes32);
+
+    // ============ Batch helpers ============
+
+    /// @notice Returns true if the batch has been finalized.
+    function isBatchFinalized(uint256 batchIndex) external view returns (bool);
+
+    /// @notice Returns true if the batch is preconfirmed (eligible for challenge or finalization).
+    function isBatchPreconfirmed(uint256 batchIndex) external view returns (bool);
+
+    // ============ Challenge state ============
+
+    /// @notice Returns the full state record for a challenge.
+    function getChallenge(bytes32 commitment) external view returns (ChallengeRecord memory);
+
+    /// @notice Returns all commitments currently in the challenge queue, ordered by deadline.
+    function challengeQueue() external view returns (bytes32[] memory);
+
+    /// @notice Returns blob hashes submitted for a batch.
+    function batchBlobHashes(uint256 batchIndex) external view returns (bytes32[] memory);
+
+    /// @notice Returns commitments of blocks that have been challenged in a batch.
+    function batchChallengedBlocks(uint256 batchIndex) external view returns (bytes32[] memory);
+
+    /// @notice Returns commitments of blocks that have been proven in a batch.
+    function batchProvenBlocks(uint256 batchIndex) external view returns (bytes32[] memory);
+
+    /// @notice Returns true if a block commitment has been proven.
+    function isBlockProven(bytes32 commitment) external view returns (bool);
+
+    // ============ Reward balances ============
+
+    /// @notice Returns the claimable reward balance for a challenger.
+    function claimableChallengerReward(address challenger) external view returns (uint256);
+
+    /// @notice Returns the claimable reward balance for a prover.
+    function claimableProofReward(address prover) external view returns (uint256);
 }
 
 interface IRollupWrite {
-    /// @notice Forces reversion of batches starting from a given index.
-    function forceRevertBatch(uint256 _revertedBatchIndex) external payable;
+    // ============ Sequencer ============
 
-    /// @notice Ensures a batch is marked as finalized if eligible.
-    function ensureBatchFinalized(uint256 _batchIndex) external returns (bool);
+    /// @notice Submit a new batch of L2 block headers.
+    function acceptNextBatch(L2BlockHeader[] calldata blockHeaders, uint256 expectedBlobsCount) external;
 
-    /// @notice Withdraws the challenge deposit and incentive (if any) for a given challenger.
-    function withdrawChallengeDeposit(address payable challenger) external payable;
+    /// @notice Submit blob hashes for DA verification of an accepted batch.
+    function submitBlobs(uint256 batchIndex, uint256 numBlobs) external;
 
-    /// @notice Withdraws pending proof reward for the caller.
+    // ============ Preconfirmation ============
+
+    /// @notice Preconfirm a batch using a Nitro enclave signature.
+    function preconfirmBatch(address nitroVerifier, uint256 batchIndex, bytes32 signature) external;
+
+    // ============ Challenger ============
+
+    /// @notice Challenge a specific L2 block in a preconfirmed batch.
+    function challengeBlock(uint256 batchIndex, L2BlockHeader calldata blockHeader, MerkleTree.MerkleProof calldata blockProof) external payable;
+
+    // ============ Prover ============
+
+    /// @notice Resolve a challenge by providing Nitro + SP1 proofs.
+    function resolveChallenge(
+        uint256 batchIndex,
+        L2BlockHeader calldata blockHeader,
+        MerkleTree.MerkleProof calldata blockProof,
+        address nitroVerifier,
+        bytes32 nitroSignature,
+        bytes calldata sp1Proof
+    ) external payable;
+
+    // ============ Anyone ============
+
+    /// @notice Attempt to finalize a preconfirmed batch if the challenge period has elapsed.
+    function tryFinalizeBatch(uint256 batchIndex) external returns (bool);
+
+    /// @notice Claim reward back as challenger (deposit + incentive fee if challenge was valid).
+    function withdrawChallengerReward() external;
+
+    /// @notice Claim pending proof reward as prover.
     function withdrawProofReward() external;
-
-    /// @notice Submit DA proof (blob hashes) for a previously accepted batch.
-    function submitDAProof(uint256 batchIndex, uint256 numBlobs) external;
 }
 
-interface IRollup is IRollupRead, IRollupWrite {}
+interface IRollupAdmin {
+    /// @notice Update the bridge contract address.
+    function setBridge(address newBridge) external;
+
+    /// @notice Update the SP1 verifier contract address.
+    function setSp1Verifier(address newVerifier) external;
+
+    /// @notice Update the SP1 program verification key.
+    function setProgramVKey(bytes32 newVKey) external;
+
+    /// @notice Add a Nitro verifier to the enabled whitelist.
+    function setNitroVerifier(address newVerifier) external;
+
+    /// @notice Set minimum gas threshold per block header iteration in acceptNextBatch.
+    function setGasLeft(uint32 gasLeft) external;
+}
+
+interface IRollupEmergency {
+    /// @notice Pause all non-emergency functions.
+    /// @dev Only callable by EMERGENCY_ROLE.
+    function pause() external;
+
+    /// @notice Unpause the contract.
+    /// @dev Only callable by EMERGENCY_ROLE.
+    function unpause() external;
+
+    /// @notice Force-revert all non-finalized batches from a given index onward.
+    /// @dev Only callable by EMERGENCY_ROLE. Refunds challenger deposits with incentive fee.
+    /// @param fromBatchIndex The batch index to revert from (inclusive).
+    function forceRevertBatch(uint256 fromBatchIndex) external payable;
+}
+
+interface IRollup is IRollupConfig, IRollupRead, IRollupWrite, IRollupAdmin, IRollupEmergency {}

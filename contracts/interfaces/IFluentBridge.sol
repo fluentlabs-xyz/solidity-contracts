@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import {Rollup} from "../rollup/Rollup.sol";
 import {MerkleTree} from "../libraries/MerkleTree.sol";
-import {RollupStorageLayout} from "../rollup/RollupStorageLayout.sol";
+import {L2BlockHeader} from "./IRollupTypes.sol";
 
 interface IBridgeErrorCodes {
     /// @dev Caller is not the configured bridge authority (trusted relayer path).
@@ -144,23 +143,21 @@ interface IFluentBridge is IBridgeErrorCodes, IFluentBridgeEvents {
      */
     function sendMessage(address _to, bytes calldata _message) external payable;
 
-    /**
-     * @notice Receives and executes a message with Merkle proofs (L1 only; messages from L2 to L1).
-     * @param _batchIndex Index of the rollup batch containing the message.
-     * @param _commitmentBatch Block commitment for the batch.
-     * @param _from Sender on the source chain.
-     * @param _to Destination on this chain.
-     * @param _value Value to forward.
-     * @param _chainId Source chain id.
-     * @param _blockNumber Block number on source chain.
-     * @param _nonce Message nonce.
-     * @param _message Message payload.
-     * @param _withdrawal_proof Merkle proof for the withdrawal (message hash).
-     * @param _block_proof Merkle proof for the block commitment.
-     */
+    /// @notice Receives and executes a message with Merkle proofs (L1 only; messages from L2 to L1).
+    /// @param _batchIndex Index of the rollup batch containing the message.
+    /// @param _blockHeader L2 block header containing the withdrawal root.
+    /// @param _from Sender on the source chain.
+    /// @param _to Destination on this chain.
+    /// @param _value Value to forward.
+    /// @param _chainId Source chain id.
+    /// @param _blockNumber Block number on source chain.
+    /// @param _nonce Message nonce.
+    /// @param _message Message payload.
+    /// @param _withdrawal_proof Merkle proof for the withdrawal (message hash) against withdrawalRoot.
+    /// @param _block_proof Merkle proof for the block header against the batch root.
     function receiveMessageWithProof(
         uint256 _batchIndex,
-        RollupStorageLayout.BlockCommitment calldata _commitmentBatch,
+        L2BlockHeader calldata _blockHeader,
         address _from,
         address payable _to,
         uint256 _value,
@@ -172,24 +169,22 @@ interface IFluentBridge is IBridgeErrorCodes, IFluentBridgeEvents {
         MerkleTree.MerkleProof calldata _block_proof
     ) external payable;
 
-    /**
-     * @notice Processes a rollback with Merkle proofs (L1 only; refunds sender when message was not received on L2).
-     * @dev Can only be used on the **L1 side** to refund the original sender when a message was not successfully received on L2.
-     * @param _batchIndex Index of the rollup batch.
-     * @param _commitmentBatch Block commitment for the batch.
-     * @param _from Original sender (refund recipient).
-     * @param _to Original destination (unused for refund).
-     * @param _value Value to refund.
-     * @param _chainId Source chain id.
-     * @param _blockNumber Block number on source chain.
-     * @param _nonce Message nonce.
-     * @param _message Message payload (for hash).
-     * @param _rollback_proof Merkle proof for the rollback leaf.
-     * @param _block_proof Merkle proof for the block commitment.
-     */
+    /// @notice Processes a rollback with Merkle proofs (L1 only; refunds sender when message was not received on L2).
+    /// @dev Can only be used on the **L1 side** to refund the original sender when a message was not successfully received on L2.
+    /// @param _batchIndex Index of the rollup batch.
+    /// @param _blockHeader L2 block header containing the withdrawal root.
+    /// @param _from Original sender (refund recipient).
+    /// @param _to Original destination (unused for refund).
+    /// @param _value Value to refund.
+    /// @param _chainId Source chain id.
+    /// @param _blockNumber Block number on source chain.
+    /// @param _nonce Message nonce.
+    /// @param _message Message payload (for hash).
+    /// @param _rollback_proof Merkle proof for the rollback leaf against withdrawalRoot.
+    /// @param _block_proof Merkle proof for the block header against the batch root.
     function rollbackMessageWithProof(
         uint256 _batchIndex,
-        RollupStorageLayout.BlockCommitment calldata _commitmentBatch,
+        L2BlockHeader calldata _blockHeader,
         address _from,
         address _to,
         uint256 _value,
