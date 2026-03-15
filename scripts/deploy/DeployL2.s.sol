@@ -41,12 +41,17 @@ contract DeployL2 is DeployLib {
         uint256 receiveMessageDeadline = vm.envOr("RECEIVE_MSG_DEADLINE", uint256(0));
         address otherBridgePlaceholder = vm.envOr("OTHER_BRIDGE_PLACEHOLDER", address(0x1));
         address l1BlockOracle = vm.envOr("L1_BLOCK_ORACLE", address(0));
-        string memory outputPath = vm.envOr("OUTPUT_PATH", string("deployments/fluent_testnet.json"));
+        string memory outputPath = vm.envOr("OUTPUT_PATH", string("deployments/fluent_devnet.json"));
 
         vm.startBroadcast();
 
         (address bridgeProxy, address bridgeImpl) = _deployFluentBridge(
-            adminRole, pauserRole, relayerRole, receiveMessageDeadline, otherBridgePlaceholder, l1BlockOracle
+            adminRole,
+            pauserRole,
+            relayerRole,
+            receiveMessageDeadline,
+            otherBridgePlaceholder,
+            l1BlockOracle
         );
 
         (address factoryProxy, address factoryImpl) = _deployUniversalTokenFactory(initialOwner);

@@ -93,16 +93,49 @@ contract FluentBridge is
 
     /// @custom:storage-location erc7201:fluent.storage.FluentBridgeStorage
     struct FluentBridgeStorage {
+        /**
+         * @notice Next outbound message nonce (incremented on each sendMessage).
+         */
         uint256 nonce;
+        /**
+         * @notice Next expected inbound received message nonce (L2 receiveMessage ordering).
+         */
         uint256 receivedNonce;
+        /**
+         * @notice Number of blocks after which a message becomes eligible for rollback.
+         */
         uint256 receiveMessageDeadline;
+        /**
+         * @notice During receive execution, the address that sent the message on the other chain; otherwise address(0).
+         */
         address nativeSender;
+        /**
+         * @notice Address of the bridge contract on the other chain.
+         */
         address otherBridge;
+        /**
+         * @notice Status of a received message by its hash (None, Failed, Success).
+         */
         mapping(bytes32 => MessageStatus) receivedMessage;
+        /**
+         * @notice Status of a rollback execution by message hash.
+         */
         mapping(bytes32 => MessageStatus) rollbackMessage;
+        /**
+         * @notice Queue of sent messages.
+         */
         Queue.QueueStorage sentMessageQueue;
+        /**
+         * @notice Rollup contract address (L1 only; address(0) on L2).
+         */
         address rollup;
+        /**
+         * @notice Address of the L1 block oracle used for rollback deadline checks.
+         */
         address l1BlockOracle;
+        /**
+         * @notice Gap for future storage.
+         */
         uint256[50] __gap;
     }
 
@@ -115,9 +148,11 @@ contract FluentBridge is
         }
     }
 
-    /// @dev Restricts function to be called only by the rollup contract.
+    /**
+     * @dev Restricts function to be called only by the rollup contract.
+     */
     modifier onlyRollup() {
-        require(msg.sender == _getFluentBridgeStorage().rollup, OnlyRollupAuthority());
+        require(msg.sender == rollup(), OnlyRollupAuthority());
         _;
     }
 
