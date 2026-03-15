@@ -67,8 +67,9 @@ contract BridgeLegacyParityTest is RollupBase {
 
         Bridge bridgeImpl = new Bridge();
         Bridge.InitConfiguration memory bridgeParams = Bridge.InitConfiguration({
-            initialOwner: address(this),
-            bridgeAuthority: address(this),
+            adminRole: address(this),
+            pauserRole: address(this),
+            relayerRole: address(this),
             rollup: address(rollup),
             receiveMessageDeadline: 10,
             otherBridge: OTHER_BRIDGE,
@@ -114,14 +115,14 @@ contract BridgeLegacyParityTest is RollupBase {
     }
 
     function test_receiveMessage_marksSuccessAndRejectsOutOfOrderNonce() public {
-        vm.deal(address(this), 1 ether);
+        vm.deal(address(bridge), 1 ether);
 
         uint256 nonce = bridge.receivedNonce();
         uint256 receiverBalanceBefore = RECEIVER.balance;
         uint256 sourceChainId = block.chainid + 1;
         uint256 sourceBlock = 10;
 
-        bridge.receiveMessage{value: 200}(DESTINATION, RECEIVER, 200, sourceChainId, sourceBlock, nonce, "");
+        bridge.receiveMessage(DESTINATION, RECEIVER, 200, sourceChainId, sourceBlock, nonce, "");
 
         uint256 receiverBalanceAfter = RECEIVER.balance;
         assertEq(receiverBalanceAfter - receiverBalanceBefore, 200, "receiver should be paid");
@@ -134,7 +135,7 @@ contract BridgeLegacyParityTest is RollupBase {
         );
 
         vm.expectRevert(bytes4(keccak256("MessageReceivedOutOfOrder()")));
-        bridge.receiveMessage{value: 200}(DESTINATION, RECEIVER, 200, sourceChainId, sourceBlock, nonce, "");
+        bridge.receiveMessage(DESTINATION, RECEIVER, 200, sourceChainId, sourceBlock, nonce, "");
     }
 
     function test_receiveMessageWithProof_executesTransfer() public {
@@ -147,7 +148,7 @@ contract BridgeLegacyParityTest is RollupBase {
     }
 
     function test_receiveMessage_afterDeadline_emitsRollbackBehavior() public {
-        vm.deal(address(this), 1 ether);
+        vm.deal(address(bridge), 1 ether);
         uint256 nonce = bridge.receivedNonce();
         uint256 sourceChainId = block.chainid + 1;
         uint256 sourceBlock = 10;
@@ -158,7 +159,7 @@ contract BridgeLegacyParityTest is RollupBase {
         NoopReceiver receiver = new NoopReceiver();
         uint256 receiverBalanceBefore = address(receiver).balance;
         bytes memory payload = abi.encodeWithSignature("handle()");
-        bridge.receiveMessage{value: 200}(DESTINATION, address(receiver), 200, sourceChainId, sourceBlock, nonce, payload);
+        bridge.receiveMessage(DESTINATION, address(receiver), 200, sourceChainId, sourceBlock, nonce, payload);
         uint256 receiverBalanceAfter = address(receiver).balance;
 
         assertEq(receiverBalanceAfter - receiverBalanceBefore, 0, "message must not execute after deadline");

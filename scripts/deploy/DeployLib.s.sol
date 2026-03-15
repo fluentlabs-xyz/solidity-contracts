@@ -43,15 +43,17 @@ abstract contract DeployLib is Script {
 
     /// @dev Deploys FluentBridge via UUPS proxy. Caller must be in broadcast. Returns (proxy, impl).
     function _deployFluentBridge(
-        address initialOwner,
-        address bridgeAuthority,
+        address adminRole,
+        address pauserRole,
+        address relayerRole,
         uint256 receiveMessageDeadline,
         address otherBridgePlaceholder,
         address l1BlockOracle
     ) internal returns (address bridgeProxy, address bridgeImpl) {
         FluentBridge.InitConfiguration memory params = FluentBridge.InitConfiguration({
-            initialOwner: initialOwner,
-            bridgeAuthority: bridgeAuthority,
+            adminRole: adminRole,
+            pauserRole: pauserRole,
+            relayerRole: relayerRole,
             rollup: address(0),
             receiveMessageDeadline: receiveMessageDeadline,
             otherBridge: otherBridgePlaceholder,

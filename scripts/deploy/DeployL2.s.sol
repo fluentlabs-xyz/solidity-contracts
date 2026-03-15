@@ -9,7 +9,9 @@ import {UniversalTokenFactory} from "../../contracts/factories/UniversalTokenFac
  * @dev Mirrors scripts/deploy/bash/fluent_deploy.bash deployment steps in Solidity.
  *      Environment:
  *      - INITIAL_OWNER (address, required)
- *      - BRIDGE_AUTHORITY (address, optional; defaults to INITIAL_OWNER)
+ *      - PAUSER_ROLE (address, optional; defaults to ADMIN_ROLE/INITIAL_OWNER)
+ *      - RELAYER_ROLE (address, optional; defaults to BRIDGE_AUTHORITY/ADMIN_ROLE/INITIAL_OWNER)
+ *      - BRIDGE_AUTHORITY (address, optional; legacy fallback for RELAYER_ROLE)
  *      - RECEIVE_MSG_DEADLINE (uint256, optional; default 0)
  *      - OTHER_BRIDGE_PLACEHOLDER (address, optional; default 0x1)
  *      - L1_BLOCK_ORACLE (address, optional; default 0)
@@ -33,7 +35,9 @@ contract DeployL2 is DeployLib {
         address initialOwner = vm.envAddress("INITIAL_OWNER");
         require(initialOwner != address(0), "INITIAL_OWNER required");
 
-        address bridgeAuthority = vm.envOr("BRIDGE_AUTHORITY", initialOwner);
+        address adminRole = vm.envOr("ADMIN_ROLE", initialOwner);
+        address pauserRole = vm.envOr("PAUSER_ROLE", adminRole);
+        address relayerRole = vm.envOr("RELAYER_ROLE", vm.envOr("BRIDGE_AUTHORITY", adminRole));
         uint256 receiveMessageDeadline = vm.envOr("RECEIVE_MSG_DEADLINE", uint256(0));
         address otherBridgePlaceholder = vm.envOr("OTHER_BRIDGE_PLACEHOLDER", address(0x1));
         address l1BlockOracle = vm.envOr("L1_BLOCK_ORACLE", address(0));
@@ -42,7 +46,7 @@ contract DeployL2 is DeployLib {
         vm.startBroadcast();
 
         (address bridgeProxy, address bridgeImpl) = _deployFluentBridge(
-            initialOwner, bridgeAuthority, receiveMessageDeadline, otherBridgePlaceholder, l1BlockOracle
+            adminRole, pauserRole, relayerRole, receiveMessageDeadline, otherBridgePlaceholder, l1BlockOracle
         );
 
         (address factoryProxy, address factoryImpl) = _deployUniversalTokenFactory(initialOwner);

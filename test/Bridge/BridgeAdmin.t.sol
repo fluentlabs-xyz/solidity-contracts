@@ -5,9 +5,11 @@ import {FluentBridge as Bridge} from "../../contracts/FluentBridge.sol";
 import {IBridgeErrorCodes} from "../../contracts/interfaces/IFluentBridge.sol";
 import {MinimalTest} from "../Rollup/Base.t.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 
 contract BridgeAdminTest is MinimalTest {
-    address internal constant INITIAL_AUTHORITY = address(0xA0A0);
+    address internal constant INITIAL_PAUSER = address(0xA0A0);
+    address internal constant INITIAL_RELAYER = address(0xA0B0);
     address internal constant INITIAL_ROLLUP = address(0xB0B0);
     address internal constant INITIAL_OTHER_BRIDGE = address(0xC0C0);
     address internal constant INITIAL_ORACLE = address(0xD0D0);
@@ -19,8 +21,9 @@ contract BridgeAdminTest is MinimalTest {
     function setUp() public {
         Bridge bridgeImpl = new Bridge();
         Bridge.InitConfiguration memory params = Bridge.InitConfiguration({
-            initialOwner: address(this),
-            bridgeAuthority: INITIAL_AUTHORITY,
+            adminRole: address(this),
+            pauserRole: INITIAL_PAUSER,
+            relayerRole: INITIAL_RELAYER,
             rollup: INITIAL_ROLLUP,
             receiveMessageDeadline: INITIAL_DEADLINE,
             otherBridge: INITIAL_OTHER_BRIDGE,
@@ -34,7 +37,9 @@ contract BridgeAdminTest is MinimalTest {
     }
 
     function test_getters_exposeInitialConfig() public view {
-        assertEq(bridge.bridgeAuthority(), INITIAL_AUTHORITY, "bridgeAuthority mismatch");
+        assertEq(bridge.hasRole(bridge.DEFAULT_ADMIN_ROLE(), address(this)), true, "admin role mismatch");
+        assertEq(bridge.hasRole(bridge.PAUSER_ROLE(), INITIAL_PAUSER), true, "pauser role mismatch");
+        assertEq(bridge.hasRole(bridge.RELAYER_ROLE(), INITIAL_RELAYER), true, "relayer role mismatch");
         assertEq(bridge.rollup(), INITIAL_ROLLUP, "rollup mismatch");
         assertEq(bridge.receiveMessageDeadline(), INITIAL_DEADLINE, "deadline mismatch");
         assertEq(bridge.otherBridge(), INITIAL_OTHER_BRIDGE, "otherBridge mismatch");
@@ -42,29 +47,32 @@ contract BridgeAdminTest is MinimalTest {
     }
 
     function test_setters_updateState() public {
-        address newAuthority = address(0xA0A1);
         address newRollup = address(0xB0B1);
         address newOtherBridge = address(0xC0C1);
         address newOracle = address(0xD0D1);
+        uint256 newDeadline = INITIAL_DEADLINE + 1;
 
-        bridge.setBridgeAuthority(newAuthority);
         bridge.setRollup(newRollup);
         bridge.setOtherBridge(newOtherBridge);
         bridge.setL1BlockOracle(newOracle);
+        bridge.setReceiveMessageDeadline(newDeadline);
 
-        assertEq(bridge.bridgeAuthority(), newAuthority, "bridgeAuthority should update");
         assertEq(bridge.rollup(), newRollup, "rollup should update");
         assertEq(bridge.otherBridge(), newOtherBridge, "otherBridge should update");
         assertEq(bridge.l1BlockOracle(), newOracle, "oracle should update");
+        assertEq(bridge.receiveMessageDeadline(), newDeadline, "deadline should update");
     }
 
     function test_adminSetters_zeroAddressAndQueueGuards() public {
-        // Zero-address guards on authority and otherBridge.
-        vm.expectRevert(abi.encodeWithSelector(IBridgeErrorCodes.ZeroAddressNotAllowed.selector, "bridgeAuthority"));
-        bridge.setBridgeAuthority(address(0));
-
+        // Zero-address guards on otherBridge and l1BlockOracle.
         vm.expectRevert(abi.encodeWithSelector(IBridgeErrorCodes.ZeroAddressNotAllowed.selector, "otherBridge"));
         bridge.setOtherBridge(address(0));
+
+        vm.expectRevert(abi.encodeWithSelector(IBridgeErrorCodes.ZeroAddressNotAllowed.selector, "l1BlockOracle"));
+        bridge.setL1BlockOracle(address(0));
+
+        vm.expectRevert(abi.encodeWithSelector(IBridgeErrorCodes.ZeroValueNotAllowed.selector, "receiveMessageDeadline"));
+        bridge.setReceiveMessageDeadline(0);
 
         // QueueNotEmpty guard when unsetting rollup.
         vm.deal(address(this), 1 ether);
@@ -77,8 +85,9 @@ contract BridgeAdminTest is MinimalTest {
         // When queue is empty, rollup can be set to zero.
         Bridge bridgeImpl2 = new Bridge();
         Bridge.InitConfiguration memory params2 = Bridge.InitConfiguration({
-            initialOwner: address(this),
-            bridgeAuthority: INITIAL_AUTHORITY,
+            adminRole: address(this),
+            pauserRole: INITIAL_PAUSER,
+            relayerRole: INITIAL_RELAYER,
             rollup: INITIAL_ROLLUP,
             receiveMessageDeadline: INITIAL_DEADLINE,
             otherBridge: INITIAL_OTHER_BRIDGE,
@@ -96,20 +105,36 @@ contract BridgeAdminTest is MinimalTest {
 
     function test_setters_revertForNonOwner() public {
         vm.prank(ATTACKER);
-        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", ATTACKER));
-        bridge.setBridgeAuthority(address(0x1));
-
-        vm.prank(ATTACKER);
-        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", ATTACKER));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, ATTACKER, bridge.DEFAULT_ADMIN_ROLE()
+            )
+        );
         bridge.setRollup(address(0x2));
 
         vm.prank(ATTACKER);
-        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", ATTACKER));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, ATTACKER, bridge.DEFAULT_ADMIN_ROLE()
+            )
+        );
         bridge.setL1BlockOracle(address(0x3));
 
         vm.prank(ATTACKER);
-        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", ATTACKER));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, ATTACKER, bridge.DEFAULT_ADMIN_ROLE()
+            )
+        );
         bridge.setOtherBridge(address(0x4));
+
+        vm.prank(ATTACKER);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, ATTACKER, bridge.DEFAULT_ADMIN_ROLE()
+            )
+        );
+        bridge.setReceiveMessageDeadline(INITIAL_DEADLINE + 5);
     }
 }
 

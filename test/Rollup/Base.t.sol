@@ -96,8 +96,9 @@ abstract contract RollupBase is MinimalTest {
     }
 
     function _deployBridge(
-        address initialOwner,
-        address bridgeAuthority,
+        address adminRole,
+        address pauserRole,
+        address relayerRole,
         address rollupAddress,
         uint256 receiveMessageDeadline,
         address otherBridge,
@@ -105,8 +106,9 @@ abstract contract RollupBase is MinimalTest {
     ) internal returns (Bridge) {
         Bridge bridgeImpl = new Bridge();
         Bridge.InitConfiguration memory params = Bridge.InitConfiguration({
-            initialOwner: initialOwner,
-            bridgeAuthority: bridgeAuthority,
+            adminRole: adminRole,
+            pauserRole: pauserRole,
+            relayerRole: relayerRole,
             rollup: rollupAddress,
             receiveMessageDeadline: receiveMessageDeadline,
             otherBridge: otherBridge,
@@ -131,7 +133,8 @@ abstract contract RollupBase is MinimalTest {
         verifierMock = new VerifierMock();
         bridge = _deployBridge(
             address(this),
-            address(this), // bridgeAuthority unused in these unit tests
+            address(this),
+            address(this), // roles are unified in these unit tests
             address(0),
             0,
             address(0x1111),
@@ -187,14 +190,14 @@ abstract contract RollupBase is MinimalTest {
                 prover: PROOF_PROVIDER
             })
         );
-        bridge = _deployBridge(address(this), address(this), address(rollup), 0, address(0x1111), address(0x2222));
+        bridge = _deployBridge(address(this), address(this), address(this), address(rollup), 0, address(0x1111), address(0x2222));
         rollup.setBridge(address(bridge));
         rollup.setDaCheck(false);
     }
 
     function _deploySp1RollupForVerifierPath() internal {
         verifierSp1 = new SP1Verifier();
-        bridge = _deployBridge(address(this), address(this), address(0), 0, address(0x1111), address(0x2222));
+        bridge = _deployBridge(address(this), address(this), address(this), address(0), 0, address(0x1111), address(0x2222));
         rollup = _deployRollupProxy(
             RollupStorageLayout.InitConfiguration({
                 admin: address(this),

@@ -43,7 +43,9 @@ read_config_key() {
 DEPLOYER_ADDRESS="${INITIAL_OWNER:-}"
 [ -z "$DEPLOYER_ADDRESS" ] && [ -n "${PRIVATE_KEY:-}" ] && DEPLOYER_ADDRESS="$(cast wallet address --private-key "$PRIVATE_KEY" 2>/dev/null)" || true
 INITIAL_OWNER="${INITIAL_OWNER:-$DEPLOYER_ADDRESS}"
-RELAYER_ADDRESS="${RELAYER_ADDRESS:-$INITIAL_OWNER}"
+ADMIN_ROLE="${ADMIN_ROLE:-$INITIAL_OWNER}"
+PAUSER_ROLE="${PAUSER_ROLE:-$ADMIN_ROLE}"
+RELAYER_ROLE="${RELAYER_ROLE:-${RELAYER_ADDRESS:-$ADMIN_ROLE}}"
 RECEIVE_MSG_DEADLINE="${RECEIVE_MSG_DEADLINE:-0}"
 L1_L1BLOCK_ORACLE="${L1_L1BLOCK_ORACLE:-0x0000000000000000000000000000000000000000}"
 L2_L1BLOCK_ORACLE="${L2_L1BLOCK_ORACLE:-0x0000000000000000000000000000000000000000}"
@@ -74,7 +76,8 @@ echo ""
 
 [ -n "$BRIDGE_IMPL" ] && echo "[1/9] FluentBridge implementation..." && forge verify-contract --watch --chain "$CHAIN_L1" "$BRIDGE_IMPL" contracts/FluentBridge.sol:FluentBridge --rpc-url "$L1_RPC" --verifier etherscan --etherscan-api-key "$ETHERSCAN_API_KEY" || true
 
-INIT_BRIDGE=$(cast calldata "initialize(address,address,address,uint256,address,address)" "$INITIAL_OWNER" "$RELAYER_ADDRESS" 0x0000000000000000000000000000000000000000 "$RECEIVE_MSG_DEADLINE" "$OTHER_BRIDGE_PLACEHOLDER" "$L1_L1BLOCK_ORACLE")
+BRIDGE_INIT_CONFIG_L1=$(cast abi-encode "(address,address,address,address,uint256,address,address)" "$ADMIN_ROLE" "$PAUSER_ROLE" "$RELAYER_ROLE" 0x0000000000000000000000000000000000000000 "$RECEIVE_MSG_DEADLINE" "$OTHER_BRIDGE_PLACEHOLDER" "$L1_L1BLOCK_ORACLE")
+INIT_BRIDGE=$(cast calldata "initialize(bytes)" "$BRIDGE_INIT_CONFIG_L1")
 BRIDGE_PROXY_ARGS=$(cast abi-encode "f(address,bytes)" "$BRIDGE_IMPL" "$INIT_BRIDGE")
 [ -n "$BRIDGE" ] && echo "[2/9] Bridge proxy (ERC1967Proxy)..." && forge verify-contract --watch --chain "$CHAIN_L1" "$BRIDGE" lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy --constructor-args "$BRIDGE_PROXY_ARGS" --rpc-url "$L1_RPC" --verifier etherscan --etherscan-api-key "$ETHERSCAN_API_KEY" || true
 
@@ -123,7 +126,8 @@ echo ""
 
 [ -n "$BRIDGE_IMPL_L2" ] && echo "[1/8] FluentBridge implementation..." && forge verify-contract --rpc-url "$L2_RPC" "$BRIDGE_IMPL_L2" contracts/FluentBridge.sol:FluentBridge --verifier blockscout --verifier-url "$VERIFIER_URL_L2" --chain "$CHAIN_L2" || true
 
-INIT_BRIDGE_L2=$(cast calldata "initialize(address,address,address,uint256,address,address)" "$INITIAL_OWNER" "$RELAYER_ADDRESS" 0x0000000000000000000000000000000000000000 "$RECEIVE_MSG_DEADLINE" "$OTHER_BRIDGE_PLACEHOLDER" "$L2_L1BLOCK_ORACLE")
+BRIDGE_INIT_CONFIG_L2=$(cast abi-encode "(address,address,address,address,uint256,address,address)" "$ADMIN_ROLE" "$PAUSER_ROLE" "$RELAYER_ROLE" 0x0000000000000000000000000000000000000000 "$RECEIVE_MSG_DEADLINE" "$OTHER_BRIDGE_PLACEHOLDER" "$L2_L1BLOCK_ORACLE")
+INIT_BRIDGE_L2=$(cast calldata "initialize(bytes)" "$BRIDGE_INIT_CONFIG_L2")
 BRIDGE_PROXY_ARGS_L2=$(cast abi-encode "f(address,bytes)" "$BRIDGE_IMPL_L2" "$INIT_BRIDGE_L2")
 [ -n "$BRIDGE_L2" ] && echo "[2/8] Bridge proxy (ERC1967Proxy)..." && forge verify-contract --rpc-url "$L2_RPC" "$BRIDGE_L2" lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy --constructor-args "$BRIDGE_PROXY_ARGS_L2" --verifier blockscout --verifier-url "$VERIFIER_URL_L2" --chain "$CHAIN_L2" || true
 
