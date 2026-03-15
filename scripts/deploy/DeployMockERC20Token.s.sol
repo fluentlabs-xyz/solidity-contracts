@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {BaseScript} from "../Base.sol";
+import {Script} from "forge-std/Script.sol";
 import {MockERC20Token} from "../../contracts/mocks/MockERC20.sol";
 
-contract DeployMockERC20Token is BaseScript {
+contract DeployMockERC20Token is Script {
     event MockERC20TokenDeployed(address indexed token, string name, string symbol, uint256 initialSupply, address recipient);
 
     function run() external returns (address tokenAddress) {

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {BaseScript} from "../Base.sol";
+import {Script} from "forge-std/Script.sol";
 import {UniversalTokenFactory} from "../../contracts/factories/UniversalTokenFactory.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
@@ -16,7 +16,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 /// - MINTER                  (address): minter role for the Universal token
 /// - PAUSER                  (address): pauser role for the Universal token
 /// - OUTPUT_PATH             (string, optional): JSON path for deployment metadata
-contract DeployUniversalTokenFactoryAndToken is BaseScript {
+contract DeployUniversalTokenFactoryAndToken is Script {
     struct Deployment {
         address factoryImpl;
         address factory;

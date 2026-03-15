@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {BaseScript} from "../Base.sol";
+import {Script} from "forge-std/Script.sol";
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
 import {RollupStorageLayout} from "../../contracts/rollup/RollupStorageLayout.sol";
 import {SP1Verifier} from "../../contracts/verifier/SP1VerifierGroth16.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 /// @notice Deployment script for the Rollup contract behind an ERC1967 proxy (UUPS upgradeable).
-contract DeployRollup is BaseScript {
+contract DeployRollup is Script {
     event RollupDeployed(address indexed implementation, address indexed proxy);
 
     function run() external returns (address rollupProxy) {

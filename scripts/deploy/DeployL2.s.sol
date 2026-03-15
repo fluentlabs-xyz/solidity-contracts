@@ -3,7 +3,6 @@ pragma solidity 0.8.30;
 
 import {DeployLib} from "./DeployLib.s.sol";
 import {UniversalTokenFactory} from "../../contracts/factories/UniversalTokenFactory.sol";
-import {UniversalTokenSDK} from "../../contracts/libraries/UniversalTokenSDK.sol";
 
 /**
  * @notice L2 deploy orchestrator (Fluent-style): bridge + universal factory + gateway.
@@ -17,6 +16,8 @@ import {UniversalTokenSDK} from "../../contracts/libraries/UniversalTokenSDK.sol
  *      - OUTPUT_PATH (string, optional; default "deployments/fluent_testnet.json")
  */
 contract DeployL2 is DeployLib {
+    address private constant UNIVERSAL_RUNTIME = 0x0000000000000000000000000000000000520008;
+
     struct Deployment {
         address bridge;
         address bridgeImpl;
@@ -56,7 +57,7 @@ contract DeployL2 is DeployLib {
             Deployment memory d;
             d.bridge = bridgeProxy;
             d.bridgeImpl = bridgeImpl;
-            d.peggedImpl = UniversalTokenSDK.UNIVERSAL_TOKEN_RUNTIME;
+            d.peggedImpl = UNIVERSAL_RUNTIME;
             d.factoryImpl = factoryImpl;
             d.factory = factoryProxy;
             d.factoryBeacon = address(0);

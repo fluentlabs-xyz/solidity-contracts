@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {BaseScript} from "../Base.sol";
+import {Script} from "forge-std/Script.sol";
 import {BlobHashMock} from "../../contracts/mocks/BlobHashMock.sol";
 
 /// @notice Calls BlobHashMock.CheckBlobHash with a provided commitment to emit the blob/hash pair.
 /// @dev Environment:
 /// - BLOB_HASH_CONTRACT (address, required): BlobHashMock contract address
 /// - COMMITMENT        (bytes, required): blob commitment bytes (e.g. KZG commitment)
-contract CheckBlobHash is BaseScript {
+contract CheckBlobHash is Script {
     event Checked(bytes commitment);
 
     function run() external {

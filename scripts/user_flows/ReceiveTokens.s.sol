@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {BaseScript} from "../Base.sol";
+import {Script} from "forge-std/Script.sol";
 import {FluentBridge} from "../../contracts/FluentBridge.sol";
 
 /// @notice Low-level helper script to call FluentBridge.receiveMessage on a target chain.
@@ -14,7 +14,7 @@ import {FluentBridge} from "../../contracts/FluentBridge.sol";
 /// - SRC_BLOCK_NUMBER  (uint256, required): source block number encoded in the message
 /// - NONCE             (uint256, required): message nonce
 /// - MESSAGE_HEX       (string, required): ABI-encoded payload as 0x-prefixed hex
-contract ReceiveTokens is BaseScript {
+contract ReceiveTokens is Script {
     function run() external {
         address bridgeAddress = vm.envAddress("BRIDGE_ADDRESS");
         address from = vm.envAddress("FROM");

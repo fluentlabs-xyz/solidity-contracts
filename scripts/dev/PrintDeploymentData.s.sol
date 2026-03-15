@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {BaseScript} from "../Base.sol";
+import {Script} from "forge-std/Script.sol";
 import {UniversalTokenSDK} from "../../contracts/libraries/UniversalTokenSDK.sol";
 
 /// @notice Prints UniversalTokenSDK deployment data and its hash via an event.
@@ -12,7 +12,7 @@ import {UniversalTokenSDK} from "../../contracts/libraries/UniversalTokenSDK.sol
 /// - TOKEN_INITIAL_SUPPLY (uint256, default: 100)
 /// - MINTER               (address, default: address(0))
 /// - PAUSER               (address, default: address(0))
-contract PrintDeploymentData is BaseScript {
+contract PrintDeploymentData is Script {
     event DeploymentData(bytes deploymentData, bytes32 bytecodeHash);
 
     function run() external {

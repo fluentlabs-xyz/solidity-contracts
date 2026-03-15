@@ -216,8 +216,7 @@ contract FluentBridge is
         uint256 blockNumber,
         uint256 messageNonce,
         bytes calldata message
-    ) external payable onlyBridgeAuthority nonReentrant whenNotPaused {
-        require(msg.value == value, InvalidMessageValue(value, msg.value));
+    ) external onlyBridgeAuthority nonReentrant whenNotPaused {
         require(messageNonce == _takeNextReceivedNonce(), MessageReceivedOutOfOrder());
 
         bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, blockNumber, messageNonce, message));

@@ -53,8 +53,8 @@ contract SetupBridge is Script {
         string memory sourceJsonPath = vm.envOr("SOURCE_JSON", string.concat("deployments/", sourceChain, ".json"));
         string memory destJsonPath = vm.envOr("DEST_JSON", string.concat("deployments/", destChain, ".json"));
 
-        ChainConfig memory src = _loadChainConfig(sourceJsonPath, true);
-        ChainConfig memory dst = _loadChainConfig(destJsonPath, false);
+        ChainConfig memory src = _loadChainConfig(sourceJsonPath, sourceChain, true);
+        ChainConfig memory dst = _loadChainConfig(destJsonPath, destChain, false);
 
         _validateSource(src);
         _validateDestination(dst);
@@ -111,15 +111,15 @@ contract SetupBridge is Script {
         console2.log("Bridges and gateways linked successfully.");
     }
 
-    function _loadChainConfig(string memory jsonPath, bool sourceSide) internal view returns (ChainConfig memory c) {
+    function _loadChainConfig(string memory jsonPath, string memory chainName, bool sourceSide) internal view returns (ChainConfig memory c) {
         string memory json = vm.readFile(jsonPath);
-        c.rpcUrl = json.readString(".rpcUrl");
-        c.chainId = sourceSide ? 0 : json.readUint(".chainId");
-        c.bridge = json.readAddress(".deployment.bridge");
-        c.factory = json.readAddress(".deployment.factory");
-        c.gateway = json.readAddress(".deployment.gateway");
-        c.factoryBeacon = json.readAddress(".deployment.factory_beacon");
-        c.peggedImpl = json.readAddress(".deployment.pegged_impl");
+        c.rpcUrl = _readRpcUrl(json, chainName);
+        c.chainId = sourceSide ? 0 : _readChainId(json, chainName);
+        c.bridge = _readAddressFlexible(json, "bridge");
+        c.factory = _readAddressFlexible(json, "factory");
+        c.gateway = _readAddressFlexible(json, "gateway");
+        c.factoryBeacon = _readAddressFlexible(json, "factory_beacon");
+        c.peggedImpl = _readAddressFlexible(json, "pegged_impl");
     }
 
     function _validateSource(ChainConfig memory c) internal pure {
@@ -146,6 +146,40 @@ contract SetupBridge is Script {
     function _nonZero(address value, address fallbackValue) internal pure returns (address) {
         if (value == ZERO) return fallbackValue;
         return value;
+    }
+
+    function _readAddressFlexible(string memory json, string memory key) internal view returns (address) {
+        string memory nestedPath = string.concat(".deployment.", key);
+        if (vm.keyExistsJson(json, nestedPath)) return json.readAddress(nestedPath);
+        string memory flatPath = string.concat(".", key);
+        if (vm.keyExistsJson(json, flatPath)) return json.readAddress(flatPath);
+        return ZERO;
+    }
+
+    function _readRpcUrl(string memory json, string memory chainName) internal view returns (string memory) {
+        if (vm.keyExistsJson(json, ".rpcUrl")) {
+            string memory rpc = json.readString(".rpcUrl");
+            if (bytes(rpc).length != 0) return rpc;
+        }
+
+        bytes32 c = keccak256(bytes(chainName));
+        if (c == keccak256(bytes("sepolia"))) return vm.envOr("SEPOLIA_RPC_URL", string(""));
+        if (c == keccak256(bytes("fluent_dev"))) return vm.envOr("FLUENT_DEV_RPC_URL", string(""));
+        if (c == keccak256(bytes("fluent_testnet"))) return vm.envOr("FLUENT_TESTNET_RPC_URL", string(""));
+        return vm.envOr("RPC_URL", string(""));
+    }
+
+    function _readChainId(string memory json, string memory chainName) internal view returns (uint256) {
+        if (vm.keyExistsJson(json, ".chainId")) {
+            uint256 id = json.readUint(".chainId");
+            if (id != 0) return id;
+        }
+
+        bytes32 c = keccak256(bytes(chainName));
+        if (c == keccak256(bytes("sepolia"))) return 11155111;
+        if (c == keccak256(bytes("fluent_dev"))) return 20993;
+        if (c == keccak256(bytes("fluent_testnet"))) return 20994;
+        return 0;
     }
 
     function _castSend(string memory rpc, string memory pk, address to, string memory sig, string memory arg1) internal {
