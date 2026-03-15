@@ -9,7 +9,7 @@ import {FluentBridge} from "../../contracts/FluentBridge.sol";
 /// - BRIDGE_ADDRESS    (address, required): FluentBridge contract address on this chain
 /// - FROM              (address, required): original sender on source chain
 /// - TO                (address, required): message recipient on this chain
-/// - VALUE_WEI         (uint256, optional): msg.value to forward (default: 0)
+/// - VALUE_WEI         (uint256, optional): value argument forwarded by bridge (default: 0)
 /// - SRC_CHAIN_ID      (uint256, required): source chain ID encoded in the message
 /// - SRC_BLOCK_NUMBER  (uint256, required): source block number encoded in the message
 /// - NONCE             (uint256, required): message nonce
@@ -32,7 +32,7 @@ contract ReceiveTokens is Script {
         FluentBridge bridge = FluentBridge(payable(bridgeAddress));
 
         vm.startBroadcast();
-        bridge.receiveMessage{value: valueWei}(from, payable(to), valueWei, srcChainId, srcBlockNumber, nonce, message);
+        bridge.receiveMessage(from, to, valueWei, srcChainId, srcBlockNumber, nonce, message);
         vm.stopBroadcast();
     }
 

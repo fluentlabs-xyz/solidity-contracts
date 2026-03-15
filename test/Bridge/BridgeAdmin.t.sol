@@ -104,35 +104,29 @@ contract BridgeAdminTest is MinimalTest {
     }
 
     function test_setters_revertForNonOwner() public {
+        bytes32 adminRole = bridge.DEFAULT_ADMIN_ROLE();
+
         vm.prank(ATTACKER);
         vm.expectRevert(
-            abi.encodeWithSelector(
-                IAccessControl.AccessControlUnauthorizedAccount.selector, ATTACKER, bridge.DEFAULT_ADMIN_ROLE()
-            )
+            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, ATTACKER, adminRole)
         );
         bridge.setRollup(address(0x2));
 
         vm.prank(ATTACKER);
         vm.expectRevert(
-            abi.encodeWithSelector(
-                IAccessControl.AccessControlUnauthorizedAccount.selector, ATTACKER, bridge.DEFAULT_ADMIN_ROLE()
-            )
+            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, ATTACKER, adminRole)
         );
         bridge.setL1BlockOracle(address(0x3));
 
         vm.prank(ATTACKER);
         vm.expectRevert(
-            abi.encodeWithSelector(
-                IAccessControl.AccessControlUnauthorizedAccount.selector, ATTACKER, bridge.DEFAULT_ADMIN_ROLE()
-            )
+            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, ATTACKER, adminRole)
         );
         bridge.setOtherBridge(address(0x4));
 
         vm.prank(ATTACKER);
         vm.expectRevert(
-            abi.encodeWithSelector(
-                IAccessControl.AccessControlUnauthorizedAccount.selector, ATTACKER, bridge.DEFAULT_ADMIN_ROLE()
-            )
+            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, ATTACKER, adminRole)
         );
         bridge.setReceiveMessageDeadline(INITIAL_DEADLINE + 5);
     }

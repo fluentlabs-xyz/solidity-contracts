@@ -8,7 +8,7 @@ import {Script, stdJson, console2} from "forge-std/Script.sol";
  * @dev Uses cast via FFI for cross-chain execution (same pattern as SetupBridge.s.sol).
  *
  * Required env:
- * - PRIVATE_KEY   : relayer/sender private key (must match L2 bridgeAuthority)
+ * - PRIVATE_KEY   : relayer/sender private key (must have L2 bridge RELAYER_ROLE)
  * - L1_RPC_URL    : source RPC (e.g. Sepolia)
  * - L2_RPC_URL    : destination RPC (e.g. Fluent Devnet)
  * - L1_GATEWAY    : PaymentGateway on source chain
@@ -130,7 +130,7 @@ contract SendAndReceiveNative is Script {
         uint256 nonce,
         string memory message
     ) internal {
-        string[] memory cmd = new string[](21);
+        string[] memory cmd = new string[](19);
         cmd[0] = "cast";
         cmd[1] = "send";
         cmd[2] = vm.toString(bridge);
@@ -142,16 +142,14 @@ contract SendAndReceiveNative is Script {
         cmd[8] = vm.toString(blockNumber);
         cmd[9] = vm.toString(nonce);
         cmd[10] = message;
-        cmd[11] = "--value";
-        cmd[12] = vm.toString(value);
-        cmd[13] = "--rpc-url";
-        cmd[14] = rpc;
-        cmd[15] = "--private-key";
-        cmd[16] = pk;
-        cmd[17] = "--legacy";
-        cmd[18] = "--json";
-        cmd[19] = "--gas-limit";
-        cmd[20] = "500000";
+        cmd[11] = "--rpc-url";
+        cmd[12] = rpc;
+        cmd[13] = "--private-key";
+        cmd[14] = pk;
+        cmd[15] = "--legacy";
+        cmd[16] = "--json";
+        cmd[17] = "--gas-limit";
+        cmd[18] = "500000";
         vm.ffi(cmd);
     }
 
@@ -218,7 +216,7 @@ contract SendAndReceiveNative is Script {
     }
 
     function _jsonUint(string memory json, string memory path) internal view returns (uint256) {
-        if (vm.keyExistsJson(json, path)) return json.readUint(path);
+        if (json.keyExists(path)) return json.readUint(path);
         return 0;
     }
 

@@ -109,7 +109,7 @@ contract PaymentGatewayTest {
             abi.encode(OTHER_SIDE_GATEWAY, address(gateway), forwardedValue, sourceChainId, sourceBlock, nonce, message)
         );
 
-        bridge.receiveMessage{value: forwardedValue}(
+        bridge.receiveMessage(
             OTHER_SIDE_GATEWAY,
             address(gateway),
             forwardedValue,
@@ -170,11 +170,11 @@ contract PaymentGatewayTest {
 
     function test_receiveNativeTokens_viaBridge_forwardsEth() public {
         uint256 amount = 3;
-        vm.deal(address(this), amount);
+        vm.deal(address(bridge), amount);
         uint256 recipientBefore = RECIPIENT.balance;
         bytes memory message = abi.encodeCall(PaymentGateway.receiveNativeTokens, (USER, RECIPIENT, amount));
 
-        bridge.receiveMessage{value: amount}(OTHER_SIDE_GATEWAY, address(gateway), amount, block.chainid + 1, 10, bridge.receivedNonce(), message);
+        bridge.receiveMessage(OTHER_SIDE_GATEWAY, address(gateway), amount, block.chainid + 1, 10, bridge.receivedNonce(), message);
 
         assertEq(RECIPIENT.balance, recipientBefore + amount, "recipient should receive bridged native amount");
     }
@@ -185,9 +185,9 @@ contract PaymentGatewayTest {
         uint256 sourceBlock = 11;
         bytes memory message = abi.encodeCall(PaymentGateway.receiveNativeTokens, (USER, RECIPIENT, 2));
         bytes32 messageHash = keccak256(abi.encode(OTHER_SIDE_GATEWAY, address(gateway), 1, sourceChainId, sourceBlock, nonce, message));
-        vm.deal(address(this), 1);
+        vm.deal(address(bridge), 1);
 
-        bridge.receiveMessage{value: 1}(OTHER_SIDE_GATEWAY, address(gateway), 1, sourceChainId, sourceBlock, nonce, message);
+        bridge.receiveMessage(OTHER_SIDE_GATEWAY, address(gateway), 1, sourceChainId, sourceBlock, nonce, message);
 
         assertEq(uint256(bridge.receivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed), "message should fail");
     }
@@ -227,9 +227,9 @@ contract PaymentGatewayTest {
         uint256 sourceBlock = 14;
         bytes memory message = abi.encodeCall(PaymentGateway.receiveNativeTokens, (USER, RECIPIENT, 1));
         bytes32 messageHash = _bridgeMessageHash(WRONG_SIDE_GATEWAY, address(gateway), 1, sourceChainId, sourceBlock, nonce, message);
-        vm.deal(address(this), 1);
+        vm.deal(address(bridge), 1);
 
-        bridge.receiveMessage{value: 1}(WRONG_SIDE_GATEWAY, address(gateway), 1, sourceChainId, sourceBlock, nonce, message);
+        bridge.receiveMessage(WRONG_SIDE_GATEWAY, address(gateway), 1, sourceChainId, sourceBlock, nonce, message);
 
         assertEq(uint256(bridge.receivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed), "message should fail");
     }
@@ -348,9 +348,9 @@ contract PaymentGatewayTest {
         uint256 sourceBlock = 18;
         bytes memory message = abi.encodeCall(PaymentGateway.receiveNativeTokens, (USER, address(0), 1));
         bytes32 messageHash = _bridgeMessageHash(OTHER_SIDE_GATEWAY, address(gateway), 1, sourceChainId, sourceBlock, nonce, message);
-        vm.deal(address(this), 1);
+        vm.deal(address(bridge), 1);
 
-        bridge.receiveMessage{value: 1}(OTHER_SIDE_GATEWAY, address(gateway), 1, sourceChainId, sourceBlock, nonce, message);
+        bridge.receiveMessage(OTHER_SIDE_GATEWAY, address(gateway), 1, sourceChainId, sourceBlock, nonce, message);
 
         assertEq(uint256(bridge.receivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed), "message should fail");
     }
@@ -362,9 +362,9 @@ contract PaymentGatewayTest {
         uint256 sourceBlock = 19;
         bytes memory message = abi.encodeCall(PaymentGateway.receiveNativeTokens, (USER, address(rejector), 1));
         bytes32 messageHash = _bridgeMessageHash(OTHER_SIDE_GATEWAY, address(gateway), 1, sourceChainId, sourceBlock, nonce, message);
-        vm.deal(address(this), 1);
+        vm.deal(address(bridge), 1);
 
-        bridge.receiveMessage{value: 1}(OTHER_SIDE_GATEWAY, address(gateway), 1, sourceChainId, sourceBlock, nonce, message);
+        bridge.receiveMessage(OTHER_SIDE_GATEWAY, address(gateway), 1, sourceChainId, sourceBlock, nonce, message);
 
         assertEq(uint256(bridge.receivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed), "message should fail");
     }
