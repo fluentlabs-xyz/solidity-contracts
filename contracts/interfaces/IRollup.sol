@@ -31,6 +31,9 @@ interface IRollupErrors {
     /// @notice Block has not been challenged, cannot resolve.
     error BlockNotChallenged(bytes32 commitment);
 
+    /// @notice Block has not been prooved yet.
+    error BlockNotProven(bytes32 commitment);
+
     /// @notice Challenge deposit amount does not match required amount.
     error IncorrectChallengeDeposit(uint256 required, uint256 provided);
 
@@ -177,11 +180,6 @@ interface IRollupConfig {
 }
 
 interface IRollupRead {
-    // ============ Rollup health ============
-
-    /// @notice Returns true if the rollup is in a corrupted state.
-    function isRollupCorrupted() external view returns (bool);
-
     // ============ Batch state ============
 
     /// @notice Returns the full state record for a batch.
@@ -209,7 +207,9 @@ interface IRollupRead {
     /// @notice Returns the full state record for a challenge.
     function getChallenge(bytes32 commitment) external view returns (ChallengeRecord memory);
 
-    /// @notice Returns all commitments currently in the challenge queue, ordered by deadline.
+    /// @notice Returns all commitments currently in the challenge queue.
+    /// @dev Heap-internal order — only index 0 is guaranteed to be the earliest deadline.
+    ///      Sort off-chain by getChallenge(commitment).deadline if ordered traversal is needed.
     function challengeQueue() external view returns (bytes32[] memory);
 
     /// @notice Returns blob hashes submitted for a batch.
@@ -262,14 +262,25 @@ interface IRollupWrite {
         address nitroVerifier,
         bytes32 nitroSignature,
         bytes calldata sp1Proof
-    ) external payable;
+    ) external;
 
     // ============ Anyone ============
 
-    /// @notice Attempt to finalize a preconfirmed batch if the challenge period has elapsed.
-    function tryFinalizeBatch(uint256 batchIndex) external returns (bool);
+    /// @notice Finalize consecutive batches up to and including `toBatchIndex`.
+    /// @dev Permissionless. Stops early if a batch is not yet eligible (cooldown not passed).
+    ///      Sequential — batch N finalizes only after batch N-1.
+    /// @param toBatchIndex Last batch index to attempt finalization for.
+    /// @return finalized Number of batches successfully finalized.
+    function finalizeBatches(uint256 toBatchIndex) external returns (uint256 finalized);
 
-    /// @notice Claim reward back as challenger (deposit + incentive fee if challenge was valid).
+    /// @notice Finalize a batch early by proving all its blocks have valid SP1 proofs.
+    /// @dev Skips the cooldown period. Caller supplies all L2BlockHeaders to reconstruct
+    ///      the batchRoot and verify each commitment exists in provenBlocks.
+    /// @param batchIndex The batch to finalize.
+    /// @param blockHeaders All L2 block headers in the batch in submission order.
+    function finalizeWithProofs(uint256 batchIndex, L2BlockHeader[] calldata blockHeaders) external;
+
+    /// @notice Claim reward as challenger (deposit + incentive fee if challenge was valid).
     function withdrawChallengerReward() external;
 
     /// @notice Claim pending proof reward as prover.
@@ -294,6 +305,9 @@ interface IRollupAdmin {
 }
 
 interface IRollupEmergency {
+    /// @notice Returns true if the rollup is in a corrupted state.
+    function isRollupCorrupted() external view returns (bool);
+
     /// @notice Pause all non-emergency functions.
     /// @dev Only callable by EMERGENCY_ROLE.
     function pause() external;

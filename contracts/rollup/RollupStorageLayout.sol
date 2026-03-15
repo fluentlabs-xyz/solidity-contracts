@@ -10,6 +10,7 @@ import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/acce
 import {IRollupEvents, IRollupErrors, IRollupRead, IRollupConfig, IRollupAdmin} from "../interfaces/IRollup.sol";
 import {BatchStatus, BatchRecord, ChallengeRecord, L2BlockHeader, InitConfiguration} from "../interfaces/IRollupTypes.sol";
 import {Heap} from "../libraries/Heap.sol";
+import {MerkleTree} from "../libraries/MerkleTree.sol";
 
 contract RollupStorageLayout is
     Initializable,
@@ -25,7 +26,7 @@ contract RollupStorageLayout is
 {
     using Heap for Heap.HeapStorage;
 
-    // ============ Roles ============
+    // ============ Constants ============
 
     bytes32 public constant EMERGENCY_ROLE = keccak256("EMERGENCY_ROLE");
     bytes32 public constant SEQUENCER_ROLE = keccak256("SEQUENCER_ROLE");
@@ -47,58 +48,90 @@ contract RollupStorageLayout is
     /// @dev Storage layout — WARNING: breaking change, incompatible with previous layout.
     struct RollupStorage {
         // ─── Slot 1: address(20) + uint96(12) = 32 ───
+        /// @dev L1 FluentBridge contract; source of deposit messages consumed during batch acceptance
         address bridge;
+        /// @dev incremented on each acceptNextBatch; starts at 1 (index 0 holds the genesis hash)
         uint96 nextBatchIndex;
         // ─── Slot 2: address(20) + 12 bytes padding ───
+        /// @dev SP1 verifier contract used for ZK proof validation during challenge resolution
         address sp1Verifier;
         // ─── Slot 3: bytes32(32) ───
+        /// @dev SP1 program verification key; binds proofs to the current rollup program
         bytes32 programVKey;
         // ─── Slot 4: 4 × uint64 = 32 ───
+        /// @dev L1 blocks after batch acceptance before finalization is allowed
         uint64 approveBlockCount;
+        /// @dev L1 blocks a prover has to resolve a challenge before corruption is triggered
         uint64 challengeBlockCount;
+        /// @dev max L1 blocks after header acceptance for blob submission; 0 disables the check
         uint64 daDeadlineBlocks;
+        /// @dev max L1 blocks after blob acceptance for preconfirmation; 0 disables the check
         uint64 preconfirmDeadlineBlocks;
         // ─── Slot 5: uint256(32) ───
+        /// @dev ETH deposit required to open a challenge; awarded to prover on resolution
         uint256 challengeDepositAmount;
         // ─── Slot 6: uint256(32) ───
+        /// @dev ETH reward paid to challengers during force revert (on top of deposit refund)
         uint256 incentiveFee;
         // ─── Slot 7: uint64(8) + uint64(8) + uint32(4) + uint32(4) = 24 bytes ───
+        /// @dev highest batch index with Finalized status; enforces sequential finalization
         uint64 lastFinalizedBatchIndex;
+        /// @dev TODO: remove if unused or document purpose — not currently written
         uint64 lastDepositAcceptedBlockNumber;
+        /// @dev minimum gasleft() required per block header iteration in acceptNextBatch
         uint32 gasLeft;
+        /// @dev max L1 blocks between deposit creation and its inclusion in a batch
         uint32 acceptDepositDeadline;
         // ─── Per-batch records ───
+        /// @dev packed per-batch state (root, accepted block, expected blobs, status)
         mapping(uint256 => BatchRecord) batches;
+        /// @dev chain-linking hash; index 0 holds genesis, index N holds last block hash of batch N
         mapping(uint256 => bytes32) lastBlockHashInBatch;
+        /// @dev EIP-4844 versioned blob hashes recorded per batch for proof binding
         mapping(uint256 => bytes32[]) batchBlobHashes;
+        /// @dev commitments proven during challenge resolution; cleaned on force revert
         mapping(uint256 => bytes32[]) batchProvenBlocks;
+        /// @dev commitments challenged per batch; used for refund iteration in force revert
         mapping(uint256 => bytes32[]) batchChallengedBlocks;
         // ─── Challenge state (keyed by commitment) ───
+        /// @dev tracks which block commitments have been proven; prevents duplicate proofs
         mapping(bytes32 => bool) provenBlocks;
+        /// @dev active challenge records keyed by block commitment hash
         mapping(bytes32 => ChallengeRecord) challenges;
+        /// @dev min-heap of challenged commitments ordered by deadline for corruption detection
         Heap.HeapStorage challengeQueue;
-        /// @dev Heap priority map: commitment → deadline
+        /// @dev heap priority map: commitment → deadline (used by Heap for ordering)
         mapping(bytes32 => uint256) challengePriority;
-        /// @dev Heap position map: commitment → queue index
+        /// @dev heap position map: commitment → 1-based index (used by Heap for O(1) removal)
         mapping(bytes32 => uint256) challengeQueueIndex;
         // ─── Reward balances ───
+        /// @dev ETH balances claimable by challengers after force revert
         mapping(address => uint256) challengerRewards;
+        /// @dev ETH balances claimable by provers after resolving challenges
         mapping(address => uint256) proverRewards;
         // ─── Verifier whitelist ───
+        /// @dev whitelist of Nitro enclave verifier contracts allowed for preconfirmation
         mapping(address => bool) enabledNitroVerifiers;
         // ─── Upgrade gap ───
+        /// @dev reserved storage slots for future upgrades
         uint256[28] __gap;
     }
 
     // ============ Initializer ============
 
-    function __initRollupStorage(bytes memory data) internal {
+    /// @dev Initializes rollup storage from ABI-encoded {InitConfiguration}.
+    ///      Called once from {Rollup.initialize} via the UUPS proxy.
+    function __initRollupStorage(bytes memory data) internal onlyInitializing {
         RollupStorage storage $ = _getRollupStorage();
 
         InitConfiguration memory params = abi.decode(data, (InitConfiguration));
 
+        // ─── Address validation ───
         require(params.admin != address(0), ZeroAddressNotAllowed("admin"));
         require(params.sp1Verifier != address(0), ZeroAddressNotAllowed("sp1Verifier"));
+        require(params.bridge != address(0), ZeroAddressNotAllowed("bridge"));
+
+        // ─── Value validation ───
         require(params.programVKey != bytes32(0), ZeroValueNotAllowed("programVKey"));
         require(params.genesisHash != bytes32(0), ZeroValueNotAllowed("genesisHash"));
         require(params.approveBlockCount <= type(uint64).max, ZeroValueNotAllowed("approveBlockCount"));
@@ -107,23 +140,31 @@ contract RollupStorageLayout is
         require(params.daDeadlineBlocks <= type(uint64).max, ZeroValueNotAllowed("daDeadlineBlocks"));
         require(params.preconfirmDeadlineBlocks <= type(uint64).max, ZeroValueNotAllowed("preconfirmDeadlineBlocks"));
 
-        _grantRole(DEFAULT_ADMIN_ROLE, params.admin);
-        _grantRole(EMERGENCY_ROLE, params.emergency != address(0) ? params.emergency : params.admin);
-        _grantRole(CHALLENGER_ROLE, params.challenger != address(0) ? params.challenger : params.admin);
-        _grantRole(PROVER_ROLE, params.prover != address(0) ? params.prover : params.admin);
-        _grantRole(SEQUENCER_ROLE, params.sequencer != address(0) ? params.sequencer : params.admin);
-        _grantRole(PRECONFIRMATION_ROLE, params.preconfirmationRole != address(0) ? params.preconfirmationRole : params.admin);
+        // ─── Role setup ───
+        address emergency = params.emergency != address(0) ? params.emergency : params.admin;
+        address challenger = params.challenger != address(0) ? params.challenger : params.admin;
+        address prover = params.prover != address(0) ? params.prover : params.admin;
+        address sequencer = params.sequencer != address(0) ? params.sequencer : params.admin;
+        address preconfirmation = params.preconfirmationRole != address(0) ? params.preconfirmationRole : params.admin;
 
-        $.challengeDepositAmount = params.challengeDepositAmount;
-        $.challengeBlockCount = uint64(params.challengeBlockCount);
-        $.approveBlockCount = uint64(params.approveBlockCount);
+        _grantRole(DEFAULT_ADMIN_ROLE, params.admin);
+        _grantRole(EMERGENCY_ROLE, emergency);
+        _grantRole(CHALLENGER_ROLE, challenger);
+        _grantRole(PROVER_ROLE, prover);
+        _grantRole(SEQUENCER_ROLE, sequencer);
+        _grantRole(PRECONFIRMATION_ROLE, preconfirmation);
+
+        // ─── Storage setup ───
+        $.bridge = params.bridge;
         $.sp1Verifier = params.sp1Verifier;
         $.programVKey = params.programVKey;
         $.lastBlockHashInBatch[0] = params.genesisHash;
-        $.bridge = params.bridge;
+        $.nextBatchIndex = 1;
+        $.challengeDepositAmount = params.challengeDepositAmount;
+        $.challengeBlockCount = uint64(params.challengeBlockCount);
+        $.approveBlockCount = uint64(params.approveBlockCount);
         $.acceptDepositDeadline = uint32(params.acceptDepositDeadline);
         $.incentiveFee = params.incentiveFee;
-        $.nextBatchIndex = 1;
         $.daDeadlineBlocks = uint64(params.daDeadlineBlocks);
         $.preconfirmDeadlineBlocks = uint64(params.preconfirmDeadlineBlocks);
 
@@ -132,9 +173,6 @@ contract RollupStorageLayout is
             emit NitroVerifierEnabled(params.nitroVerifier);
         }
     }
-
-    /// @inheritdoc UUPSUpgradeable
-    function _authorizeUpgrade(address) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
 
     // ============ IRollupConfig ============
 
@@ -191,11 +229,6 @@ contract RollupStorageLayout is
     // ============ IRollupRead ============
 
     /// @inheritdoc IRollupRead
-    function isRollupCorrupted() external view returns (bool) {
-        return _rollupCorrupted();
-    }
-
-    /// @inheritdoc IRollupRead
     function getBatch(uint256 batchIndex) public view returns (BatchRecord memory) {
         return _getRollupStorage().batches[batchIndex];
     }
@@ -231,6 +264,9 @@ contract RollupStorageLayout is
     }
 
     /// @inheritdoc IRollupRead
+    /// @dev Elements are in heap-internal order — only index 0 is guaranteed to be the
+    ///      earliest deadline. Sort off-chain by getChallenge(commitment).deadline if
+    ///      ordered traversal is needed.
     function challengeQueue() public view returns (bytes32[] memory) {
         RollupStorage storage $ = _getRollupStorage();
         uint256 size = $.challengeQueue.length();
@@ -290,8 +326,8 @@ contract RollupStorageLayout is
 
     /// @inheritdoc IRollupAdmin
     function setProgramVKey(bytes32 newVKey) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        RollupStorage storage $ = _getRollupStorage();
         require(newVKey != bytes32(0), ZeroValueNotAllowed("programVKey"));
+        RollupStorage storage $ = _getRollupStorage();
         emit ProgramVKeyUpdated($.programVKey, newVKey);
         $.programVKey = newVKey;
     }
@@ -310,143 +346,17 @@ contract RollupStorageLayout is
 
     // ============ Internal helpers ============
 
-    function _setBridge(address _bridge) internal {
+    /// @inheritdoc UUPSUpgradeable
+    function _authorizeUpgrade(address) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
+
+    function _setBridge(address newBridge) internal {
         RollupStorage storage $ = _getRollupStorage();
-        require(_bridge != address(0), ZeroAddressNotAllowed("bridge"));
-        emit BridgeUpdated($.bridge, _bridge);
-        $.bridge = _bridge;
+        require(newBridge != address(0), ZeroAddressNotAllowed("bridge"));
+        emit BridgeUpdated($.bridge, newBridge);
+        $.bridge = newBridge;
     }
 
-    /// @dev Checks if the rollup is corrupted by examining the oldest non-finalized batch.
-    ///      Corruption occurs when: DA deadline exceeded (HeadersSubmitted), preconfirm deadline
-    ///      exceeded (Accepted), or challenge deadline exceeded (Challenged).
-    function _rollupCorrupted() internal view returns (bool) {
-        RollupStorage storage $ = _getRollupStorage();
-        uint256 batchIndex = uint256($.lastFinalizedBatchIndex) + 1;
-        if (batchIndex >= $.nextBatchIndex) return false;
-
-        BatchRecord storage batch = $.batches[batchIndex];
-        BatchStatus status = batch.status;
-        uint256 accepted = uint256(batch.acceptedAtBlock);
-
-        if (status == BatchStatus.HeadersSubmitted && $.daDeadlineBlocks != 0 && block.number > accepted + $.daDeadlineBlocks) return true;
-        if (status == BatchStatus.Accepted && $.preconfirmDeadlineBlocks != 0 && block.number > accepted + $.preconfirmDeadlineBlocks)
-            return true;
-        if (status == BatchStatus.Challenged) {
-            if (!$.challengeQueue.isEmpty()) {
-                bytes32 oldest = $.challengeQueue.peek();
-                return $.challenges[oldest].deadline < block.number;
-            }
-        }
-        return false;
-    }
-
-    /// @dev Auto-finalizes the batch at lastFinalizedBatchIndex + 1 if eligible.
-    function _finalizeBatch() internal {
-        RollupStorage storage $ = _getRollupStorage();
-        uint256 batchIndex = uint256($.lastFinalizedBatchIndex) + 1;
-
-        BatchRecord storage batch = $.batches[batchIndex];
-        if (batch.status != BatchStatus.Preconfirmed) return;
-
-        if (block.number - uint256(batch.acceptedAtBlock) > $.approveBlockCount) {
-            batch.status = BatchStatus.Finalized;
-            $.lastFinalizedBatchIndex = uint64(batchIndex);
-            emit BatchFinalized(batchIndex);
-        }
-    }
-
-    /// @dev Encodes L2BlockHeader fields + blob hashes as SP1 public values.
-    function _getPublicValuesFromHeaderAndBlobs(
-        L2BlockHeader calldata header,
-        bytes32[] memory blobHashes
-    ) internal pure returns (bytes memory) {
-        return
-            abi.encodePacked(
-                abi.encodePacked(header.previousBlockHash, header.blockHash, header.withdrawalRoot, header.depositRoot),
-                blobHashes
-            );
-    }
-
-    /// @notice Calculates the Merkle root of a batch of L2 block headers.
-    function calculateBatchRoot(L2BlockHeader[] calldata headers) public pure returns (bytes32) {
-        bytes memory leafs = new bytes(headers.length * 32);
-
-        for (uint256 i = 0; i < headers.length; ++i) {
-            bytes32 hash = keccak256(
-                abi.encodePacked(headers[i].previousBlockHash, headers[i].blockHash, headers[i].withdrawalRoot, headers[i].depositRoot)
-            );
-            assembly {
-                mstore(add(add(leafs, 32), mul(i, 32)), hash)
-            }
-        }
-
-        return _calculateMerkleRoot(leafs);
-    }
-
-    /// @notice Calculates the hash of a blob for DA verification.
-    function calculateBlobHash(bytes memory blob) public pure returns (bytes32) {
-        bytes32 hash = sha256(blob);
-        hash &= 0x00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff;
-        hash |= 0x0100000000000000000000000000000000000000000000000000000000000000;
-        return hash;
-    }
-
-    function _calculateMerkleRoot(bytes memory _leafs) internal pure returns (bytes32) {
-        uint256 count = _leafs.length / 32;
-        require(count != 0, NoLeavesProvided());
-
-        while (count > 0) {
-            bytes32 hash;
-            bytes32 left;
-            bytes32 right;
-            for (uint256 i = 0; i < count / 2; i++) {
-                assembly {
-                    left := mload(add(add(_leafs, 32), mul(mul(i, 2), 32)))
-                    right := mload(add(add(_leafs, 32), mul(add(mul(i, 2), 1), 32)))
-                }
-                hash = _efficientHash(left, right);
-                assembly {
-                    mstore(add(add(_leafs, 32), mul(i, 32)), hash)
-                }
-            }
-
-            if (count % 2 == 1 && count > 1) {
-                assembly {
-                    left := mload(add(add(_leafs, 32), mul(sub(count, 1), 32)))
-                }
-                hash = _efficientHash(left, left);
-                assembly {
-                    mstore(add(add(_leafs, 32), mul(div(sub(count, 1), 2), 32)), hash)
-                }
-                count += 1;
-            }
-
-            count = count / 2;
-        }
-
-        bytes32 root;
-        assembly {
-            root := mload(add(_leafs, 32))
-        }
-        return root;
-    }
-
-    function _efficientHash(bytes32 a, bytes32 b) private pure returns (bytes32 value) {
-        assembly {
-            mstore(0x00, a)
-            mstore(0x20, b)
-            value := keccak256(0x00, 0x40)
-        }
-    }
-
-    /// @dev Returns the blob hash for the given index using the BLOBHASH opcode.
-    function _getBlobHash(uint256 index) internal view returns (bytes32 blobHash) {
-        assembly {
-            blobHash := blobhash(index)
-        }
-    }
-
+    /// @dev Returns a storage pointer to the ERC-7201 namespaced rollup storage slot.
     function _getRollupStorage() internal pure returns (RollupStorage storage $) {
         assembly {
             $.slot := ROLLUP_STORAGE_LOCATION

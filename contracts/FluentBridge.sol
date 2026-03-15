@@ -154,6 +154,18 @@ contract FluentBridge is
     }
 
     /// @inheritdoc IFluentBridge
+    // TODO(d1r1, chillhacker): discuss the finalization and delivery flow:
+    // 1. Batch finalization — permissionless, anyone can call tryFinalizeBatch() or
+    //    finalizeEligibleBatches(). All batches from lastFinalizedBatchIndex+1 up to
+    //    the target must be sequentially finalized. Each requires either the challenge
+    //    period to pass without disputes, or all challenges resolved with valid proofs.
+    // 2. Message delivery — after batch is finalized, _receiveMessage applies an
+    //    additional L2-side deadline check (receiveMessageDeadline). If the message
+    //    is too old relative to current L1 block, it is auto-declined without refund.
+    //    This means a message can be finalized on L1 but still rejected on L2 — is
+    //    this the intended behavior? Should we refund in this case?
+    // 3. Consider whether these checks should be unified or documented more explicitly
+    //    for callers — currently the failure modes are spread across multiple layers.
     function receiveMessageWithProof(
         uint256 batchIndex,
         L2BlockHeader calldata blockHeader,
@@ -168,7 +180,8 @@ contract FluentBridge is
         MerkleTree.MerkleProof calldata blockProof
     ) external payable nonReentrant whenNotPaused {
         require(rollup() != address(0), OnlyWhenRollupInited());
-        // False positive: nonReentrant guard prevents re-entry; rollup is a trusted admin-set contract
+        // Batch must be finalized before withdrawal. Finalization is permissionless —
+        // anyone can call tryFinalizeBatch() or finalizeEligibleBatches() on the rollup.
         require(Rollup(rollup()).tryFinalizeBatch(batchIndex), InvalidBlockProof()); // wake-disable-line reentrancy
         require(chainId != block.chainid, ForbiddenReceiveRollbackedMessage());
         require(msg.value == value, InvalidMessageValue(value, msg.value));
