@@ -544,7 +544,7 @@ interface IRollupAdmin {
     /**
      * @notice Set minimum gas threshold per block header iteration in acceptNextBatch.
      */
-    function setGasLeft(uint32 gasLeft) external;
+    function setGasLeft(uint32 newGasLeft) external;
 
     /**
      * @notice Set the maximum L1 blocks between deposit creation and batch inclusion.
