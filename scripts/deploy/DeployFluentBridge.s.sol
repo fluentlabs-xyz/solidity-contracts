@@ -18,7 +18,7 @@ import {DeployLib} from "./DeployLib.s.sol";
  */
 contract DeployFluentBridge is DeployLib {
     function run() external returns (address bridgeProxy) {
-        address initialOwner = vm.envAddress("INITIAL_OWNER");
+        address initialOwner = vm.envExists("INITIAL_OWNER") ? vm.envAddress("INITIAL_OWNER") : address(0);
         address adminRole = vm.envOr("ADMIN_ROLE", initialOwner);
         address pauserRole = vm.envOr("PAUSER_ROLE", adminRole);
         address relayerRole = vm.envOr("RELAYER_ROLE", vm.envOr("BRIDGE_AUTHORITY", adminRole));

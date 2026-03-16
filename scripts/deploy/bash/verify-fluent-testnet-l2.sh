@@ -33,14 +33,30 @@ BEACON=$(read_json_key deployments/fluent-testnet-l2-stack.json factory_beacon)
 GATEWAY_IMPL=$(read_json_key deployments/fluent-testnet-l2-stack.json gateway_impl)
 GATEWAY=$(read_json_key deployments/fluent-testnet-l2-stack.json gateway)
 
-DEPLOYER_ADDRESS="${INITIAL_OWNER:-$(cast wallet address --private-key "${PRIVATE_KEY:-}" 2>/dev/null)}"
-INITIAL_OWNER="${INITIAL_OWNER:-$DEPLOYER_ADDRESS}"
+INITIAL_OWNER="${INITIAL_OWNER:-}"
 ADMIN_ROLE="${ADMIN_ROLE:-$INITIAL_OWNER}"
 PAUSER_ROLE="${PAUSER_ROLE:-$ADMIN_ROLE}"
 RELAYER_ROLE="${RELAYER_ROLE:-${RELAYER_ADDRESS:-$ADMIN_ROLE}}"
 RECEIVE_MSG_DEADLINE="${RECEIVE_MSG_DEADLINE:-0}"
 L2_L1BLOCK_ORACLE="${L2_L1BLOCK_ORACLE:-0x0000000000000000000000000000000000000000}"
 OTHER_BRIDGE_PLACEHOLDER="${OTHER_BRIDGE_PLACEHOLDER:-0x0000000000000000000000000000000000000001}"
+
+if [ -z "$ADMIN_ROLE" ] || [ -z "$PAUSER_ROLE" ] || [ -z "$RELAYER_ROLE" ]; then
+  DEPLOYER_ADDRESS="$(cast wallet address --private-key "${PRIVATE_KEY:-}" 2>/dev/null || true)"
+  INITIAL_OWNER="${INITIAL_OWNER:-$DEPLOYER_ADDRESS}"
+  ADMIN_ROLE="${ADMIN_ROLE:-$INITIAL_OWNER}"
+  PAUSER_ROLE="${PAUSER_ROLE:-$ADMIN_ROLE}"
+  RELAYER_ROLE="${RELAYER_ROLE:-${RELAYER_ADDRESS:-$ADMIN_ROLE}}"
+fi
+
+is_valid_address() {
+  [[ "$1" =~ ^0x[0-9a-fA-F]{40}$ ]]
+}
+
+is_valid_address "$ADMIN_ROLE" || { echo "ADMIN_ROLE must be a valid address"; exit 1; }
+is_valid_address "$PAUSER_ROLE" || { echo "PAUSER_ROLE must be a valid address"; exit 1; }
+is_valid_address "$RELAYER_ROLE" || { echo "RELAYER_ROLE must be a valid address"; exit 1; }
+INITIAL_OWNER="${INITIAL_OWNER:-$ADMIN_ROLE}"
 
 RPC="${L2_RPC_URL:-${RPC_URL_FLUENT_TESTNET:-https://rpc.testnet.fluent.xyz/}}"
 VERIFIER_URL="https://testnet.fluentscan.xyz/api/"

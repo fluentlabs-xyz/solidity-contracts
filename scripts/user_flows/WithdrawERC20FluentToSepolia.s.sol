@@ -16,11 +16,14 @@ contract WithdrawERC20FluentToSepolia is Script {
         address originToken = vm.envAddress("ORIGIN_TOKEN_ADDRESS");
         address recipient = vm.envAddress("RECIPIENT_ADDRESS");
         uint256 amount = vm.envOr("AMOUNT", uint256(0));
+        require(gatewayAddress != address(0), "GATEWAY_ADDRESS is zero");
+        require(originToken != address(0), "ORIGIN_TOKEN_ADDRESS is zero");
+        require(recipient != address(0), "RECIPIENT_ADDRESS is zero");
         require(amount > 0, "AMOUNT must be > 0");
 
         PaymentGateway gateway = PaymentGateway(payable(gatewayAddress));
         address peggedToken = gateway.computePeggedTokenAddress(originToken);
-        require(peggedToken != address(0), "pegged token not configured");
+        require(peggedToken.code.length > 0, "pegged token is not deployed");
 
         vm.startBroadcast();
         gateway.sendTokens(peggedToken, recipient, amount);

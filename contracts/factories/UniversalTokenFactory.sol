@@ -108,18 +108,6 @@ contract UniversalTokenFactory is GenericTokenFactory {
         return address(uint160(uint256(hash)));
     }
 
-    /// @dev Uses UniversalTokenSDK to deploy with CREATE2 and updates base storage (internal only).
-    function _deployWithSDK(
-        address originToken,
-        uint256 chainId,
-        string memory name,
-        string memory symbol,
-        uint8 decimals,
-        uint256 initialSupply,
-        address minter,
-        address pauser
-    ) internal returns (address tokenAddress) {}
-
     /// @dev Salt for CREATE2 (must match SDK: keccak256(BRIDGE_TOKEN_PREFIX, originToken)). No chainId.
     function _bridgeTokenSalt(address originToken) internal pure returns (bytes32) {
         return keccak256(abi.encodePacked(BRIDGE_TOKEN_PREFIX, originToken));

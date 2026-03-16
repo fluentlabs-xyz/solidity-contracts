@@ -60,13 +60,14 @@ contract SendAndReceiveNative is Script {
         );
 
         uint256 afterL2 = _balance(cfg.l2Rpc, cfg.recipient);
-        uint256 delta = afterL2 - beforeL2;
+        uint256 delta = afterL2 >= beforeL2 ? afterL2 - beforeL2 : 0;
         console2.log("before_l2", beforeL2);
         console2.log("after_l2", afterL2);
         console2.log("delta", delta);
 
         // If recipient differs from sender, destination balance should increase exactly by amount.
         if (cfg.recipient != cfg.sender) {
+            require(afterL2 >= beforeL2, "recipient balance decreased");
             require(delta == cfg.amountWei, "recipient delta mismatch");
         } else {
             // When recipient is sender, L2 relay gas can offset the credited amount.
@@ -172,17 +173,11 @@ contract SendAndReceiveNative is Script {
         cmd[3] = sig;
         cmd[4] = "--rpc-url";
         cmd[5] = rpc;
-        return _stringToUint(string(vm.ffi(cmd)));
+        return vm.parseUint(_trim(string(vm.ffi(cmd))));
     }
 
-    function _walletAddress(string memory pk) internal returns (address) {
-        string[] memory cmd = new string[](5);
-        cmd[0] = "cast";
-        cmd[1] = "wallet";
-        cmd[2] = "address";
-        cmd[3] = "--private-key";
-        cmd[4] = pk;
-        return _stringToAddress(string(vm.ffi(cmd)));
+    function _walletAddress(string memory /*pk*/ ) internal returns (address) {
+        return _stringToAddress(_bash("cast wallet address --private-key \"$PRIVATE_KEY\""));
     }
 
     function _balance(string memory rpc, address who) internal returns (uint256) {
@@ -192,7 +187,7 @@ contract SendAndReceiveNative is Script {
         cmd[2] = vm.toString(who);
         cmd[3] = "--rpc-url";
         cmd[4] = rpc;
-        return _stringToUint(string(vm.ffi(cmd)));
+        return vm.parseUint(_trim(string(vm.ffi(cmd))));
     }
 
     function _chainId(string memory rpc) internal returns (uint256) {
@@ -201,7 +196,7 @@ contract SendAndReceiveNative is Script {
         cmd[1] = "chain-id";
         cmd[2] = "--rpc-url";
         cmd[3] = rpc;
-        return _stringToUint(string(vm.ffi(cmd)));
+        return vm.parseUint(_trim(string(vm.ffi(cmd))));
     }
 
     function _calldataReceiveNative(address from, address to, uint256 amount) internal returns (string memory) {
@@ -216,33 +211,26 @@ contract SendAndReceiveNative is Script {
     }
 
     function _jsonUint(string memory json, string memory path) internal view returns (uint256) {
-        if (json.keyExists(path)) return json.readUint(path);
-        return 0;
+        return json.readUint(path);
     }
 
-    function _stringToUint(string memory s) internal pure returns (uint256 result) {
+    function _trim(string memory s) internal pure returns (string memory) {
         bytes memory b = bytes(s);
-        uint256 i = 0;
-        while (i < b.length && (b[i] == 0x20 || b[i] == 0x0a || b[i] == 0x09 || b[i] == 0x0d)) i++;
-        if (i + 1 < b.length && b[i] == "0" && (b[i + 1] == "x" || b[i + 1] == "X")) {
-            i += 2;
-            for (; i < b.length; i++) {
-                uint8 c = uint8(b[i]);
-                if (c >= 48 && c <= 57) result = (result << 4) + (c - 48);
-                else if (c >= 97 && c <= 102) result = (result << 4) + (10 + c - 97);
-                else if (c >= 65 && c <= 70) result = (result << 4) + (10 + c - 65);
-                else break;
-            }
-        } else {
-            for (; i < b.length; i++) {
-                uint8 c = uint8(b[i]);
-                if (c >= 48 && c <= 57) {
-                    result = result * 10 + (c - 48);
-                } else if (c == 0x20 || c == 0x0a || c == 0x09 || c == 0x0d) {
-                    break;
-                }
-            }
-        }
+        uint256 start = 0;
+        while (start < b.length && (b[start] == 0x20 || b[start] == 0x0a || b[start] == 0x09 || b[start] == 0x0d)) start++;
+        uint256 end = b.length;
+        while (end > start && (b[end - 1] == 0x20 || b[end - 1] == 0x0a || b[end - 1] == 0x09 || b[end - 1] == 0x0d)) end--;
+        bytes memory out = new bytes(end - start);
+        for (uint256 i = 0; i < out.length; i++) out[i] = b[start + i];
+        return string(out);
+    }
+
+    function _bash(string memory command) internal returns (string memory) {
+        string[] memory cmd = new string[](3);
+        cmd[0] = "bash";
+        cmd[1] = "-lc";
+        cmd[2] = command;
+        return string(vm.ffi(cmd));
     }
 
     function _stringToAddress(string memory s) internal view returns (address) {

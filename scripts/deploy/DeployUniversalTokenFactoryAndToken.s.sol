@@ -32,6 +32,7 @@ contract DeployUniversalTokenFactoryAndToken is Script {
         string memory name = vm.envOr("TOKEN_NAME", string("Bridged Token"));
         string memory symbol = vm.envOr("TOKEN_SYMBOL", string("BRIDGE"));
         uint256 decimals = vm.envOr("TOKEN_DECIMALS", uint256(18));
+        require(decimals <= type(uint8).max, "TOKEN_DECIMALS out of range");
         uint256 initialSupply = vm.envOr("TOKEN_INITIAL_SUPPLY", uint256(0));
         address minter = vm.envOr("MINTER", address(0));
         address pauser = vm.envOr("PAUSER", address(0));

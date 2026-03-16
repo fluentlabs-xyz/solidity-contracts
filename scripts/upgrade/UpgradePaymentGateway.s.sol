@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {Script} from "forge-std/Script.sol";
+import {Script, console2} from "forge-std/Script.sol";
 import {PaymentGateway} from "../../contracts/gateways/PaymentGateway.sol";
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
@@ -14,6 +14,7 @@ contract UpgradePaymentGateway is Script {
         vm.startBroadcast();
         PaymentGateway newImpl = new PaymentGateway();
         UnsafeUpgrades.upgradeProxy(proxy, address(newImpl), "");
+        console2.log("Upgraded PaymentGateway implementation:", address(newImpl));
         vm.stopBroadcast();
     }
 }

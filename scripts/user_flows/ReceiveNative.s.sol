@@ -22,6 +22,7 @@ contract ReceiveNative is Script {
         require(bridgeAddress != address(0) && fromGateway != address(0) && toGateway != address(0), "zero address");
 
         string memory json = vm.readFile(sourceJson);
+        // Assumes receipts[0].logs[0] is SentMessage emitted by the source bridge send flow.
         bytes memory data = abi.decode(vm.parseJson(json, ".receipts[0].logs[0].data"), (bytes));
         (uint256 value, uint256 srcChainId, uint256 srcBlockNumber, uint256 nonce, , bytes memory message) = abi.decode(
             data,

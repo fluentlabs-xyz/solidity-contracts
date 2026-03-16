@@ -31,7 +31,6 @@ contract DeployL1 is DeployLib {
         address factoryBeacon;
         address gatewayImpl;
         address gateway;
-        address mockErc20;
         address mockToken;
     }
 
@@ -45,16 +44,12 @@ contract DeployL1 is DeployLib {
         uint256 receiveMessageDeadline = vm.envOr("RECEIVE_MSG_DEADLINE", uint256(0));
         address otherBridgePlaceholder = vm.envOr("OTHER_BRIDGE_PLACEHOLDER", address(0x1));
         address l1BlockOracle = vm.envOr("L1_BLOCK_ORACLE", address(0));
-
-        string memory mockName = vm.envOr("MOCK_ERC20_NAME", string("Mock Deposit Token"));
-        string memory mockSymbol = vm.envOr("MOCK_ERC20_SYMBOL", string("MDT"));
-        uint256 mockSupply = vm.envOr("MOCK_ERC20_SUPPLY", uint256(1_000_000 ether));
-        address mockRecipient = vm.envOr("MOCK_ERC20_RECIPIENT", initialOwner);
         string memory outputPath = vm.envOr("OUTPUT_PATH", string("deployments/sepolia.json"));
+        Deployment memory d;
 
         vm.startBroadcast();
 
-        (address bridgeProxy, address bridgeImpl) = _deployFluentBridge(
+        (d.bridge, d.bridgeImpl) = _deployFluentBridge(
             adminRole,
             pauserRole,
             relayerRole,
@@ -63,26 +58,37 @@ contract DeployL1 is DeployLib {
             l1BlockOracle
         );
 
-        ERC20FactoryResult memory factoryResult = _deployERC20TokenFactory(initialOwner);
-        PaymentGatewayResult memory gatewayResult = _deployPaymentGateway(initialOwner, bridgeProxy, factoryResult.factory);
-        ERC20TokenFactory(factoryResult.factory).setPaymentGateway(gatewayResult.gateway);
-
-        vm.stopBroadcast();
-
-        gateway = gatewayResult.gateway;
-
-        if (bytes(outputPath).length != 0) {
-            Deployment memory d;
-            d.bridge = bridgeProxy;
-            d.bridgeImpl = bridgeImpl;
+        {
+            ERC20FactoryResult memory factoryResult = _deployERC20TokenFactory(initialOwner);
             d.peggedImpl = factoryResult.peggedImpl;
             d.factoryImpl = factoryResult.factoryImpl;
             d.factory = factoryResult.factory;
             d.factoryBeacon = factoryResult.factoryBeacon;
+
+            PaymentGatewayResult memory gatewayResult = _deployPaymentGateway(initialOwner, d.bridge, d.factory);
             d.gatewayImpl = gatewayResult.gatewayImpl;
             d.gateway = gatewayResult.gateway;
+
+            ERC20TokenFactory(d.factory).setPaymentGateway(d.gateway);
+        }
+
+        d.mockToken = _deployMockFromEnv(initialOwner);
+
+        vm.stopBroadcast();
+
+        gateway = d.gateway;
+
+        if (bytes(outputPath).length != 0) {
             _writeOutput(outputPath, d);
         }
+    }
+
+    function _deployMockFromEnv(address initialOwner) internal returns (address) {
+        string memory mockName = vm.envOr("MOCK_ERC20_NAME", string("Mock Deposit Token"));
+        string memory mockSymbol = vm.envOr("MOCK_ERC20_SYMBOL", string("MDT"));
+        uint256 mockSupply = vm.envOr("MOCK_ERC20_SUPPLY", uint256(1_000_000 ether));
+        address mockRecipient = vm.envOr("MOCK_ERC20_RECIPIENT", initialOwner);
+        return _deployMockERC20(mockName, mockSymbol, mockSupply, mockRecipient);
     }
 
     function _writeOutput(string memory outputPath, Deployment memory d) internal {

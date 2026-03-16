@@ -30,6 +30,7 @@ contract ReceiveTokens is Script {
         bytes memory message = _hexStringToBytes(messageHex);
 
         FluentBridge bridge = FluentBridge(payable(bridgeAddress));
+        require(address(bridge).balance >= valueWei, "bridge underfunded for VALUE_WEI");
 
         vm.startBroadcast();
         bridge.receiveMessage(from, to, valueWei, srcChainId, srcBlockNumber, nonce, message);

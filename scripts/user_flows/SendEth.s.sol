@@ -11,6 +11,7 @@ contract SendEth is Script {
     function run() external {
         address recipient = vm.envAddress("RECIPIENT");
         uint256 amountWei = vm.envOr("AMOUNT_WEI", uint256(0.01 ether));
+        require(recipient != address(0), "RECIPIENT is zero address");
 
         vm.startBroadcast();
         (bool ok, ) = payable(recipient).call{value: amountWei}("");

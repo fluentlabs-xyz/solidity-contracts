@@ -14,6 +14,8 @@ contract SendNative is Script {
         address gatewayAddress = vm.envAddress("GATEWAY_ADDRESS");
         address recipient = vm.envAddress("RECIPIENT");
         uint256 amountWei = vm.envOr("AMOUNT_WEI", uint256(0.01 ether));
+        require(gatewayAddress != address(0), "GATEWAY_ADDRESS must not be zero");
+        require(gatewayAddress.code.length > 0, "GATEWAY_ADDRESS must be a contract");
         require(amountWei > 0, "AMOUNT_WEI must be > 0");
 
         PaymentGateway gateway = PaymentGateway(payable(gatewayAddress));

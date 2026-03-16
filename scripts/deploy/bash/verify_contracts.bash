@@ -8,9 +8,9 @@ set -euo pipefail
 # Required env:
 #   ETHERSCAN_API_KEY
 #   SEPOLIA_RPC_URL
-#   FLUENT_DEV_RPC_URL
 # Optional env:
 #   FLUENT_NETWORK ("dev" or "testnet", default: testnet)
+#   FLUENT_DEV_RPC_URL (required when FLUENT_NETWORK=dev or local)
 #   FLUENT_DEV_BLOCK_EXPLORER_URL (default: https://dev.fluentscan.xyz)
 #   FLUENT_TESTNET_BLOCK_EXPLORER_URL (default: https://testnet.fluentscan.xyz)
 #   FLUENTSCAN_API_KEY (if required by explorer)
@@ -22,16 +22,19 @@ load_dotenv_if_present
 
 require_env "ETHERSCAN_API_KEY"
 require_env "SEPOLIA_RPC_URL"
-require_env "FLUENT_DEV_RPC_URL"
 
 FLUENT_NETWORK="${FLUENT_NETWORK:-testnet}"
+
+if [[ "$FLUENT_NETWORK" == "dev" || "$FLUENT_NETWORK" == "local" ]]; then
+  require_env "FLUENT_DEV_RPC_URL"
+fi
 
 sep_bridge_proxy="$(json_get "deployments/sepolia.json" '.bridge')"
 sep_gateway_proxy="$(json_get "deployments/sepolia.json" '.gateway')"
 sep_factory_proxy="$(json_get "deployments/sepolia.json" '.factory')"
 sep_pegged_impl="$(json_get "deployments/sepolia.json" '.pegged_impl')"
 
-if [[ "$FLUENT_NETWORK" == "dev" ]]; then
+if [[ "$FLUENT_NETWORK" == "dev" || "$FLUENT_NETWORK" == "local" ]]; then
   fluent_deploy_file="deployments/fluent_dev.json"
   fluent_rpc="${FLUENT_DEV_RPC_URL}"
   fluent_chain_id="20993"
@@ -46,11 +49,11 @@ elif [[ "$FLUENT_NETWORK" == "testnet" ]]; then
   fluent_chain_id="20994"
   FLUENT_TESTNET_BLOCK_EXPLORER_URL="${FLUENT_TESTNET_BLOCK_EXPLORER_URL:-https://testnet.fluentscan.xyz}"
   FLUENT_VERIFIER_URL="${FLUENT_TESTNET_BLOCK_EXPLORER_URL%/}/api/"
-  flu_bridge_proxy="$(json_get "deployments/fluent_testnet.json" '.deployment.bridge')"
-  flu_gateway_proxy="$(json_get "deployments/fluent_testnet.json" '.deployment.gateway')"
-  flu_factory_proxy="$(json_get "deployments/fluent_testnet.json" '.deployment.factory')"
+  flu_bridge_proxy="$(json_get "deployments/fluent_testnet.json" '.bridge')"
+  flu_gateway_proxy="$(json_get "deployments/fluent_testnet.json" '.gateway')"
+  flu_factory_proxy="$(json_get "deployments/fluent_testnet.json" '.factory')"
 else
-  echo "Unsupported FLUENT_NETWORK=$FLUENT_NETWORK (expected: dev|testnet)"
+  echo "Unsupported FLUENT_NETWORK=$FLUENT_NETWORK (expected: dev|local|testnet)"
   exit 1
 fi
 

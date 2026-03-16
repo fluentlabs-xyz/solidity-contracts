@@ -15,7 +15,7 @@ import {UniversalTokenFactory} from "../../contracts/factories/UniversalTokenFac
  *      - RECEIVE_MSG_DEADLINE (uint256, optional; default 0)
  *      - OTHER_BRIDGE_PLACEHOLDER (address, optional; default 0x1)
  *      - L1_BLOCK_ORACLE (address, optional; default 0)
- *      - OUTPUT_PATH (string, optional; default "deployments/fluent_testnet.json")
+ *      - OUTPUT_PATH (string, optional; default "deployments/fluent_dev.json")
  */
 contract DeployL2 is DeployLib {
     address private constant UNIVERSAL_RUNTIME = 0x0000000000000000000000000000000000520008;
@@ -41,7 +41,7 @@ contract DeployL2 is DeployLib {
         uint256 receiveMessageDeadline = vm.envOr("RECEIVE_MSG_DEADLINE", uint256(0));
         address otherBridgePlaceholder = vm.envOr("OTHER_BRIDGE_PLACEHOLDER", address(0x1));
         address l1BlockOracle = vm.envOr("L1_BLOCK_ORACLE", address(0));
-        string memory outputPath = vm.envOr("OUTPUT_PATH", string("deployments/fluent_devnet.json"));
+        string memory outputPath = vm.envOr("OUTPUT_PATH", string("deployments/fluent_dev.json"));
 
         vm.startBroadcast();
 

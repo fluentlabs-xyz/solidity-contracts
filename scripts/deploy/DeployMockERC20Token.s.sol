@@ -12,9 +12,12 @@ contract DeployMockERC20Token is Script {
         string memory symbol = vm.envOr("MOCK_ERC20_SYMBOL", string("MDT"));
         uint256 initialSupply = vm.envOr("MOCK_ERC20_SUPPLY", uint256(100_000_000 ether));
 
-        // Reuse INITIAL_OWNER when recipient is not explicitly set.
-        address defaultRecipient = vm.envAddress("INITIAL_OWNER");
-        address recipient = vm.envOr("MOCK_ERC20_RECIPIENT", defaultRecipient);
+        address defaultRecipient = vm.envOr("INITIAL_OWNER", address(0));
+        address recipient = vm.envOr("MOCK_ERC20_RECIPIENT", address(0));
+        if (recipient == address(0)) {
+            recipient = defaultRecipient;
+        }
+        require(recipient != address(0), "no recipient provided");
 
         string memory outputPath = vm.envOr("OUTPUT_PATH", string(""));
 
