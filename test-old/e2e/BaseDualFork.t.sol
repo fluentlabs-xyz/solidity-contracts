@@ -149,8 +149,9 @@ abstract contract BaseDualFork {
         // Deploy FluentBridge behind an ERC1967 proxy and initialize it.
         Bridge bridgeImplL1 = new Bridge();
         Bridge.InitConfiguration memory bridgeParamsL1 = Bridge.InitConfiguration({
-            initialOwner: address(this),
-            bridgeAuthority: BRIDGE_AUTHORITY,
+            adminRole: address(this),
+            pauserRole: address(this),
+            relayerRole: BRIDGE_AUTHORITY,
             rollup: address(l1.rollup),
             receiveMessageDeadline: 0,
             otherBridge: address(0x1),
@@ -205,8 +206,9 @@ abstract contract BaseDualFork {
         l2.oracle = new L1BlockOracle();
         Bridge bridgeImplL2 = new Bridge();
         Bridge.InitConfiguration memory bridgeParamsL2 = Bridge.InitConfiguration({
-            initialOwner: address(this),
-            bridgeAuthority: BRIDGE_AUTHORITY,
+            adminRole: address(this),
+            pauserRole: address(this),
+            relayerRole: BRIDGE_AUTHORITY,
             rollup: address(0),
             receiveMessageDeadline: 100,
             otherBridge: address(0x1),

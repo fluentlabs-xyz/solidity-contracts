@@ -4,7 +4,7 @@ pragma solidity 0.8.30;
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
-import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
+import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 
 import {Rollup} from "./rollup/Rollup.sol";
@@ -49,40 +49,93 @@ contract FluentBridge is
     Initializable,
     UUPSUpgradeable,
     ReentrancyGuardUpgradeable,
-    Ownable2StepUpgradeable,
+    AccessControlUpgradeable,
     PausableUpgradeable,
     IFluentBridge
 {
+    // ============ Roles ============
+
+    bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
+
+    bytes32 public constant RELAYER_ROLE = keccak256("RELAYER_ROLE");
+
     /// @notice Configuration for the FluentBridge initialization.
     struct InitConfiguration {
-        /// @notice Owner of the contract (e.g. multisig or deployer).
-        address initialOwner;
-        /// @notice Address authorized to send authorized messages (usually a trusted relayer or bridge controller).
-        address bridgeAuthority;
-        /// @notice Address of the rollup contract.
+        /**
+         * @notice Address authorized to perform admin actions.
+         */
+        address adminRole;
+        /**
+         * @notice Address authorized to pause the contract.
+         */
+        address pauserRole;
+        /**
+         * @notice Address authorized to send authorized messages (a trusted relayer or bridge controller).
+         */
+        address relayerRole;
+        /**
+         * @notice Address of the rollup contract.
+         */
         address rollup;
-        /// @notice Number of blocks after which a message becomes eligible for rollback.
+        /**
+         * @notice Number of blocks after which a message becomes eligible for rollback.
+         */
         uint256 receiveMessageDeadline;
-        /// @notice Address of the bridge contract on the other chain.
+        /**
+         * @notice Address of the bridge contract on the other chain.
+         */
         address otherBridge;
-        /// @notice Address for L1 block number lookups
+        /**
+         * @notice Address for L1 block number lookups
+         */
         address l1BlockOracle;
     }
 
     /// @custom:storage-location erc7201:fluent.storage.FluentBridgeStorage
     struct FluentBridgeStorage {
+        /**
+         * @notice Next outbound message nonce (incremented on each sendMessage).
+         */
         uint256 nonce;
+        /**
+         * @notice Next expected inbound received message nonce (L2 receiveMessage ordering).
+         */
         uint256 receivedNonce;
+        /**
+         * @notice Number of blocks after which a message becomes eligible for rollback.
+         */
         uint256 receiveMessageDeadline;
+        /**
+         * @notice During receive execution, the address that sent the message on the other chain; otherwise address(0).
+         */
         address nativeSender;
+        /**
+         * @notice Address of the bridge contract on the other chain.
+         */
         address otherBridge;
+        /**
+         * @notice Status of a received message by its hash (None, Failed, Success).
+         */
         mapping(bytes32 => MessageStatus) receivedMessage;
+        /**
+         * @notice Status of a rollback execution by message hash.
+         */
         mapping(bytes32 => MessageStatus) rollbackMessage;
-        /// @dev deposit queue
+        /**
+         * @notice Queue of sent messages.
+         */
         Queue.QueueStorage sentMessageQueue;
-        address bridgeAuthority;
+        /**
+         * @notice Rollup contract address (L1 only; address(0) on L2).
+         */
         address rollup;
+        /**
+         * @notice Address of the L1 block oracle used for rollback deadline checks.
+         */
         address l1BlockOracle;
+        /**
+         * @notice Gap for future storage.
+         */
         uint256[50] __gap;
     }
 
@@ -95,15 +148,11 @@ contract FluentBridge is
         }
     }
 
-    /// @dev Restricts function to be called only by the rollup contract.
+    /**
+     * @dev Restricts function to be called only by the rollup contract.
+     */
     modifier onlyRollup() {
-        require(msg.sender == _getFluentBridgeStorage().rollup, OnlyRollupAuthority());
-        _;
-    }
-
-    /// @dev Restricts function to be called only by the bridge authority(bridge relayer)
-    modifier onlyBridgeAuthority() {
-        require(msg.sender == _getFluentBridgeStorage().bridgeAuthority, OnlyBridgeAuthority());
+        require(msg.sender == rollup(), OnlyRollupAuthority());
         _;
     }
 
@@ -115,8 +164,9 @@ contract FluentBridge is
     /**
      * @notice Initializes the upgradeable bridge (replaces constructor when used behind a proxy).
      * @param data Configuration data encoded as InitConfiguration struct.
-     * * - initialOwner: Owner of the contract (e.g. multisig or deployer).
-     * * - bridgeAuthority: Address authorized to send authorized messages (usually a trusted relayer or bridge controller).
+     * * - adminRole: Address authorized to perform admin actions.
+     * * - pauserRole: Address authorized to pause the contract.
+     * * - relayerRole: Address authorized to send authorized messages (a trusted relayer or bridge controller).
      * * - rollup: Address of the rollup contract.
      * * - receiveMessageDeadline: Number of blocks after which a message becomes eligible for rollback.
      * * - otherBridge: Address of the bridge contract on the other chain.
@@ -125,10 +175,8 @@ contract FluentBridge is
     function initialize(bytes calldata data) external initializer {
         InitConfiguration memory params = abi.decode(data, (InitConfiguration));
 
-        /// the requirement of initialOwner not being address(0) exists in the __Ownable_init()
-        __Ownable_init(params.initialOwner);
-        __Ownable2Step_init();
         __ReentrancyGuard_init();
+        __AccessControl_init();
         __Pausable_init();
         __UUPSUpgradeable_init();
 
@@ -136,7 +184,7 @@ contract FluentBridge is
     }
 
     /// @inheritdoc UUPSUpgradeable
-    function _authorizeUpgrade(address) internal override onlyOwner {}
+    function _authorizeUpgrade(address) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
 
     /// @inheritdoc IFluentBridge
     function sendMessage(address to, bytes calldata message) external payable whenNotPaused {
@@ -230,7 +278,9 @@ contract FluentBridge is
         uint256 blockNumber,
         uint256 messageNonce,
         bytes calldata message
-    ) external payable onlyBridgeAuthority nonReentrant whenNotPaused {
+    ) external onlyRole(RELAYER_ROLE) nonReentrant whenNotPaused {
+        require(messageNonce == _takeNextReceivedNonce(), MessageReceivedOutOfOrder());
+
         bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, blockNumber, messageNonce, message));
         require(receivedMessage(messageHash) == MessageStatus.None, MessageAlreadyReceived());
 
@@ -246,7 +296,8 @@ contract FluentBridge is
         uint256 blockNumber,
         uint256 messageNonce,
         bytes calldata message
-    ) external payable onlyBridgeAuthority nonReentrant whenNotPaused {
+    ) external payable onlyRole(RELAYER_ROLE) nonReentrant whenNotPaused {
+        require(msg.value == value, InvalidMessageValue(value, msg.value));
         bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, blockNumber, messageNonce, message));
         require(receivedMessage(messageHash) == MessageStatus.Failed, MessageNotFailed());
 
@@ -402,11 +453,6 @@ contract FluentBridge is
     }
 
     /// @inheritdoc IFluentBridge
-    function bridgeAuthority() public view returns (address) {
-        return _getFluentBridgeStorage().bridgeAuthority;
-    }
-
-    /// @inheritdoc IFluentBridge
     function rollup() public view returns (address) {
         return _getFluentBridgeStorage().rollup;
     }
@@ -430,17 +476,17 @@ contract FluentBridge is
 
     // ============ Pauser functions ============
 
-    function pause() external onlyOwner {
+    function pause() external onlyRole(PAUSER_ROLE) {
         _pause();
     }
 
-    function unpause() external onlyOwner {
+    function unpause() external onlyRole(PAUSER_ROLE) {
         _unpause();
     }
 
     // ============ Admin functions ============
 
-    function setOtherBridge(address newOtherBridge) external onlyOwner {
+    function setOtherBridge(address newOtherBridge) external onlyRole(DEFAULT_ADMIN_ROLE) {
         _setOtherBridge(newOtherBridge);
     }
 
@@ -450,22 +496,12 @@ contract FluentBridge is
         _getFluentBridgeStorage().otherBridge = _otherBridge;
     }
 
-    function setBridgeAuthority(address newBridgeAuthority) external onlyOwner {
-        _setBridgeAuthority(newBridgeAuthority);
-    }
-
-    function _setBridgeAuthority(address _bridgeAuthority) internal {
-        require(_bridgeAuthority != address(0), ZeroAddressNotAllowed("bridgeAuthority"));
-        emit BridgeAuthorityUpdated(_getFluentBridgeStorage().bridgeAuthority, _bridgeAuthority);
-        _getFluentBridgeStorage().bridgeAuthority = _bridgeAuthority;
-    }
-
     /**
      * @notice Sets the address of the rollup contract from the owner.
      * @param newRollup The address of the rollup contract.
      * @dev This function can only be called by the owner.
      */
-    function setRollup(address newRollup) external onlyOwner {
+    function setRollup(address newRollup) external onlyRole(DEFAULT_ADMIN_ROLE) {
         _setRollup(newRollup);
     }
 
@@ -480,7 +516,7 @@ contract FluentBridge is
      * @param newL1BlockOracle The address of the L1 block oracle used for rollback deadline checks.
      * @dev This function can only be called by the owner.
      */
-    function setL1BlockOracle(address newL1BlockOracle) external onlyOwner {
+    function setL1BlockOracle(address newL1BlockOracle) external onlyRole(DEFAULT_ADMIN_ROLE) {
         _setL1BlockOracle(newL1BlockOracle);
     }
 
@@ -495,7 +531,7 @@ contract FluentBridge is
      * @param newReceiveMessageDeadline The number of L1 blocks after which a message becomes eligible for rollback.
      * @dev This function can only be called by the owner.
      */
-    function setReceiveMessageDeadline(uint256 newReceiveMessageDeadline) external onlyOwner {
+    function setReceiveMessageDeadline(uint256 newReceiveMessageDeadline) external onlyRole(DEFAULT_ADMIN_ROLE) {
         _setReceiveMessageDeadline(newReceiveMessageDeadline);
     }
 
@@ -508,13 +544,20 @@ contract FluentBridge is
     // ============ Configuration ============
 
     function __FluentBridge_init(InitConfiguration memory params) internal {
-        require(params.bridgeAuthority != address(0), ZeroAddressNotAllowed("bridgeAuthority"));
         require(params.otherBridge != address(0), ZeroAddressNotAllowed("otherBridge"));
         if (params.receiveMessageDeadline != 0) {
             require(params.l1BlockOracle != address(0), ZeroAddressNotAllowed("l1BlockOracle"));
         }
 
-        _setBridgeAuthority(params.bridgeAuthority);
+        require(params.adminRole != address(0), ZeroAddressNotAllowed("adminRole"));
+        require(params.pauserRole != address(0), ZeroAddressNotAllowed("pauserRole"));
+        require(params.relayerRole != address(0), ZeroAddressNotAllowed("relayerRole"));
+
+        // ==== setup roles ====
+        _grantRole(DEFAULT_ADMIN_ROLE, params.adminRole);
+        _grantRole(PAUSER_ROLE, params.pauserRole);
+        _grantRole(RELAYER_ROLE, params.relayerRole);
+
         _setOtherBridge(params.otherBridge);
 
         if (params.receiveMessageDeadline != 0) {

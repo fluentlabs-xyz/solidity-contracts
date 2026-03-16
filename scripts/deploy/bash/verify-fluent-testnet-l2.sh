@@ -33,12 +33,30 @@ BEACON=$(read_json_key deployments/fluent-testnet-l2-stack.json factory_beacon)
 GATEWAY_IMPL=$(read_json_key deployments/fluent-testnet-l2-stack.json gateway_impl)
 GATEWAY=$(read_json_key deployments/fluent-testnet-l2-stack.json gateway)
 
-DEPLOYER_ADDRESS="${INITIAL_OWNER:-$(cast wallet address --private-key "${PRIVATE_KEY:-}" 2>/dev/null)}"
-INITIAL_OWNER="${INITIAL_OWNER:-$DEPLOYER_ADDRESS}"
-RELAYER_ADDRESS="${RELAYER_ADDRESS:-$INITIAL_OWNER}"
+INITIAL_OWNER="${INITIAL_OWNER:-}"
+ADMIN_ROLE="${ADMIN_ROLE:-$INITIAL_OWNER}"
+PAUSER_ROLE="${PAUSER_ROLE:-$ADMIN_ROLE}"
+RELAYER_ROLE="${RELAYER_ROLE:-${RELAYER_ADDRESS:-$ADMIN_ROLE}}"
 RECEIVE_MSG_DEADLINE="${RECEIVE_MSG_DEADLINE:-0}"
 L2_L1BLOCK_ORACLE="${L2_L1BLOCK_ORACLE:-0x0000000000000000000000000000000000000000}"
 OTHER_BRIDGE_PLACEHOLDER="${OTHER_BRIDGE_PLACEHOLDER:-0x0000000000000000000000000000000000000001}"
+
+if [ -z "$ADMIN_ROLE" ] || [ -z "$PAUSER_ROLE" ] || [ -z "$RELAYER_ROLE" ]; then
+  DEPLOYER_ADDRESS="$(cast wallet address --private-key "${PRIVATE_KEY:-}" 2>/dev/null || true)"
+  INITIAL_OWNER="${INITIAL_OWNER:-$DEPLOYER_ADDRESS}"
+  ADMIN_ROLE="${ADMIN_ROLE:-$INITIAL_OWNER}"
+  PAUSER_ROLE="${PAUSER_ROLE:-$ADMIN_ROLE}"
+  RELAYER_ROLE="${RELAYER_ROLE:-${RELAYER_ADDRESS:-$ADMIN_ROLE}}"
+fi
+
+is_valid_address() {
+  [[ "$1" =~ ^0x[0-9a-fA-F]{40}$ ]]
+}
+
+is_valid_address "$ADMIN_ROLE" || { echo "ADMIN_ROLE must be a valid address"; exit 1; }
+is_valid_address "$PAUSER_ROLE" || { echo "PAUSER_ROLE must be a valid address"; exit 1; }
+is_valid_address "$RELAYER_ROLE" || { echo "RELAYER_ROLE must be a valid address"; exit 1; }
+INITIAL_OWNER="${INITIAL_OWNER:-$ADMIN_ROLE}"
 
 RPC="${L2_RPC_URL:-${RPC_URL_FLUENT_TESTNET:-https://rpc.testnet.fluent.xyz/}}"
 VERIFIER_URL="https://testnet.fluentscan.xyz/api/"
@@ -54,7 +72,8 @@ forge verify-contract --rpc-url "$RPC" "$BRIDGE_IMPL" contracts/FluentBridge.sol
   --verifier blockscout --verifier-url "$VERIFIER_URL" --chain "$CHAIN" || true
 
 # 2) Bridge proxy
-INIT_BRIDGE=$(cast calldata "initialize(address,address,address,uint256,address,address)" "$INITIAL_OWNER" "$RELAYER_ADDRESS" 0x0000000000000000000000000000000000000000 "$RECEIVE_MSG_DEADLINE" "$OTHER_BRIDGE_PLACEHOLDER" "$L2_L1BLOCK_ORACLE")
+BRIDGE_INIT_CONFIG=$(cast abi-encode "(address,address,address,address,uint256,address,address)" "$ADMIN_ROLE" "$PAUSER_ROLE" "$RELAYER_ROLE" 0x0000000000000000000000000000000000000000 "$RECEIVE_MSG_DEADLINE" "$OTHER_BRIDGE_PLACEHOLDER" "$L2_L1BLOCK_ORACLE")
+INIT_BRIDGE=$(cast calldata "initialize(bytes)" "$BRIDGE_INIT_CONFIG")
 BRIDGE_PROXY_ARGS=$(cast abi-encode "f(address,bytes)" "$BRIDGE_IMPL" "$INIT_BRIDGE")
 echo "[2/8] Bridge proxy (ERC1967Proxy)..."
 forge verify-contract --rpc-url "$RPC" "$BRIDGE" lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy \

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {BaseScript} from "../Base.sol";
+import {Script} from "forge-std/Script.sol";
 import {UniversalTokenFactory} from "../../contracts/factories/UniversalTokenFactory.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
@@ -16,7 +16,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 /// - MINTER                  (address): minter role for the Universal token
 /// - PAUSER                  (address): pauser role for the Universal token
 /// - OUTPUT_PATH             (string, optional): JSON path for deployment metadata
-contract DeployUniversalTokenFactoryAndToken is BaseScript {
+contract DeployUniversalTokenFactoryAndToken is Script {
     struct Deployment {
         address factoryImpl;
         address factory;
@@ -32,6 +32,7 @@ contract DeployUniversalTokenFactoryAndToken is BaseScript {
         string memory name = vm.envOr("TOKEN_NAME", string("Bridged Token"));
         string memory symbol = vm.envOr("TOKEN_SYMBOL", string("BRIDGE"));
         uint256 decimals = vm.envOr("TOKEN_DECIMALS", uint256(18));
+        require(decimals <= type(uint8).max, "TOKEN_DECIMALS out of range");
         uint256 initialSupply = vm.envOr("TOKEN_INITIAL_SUPPLY", uint256(0));
         address minter = vm.envOr("MINTER", address(0));
         address pauser = vm.envOr("PAUSER", address(0));

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {BaseScript} from "../Base.sol";
+import {Script} from "forge-std/Script.sol";
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
 import {InitConfiguration} from "../../contracts/interfaces/IRollupTypes.sol";
 import {SP1Verifier} from "../../contracts/verifier/SP1VerifierGroth16.sol";
@@ -17,7 +17,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 ///   challengeWindow    = 10800 blocks (~36 hours) — challenge must be resolved by this block
 ///   finalizationDelay  = 14400 blocks (~48 hours) — earliest block a batch can be finalized
 
-contract DeployRollup is BaseScript {
+contract DeployRollup is Script {
     event RollupDeployed(address indexed implementation, address indexed proxy);
 
     /// @dev Ethereum mainnet: 1 block ≈ 12 seconds

@@ -60,26 +60,21 @@ contract BridgeLegacyParityTest is RollupBase {
             nitroVerifier: address(0),
             preconfirmationRole: address(0)
         });
-        ERC1967Proxy rollupProxy = new ERC1967Proxy(
-            address(rollupImpl),
-            abi.encodeCall(Rollup.initialize, (abi.encode(initParams)))
-        );
+        ERC1967Proxy rollupProxy = new ERC1967Proxy(address(rollupImpl), abi.encodeCall(Rollup.initialize, (abi.encode(initParams))));
         rollup = Rollup(payable(address(rollupProxy)));
         oracle = new L1BlockOracle();
 
         Bridge bridgeImpl = new Bridge();
         Bridge.InitConfiguration memory bridgeParams = Bridge.InitConfiguration({
-            initialOwner: address(this),
-            bridgeAuthority: address(this),
+            adminRole: address(this),
+            pauserRole: address(this),
+            relayerRole: address(this),
             rollup: address(rollup),
             receiveMessageDeadline: 10,
             otherBridge: OTHER_BRIDGE,
             l1BlockOracle: address(oracle)
         });
-        ERC1967Proxy bridgeProxy = new ERC1967Proxy(
-            address(bridgeImpl),
-            abi.encodeCall(Bridge.initialize, (abi.encode(bridgeParams)))
-        );
+        ERC1967Proxy bridgeProxy = new ERC1967Proxy(address(bridgeImpl), abi.encodeCall(Bridge.initialize, (abi.encode(bridgeParams))));
         bridge = Bridge(payable(address(bridgeProxy)));
         rollup.setBridge(address(bridge));
         rollup.setDaCheck(false);
@@ -90,8 +85,7 @@ contract BridgeLegacyParityTest is RollupBase {
 
         uint256 msgNonce = bridge.nonce();
         uint256 msgBlock = block.number;
-        bytes32 messageHash =
-            _bridgeMessageHash(USER, DESTINATION, MSG_VALUE, block.chainid, msgBlock, msgNonce, PAYLOAD);
+        bytes32 messageHash = _bridgeMessageHash(USER, DESTINATION, MSG_VALUE, block.chainid, msgBlock, msgNonce, PAYLOAD);
 
         vm.prank(USER);
         bridge.sendMessage{value: MSG_VALUE}(DESTINATION, PAYLOAD);
@@ -123,17 +117,13 @@ contract BridgeLegacyParityTest is RollupBase {
         uint256 sourceChainId = block.chainid + 1;
         uint256 sourceBlock = 10;
 
-        bridge.receiveMessage{value: 200}(DESTINATION, RECEIVER, 200, sourceChainId, sourceBlock, nonce, "");
+        bridge.receiveMessage(DESTINATION, RECEIVER, 200, sourceChainId, sourceBlock, nonce, "");
 
         uint256 receiverBalanceAfter = RECEIVER.balance;
         assertEq(receiverBalanceAfter - receiverBalanceBefore, 200, "receiver should be paid");
 
         bytes32 messageHash = _bridgeMessageHash(DESTINATION, RECEIVER, 200, sourceChainId, sourceBlock, nonce, "");
-        assertEq(
-            uint256(bridge.receivedMessage(messageHash)),
-            uint256(IFluentBridge.MessageStatus.Success),
-            "message should be successful"
-        );
+        assertEq(uint256(bridge.receivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Success), "message should be successful");
 
         vm.expectRevert(bytes4(keccak256("MessageAlreadyReceived()")));
         bridge.receiveMessage{value: 200}(DESTINATION, RECEIVER, 200, sourceChainId, sourceBlock, nonce, "");
@@ -149,7 +139,7 @@ contract BridgeLegacyParityTest is RollupBase {
     }
 
     function test_receiveMessage_afterDeadline_emitsRollbackBehavior() public {
-        vm.deal(address(this), 1 ether);
+        vm.deal(address(bridge), 1 ether);
         uint256 nonce = bridge.receivedNonce();
         uint256 sourceChainId = block.chainid + 1;
         uint256 sourceBlock = 10;
@@ -160,13 +150,12 @@ contract BridgeLegacyParityTest is RollupBase {
         NoopReceiver receiver = new NoopReceiver();
         uint256 receiverBalanceBefore = address(receiver).balance;
         bytes memory payload = abi.encodeWithSignature("handle()");
-        bridge.receiveMessage{value: 200}(DESTINATION, address(receiver), 200, sourceChainId, sourceBlock, nonce, payload);
+        bridge.receiveMessage(DESTINATION, address(receiver), 200, sourceChainId, sourceBlock, nonce, payload);
         uint256 receiverBalanceAfter = address(receiver).balance;
 
         assertEq(receiverBalanceAfter - receiverBalanceBefore, 0, "message must not execute after deadline");
 
-        bytes32 messageHash =
-            _bridgeMessageHash(DESTINATION, address(receiver), 200, sourceChainId, sourceBlock, nonce, payload);
+        bytes32 messageHash = _bridgeMessageHash(DESTINATION, address(receiver), 200, sourceChainId, sourceBlock, nonce, payload);
         assertEq(
             uint256(bridge.receivedMessage(messageHash)),
             uint256(IFluentBridge.MessageStatus.None),
@@ -182,8 +171,7 @@ contract BridgeLegacyParityTest is RollupBase {
         uint256 sourceBlock = 1;
         bytes memory payload = abi.encodeWithSignature("fail()");
 
-        bytes32 messageHash =
-            _bridgeMessageHash(OTHER_BRIDGE, address(receiver), 0, sourceChainId, sourceBlock, nonce, payload);
+        bytes32 messageHash = _bridgeMessageHash(OTHER_BRIDGE, address(receiver), 0, sourceChainId, sourceBlock, nonce, payload);
 
         bridge.receiveMessage(OTHER_BRIDGE, address(receiver), 0, sourceChainId, sourceBlock, nonce, payload);
         assertEq(
@@ -201,7 +189,7 @@ contract BridgeLegacyParityTest is RollupBase {
         for (uint256 i = 0; i < logs.length; i++) {
             if (logs[i].emitter == address(bridge) && logs[i].topics.length == 1) {
                 // ReceivedMessage(bytes32,bool,bytes)
-                (bytes32 loggedHash,,) = abi.decode(logs[i].data, (bytes32, bool, bytes));
+                (bytes32 loggedHash, , ) = abi.decode(logs[i].data, (bytes32, bool, bytes));
                 if (loggedHash == messageHash) {
                     replayed = true;
                     break;

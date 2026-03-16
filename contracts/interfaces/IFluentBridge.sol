@@ -5,7 +5,7 @@ import {MerkleTree} from "../libraries/MerkleTree.sol";
 import {L2BlockHeader} from "./IRollupTypes.sol";
 
 interface IBridgeErrorCodes {
-    /// @dev Caller is not the configured bridge authority (trusted relayer path).
+    /// @dev Caller is not the configured bridge relayer (trusted relayer path).
     error OnlyBridgeAuthority();
     /// @dev Caller is not the configured rollup contract.
     error OnlyRollupAuthority();
@@ -72,9 +72,6 @@ interface IFluentBridgeEvents {
     /// @notice Emitted when the address of the bridge contract on the other chain is updated.
     event OtherBridgeUpdated(address indexed prevValue, address indexed newValue);
 
-    /// @notice Emitted when the address of the bridge authority is updated.
-    event BridgeAuthorityUpdated(address indexed prevValue, address indexed newValue);
-
     /// @notice Emitted when the address of the rollup contract is updated.
     event RollupUpdated(address indexed prevValue, address indexed newValue);
 
@@ -115,9 +112,6 @@ interface IFluentBridge is IBridgeErrorCodes, IFluentBridgeEvents {
 
     /// @notice Status of a rollback execution by message hash.
     function rollbackMessage(bytes32 key) external view returns (MessageStatus);
-
-    /// @notice Address authorized to send direct messages (L2 receiveMessage / receiveFailedMessage).
-    function bridgeAuthority() external view returns (address);
 
     /// @notice Rollup contract address (L1 only; address(0) on L2).
     function rollup() external view returns (address);
@@ -212,7 +206,7 @@ interface IFluentBridge is IBridgeErrorCodes, IFluentBridgeEvents {
         uint256 _blockNumber,
         uint256 _nonce,
         bytes calldata _message
-    ) external payable;
+    ) external;
 
     /// @notice Retries execution of a previously failed message (same params as original receive).
     /// @param _from Sender on the other chain.

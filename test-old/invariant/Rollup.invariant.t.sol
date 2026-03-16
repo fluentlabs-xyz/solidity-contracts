@@ -21,8 +21,9 @@ contract RollupInvariantTest is MinimalTest {
         verifierMock = new VerifierMock();
         Bridge bridgeImpl = new Bridge();
         Bridge.InitConfiguration memory bridgeParams = Bridge.InitConfiguration({
-            initialOwner: address(this),
-            bridgeAuthority: address(this),
+            adminRole: address(this),
+            pauserRole: address(this),
+            relayerRole: address(this),
             rollup: address(0),
             receiveMessageDeadline: 0,
             otherBridge: address(0x1111),

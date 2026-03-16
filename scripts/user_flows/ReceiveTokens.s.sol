@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {BaseScript} from "../Base.sol";
+import {Script} from "forge-std/Script.sol";
 import {FluentBridge} from "../../contracts/FluentBridge.sol";
 
 /// @notice Low-level helper script to call FluentBridge.receiveMessage on a target chain.
@@ -9,12 +9,12 @@ import {FluentBridge} from "../../contracts/FluentBridge.sol";
 /// - BRIDGE_ADDRESS    (address, required): FluentBridge contract address on this chain
 /// - FROM              (address, required): original sender on source chain
 /// - TO                (address, required): message recipient on this chain
-/// - VALUE_WEI         (uint256, optional): msg.value to forward (default: 0)
+/// - VALUE_WEI         (uint256, optional): value argument forwarded by bridge (default: 0)
 /// - SRC_CHAIN_ID      (uint256, required): source chain ID encoded in the message
 /// - SRC_BLOCK_NUMBER  (uint256, required): source block number encoded in the message
 /// - NONCE             (uint256, required): message nonce
 /// - MESSAGE_HEX       (string, required): ABI-encoded payload as 0x-prefixed hex
-contract ReceiveTokens is BaseScript {
+contract ReceiveTokens is Script {
     function run() external {
         address bridgeAddress = vm.envAddress("BRIDGE_ADDRESS");
         address from = vm.envAddress("FROM");
@@ -30,9 +30,10 @@ contract ReceiveTokens is BaseScript {
         bytes memory message = _hexStringToBytes(messageHex);
 
         FluentBridge bridge = FluentBridge(payable(bridgeAddress));
+        require(address(bridge).balance >= valueWei, "bridge underfunded for VALUE_WEI");
 
         vm.startBroadcast();
-        bridge.receiveMessage{value: valueWei}(from, payable(to), valueWei, srcChainId, srcBlockNumber, nonce, message);
+        bridge.receiveMessage(from, to, valueWei, srcChainId, srcBlockNumber, nonce, message);
         vm.stopBroadcast();
     }
 
