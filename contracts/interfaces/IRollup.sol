@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.30;
 
 import {L2BlockHeader, BatchRecord, ChallengeRecord} from "./IRollupTypes.sol";
 import {MerkleTree} from "../libraries/MerkleTree.sol";
-
-// ============ Interfaces ============
 
 /**
  * @title IRollupErrors
@@ -112,6 +110,11 @@ interface IRollupErrors {
     error NitroVerifierNotEnabled(address nitroVerifier);
 
     /**
+     * @notice Nitro verifier address is already in the enabled whitelist.
+     */
+    error NitroVerifierAlreadyEnabled(address nitroVerifier);
+
+    /**
      * @notice nextBatchIndex would overflow uint96.
      */
     error NextBatchIndexOverflow();
@@ -185,6 +188,52 @@ interface IRollupEvents {
      * @notice Emitted when a Nitro verifier is added to the enabled whitelist.
      */
     event NitroVerifierEnabled(address indexed verifier);
+
+    /**
+     * @notice Emitted when a Nitro verifier is removed from the enabled whitelist.
+     */
+
+    event NitroVerifierDisabled(address indexed verifier);
+
+    /**
+     * @notice Emitted when the gas left is updated.
+     */
+    event GasLeftUpdated(uint32 previousGasLeft, uint32 newGasLeft);
+
+    /**
+     * @notice Emitted when the accept deposit deadline is updated.
+     */
+    event AcceptDepositDeadlineUpdated(uint32 previousAcceptDepositDeadline, uint32 newAcceptDepositDeadline);
+
+    /**
+     * @notice Emitted when the submit blobs window is updated.
+     */
+    event SubmitBlobsWindowUpdated(uint64 previousSubmitBlobsWindow, uint64 newSubmitBlobsWindow);
+
+    /**
+     * @notice Emitted when the preconfirm window is updated.
+     */
+    event PreconfirmWindowUpdated(uint64 previousPreconfirmWindow, uint64 newPreconfirmWindow);
+
+    /**
+     * @notice Emitted when the challenge window is updated.
+     */
+    event ChallengeWindowUpdated(uint64 previousChallengeWindow, uint64 newChallengeWindow);
+
+    /**
+     * @notice Emitted when the finalization delay is updated.
+     */
+    event FinalizationDelayUpdated(uint64 previousFinalizationDelay, uint64 newFinalizationDelay);
+
+    /**
+     * @notice Emitted when the challenge deposit amount is updated.
+     */
+    event ChallengeDepositAmountUpdated(uint256 previousChallengeDepositAmount, uint256 newChallengeDepositAmount);
+
+    /**
+     * @notice Emitted when the incentive fee is updated.
+     */
+    event IncentiveFeeUpdated(uint256 previousIncentiveFee, uint256 newIncentiveFee);
 
     // ============ Batch lifecycle ============
 
@@ -485,12 +534,52 @@ interface IRollupAdmin {
     /**
      * @notice Add a Nitro verifier to the enabled whitelist.
      */
-    function setNitroVerifier(address newVerifier) external;
+    function enableNitroVerifier(address verifier) external;
+
+    /**
+     * @notice Remove a Nitro verifier from the enabled whitelist.
+     */
+    function disableNitroVerifier(address verifier) external;
 
     /**
      * @notice Set minimum gas threshold per block header iteration in acceptNextBatch.
      */
     function setGasLeft(uint32 gasLeft) external;
+
+    /**
+     * @notice Set the maximum L1 blocks between deposit creation and batch inclusion.
+     */
+    function setAcceptDepositDeadline(uint32 newAcceptDepositDeadline) external;
+
+    /**
+     * @notice Set the maximum L1 blocks after batch acceptance for batch blob submission.
+     */
+    function setSubmitBlobsWindow(uint64 newSubmitBlobsWindow) external;
+
+    /**
+     * @notice Set the maximum L1 blocks after blob submission for batch preconfirmation.
+     */
+    function setPreconfirmWindow(uint64 newPreconfirmWindow) external;
+
+    /**
+     * @notice Set the maximum L1 blocks a challenger has to submit a challenge after batch acceptance.
+     */
+    function setChallengeWindow(uint64 newChallengeWindow) external;
+
+    /**
+     * @notice Set the minimum L1 blocks after batch acceptance before finalization.
+     */
+    function setFinalizationDelay(uint64 newFinalizationDelay) external;
+
+    /**
+     * @notice Set the ETH deposit required to open a challenge.
+     */
+    function setChallengeDepositAmount(uint256 newChallengeDepositAmount) external;
+
+    /**
+     * @notice Set the ETH reward paid to challengers who successfully challenged a batch.
+     */
+    function setIncentiveFee(uint256 newIncentiveFee) external;
 }
 
 /**

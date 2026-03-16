@@ -147,7 +147,7 @@ contract FluentBridge is
         uint256 messageNonce = _takeNextNonce();
         bytes32 messageHash = keccak256(_encodeMessage(from, to, value, block.chainid, block.number, messageNonce, message));
 
-        /// @custom:todo remove 'if' later on when rollup is always initialized!!!!!!
+        // rollup lives only on L1
         if (rollup() != address(0)) Queue.enqueue(_getFluentBridgeStorage().sentMessageQueue, messageHash);
 
         emit SentMessage(from, to, value, block.chainid, block.number, messageNonce, messageHash, message);

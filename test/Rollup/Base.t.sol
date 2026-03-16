@@ -77,7 +77,7 @@ abstract contract RollupBase is Test, IRollupEvents {
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
         Rollup r = Rollup(address(proxy));
         vm.prank(admin);
-        r.setNitroVerifier(address(nitroVerifier));
+        r.enableNitroVerifier(address(nitroVerifier));
         return r;
     }
 

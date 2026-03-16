@@ -56,10 +56,10 @@ contract AdminTest is RollupBase {
         rollup.setProgramVKey(bytes32(0));
     }
 
-    function test_revert_setNitroVerifier_zeroAddress() public {
+    function test_revert_enableNitroVerifier_zeroAddress() public {
         vm.prank(admin);
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroAddressNotAllowed.selector, bytes32("nitroVerifier")));
-        rollup.setNitroVerifier(address(0));
+        rollup.enableNitroVerifier(address(0));
     }
 
     function test_setBridge_emitsBridgeUpdated() public {
@@ -109,7 +109,9 @@ contract AdminTest is RollupBase {
             preconfirmWindow: PRECONFIRM_WINDOW
         });
         Rollup impl = new Rollup();
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "challengeWindow must be less than finalizationDelay"));
+        vm.expectRevert(
+            abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "challengeWindow must be less than finalizationDelay")
+        );
         new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
     }
 

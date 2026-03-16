@@ -14,6 +14,7 @@ import {MerkleTree} from "../libraries/MerkleTree.sol";
 
 /**
  * @title RollupStorageLayout
+ * @author Fluent Labs
  * @dev ERC-7201 namespaced storage base for {Rollup}. Contains all storage fields,
  *      view getters, admin setters, and initialization logic.
  */
@@ -33,10 +34,29 @@ contract RollupStorageLayout is
 
     // ============ Constants ============
 
+    /**
+     * @notice Role that can perform emergency actions.
+     */
     bytes32 public constant EMERGENCY_ROLE = keccak256("EMERGENCY_ROLE");
+
+    /**
+     * @notice Role that can submit batches.
+     */
     bytes32 public constant SEQUENCER_ROLE = keccak256("SEQUENCER_ROLE");
+
+    /**
+     * @notice Role that can preconfirm batches.
+     */
     bytes32 public constant PRECONFIRMATION_ROLE = keccak256("PRECONFIRMATION_ROLE");
+
+    /**
+     * @notice Role that can challenge batches.
+     */
     bytes32 public constant CHALLENGER_ROLE = keccak256("CHALLENGER_ROLE");
+
+    /**
+     * @notice Role that can prove batches.
+     */
     bytes32 public constant PROVER_ROLE = keccak256("PROVER_ROLE");
 
     /// @dev keccak256 of empty bytes — used to detect zero-message roots.
@@ -134,64 +154,56 @@ contract RollupStorageLayout is
         uint256[28] __gap;
     }
 
-    // ============ Initializer ============
+    // ============ Storage Initializer ============
 
     /**
      * @dev Initializes rollup storage from ABI-encoded {InitConfiguration}.
      *      Called once from {Rollup.initialize} via the UUPS proxy.
      */
-    function __initRollupStorage(bytes memory data) internal onlyInitializing {
+    function __RollupStorage_init(bytes memory data) internal onlyInitializing {
         RollupStorage storage $ = _getRollupStorage();
 
         InitConfiguration memory params = abi.decode(data, (InitConfiguration));
 
-        // ─── Address validation ───
-        require(params.admin != address(0), ZeroAddressNotAllowed("admin"));
-        require(params.sp1Verifier != address(0), ZeroAddressNotAllowed("sp1Verifier"));
-        require(params.bridge != address(0), ZeroAddressNotAllowed("bridge"));
-
-        // ─── Value validation ───
-        require(params.programVKey != bytes32(0), ZeroValueNotAllowed("programVKey"));
-        require(params.genesisHash != bytes32(0), ZeroValueNotAllowed("genesisHash"));
-
         // ─── Deadline invariants ───
         if (params.submitBlobsWindow != 0 && params.preconfirmWindow != 0) {
             require(params.preconfirmWindow > params.submitBlobsWindow, InvalidWindowConfig("preconfirmWindow must exceed submitBlobsWindow"));
+            _setSubmitBlobsWindow(uint64(params.submitBlobsWindow));
+            _setPreconfirmWindow(uint64(params.preconfirmWindow));
         }
         require(params.challengeWindow < params.finalizationDelay, InvalidWindowConfig("challengeWindow must be less than finalizationDelay"));
+        _setChallengeWindow(uint64(params.challengeWindow));
+        _setFinalizationDelay(uint64(params.finalizationDelay));
+
+        _setAcceptDepositDeadline(uint32(params.acceptDepositDeadline));
 
         // ─── Role setup ───
-        address emergency = params.emergency != address(0) ? params.emergency : params.admin;
-        address challenger = params.challenger != address(0) ? params.challenger : params.admin;
-        address prover = params.prover != address(0) ? params.prover : params.admin;
-        address sequencer = params.sequencer != address(0) ? params.sequencer : params.admin;
-        address preconfirmation = params.preconfirmationRole != address(0) ? params.preconfirmationRole : params.admin;
+        require(params.admin != address(0), ZeroAddressNotAllowed("admin"));
+        address emergencyRole = params.emergency != address(0) ? params.emergency : params.admin;
+        address challengerRole = params.challenger != address(0) ? params.challenger : params.admin;
+        address proverRole = params.prover != address(0) ? params.prover : params.admin;
+        address sequencerRole = params.sequencer != address(0) ? params.sequencer : params.admin;
+        address preconfirmationRole = params.preconfirmationRole != address(0) ? params.preconfirmationRole : params.admin;
 
         _grantRole(DEFAULT_ADMIN_ROLE, params.admin);
-        _grantRole(EMERGENCY_ROLE, emergency);
-        _grantRole(CHALLENGER_ROLE, challenger);
-        _grantRole(PROVER_ROLE, prover);
-        _grantRole(SEQUENCER_ROLE, sequencer);
-        _grantRole(PRECONFIRMATION_ROLE, preconfirmation);
+        _grantRole(EMERGENCY_ROLE, emergencyRole);
+        _grantRole(CHALLENGER_ROLE, challengerRole);
+        _grantRole(PROVER_ROLE, proverRole);
+        _grantRole(SEQUENCER_ROLE, sequencerRole);
+        _grantRole(PRECONFIRMATION_ROLE, preconfirmationRole);
 
         // ─── Storage setup ───
-        $._bridge = params.bridge;
-        $._sp1Verifier = params.sp1Verifier;
-        $._programVKey = params.programVKey;
+        require(params.genesisHash != bytes32(0), ZeroValueNotAllowed("genesisHash"));
         $._lastBlockHashInBatch[0] = params.genesisHash;
         $._nextBatchIndex = 1;
-        $._challengeDepositAmount = params.challengeDepositAmount;
-        $._challengeWindow = uint64(params.challengeWindow);
-        $._finalizationDelay = uint64(params.finalizationDelay);
-        $._acceptDepositDeadline = uint32(params.acceptDepositDeadline);
-        $._incentiveFee = params.incentiveFee;
-        $._submitBlobsWindow = uint64(params.submitBlobsWindow);
-        $._preconfirmWindow = uint64(params.preconfirmWindow);
 
-        if (params.nitroVerifier != address(0)) {
-            $._enabledNitroVerifiers[params.nitroVerifier] = true;
-            emit NitroVerifierEnabled(params.nitroVerifier);
-        }
+        _setBridge(params.bridge);
+        _setSp1Verifier(params.sp1Verifier);
+        _setProgramVKey(params.programVKey);
+        if (params.nitroVerifier != address(0)) _enableNitroVerifier(params.nitroVerifier);
+
+        _setChallengeDepositAmount(params.challengeDepositAmount);
+        _setIncentiveFee(params.incentiveFee);
     }
 
     // ============ IRollupConfig ============
@@ -296,6 +308,7 @@ contract RollupStorageLayout is
         for (uint256 i = 0; i < size; ++i) {
             queue[i] = $._challengeQueue.at(i);
         }
+
         return queue;
     }
 
@@ -336,8 +349,19 @@ contract RollupStorageLayout is
         _setBridge(newBridge);
     }
 
+    function _setBridge(address newBridge) internal {
+        RollupStorage storage $ = _getRollupStorage();
+        require(newBridge != address(0), ZeroAddressNotAllowed("bridge"));
+        emit BridgeUpdated($._bridge, newBridge);
+        $._bridge = newBridge;
+    }
+
     /// @inheritdoc IRollupAdmin
     function setSp1Verifier(address newVerifier) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setSp1Verifier(newVerifier);
+    }
+
+    function _setSp1Verifier(address newVerifier) internal {
         require(newVerifier != address(0), ZeroAddressNotAllowed("sp1Verifier"));
         RollupStorage storage $ = _getRollupStorage();
         emit SP1VerifierUpdated($._sp1Verifier, newVerifier);
@@ -346,6 +370,10 @@ contract RollupStorageLayout is
 
     /// @inheritdoc IRollupAdmin
     function setProgramVKey(bytes32 newVKey) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setProgramVKey(newVKey);
+    }
+
+    function _setProgramVKey(bytes32 newVKey) internal {
         require(newVKey != bytes32(0), ZeroValueNotAllowed("programVKey"));
         RollupStorage storage $ = _getRollupStorage();
         emit ProgramVKeyUpdated($._programVKey, newVKey);
@@ -353,31 +381,122 @@ contract RollupStorageLayout is
     }
 
     /// @inheritdoc IRollupAdmin
-    function setNitroVerifier(address newVerifier) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(newVerifier != address(0), ZeroAddressNotAllowed("nitroVerifier"));
-        _getRollupStorage()._enabledNitroVerifiers[newVerifier] = true;
-        emit NitroVerifierEnabled(newVerifier);
+    function enableNitroVerifier(address verifier) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _enableNitroVerifier(verifier);
+    }
+
+    function _enableNitroVerifier(address verifier) internal {
+        require(verifier != address(0), ZeroAddressNotAllowed("verifier"));
+        require(!_getRollupStorage()._enabledNitroVerifiers[verifier], NitroVerifierAlreadyEnabled(verifier));
+        _getRollupStorage()._enabledNitroVerifiers[verifier] = true;
+        emit NitroVerifierEnabled(verifier);
+    }
+
+    /// @inheritdoc IRollupAdmin
+    function disableNitroVerifier(address verifier) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _disableNitroVerifier(verifier);
+    }
+
+    function _disableNitroVerifier(address verifier) internal {
+        require(verifier != address(0), ZeroAddressNotAllowed("verifier"));
+        require(_getRollupStorage()._enabledNitroVerifiers[verifier], NitroVerifierNotEnabled(verifier));
+        _getRollupStorage()._enabledNitroVerifiers[verifier] = false;
+        emit NitroVerifierDisabled(verifier);
     }
 
     /// @inheritdoc IRollupAdmin
     function setGasLeft(uint32 newGasLeft) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        _getRollupStorage()._gasLeft = newGasLeft;
+        _setGasLeft(newGasLeft);
+    }
+
+    function _setGasLeft(uint32 newGasLeft) internal {
+        RollupStorage storage $ = _getRollupStorage();
+        emit GasLeftUpdated($._gasLeft, newGasLeft);
+        $._gasLeft = newGasLeft;
+    }
+
+    /// @inheritdoc IRollupAdmin
+    function setAcceptDepositDeadline(uint32 newAcceptDepositDeadline) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setAcceptDepositDeadline(newAcceptDepositDeadline);
+    }
+
+    function _setAcceptDepositDeadline(uint32 newAcceptDepositDeadline) internal {
+        RollupStorage storage $ = _getRollupStorage();
+        require(newAcceptDepositDeadline != 0, ZeroValueNotAllowed("acceptDepositDeadline"));
+        emit AcceptDepositDeadlineUpdated($._acceptDepositDeadline, newAcceptDepositDeadline);
+        $._acceptDepositDeadline = newAcceptDepositDeadline;
+    }
+
+    /// @inheritdoc IRollupAdmin
+    function setSubmitBlobsWindow(uint64 newSubmitBlobsWindow) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setSubmitBlobsWindow(newSubmitBlobsWindow);
+    }
+
+    function _setSubmitBlobsWindow(uint64 newSubmitBlobsWindow) internal {
+        RollupStorage storage $ = _getRollupStorage();
+        emit SubmitBlobsWindowUpdated($._submitBlobsWindow, newSubmitBlobsWindow);
+        $._submitBlobsWindow = uint64(newSubmitBlobsWindow);
+    }
+
+    /// @inheritdoc IRollupAdmin
+    function setPreconfirmWindow(uint64 newPreconfirmWindow) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setPreconfirmWindow(newPreconfirmWindow);
+    }
+
+    function _setPreconfirmWindow(uint64 newPreconfirmWindow) internal {
+        RollupStorage storage $ = _getRollupStorage();
+        emit PreconfirmWindowUpdated($._preconfirmWindow, newPreconfirmWindow);
+        $._preconfirmWindow = uint64(newPreconfirmWindow);
+    }
+
+    /// @inheritdoc IRollupAdmin
+    function setChallengeWindow(uint64 newChallengeWindow) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setChallengeWindow(newChallengeWindow);
+    }
+
+    function _setChallengeWindow(uint64 newChallengeWindow) internal {
+        RollupStorage storage $ = _getRollupStorage();
+        emit ChallengeWindowUpdated($._challengeWindow, newChallengeWindow);
+        $._challengeWindow = uint64(newChallengeWindow);
+    }
+
+    /// @inheritdoc IRollupAdmin
+    function setFinalizationDelay(uint64 newFinalizationDelay) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setFinalizationDelay(newFinalizationDelay);
+    }
+
+    function _setFinalizationDelay(uint64 newFinalizationDelay) internal {
+        RollupStorage storage $ = _getRollupStorage();
+        emit FinalizationDelayUpdated($._finalizationDelay, newFinalizationDelay);
+        $._finalizationDelay = uint64(newFinalizationDelay);
+    }
+
+    /// @inheritdoc IRollupAdmin
+    function setChallengeDepositAmount(uint256 newChallengeDepositAmount) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setChallengeDepositAmount(newChallengeDepositAmount);
+    }
+
+    function _setChallengeDepositAmount(uint256 newChallengeDepositAmount) internal {
+        RollupStorage storage $ = _getRollupStorage();
+        emit ChallengeDepositAmountUpdated($._challengeDepositAmount, newChallengeDepositAmount);
+        $._challengeDepositAmount = newChallengeDepositAmount;
+    }
+
+    /// @inheritdoc IRollupAdmin
+    function setIncentiveFee(uint256 newIncentiveFee) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setIncentiveFee(newIncentiveFee);
+    }
+
+    function _setIncentiveFee(uint256 newIncentiveFee) internal {
+        RollupStorage storage $ = _getRollupStorage();
+        emit IncentiveFeeUpdated($._incentiveFee, newIncentiveFee);
+        $._incentiveFee = newIncentiveFee;
     }
 
     // ============ Internal helpers ============
 
     /// @inheritdoc UUPSUpgradeable
     function _authorizeUpgrade(address) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
-
-    /**
-     * @dev Updates the bridge address after validating it is non-zero.
-     */
-    function _setBridge(address newBridge) internal {
-        RollupStorage storage $ = _getRollupStorage();
-        require(newBridge != address(0), ZeroAddressNotAllowed("bridge"));
-        emit BridgeUpdated($._bridge, newBridge);
-        $._bridge = newBridge;
-    }
 
     /**
      * @dev Returns a storage pointer to the ERC-7201 namespaced rollup storage slot.

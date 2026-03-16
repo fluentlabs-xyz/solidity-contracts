@@ -13,7 +13,8 @@ import {L2BlockHeader, BatchStatus, BatchRecord, ChallengeRecord} from "../inter
 
 /**
  * @title Rollup
- * @dev Rollup contract with two verifier paths: AWS Nitro Enclave for preconfirmation
+ * @author Fluent Labs
+ * @dev Rollup contract serves as a Optimistic Rollup in a relation with FluentBridge with two verifier paths: AWS Nitro Enclave for preconfirmation
  * and SP1 for ZK proof-based challenge resolution.
  *
  * Batches progress through five statuses: HeadersSubmitted → Accepted → Preconfirmed →
@@ -34,10 +35,15 @@ import {L2BlockHeader, BatchStatus, BatchRecord, ChallengeRecord} from "../inter
 contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
     using Heap for Heap.HeapStorage;
 
+    // ============ Constructor ============
+
+    /// @dev https://docs.openzeppelin.com/upgrades-plugins/1.x/writing-upgradeable#initializing_the_implementation_contract
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
     }
+
+    // ============ Initializer ============
 
     /**
      * @notice Initializes the upgradeable rollup (replaces constructor when used behind a proxy).
@@ -48,7 +54,8 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         __AccessControl_init();
         __Pausable_init();
         __UUPSUpgradeable_init();
-        __initRollupStorage(data);
+
+        __RollupStorage_init(data);
     }
 
     // ============ IRollupEmergency ============
@@ -193,7 +200,11 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
     // ============ Preconfirmation ============
 
     /// @inheritdoc IRollupWrite
-    function preconfirmBatch(address nitroVerifier, uint256 batchIndex, bytes32 signature) external onlyRole(PRECONFIRMATION_ROLE) nonReentrant {
+    function preconfirmBatch(
+        address nitroVerifier,
+        uint256 batchIndex,
+        bytes32 signature
+    ) external onlyRole(PRECONFIRMATION_ROLE) whenNotPaused nonReentrant {
         RollupStorage storage $ = _getRollupStorage();
         require(!_rollupCorrupted(), RollupCorrupted());
         BatchRecord storage batch = $._batches[batchIndex];
@@ -278,7 +289,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
     // ============ Anyone ============
 
     /// @inheritdoc IRollupWrite
-    function finalizeBatches(uint256 toBatchIndex) external returns (uint256 finalized) {
+    function finalizeBatches(uint256 toBatchIndex) external whenNotPaused returns (uint256 finalized) {
         RollupStorage storage $ = _getRollupStorage();
         require(toBatchIndex < $._nextBatchIndex, InvalidBatchIndex(toBatchIndex, $._nextBatchIndex));
 
@@ -290,7 +301,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
     }
 
     /// @inheritdoc IRollupWrite
-    function finalizeWithProofs(uint256 batchIndex, L2BlockHeader[] calldata blockHeaders) external {
+    function finalizeWithProofs(uint256 batchIndex, L2BlockHeader[] calldata blockHeaders) external whenNotPaused {
         RollupStorage storage $ = _getRollupStorage();
         BatchRecord storage batch = $._batches[batchIndex];
 
