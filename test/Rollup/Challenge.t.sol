@@ -11,10 +11,7 @@ import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 
 contract ChallengeTest is RollupBase {
-    function _preconfirmedBatchWithHeaders(bytes32 parentHash)
-        internal
-        returns (uint256 batchIndex, L2BlockHeader[] memory headers)
-    {
+    function _preconfirmedBatchWithHeaders(bytes32 parentHash) internal returns (uint256 batchIndex, L2BlockHeader[] memory headers) {
         headers = _makeBatch(parentHash);
         batchIndex = rollup.nextBatchIndex();
         vm.prank(sequencer);
@@ -61,9 +58,7 @@ contract ChallengeTest is RollupBase {
         MerkleTree.MerkleProof memory proof = _buildMerkleProof(headers, 0);
 
         vm.deal(challenger, CHALLENGE_DEPOSIT);
-        vm.expectRevert(
-            abi.encodeWithSelector(IRollupErrors.InvalidBatchStatus.selector, batchIndex, uint8(BatchStatus.HeadersSubmitted))
-        );
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidBatchStatus.selector, batchIndex, uint8(BatchStatus.HeadersSubmitted)));
         vm.prank(challenger);
         rollup.challengeBlock{value: CHALLENGE_DEPOSIT}(batchIndex, headers[0], proof);
     }
@@ -75,9 +70,7 @@ contract ChallengeTest is RollupBase {
         MerkleTree.MerkleProof memory proof = _buildMerkleProof(headers, 0);
 
         vm.deal(challenger, 0.5 ether);
-        vm.expectRevert(
-            abi.encodeWithSelector(IRollupErrors.IncorrectChallengeDeposit.selector, CHALLENGE_DEPOSIT, 0.5 ether)
-        );
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.IncorrectChallengeDeposit.selector, CHALLENGE_DEPOSIT, 0.5 ether));
         vm.prank(challenger);
         rollup.challengeBlock{value: 0.5 ether}(batchIndex, headers[0], proof);
     }
@@ -133,7 +126,8 @@ contract ChallengeTest is RollupBase {
         MerkleTree.MerkleProof memory proof = _buildMerkleProof(headers, 0);
 
         uint256 acceptedAt = rollup.getBatch(batchIndex).acceptedAtBlock;
-        vm.roll(acceptedAt + FINALIZATION_DELAY - CHALLENGE_WINDOW + 1);
+        // ChallengeTooLate fires when block.number >= acceptedAtBlock + challengeWindow
+        vm.roll(acceptedAt + CHALLENGE_WINDOW);
 
         vm.deal(challenger, CHALLENGE_DEPOSIT);
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ChallengeTooLate.selector, batchIndex));
@@ -214,6 +208,11 @@ contract ChallengeTest is RollupBase {
 
         bytes32 lastHash1 = rollup.lastBlockHashInBatch(batch1);
         (uint256 batchA, L2BlockHeader[] memory headersA) = _preconfirmedBatchWithHeaders(lastHash1);
+
+        // Roll before accepting batchB — so batchB gets a later acceptedAtBlock
+        // and therefore a later deadline (acceptedAtBlock + CHALLENGE_WINDOW)
+        vm.roll(block.number + 20);
+
         bytes32 lastHash2 = rollup.lastBlockHashInBatch(batchA);
         (uint256 batchB, L2BlockHeader[] memory headersB) = _preconfirmedBatchWithHeaders(lastHash2);
 
@@ -221,8 +220,6 @@ contract ChallengeTest is RollupBase {
         _challengeBlock(batchA, headersA[0], proofA);
         bytes32 commitmentA = _computeCommitment(headersA[0]);
         uint256 deadlineA = rollup.getChallenge(commitmentA).deadline;
-
-        vm.roll(block.number + 20);
 
         MerkleTree.MerkleProof memory proofB = _buildMerkleProof(headersB, 0);
         vm.deal(challenger, CHALLENGE_DEPOSIT);

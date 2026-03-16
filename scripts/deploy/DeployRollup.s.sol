@@ -9,15 +9,14 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 
 /// @notice Deployment script for the Rollup contract behind an ERC1967 proxy (UUPS upgradeable).
 ///
-/// Window parameters (Ethereum mainnet, ~12s per block):
-///   submitBlobsWindow  =  600 blocks (~2 hours)  — sequencer must submit all blob hashes
-///   preconfirmWindow   =  900 blocks (~3 hours)  — preconfirmer must confirm the batch
-///   finalizationDelay  = 7200 blocks (~24 hours) — challenge window open to verifiers
-///   challengeWindow    = 1200 blocks (~4 hours)  — prover must resolve an open challenge
+/// All window parameters are measured from `acceptedAtBlock` (the block where
+/// `acceptNextBatch` was called). Ethereum mainnet: 1 block ≈ 12 seconds.
 ///
-/// Invariants enforced by the contract:
-///   submitBlobsWindow (600) < preconfirmWindow (900)
-///   challengeWindow  (1200) < finalizationDelay (7200)
+///   submitBlobsWindow  =  7200 blocks (~24 hours) — sequencer must submit all blob hashes
+///   preconfirmWindow   =  7200 blocks (~24 hours) — preconfirmer must confirm the batch
+///   challengeWindow    = 10800 blocks (~36 hours) — challenge must be resolved by this block
+///   finalizationDelay  = 14400 blocks (~48 hours) — earliest block a batch can be finalized
+
 contract DeployRollup is BaseScript {
     event RollupDeployed(address indexed implementation, address indexed proxy);
 
@@ -45,16 +44,20 @@ contract DeployRollup is BaseScript {
         params.genesisHash = bytes32(vm.envOr("ROLLUP_GENESIS_HASH", uint256(0)));
 
         // ─── Timing parameters ───
-        // submitBlobsWindow: how long the sequencer has to submit blob hashes after acceptNextBatch.
-        // preconfirmWindow:  how long the preconfirmer has to confirm after blobs are submitted.
-        //                    Must exceed submitBlobsWindow — both are measured from acceptedAtBlock.
-        // finalizationDelay: blocks after acceptance before a batch can be finalized.
-        //                    Must exceed challengeWindow so challengers always get the full window.
-        // challengeWindow:   blocks a prover has to resolve an open challenge before corruption.
-        params.submitBlobsWindow = vm.envOr("ROLLUP_SUBMIT_BLOBS_WINDOW", uint256(BLOCKS_PER_HOUR * 2));
-        params.preconfirmWindow = vm.envOr("ROLLUP_PRECONFIRM_WINDOW", uint256(BLOCKS_PER_HOUR * 3));
-        params.finalizationDelay = vm.envOr("ROLLUP_FINALIZATION_DELAY", uint256(BLOCKS_PER_DAY));
-        params.challengeWindow = vm.envOr("ROLLUP_CHALLENGE_WINDOW", uint256(BLOCKS_PER_HOUR * 4));
+        // All windows are measured from acceptedAtBlock — the block where
+        // acceptNextBatch was called. Each window defines a deadline independently.
+        //
+        // submitBlobsWindow: sequencer must submit all blob hashes before this deadline.
+        // preconfirmWindow:  preconfirmer must call preconfirmBatch before this deadline.
+        //                    Must be >= submitBlobsWindow.
+        // challengeWindow:   open challenge must be resolved before acceptedAtBlock + challengeWindow.
+        //                    Measured from acceptedAtBlock, not from challenge creation time.
+        // finalizationDelay: batch cannot be finalized before acceptedAtBlock + finalizationDelay.
+        //                    Must exceed challengeWindow so challengers always have time to act.
+        params.submitBlobsWindow = vm.envOr("ROLLUP_SUBMIT_BLOBS_WINDOW", uint256(BLOCKS_PER_DAY)); // 24 h
+        params.preconfirmWindow = vm.envOr("ROLLUP_PRECONFIRM_WINDOW", uint256(BLOCKS_PER_DAY)); // 24 h
+        params.challengeWindow = vm.envOr("ROLLUP_CHALLENGE_WINDOW", uint256(BLOCKS_PER_DAY + BLOCKS_PER_HOUR * 12)); // 36 h
+        params.finalizationDelay = vm.envOr("ROLLUP_FINALIZATION_DELAY", uint256(BLOCKS_PER_DAY * 2)); // 48 h
 
         // ─── Economic parameters ───
         params.challengeDepositAmount = vm.envOr("ROLLUP_CHALLENGE_DEPOSIT_AMOUNT", uint256(0.01 ether));
