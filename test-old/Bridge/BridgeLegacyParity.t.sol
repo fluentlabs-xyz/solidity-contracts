@@ -110,7 +110,7 @@ contract BridgeLegacyParityTest is RollupBase {
     }
 
     function test_receiveMessage_marksSuccessAndRejectsDuplicateMessage() public {
-        vm.deal(address(this), 1 ether);
+        vm.deal(address(bridge), 1 ether);
 
         uint256 nonce = 0;
         uint256 receiverBalanceBefore = RECEIVER.balance;
@@ -126,7 +126,7 @@ contract BridgeLegacyParityTest is RollupBase {
         assertEq(uint256(bridge.receivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Success), "message should be successful");
 
         vm.expectRevert(bytes4(keccak256("MessageAlreadyReceived()")));
-        bridge.receiveMessage{value: 200}(DESTINATION, RECEIVER, 200, sourceChainId, sourceBlock, nonce, "");
+        bridge.receiveMessage(DESTINATION, RECEIVER, 200, sourceChainId, sourceBlock, nonce, "");
     }
 
     function test_receiveMessageWithProof_executesTransfer() public {

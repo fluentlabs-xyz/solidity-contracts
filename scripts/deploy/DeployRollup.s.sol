@@ -49,13 +49,13 @@ contract DeployRollup is Script {
         //
         // submitBlobsWindow: sequencer must submit all blob hashes before this deadline.
         // preconfirmWindow:  preconfirmer must call preconfirmBatch before this deadline.
-        //                    Must be >= submitBlobsWindow.
+        //                    Must be > submitBlobsWindow.
         // challengeWindow:   open challenge must be resolved before acceptedAtBlock + challengeWindow.
         //                    Measured from acceptedAtBlock, not from challenge creation time.
         // finalizationDelay: batch cannot be finalized before acceptedAtBlock + finalizationDelay.
         //                    Must exceed challengeWindow so challengers always have time to act.
         params.submitBlobsWindow = vm.envOr("ROLLUP_SUBMIT_BLOBS_WINDOW", uint256(BLOCKS_PER_DAY)); // 24 h
-        params.preconfirmWindow = vm.envOr("ROLLUP_PRECONFIRM_WINDOW", uint256(BLOCKS_PER_DAY)); // 24 h
+        params.preconfirmWindow = vm.envOr("ROLLUP_PRECONFIRM_WINDOW", uint256(BLOCKS_PER_DAY + 1)); // 24 h + 1 block
         params.challengeWindow = vm.envOr("ROLLUP_CHALLENGE_WINDOW", uint256(BLOCKS_PER_DAY + BLOCKS_PER_HOUR * 12)); // 36 h
         params.finalizationDelay = vm.envOr("ROLLUP_FINALIZATION_DELAY", uint256(BLOCKS_PER_DAY * 2)); // 48 h
 

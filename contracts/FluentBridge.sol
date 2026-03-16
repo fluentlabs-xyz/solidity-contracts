@@ -264,6 +264,7 @@ contract FluentBridge is
 
         bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, blockNumber, messageNonce, message));
         require(receivedMessage(messageHash) == MessageStatus.None, MessageAlreadyReceived());
+        require(rollbackMessage(messageHash) == MessageStatus.None, MessageAlreadyReceived());
 
         _verifyWithdrawal(batchIndex, blockHeader, rollbackProof, blockProof, messageHash);
         _rollbackMessage(from, to, value, blockNumber, messageNonce, message, messageHash);
@@ -322,12 +323,14 @@ contract FluentBridge is
         /// @dev L2 related logic
         if ($.receiveMessageDeadline != 0) {
             if ($.l1BlockOracle == address(0)) {
+                $.receivedMessage[_messageHash] = MessageStatus.Failed;
                 emit RollbackMessage(_messageHash, block.number);
                 emit ReceivedMessage(_messageHash, false, "");
                 return;
             } else {
                 uint256 l1BlockNumber = IL1BlockOracle($.l1BlockOracle).getL1BlockNumber();
                 if (l1BlockNumber >= _blockNumber && l1BlockNumber - _blockNumber >= $.receiveMessageDeadline) {
+                    $.receivedMessage[_messageHash] = MessageStatus.Failed;
                     emit RollbackMessage(_messageHash, block.number);
                     emit ReceivedMessage(_messageHash, false, "");
                     return;

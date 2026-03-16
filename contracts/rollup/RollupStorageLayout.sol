@@ -166,11 +166,16 @@ contract RollupStorageLayout is
         InitConfiguration memory params = abi.decode(data, (InitConfiguration));
 
         // ─── Deadline invariants ───
+        require(params.submitBlobsWindow <= type(uint64).max, InvalidWindowConfig("submitBlobsWindow out of range"));
+        require(params.preconfirmWindow <= type(uint64).max, InvalidWindowConfig("preconfirmWindow out of range"));
+        require(params.challengeWindow <= type(uint64).max, InvalidWindowConfig("challengeWindow out of range"));
+        require(params.finalizationDelay <= type(uint64).max, InvalidWindowConfig("finalizationDelay out of range"));
+        require(params.acceptDepositDeadline <= type(uint32).max, InvalidWindowConfig("acceptDepositDeadline out of range"));
         if (params.submitBlobsWindow != 0 && params.preconfirmWindow != 0) {
             require(params.preconfirmWindow > params.submitBlobsWindow, InvalidWindowConfig("preconfirmWindow must exceed submitBlobsWindow"));
-            _setSubmitBlobsWindow(uint64(params.submitBlobsWindow));
-            _setPreconfirmWindow(uint64(params.preconfirmWindow));
         }
+        _setSubmitBlobsWindow(uint64(params.submitBlobsWindow));
+        _setPreconfirmWindow(uint64(params.preconfirmWindow));
         require(params.challengeWindow < params.finalizationDelay, InvalidWindowConfig("challengeWindow must be less than finalizationDelay"));
         _setChallengeWindow(uint64(params.challengeWindow));
         _setFinalizationDelay(uint64(params.finalizationDelay));
@@ -386,7 +391,7 @@ contract RollupStorageLayout is
     }
 
     function _enableNitroVerifier(address verifier) internal {
-        require(verifier != address(0), ZeroAddressNotAllowed("verifier"));
+        require(verifier != address(0), ZeroAddressNotAllowed("nitroVerifier"));
         require(!_getRollupStorage()._enabledNitroVerifiers[verifier], NitroVerifierAlreadyEnabled(verifier));
         _getRollupStorage()._enabledNitroVerifiers[verifier] = true;
         emit NitroVerifierEnabled(verifier);
@@ -434,8 +439,11 @@ contract RollupStorageLayout is
 
     function _setSubmitBlobsWindow(uint64 newSubmitBlobsWindow) internal {
         RollupStorage storage $ = _getRollupStorage();
+        if ($._preconfirmWindow != 0) {
+            require(newSubmitBlobsWindow < $._preconfirmWindow, InvalidWindowConfig("submitBlobsWindow >= preconfirmWindow"));
+        }
         emit SubmitBlobsWindowUpdated($._submitBlobsWindow, newSubmitBlobsWindow);
-        $._submitBlobsWindow = uint64(newSubmitBlobsWindow);
+        $._submitBlobsWindow = newSubmitBlobsWindow;
     }
 
     /// @inheritdoc IRollupAdmin
@@ -445,8 +453,11 @@ contract RollupStorageLayout is
 
     function _setPreconfirmWindow(uint64 newPreconfirmWindow) internal {
         RollupStorage storage $ = _getRollupStorage();
+        if (newPreconfirmWindow != 0 && $._submitBlobsWindow != 0) {
+            require(newPreconfirmWindow > $._submitBlobsWindow, InvalidWindowConfig("preconfirmWindow <= submitBlobsWindow"));
+        }
         emit PreconfirmWindowUpdated($._preconfirmWindow, newPreconfirmWindow);
-        $._preconfirmWindow = uint64(newPreconfirmWindow);
+        $._preconfirmWindow = newPreconfirmWindow;
     }
 
     /// @inheritdoc IRollupAdmin
@@ -456,8 +467,11 @@ contract RollupStorageLayout is
 
     function _setChallengeWindow(uint64 newChallengeWindow) internal {
         RollupStorage storage $ = _getRollupStorage();
+        if ($._finalizationDelay != 0) {
+            require(newChallengeWindow < $._finalizationDelay, InvalidWindowConfig("challengeWindow >= finalizationDelay"));
+        }
         emit ChallengeWindowUpdated($._challengeWindow, newChallengeWindow);
-        $._challengeWindow = uint64(newChallengeWindow);
+        $._challengeWindow = newChallengeWindow;
     }
 
     /// @inheritdoc IRollupAdmin
@@ -467,8 +481,9 @@ contract RollupStorageLayout is
 
     function _setFinalizationDelay(uint64 newFinalizationDelay) internal {
         RollupStorage storage $ = _getRollupStorage();
+        require(newFinalizationDelay > $._challengeWindow, InvalidWindowConfig("finalizationDelay <= challengeWindow"));
         emit FinalizationDelayUpdated($._finalizationDelay, newFinalizationDelay);
-        $._finalizationDelay = uint64(newFinalizationDelay);
+        $._finalizationDelay = newFinalizationDelay;
     }
 
     /// @inheritdoc IRollupAdmin

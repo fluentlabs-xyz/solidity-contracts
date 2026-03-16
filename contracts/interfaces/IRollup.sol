@@ -328,7 +328,7 @@ interface IRollupConfig {
     function challengeDepositAmount() external view returns (uint256);
 
     /**
-     * @notice ETH reward paid to prover on successful challenge resolution.
+     * @notice ETH incentive paid to challengers during force-revert distribution.
      */
     function incentiveFee() external view returns (uint256);
 
@@ -343,7 +343,7 @@ interface IRollupConfig {
     function submitBlobsWindow() external view returns (uint256);
 
     /**
-     * @notice Max L1 blocks after blob submission for preconfirmation.
+     * @notice Max L1 blocks after batch acceptance for preconfirmation.
      */
     function preconfirmWindow() external view returns (uint256);
 }

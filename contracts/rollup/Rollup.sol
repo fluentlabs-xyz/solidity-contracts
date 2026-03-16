@@ -78,6 +78,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
     /// @inheritdoc IRollupEmergency
     function forceRevertBatch(uint256 fromBatchIndex) external payable onlyRole(EMERGENCY_ROLE) nonReentrant {
         RollupStorage storage $ = _getRollupStorage();
+        require(fromBatchIndex > 0 && fromBatchIndex < $._nextBatchIndex, InvalidBatchIndex(fromBatchIndex, $._nextBatchIndex));
 
         for (uint256 i = fromBatchIndex; i < $._nextBatchIndex; i++) {
             require($._batches[i].status != BatchStatus.Finalized, BatchAlreadyFinalized(i));
@@ -132,6 +133,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         require(!_rollupCorrupted(), RollupCorrupted());
 
         uint256 batchSize = blockHeaders.length;
+        require(batchSize > 0, NoLeavesProvided());
         require(
             blockHeaders[0].previousBlockHash == $._lastBlockHashInBatch[batchIndex - 1],
             WrongPreviousBlockHash($._lastBlockHashInBatch[batchIndex - 1], blockHeaders[0].previousBlockHash)
@@ -265,6 +267,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         bytes calldata sp1Proof
     ) external nonReentrant whenNotPaused onlyRole(PROVER_ROLE) {
         RollupStorage storage $ = _getRollupStorage();
+        require(!_rollupCorrupted(), RollupCorrupted());
 
         bytes32 commitment = _computeCommitment(blockHeader);
         _verifyChallenge(batchIndex, commitment, blockProof);

@@ -125,7 +125,8 @@ interface IFluentBridge is IBridgeErrorCodes, IFluentBridgeEvents {
     // ---------- L1 queue (Rollup) ----------
 
     /// @notice Dequeues the next sent message hash for rollup processing. Callable only by the rollup contract.
-    /// @return The next message hash in the queue.
+    /// @return messageHash The next message hash in the queue.
+    /// @return blockNumber The block number when the message was sent and enqueued.
     function popSentMessage() external returns (bytes32, uint256);
 
     // ---------- Send / receive ----------
