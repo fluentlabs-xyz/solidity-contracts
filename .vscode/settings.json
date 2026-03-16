@@ -9,6 +9,17 @@
         "editor.formatOnSave": true
     },
     "prettier.requireConfig": true,
-    "wake.compiler.solc.remappings": ["@openzeppelin/=node_modules/@openzeppelin/"],
-    "wake.compiler.solc.allow_paths": ["test"]
+    "solidity.packageDefaultDependenciesDirectory": "lib",
+    "solidity.packageDefaultDependenciesContractsDirectory": "",
+    "solidity.remappings": [
+        "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+        "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
+        "openzeppelin-foundry-upgrades/=lib/openzeppelin-foundry-upgrades/src/"
+    ],
+    "wake.compiler.solc.remappings": [
+        "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
+        "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
+        "openzeppelin-foundry-upgrades/=lib/openzeppelin-foundry-upgrades/src/"
+    ],
+    "wake.compiler.solc.allow_paths": ["contracts", "scripts", "test", "lib"]
 }

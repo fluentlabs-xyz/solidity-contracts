@@ -3,7 +3,7 @@ pragma solidity 0.8.30;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {BaseScript} from "../Base.sol";
+import {Script} from "forge-std/Script.sol";
 import {PaymentGateway} from "../../contracts/gateways/PaymentGateway.sol";
 
 /// @notice Deposits ERC20 tokens into a PaymentGateway, initiating a bridge transfer.
@@ -12,7 +12,7 @@ import {PaymentGateway} from "../../contracts/gateways/PaymentGateway.sol";
 /// - TOKEN_ADDRESS   (address, required): ERC20 token to deposit (origin token)
 /// - RECIPIENT       (address, required): destination-chain recipient
 /// - AMOUNT          (uint256, required): token amount (in token units)
-contract DepositTokens is BaseScript {
+contract DepositTokens is Script {
     function run() external {
         address gatewayAddress = vm.envAddress("GATEWAY_ADDRESS");
         address tokenAddress = vm.envAddress("TOKEN_ADDRESS");

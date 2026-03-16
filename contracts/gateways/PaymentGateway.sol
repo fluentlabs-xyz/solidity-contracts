@@ -16,7 +16,6 @@ import {ERC20PeggedToken} from "../tokens/ERC20PeggedToken.sol";
 
 import {IGateway} from "../interfaces/IGateway.sol";
 import {IGenericTokenFactory} from "../interfaces/IGenericTokenFactory.sol";
-import {UniversalTokenSDK} from "../libraries/UniversalTokenSDK.sol";
 
 /**
  * @title PaymentGateway
@@ -49,6 +48,8 @@ contract PaymentGateway is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
 
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     uint256 public constant DEFAULT_GAS_LIMIT = 50_000;
+    bytes4 private constant UNIVERSAL_TOKEN_MAGIC_BYTES = bytes4(0x45524320); // "ERC "
+    string private constant BRIDGE_TOKEN_PREFIX = "BRIDGE_TOKEN";
 
     /// @custom:storage-location erc7201:fluent.storage.PaymentGateway
     struct PaymentGatewayStorage {
@@ -222,7 +223,7 @@ contract PaymentGateway is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
         if (IGenericTokenFactory($.tokenFactory).beacon() != address(0)) {
             keyData = abi.encode(address(this), _originToken);
         } else {
-            keyData = abi.encode(_originToken, block.chainid);
+            keyData = abi.encode(_originToken);
         }
 
         address _peggedToken = IGenericTokenFactory($.tokenFactory).deployToken(keyData, deployArgs);
@@ -313,7 +314,7 @@ contract PaymentGateway is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
     ///      destination-chain address; a local call would hit the same address on this chain (wrong or no code).
     ///      For Universal flows, getDeployArgs() on the remote would also derive minter/pauser from the
     ///      source gateway. We use only local CREATE2 math: Beacon path = _computeBeaconProxyAddress (pure);
-    ///      Universal path = UniversalTokenSDK.computeTokenAddress (pure) with remote gateway as minter/pauser.
+    ///      Universal path = _computeUniversalTokenAddress (pure) with remote gateway as minter/pauser.
     function _computeOtherSidePeggedTokenAddress(
         address _originToken,
         string memory _name,
@@ -326,7 +327,7 @@ contract PaymentGateway is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
             return _computeBeaconProxyAddress($.otherSideFactory, $.otherSideBeacon, $.otherSide, _originToken);
         }
         // Universal (otherSideChainId != 0): minter/pauser must be the remote gateway so L2 deployment matches.
-        return UniversalTokenSDK.computeTokenAddress($.otherSideFactory, _originToken, _name, _symbol, _decimals, 0, $.otherSide, $.otherSide);
+        return _computeUniversalTokenAddress($.otherSideFactory, _originToken, _name, _symbol, _decimals, 0, $.otherSide, $.otherSide);
     }
 
     /// @dev CREATE2 address for a BeaconProxy deployed by the remote factory (same formula as ERC20TokenFactory).
@@ -340,6 +341,35 @@ contract PaymentGateway is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
         bytes32 salt = keccak256(abi.encodePacked(_gateway, _originToken));
         bytes32 bytecodeHash = keccak256(bytecode);
         return address(uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), _factory, salt, bytecodeHash)))));
+    }
+
+    /// @dev CREATE2 address math for UniversalTokenFactory without external calls.
+    function _computeUniversalTokenAddress(
+        address _factory,
+        address _originToken,
+        string memory _name,
+        string memory _symbol,
+        uint8 _decimals,
+        uint256 _initialSupply,
+        address _minter,
+        address _pauser
+    ) internal pure returns (address) {
+        bytes memory deploymentData = _universalDeploymentData(_name, _symbol, _decimals, _initialSupply, _minter, _pauser);
+        bytes32 salt = keccak256(abi.encodePacked(BRIDGE_TOKEN_PREFIX, _originToken));
+        bytes32 initCodeHash = keccak256(deploymentData);
+        bytes32 hash = keccak256(abi.encodePacked(bytes1(0xff), _factory, salt, initCodeHash));
+        return address(uint160(uint256(hash)));
+    }
+
+    function _universalDeploymentData(
+        string memory _name,
+        string memory _symbol,
+        uint8 _decimals,
+        uint256 _initialSupply,
+        address _minter,
+        address _pauser
+    ) internal pure returns (bytes memory) {
+        return abi.encodePacked(UNIVERSAL_TOKEN_MAGIC_BYTES, abi.encode(_name, _symbol, _decimals, _initialSupply, _minter, _pauser));
     }
 
     // ============ Admin functions ============

@@ -3,7 +3,8 @@ cache_path = "forge-cache"
 fs_permissions = [
     { access = "read-write", path = "./deployments" },
     { access = "read-write", path = "./config" },
-    { access = "read", path = "./forge-out" }
+    { access = "read", path = "./forge-out" },
+    { access = "read", path = "./broadcast" }
 ]
 evm_version = "cancun"
 ffi = true

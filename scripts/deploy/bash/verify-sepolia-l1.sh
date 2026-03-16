@@ -37,7 +37,9 @@ MOCK_TOKEN=$(read_json_key deployments/sepolia-l1-stack.json mock_token)
 
 DEPLOYER_ADDRESS="${INITIAL_OWNER:-$(cast wallet address --private-key "${PRIVATE_KEY:-}")}"
 INITIAL_OWNER="${INITIAL_OWNER:-$DEPLOYER_ADDRESS}"
-RELAYER_ADDRESS="${RELAYER_ADDRESS:-$INITIAL_OWNER}"
+ADMIN_ROLE="${ADMIN_ROLE:-$INITIAL_OWNER}"
+PAUSER_ROLE="${PAUSER_ROLE:-$ADMIN_ROLE}"
+RELAYER_ROLE="${RELAYER_ROLE:-${RELAYER_ADDRESS:-$ADMIN_ROLE}}"
 RECEIVE_MSG_DEADLINE="${RECEIVE_MSG_DEADLINE:-0}"
 L1_L1BLOCK_ORACLE="${L1_L1BLOCK_ORACLE:-0x0000000000000000000000000000000000000000}"
 OTHER_BRIDGE_PLACEHOLDER="${OTHER_BRIDGE_PLACEHOLDER:-0x0000000000000000000000000000000000000001}"
@@ -57,8 +59,9 @@ forge verify-contract --watch --chain "$CHAIN" "$BRIDGE_IMPL" contracts/FluentBr
   --rpc-url "$RPC" --verifier etherscan --etherscan-api-key "$ETHERSCAN_API_KEY" || true
 
 # 2) Bridge proxy: ERC1967Proxy(implementation, initData)
-#    initData = initialize(initialOwner, bridgeAuthority, rollup=0, receiveMessageDeadline, otherBridge, l1BlockOracle)
-INIT_BRIDGE=$(cast calldata "initialize(address,address,address,uint256,address,address)" "$INITIAL_OWNER" "$RELAYER_ADDRESS" 0x0000000000000000000000000000000000000000 "$RECEIVE_MSG_DEADLINE" "$OTHER_BRIDGE_PLACEHOLDER" "$L1_L1BLOCK_ORACLE")
+#    initData = initialize(abi.encode(InitConfiguration))
+BRIDGE_INIT_CONFIG=$(cast abi-encode "(address,address,address,address,uint256,address,address)" "$ADMIN_ROLE" "$PAUSER_ROLE" "$RELAYER_ROLE" 0x0000000000000000000000000000000000000000 "$RECEIVE_MSG_DEADLINE" "$OTHER_BRIDGE_PLACEHOLDER" "$L1_L1BLOCK_ORACLE")
+INIT_BRIDGE=$(cast calldata "initialize(bytes)" "$BRIDGE_INIT_CONFIG")
 BRIDGE_PROXY_ARGS=$(cast abi-encode "f(address,bytes)" "$BRIDGE_IMPL" "$INIT_BRIDGE")
 echo "[2/9] Bridge proxy (ERC1967Proxy)..."
 forge verify-contract --watch --chain "$CHAIN" "$BRIDGE" lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy \

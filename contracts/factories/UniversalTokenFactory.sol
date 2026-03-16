@@ -5,7 +5,6 @@ import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
 
 import {GenericTokenFactory} from "./GenericTokenFactory.sol";
 import {IGenericTokenFactory} from "../interfaces/IGenericTokenFactory.sol";
-import {UniversalTokenSDK} from "../libraries/UniversalTokenSDK.sol";
 
 /**
  * @title UniversalTokenFactory
@@ -20,6 +19,9 @@ import {UniversalTokenSDK} from "../libraries/UniversalTokenSDK.sol";
  * 3. Address prediction: computePeggedTokenAddress / computeOtherSidePeggedTokenAddress use UniversalTokenSDK.computeTokenAddress(factory, originToken, ...).
  */
 contract UniversalTokenFactory is GenericTokenFactory {
+    /// @notice Prefix for bridge token deployment
+    string public constant BRIDGE_TOKEN_PREFIX = "BRIDGE_TOKEN";
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -52,7 +54,7 @@ contract UniversalTokenFactory is GenericTokenFactory {
         require(originToken != address(0), InvalidOriginToken());
         require(bridgedTokens(originToken) == address(0), TokenAlreadyDeployed());
 
-        bytes memory deploymentData = UniversalTokenSDK.createDeploymentData(name, symbol, decimals, initialSupply, minter, pauser);
+        bytes memory deploymentData = _deploymentData(name, symbol, decimals, initialSupply, minter, pauser);
         bytes32 salt = _bridgeTokenSalt(originToken);
 
         return (Create2.deploy(0, salt, deploymentData), originToken);
@@ -85,7 +87,11 @@ contract UniversalTokenFactory is GenericTokenFactory {
             (string, string, uint8, uint256, address, address)
         );
 
-        return UniversalTokenSDK.computeTokenAddress(factory, originToken, name, symbol, decimals, initialSupply, minter, pauser);
+        bytes memory deploymentData = _deploymentData(name, symbol, decimals, initialSupply, minter, pauser);
+        bytes32 salt = _bridgeTokenSalt(originToken);
+        bytes32 initCodeHash = keccak256(deploymentData);
+        bytes32 hash = keccak256(abi.encodePacked(bytes1(0xff), factory, salt, initCodeHash));
+        return address(uint160(uint256(hash)));
     }
 
     /// @inheritdoc GenericTokenFactory
@@ -94,24 +100,17 @@ contract UniversalTokenFactory is GenericTokenFactory {
         (string memory name, string memory symbol, uint8 decimals, uint256 initialSupply, address minter, address pauser) = _decodeDeployArgs(
             deployArgs
         );
-        return UniversalTokenSDK.computeTokenAddress(address(this), originToken, name, symbol, decimals, initialSupply, minter, pauser);
-    }
 
-    /// @dev Uses UniversalTokenSDK to deploy with CREATE2 and updates base storage (internal only).
-    function _deployWithSDK(
-        address originToken,
-        uint256 chainId,
-        string memory name,
-        string memory symbol,
-        uint8 decimals,
-        uint256 initialSupply,
-        address minter,
-        address pauser
-    ) internal returns (address tokenAddress) {}
+        bytes memory deploymentData = _deploymentData(name, symbol, decimals, initialSupply, minter, pauser);
+        bytes32 salt = _bridgeTokenSalt(originToken);
+        bytes32 initCodeHash = keccak256(deploymentData);
+        bytes32 hash = keccak256(abi.encodePacked(bytes1(0xff), address(this), salt, initCodeHash));
+        return address(uint160(uint256(hash)));
+    }
 
     /// @dev Salt for CREATE2 (must match SDK: keccak256(BRIDGE_TOKEN_PREFIX, originToken)). No chainId.
     function _bridgeTokenSalt(address originToken) internal pure returns (bytes32) {
-        return keccak256(abi.encodePacked(UniversalTokenSDK.BRIDGE_TOKEN_PREFIX, originToken));
+        return keccak256(abi.encodePacked(BRIDGE_TOKEN_PREFIX, originToken));
     }
 
     function _decodeKeyData(bytes calldata keyData) internal pure returns (address originToken) {
@@ -122,5 +121,16 @@ contract UniversalTokenFactory is GenericTokenFactory {
         bytes calldata deployArgs
     ) internal pure returns (string memory name, string memory symbol, uint8 decimals, uint256 initialSupply, address minter, address pauser) {
         return abi.decode(deployArgs, (string, string, uint8, uint256, address, address));
+    }
+
+    function _deploymentData(
+        string memory name,
+        string memory symbol,
+        uint8 decimals,
+        uint256 initialSupply,
+        address minter,
+        address pauser
+    ) internal pure returns (bytes memory deploymentData) {
+        return abi.encodePacked(bytes4(0x45524320), abi.encode(name, symbol, decimals, initialSupply, minter, pauser));
     }
 }
