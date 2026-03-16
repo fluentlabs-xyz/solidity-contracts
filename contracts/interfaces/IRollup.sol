@@ -398,8 +398,21 @@ interface IRollupRead {
      * @notice Returns all commitments currently in the challenge queue.
      * @dev Heap-internal order — only index 0 is guaranteed to be the earliest deadline.
      *      Sort off-chain by getChallenge(commitment).deadline if ordered traversal is needed.
+     *      This full-array snapshot can be expensive for large queues; prefer
+     *      challengeQueueLength/challengeQueueAt for pagination-like iteration.
      */
     function challengeQueue() external view returns (bytes32[] memory);
+
+    /**
+     * @notice Returns the number of commitments in the challenge queue.
+     */
+    function challengeQueueLength() external view returns (uint256);
+
+    /**
+     * @notice Returns the queue element at a heap index.
+     * @dev Heap-internal order; not sorted by deadline except that index 0 is the earliest.
+     */
+    function challengeQueueAt(uint256 index) external view returns (bytes32);
 
     /**
      * @notice Returns blob hashes submitted for a batch.
@@ -557,7 +570,8 @@ interface IRollupAdmin {
     function setSubmitBlobsWindow(uint64 newSubmitBlobsWindow) external;
 
     /**
-     * @notice Set the maximum L1 blocks after blob submission for batch preconfirmation.
+     * @notice Set the maximum L1 blocks after batch acceptance for batch preconfirmation
+     *         (measured from acceptedAtBlock).
      */
     function setPreconfirmWindow(uint64 newPreconfirmWindow) external;
 

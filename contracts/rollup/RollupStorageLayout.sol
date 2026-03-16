@@ -303,7 +303,8 @@ contract RollupStorageLayout is
     /// @inheritdoc IRollupRead
     /// @dev Elements are in heap-internal order — only index 0 is guaranteed to be the
     ///      earliest deadline. Sort off-chain by getChallenge(commitment).deadline if
-    ///      ordered traversal is needed.
+    ///      ordered traversal is needed. This full snapshot is intended for off-chain use;
+    ///      for large queues, prefer challengeQueueLength/challengeQueueAt iteration.
     function challengeQueue() public view returns (bytes32[] memory) {
         RollupStorage storage $ = _getRollupStorage();
         uint256 size = $._challengeQueue.length();
@@ -315,6 +316,16 @@ contract RollupStorageLayout is
         }
 
         return queue;
+    }
+
+    /// @inheritdoc IRollupRead
+    function challengeQueueLength() public view returns (uint256) {
+        return _getRollupStorage()._challengeQueue.length();
+    }
+
+    /// @inheritdoc IRollupRead
+    function challengeQueueAt(uint256 index) public view returns (bytes32) {
+        return _getRollupStorage()._challengeQueue.at(index);
     }
 
     /// @inheritdoc IRollupRead

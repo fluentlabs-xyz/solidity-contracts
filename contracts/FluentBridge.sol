@@ -338,15 +338,6 @@ contract FluentBridge is
             }
         }
 
-        // if ($.receiveMessageDeadline != 0) {
-        //     uint256 l1BlockNumber = IL1BlockOracle($.l1BlockOracle).getL1BlockNumber();
-        //     if (_blockNumber + $.receiveMessageDeadline < l1BlockNumber) {
-        //         emit RollbackMessage(_messageHash, block.number);
-        //         emit ReceivedMessage(_messageHash, true, "");
-        //         return;
-        //     }
-        // }
-
         $.nativeSender = _from;
         (bool success, bytes memory data) = ExcessivelySafeCall.excessivelySafeCall(_to, _value, _message);
         $.nativeSender = address(0);

@@ -63,6 +63,8 @@ contract RollupInvariantTest is MinimalTest {
         rollup.setDaCheck(false);
         rollup.grantRole(rollup.DEFAULT_ADMIN_ROLE(), address(handler));
         rollup.grantRole(rollup.PAUSER_ROLE(), address(handler));
+        rollup.grantRole(rollup.CHALLENGER_ROLE(), address(handler));
+        rollup.grantRole(rollup.PROVER_ROLE(), address(handler));
         rollup.renounceRole(rollup.DEFAULT_ADMIN_ROLE(), address(this));
         rollup.renounceRole(rollup.PAUSER_ROLE(), address(this));
 
