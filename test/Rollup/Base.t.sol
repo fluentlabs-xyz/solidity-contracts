@@ -1,265 +1,257 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.30;
+pragma solidity 0.8.30;
 
-import {FluentBridge as Bridge} from "../../contracts/FluentBridge.sol";
-import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
-import {VerifierMock} from "../../contracts/mocks/VerifierMock.sol";
-import {Rollup} from "../../contracts/rollup/Rollup.sol";
-import {RollupStorageLayout} from "../../contracts/rollup/RollupStorageLayout.sol";
-import {SP1Verifier} from "../../contracts/verifier/SP1VerifierGroth16.sol";
+import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-interface Vm {
-    struct Log {
-        bytes32[] topics;
-        bytes data;
-        address emitter;
-    }
+import {Rollup} from "../../contracts/rollup/Rollup.sol";
+import {IRollupEvents, IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
+import {L2BlockHeader, BatchStatus, BatchRecord, InitConfiguration} from "../../contracts/interfaces/IRollupTypes.sol";
+import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 
-    function deal(address account, uint256 newBalance) external;
-    function expectRevert() external;
-    function expectRevert(bytes calldata revertData) external;
-    function expectRevert(bytes4 revertData) external;
-    function prank(address msgSender) external;
-    function startPrank(address msgSender) external;
-    function stopPrank() external;
-    function roll(uint256 newHeight) external;
-    function recordLogs() external;
-    function getRecordedLogs() external returns (Log[] memory);
-    function targetContract(address newTargetedContract_) external;
-}
+import {MockNitroVerifier} from "./mocks/MockNitroVerifier.sol";
+import {MockSp1Verifier} from "./mocks/MockSp1Verifier.sol";
 
-abstract contract MinimalTest {
-    Vm internal constant vm = Vm(address(uint160(uint256(keccak256("hevm cheat code")))));
+abstract contract RollupBase is Test, IRollupEvents {
+    // ============ Actors ============
 
-    function assertTrue(bool condition, string memory message) internal pure {
-        require(condition, message);
-    }
+    address internal admin = makeAddr("admin");
+    address internal sequencer = makeAddr("sequencer");
+    address internal challenger = makeAddr("challenger");
+    address internal prover = makeAddr("prover");
+    address internal preconfirmer = makeAddr("preconfirmer");
+    address internal user = makeAddr("user");
 
-    function assertEq(uint256 left, uint256 right, string memory message) internal pure {
-        require(left == right, message);
-    }
-
-    function assertEq(int256 left, int256 right, string memory message) internal pure {
-        require(left == right, message);
-    }
-
-    function assertEq(address left, address right, string memory message) internal pure {
-        require(left == right, message);
-    }
-
-    function assertEq(bytes32 left, bytes32 right, string memory message) internal pure {
-        require(left == right, message);
-    }
-
-    function assertEq(bool left, bool right, string memory message) internal pure {
-        require(left == right, message);
-    }
-
-    function assertEq(bytes memory left, bytes memory right, string memory message) internal pure {
-        require(keccak256(left) == keccak256(right), message);
-    }
-
-    function assertLe(uint256 left, uint256 right, string memory message) internal pure {
-        require(left <= right, message);
-    }
-
-    function assertGt(uint256 left, uint256 right, string memory message) internal pure {
-        require(left > right, message);
-    }
-}
-
-abstract contract RollupBase is MinimalTest {
-    bytes32 internal constant ZERO_HASH = 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
-    bytes32 internal constant MOCK_VK_KEY = 0x00612f9d5a388df116872ff70e36bcb86c7e73b1089f32f68fc8e0d0ba7861b7;
-    bytes32 internal constant MOCK_GENESIS_HASH = 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
-
-    bytes32 internal constant SP1_VK_KEY = 0x00440704be87894021b2b5673900bf717ec670dcfde36f7bf371f9ae1a02f46e;
-    bytes32 internal constant SP1_GENESIS_HASH = 0x9d06b07ccbd86a2fc8ab4145d909873c09d92bbce87f98f33699ff3733e91a2c;
-
-    address internal constant SEQUENCER = address(0xA11CE);
-    address internal constant CHALLENGER = address(0xB0B);
-    address internal constant PROOF_PROVIDER = address(0xCAFE);
-    address internal constant ATTACKER = address(0xBAD);
+    // ============ Contracts ============
 
     Rollup internal rollup;
-    Bridge internal bridge;
-    VerifierMock internal verifierMock;
-    SP1Verifier internal verifierSp1;
+    address internal bridgeAddr;
+    MockNitroVerifier internal nitroVerifier;
 
-    function _deployRollupProxy(RollupStorageLayout.InitConfiguration memory params) internal returns (Rollup) {
-        Rollup rollupImpl = new Rollup();
-        if (params.pauser == address(0)) params.pauser = params.admin;
-        bytes memory initData = abi.encodeCall(Rollup.initialize, (abi.encode(params)));
-        ERC1967Proxy proxy = new ERC1967Proxy(address(rollupImpl), initData);
-        return Rollup(payable(address(proxy)));
+    // ============ Constants ============
+
+    bytes32 internal constant GENESIS_HASH = keccak256("genesis");
+    bytes32 internal constant PROGRAM_VKEY = keccak256("vkey");
+    bytes32 internal constant DUMMY_SIGNATURE = keccak256("signature");
+    /// @dev Mirrors RollupStorageLayout.ZERO_BYTES_HASH — keccak256 of empty bytes.
+    bytes32 internal constant ZERO_BYTES_HASH = 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
+
+    uint256 internal constant BATCH_SIZE = 4;
+    uint256 internal constant CHALLENGE_DEPOSIT = 1 ether;
+    uint256 internal constant SUBMIT_BLOBS_WINDOW = 50;
+    uint256 internal constant PRECONFIRM_WINDOW = 100;
+    uint256 internal constant FINALIZATION_DELAY = 200;
+    uint256 internal constant CHALLENGE_WINDOW = 150;
+
+    // ============ Setup ============
+
+    function setUp() public virtual {
+        bridgeAddr = makeAddr("bridge");
+        nitroVerifier = new MockNitroVerifier();
+        rollup = _deployRollup(bridgeAddr);
     }
 
-    function _deployBridge(
-        address adminRole,
-        address pauserRole,
-        address relayerRole,
-        address rollupAddress,
-        uint256 receiveMessageDeadline,
-        address otherBridge,
-        address l1BlockOracle
-    ) internal returns (Bridge) {
-        Bridge bridgeImpl = new Bridge();
-        Bridge.InitConfiguration memory params = Bridge.InitConfiguration({
-            adminRole: adminRole,
-            pauserRole: pauserRole,
-            relayerRole: relayerRole,
-            rollup: rollupAddress,
-            receiveMessageDeadline: receiveMessageDeadline,
-            otherBridge: otherBridge,
-            l1BlockOracle: l1BlockOracle
+    function _deployRollup(address _bridge) internal returns (Rollup) {
+        MockSp1Verifier sp1 = new MockSp1Verifier();
+        InitConfiguration memory cfg = InitConfiguration({
+            admin: admin,
+            emergency: admin,
+            sequencer: sequencer,
+            challenger: challenger,
+            prover: prover,
+            preconfirmationRole: preconfirmer,
+            sp1Verifier: address(sp1),
+            nitroVerifier: address(0),
+            bridge: _bridge,
+            programVKey: PROGRAM_VKEY,
+            genesisHash: GENESIS_HASH,
+            challengeDepositAmount: CHALLENGE_DEPOSIT,
+            challengeWindow: CHALLENGE_WINDOW,
+            finalizationDelay: FINALIZATION_DELAY,
+            acceptDepositDeadline: 1000,
+            incentiveFee: 0.1 ether,
+            submitBlobsWindow: SUBMIT_BLOBS_WINDOW,
+            preconfirmWindow: PRECONFIRM_WINDOW
         });
-        bytes memory initData = abi.encode(params);
-        ERC1967Proxy proxy = new ERC1967Proxy(
-            address(bridgeImpl),
-            abi.encodeCall(Bridge.initialize, (initData))
-        );
-        return Bridge(payable(address(proxy)));
+        Rollup impl = new Rollup();
+        ERC1967Proxy proxy = new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
+        Rollup r = Rollup(address(proxy));
+        vm.prank(admin);
+        r.enableNitroVerifier(address(nitroVerifier));
+        return r;
     }
 
-    function _deployMockRollup(
-        uint256 batchSize_,
-        uint256 challengeDepositAmount_,
-        uint256 challengeBlockCount_,
-        uint256 approveBlockCount_,
-        uint256 acceptDepositDeadline_,
-        uint256 incentiveFee_
-    ) internal {
-        verifierMock = new VerifierMock();
-        bridge = _deployBridge(
-            address(this),
-            address(this),
-            address(this), // roles are unified in these unit tests
-            address(0),
-            0,
-            address(0x1111),
-            address(0x2222)
-        );
-        rollup = _deployRollupProxy(
-            RollupStorageLayout.InitConfiguration({
-                admin: address(this),
-                pauser: address(0),
-                sequencer: SEQUENCER,
-                challengeDepositAmount: challengeDepositAmount_,
-                challengeBlockCount: challengeBlockCount_,
-                approveBlockCount: approveBlockCount_,
-                verifier: address(verifierMock),
-                programVKey: MOCK_VK_KEY,
-                genesisHash: MOCK_GENESIS_HASH,
-                bridge: address(bridge),
-                batchSize: batchSize_,
-                acceptDepositDeadline: acceptDepositDeadline_,
-                incentiveFee: incentiveFee_,
-                challenger: CHALLENGER,
-                prover: PROOF_PROVIDER
-            })
-        );
-        rollup.setDaCheck(false);
+    // ============ Batch Construction ============
+
+    function _makeBatch(bytes32 parentHash) internal pure returns (L2BlockHeader[] memory batch) {
+        batch = new L2BlockHeader[](BATCH_SIZE);
+        bytes32 prev = parentHash;
+        for (uint256 i = 0; i < BATCH_SIZE; i++) {
+            bytes32 blockHash = keccak256(abi.encode("block", i, prev));
+            batch[i] = L2BlockHeader({
+                previousBlockHash: prev,
+                blockHash: blockHash,
+                withdrawalRoot: ZERO_BYTES_HASH,
+                depositRoot: ZERO_BYTES_HASH,
+                depositCount: 0
+            });
+            prev = blockHash;
+        }
     }
 
-    function _deployMockRollupWithLinkedBridgeQueue(
-        uint256 batchSize_,
-        uint256 challengeDepositAmount_,
-        uint256 challengeBlockCount_,
-        uint256 approveBlockCount_,
-        uint256 acceptDepositDeadline_,
-        uint256 incentiveFee_
-    ) internal {
-        verifierMock = new VerifierMock();
-        rollup = _deployRollupProxy(
-            RollupStorageLayout.InitConfiguration({
-                admin: address(this),
-                pauser: address(0),
-                sequencer: SEQUENCER,
-                challengeDepositAmount: challengeDepositAmount_,
-                challengeBlockCount: challengeBlockCount_,
-                approveBlockCount: approveBlockCount_,
-                verifier: address(verifierMock),
-                programVKey: MOCK_VK_KEY,
-                genesisHash: MOCK_GENESIS_HASH,
-                bridge: address(0x1),
-                batchSize: batchSize_,
-                acceptDepositDeadline: acceptDepositDeadline_,
-                incentiveFee: incentiveFee_,
-                challenger: CHALLENGER,
-                prover: PROOF_PROVIDER
-            })
-        );
-        bridge = _deployBridge(address(this), address(this), address(this), address(rollup), 0, address(0x1111), address(0x2222));
-        rollup.setBridge(address(bridge));
-        rollup.setDaCheck(false);
+    // ============ Lifecycle Action Helpers ============
+
+    function _acceptBatch(bytes32 parentHash, uint256 expectedBlobs) internal returns (uint256 batchIndex) {
+        batchIndex = rollup.nextBatchIndex();
+        L2BlockHeader[] memory batch = _makeBatch(parentHash);
+        vm.prank(sequencer);
+        rollup.acceptNextBatch(batch, expectedBlobs);
     }
 
-    function _deploySp1RollupForVerifierPath() internal {
-        verifierSp1 = new SP1Verifier();
-        bridge = _deployBridge(address(this), address(this), address(this), address(0), 0, address(0x1111), address(0x2222));
-        rollup = _deployRollupProxy(
-            RollupStorageLayout.InitConfiguration({
-                admin: address(this),
-                pauser: address(0),
-                sequencer: SEQUENCER,
-                challengeDepositAmount: 10000,
-                challengeBlockCount: 0,
-                approveBlockCount: 1,
-                verifier: address(verifierSp1),
-                programVKey: SP1_VK_KEY,
-                genesisHash: SP1_GENESIS_HASH,
-                bridge: address(bridge),
-                batchSize: 1,
-                acceptDepositDeadline: 10,
-                incentiveFee: 1000,
-                challenger: CHALLENGER,
-                prover: PROOF_PROVIDER
-            })
-        );
-        rollup.setDaCheck(false);
+    function _submitBlobs(uint256 batchIndex, uint256 numBlobs) internal {
+        if (numBlobs > 0) {
+            bytes32[] memory hashes = new bytes32[](numBlobs);
+            for (uint256 i = 0; i < numBlobs; i++) {
+                hashes[i] = keccak256(abi.encode("blob", batchIndex, i));
+            }
+            vm.blobhashes(hashes);
+        }
+        vm.prank(sequencer);
+        rollup.submitBlobs(batchIndex, numBlobs);
     }
 
-    function _buildCommitment(
-        bytes32 previousBlockHash,
-        bytes32 blockHash,
-        bytes32 withdrawalHash,
-        bytes32 depositHash
-    ) internal pure returns (RollupStorageLayout.BlockCommitment memory commitment) {
-        commitment = RollupStorageLayout.BlockCommitment({
-            previousBlockHash: previousBlockHash,
-            blockHash: blockHash,
-            withdrawalHash: withdrawalHash,
-            depositHash: depositHash
-        });
+    function _preconfirmBatch(uint256 batchIndex) internal {
+        vm.prank(preconfirmer);
+        rollup.preconfirmBatch(address(nitroVerifier), batchIndex, DUMMY_SIGNATURE);
     }
 
-    function _commitmentHash(RollupStorageLayout.BlockCommitment memory commitment) internal pure returns (bytes32) {
-        return
-            keccak256(abi.encodePacked(commitment.previousBlockHash, commitment.blockHash, commitment.withdrawalHash, commitment.depositHash));
+    function _finalizeBatch(uint256 batchIndex) internal returns (bool) {
+        return rollup.finalizeBatches(batchIndex) > 0;
     }
 
-    function _proofForSingleLeaf() internal pure returns (MerkleTree.MerkleProof memory) {
-        return MerkleTree.MerkleProof({nonce: 0, proof: ""});
+    function _challengeBlock(uint256 batchIndex, L2BlockHeader memory blockHeader, MerkleTree.MerkleProof memory blockProof) internal {
+        vm.deal(challenger, CHALLENGE_DEPOSIT);
+        vm.prank(challenger);
+        rollup.challengeBlock{value: CHALLENGE_DEPOSIT}(batchIndex, blockHeader, blockProof);
     }
 
-    function _proofForTwoLeaves(uint256 indexInBatch, bytes32 sibling) internal pure returns (MerkleTree.MerkleProof memory) {
-        return MerkleTree.MerkleProof({nonce: indexInBatch, proof: abi.encodePacked(sibling)});
+    /// @dev expectedBlobs=0 shortcut — submitBlobs(batchIndex, 0) with expectedBlobs=0
+    ///      transitions immediately to Accepted (0 submitted == 0 expected).
+    function _fullyFinalizeBatch(bytes32 parentHash) internal returns (uint256 batchIndex) {
+        return _fullyFinalizeBatch(parentHash, 0);
     }
 
-    function _hashPair(bytes32 left, bytes32 right) internal pure returns (bytes32) {
-        return keccak256(abi.encodePacked(left, right));
+    function _fullyFinalizeBatch(bytes32 parentHash, uint256 expectedBlobs) internal returns (uint256 batchIndex) {
+        batchIndex = _acceptBatch(parentHash, expectedBlobs);
+        _submitBlobs(batchIndex, expectedBlobs);
+        _preconfirmBatch(batchIndex);
+        vm.roll(block.number + FINALIZATION_DELAY + 1);
+        assertTrue(_finalizeBatch(batchIndex));
     }
 
-    function _bridgeMessageHash(
-        address from,
-        address to,
-        uint256 value,
-        uint256 chainId,
-        uint256 blockNumber_,
-        uint256 nonce_,
-        bytes memory message
-    ) internal pure returns (bytes32) {
-        return keccak256(abi.encode(from, to, value, chainId, blockNumber_, nonce_, message));
+    // ============ Event Helpers ============
+
+    function _expectBatchHeadersSubmitted(uint256 batchIndex, bytes32 batchRoot, uint256 expectedBlobs) internal {
+        vm.expectEmit(true, false, false, true, address(rollup));
+        emit BatchHeadersSubmitted(batchIndex, batchRoot, expectedBlobs);
+    }
+
+    function _expectBatchAccepted(uint256 batchIndex) internal {
+        vm.expectEmit(true, false, false, false, address(rollup));
+        emit BatchAccepted(batchIndex);
+    }
+
+    function _expectBatchPreconfirmed(uint256 batchIndex) internal {
+        vm.expectEmit(true, false, false, false, address(rollup));
+        emit BatchPreconfirmed(batchIndex);
+    }
+
+    function _expectBatchFinalized(uint256 batchIndex) internal {
+        vm.expectEmit(true, false, false, false, address(rollup));
+        emit BatchFinalized(batchIndex);
+    }
+
+    // ============ State Assertion Helpers ============
+
+    function _assertBatchRecord(uint256 batchIndex, BatchStatus status, uint256 expBlobs, bytes32 batchRoot) internal view {
+        BatchRecord memory batch = rollup.getBatch(batchIndex);
+        assertEq(uint8(batch.status), uint8(status), "batch status mismatch");
+        assertEq(batch.expectedBlobs, expBlobs, "expectedBlobs mismatch");
+        assertEq(batch.batchRoot, batchRoot, "batchRoot mismatch");
+    }
+
+    function _assertRollupCorrupted() internal view {
+        assertTrue(rollup.isRollupCorrupted(), "expected rollup to be corrupted");
+    }
+
+    function _assertRollupHealthy() internal view {
+        assertFalse(rollup.isRollupCorrupted(), "expected rollup to be healthy");
+    }
+
+    function _assertChallengeExists(bytes32 commitment) internal view {
+        assertTrue(rollup.getChallenge(commitment).challenger != address(0), "challenge should exist");
+    }
+
+    function _assertChallengeResolved(bytes32 commitment) internal view {
+        assertTrue(rollup.isBlockProven(commitment), "commitment should be proven");
+    }
+
+    function _assertChallengerWithdrawable(address _challenger, uint256 expected) internal view {
+        assertEq(rollup.claimableChallengerReward(_challenger), expected);
+    }
+
+    function _assertProverWithdrawable(address _prover, uint256 expected) internal view {
+        assertEq(rollup.claimableProofReward(_prover), expected);
+    }
+
+    function _assertLastFinalizedBatchIndex(uint256 expected) internal view {
+        assertEq(rollup.lastFinalizedBatchIndex(), expected);
+    }
+
+    // ============ Merkle Helpers ============
+
+    function _computeBatchRoot(L2BlockHeader[] memory headers) internal pure returns (bytes32) {
+        bytes memory leafs = new bytes(headers.length * 32);
+        for (uint256 i = 0; i < headers.length; i++) {
+            bytes32 hash = keccak256(
+                abi.encodePacked(headers[i].previousBlockHash, headers[i].blockHash, headers[i].withdrawalRoot, headers[i].depositRoot)
+            );
+            assembly {
+                mstore(add(add(leafs, 32), mul(i, 32)), hash)
+            }
+        }
+        return MerkleTree.calculateMerkleRoot(leafs);
+    }
+
+    function _buildMerkleProof(L2BlockHeader[] memory headers, uint256 leafIndex) internal pure returns (MerkleTree.MerkleProof memory) {
+        uint256 count = headers.length;
+        bytes32[] memory leaves = new bytes32[](count);
+        for (uint256 i = 0; i < count; i++) {
+            leaves[i] = keccak256(
+                abi.encodePacked(headers[i].previousBlockHash, headers[i].blockHash, headers[i].withdrawalRoot, headers[i].depositRoot)
+            );
+        }
+        bytes memory proofData;
+        uint256 idx = leafIndex;
+        while (count > 1) {
+            uint256 nextCount = (count + 1) / 2;
+            bytes32[] memory next = new bytes32[](nextCount);
+            for (uint256 i = 0; i < count / 2; i++) {
+                next[i] = keccak256(abi.encodePacked(leaves[i * 2], leaves[i * 2 + 1]));
+            }
+            if (count % 2 == 1) {
+                next[nextCount - 1] = keccak256(abi.encodePacked(leaves[count - 1], leaves[count - 1]));
+            }
+            uint256 siblingIdx = (idx % 2 == 0) ? idx + 1 : idx - 1;
+            proofData = abi.encodePacked(proofData, siblingIdx < count ? leaves[siblingIdx] : leaves[idx]);
+            idx = idx / 2;
+            leaves = next;
+            count = nextCount;
+        }
+        return MerkleTree.MerkleProof({nonce: leafIndex, proof: proofData});
+    }
+
+    function _computeCommitment(L2BlockHeader memory header) internal pure returns (bytes32) {
+        return keccak256(abi.encodePacked(header.previousBlockHash, header.blockHash, header.withdrawalRoot, header.depositRoot));
     }
 }

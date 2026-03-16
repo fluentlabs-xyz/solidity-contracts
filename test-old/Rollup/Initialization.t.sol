@@ -47,7 +47,9 @@ contract RollupInitializationTest is RollupBase {
             acceptDepositDeadline: 10,
             incentiveFee: 0,
             challenger: address(0),
-            prover: address(0)
+            prover: address(0),
+            nitroVerifier: address(0),
+            preconfirmationRole: address(0)
         });
         new ERC1967Proxy(address(rollupImpl), abi.encodeCall(Rollup.initialize, (abi.encode(params))));
     }
@@ -70,7 +72,9 @@ contract RollupInitializationTest is RollupBase {
             acceptDepositDeadline: 10,
             incentiveFee: 0,
             challenger: address(0),
-            prover: address(0)
+            prover: address(0),
+            nitroVerifier: address(0),
+            preconfirmationRole: address(0)
         });
         Rollup proxied = Rollup(payable(address(new ERC1967Proxy(address(rollupImpl), abi.encodeCall(Rollup.initialize, (abi.encode(params)))))));
         // When sequencer is zero, implementation falls back to admin as sequencer role holder.
@@ -97,7 +101,9 @@ contract RollupInitializationTest is RollupBase {
             acceptDepositDeadline: 10,
             incentiveFee: 0,
             challenger: address(0),
-            prover: address(0)
+            prover: address(0),
+            nitroVerifier: address(0),
+            preconfirmationRole: address(0)
         });
         new ERC1967Proxy(address(rollupImpl), abi.encodeCall(Rollup.initialize, (abi.encode(params))));
     }
@@ -121,7 +127,9 @@ contract RollupInitializationTest is RollupBase {
             acceptDepositDeadline: 10,
             incentiveFee: 0,
             challenger: address(0),
-            prover: address(0)
+            prover: address(0),
+            nitroVerifier: address(0),
+            preconfirmationRole: address(0)
         });
         new ERC1967Proxy(address(rollupImpl), abi.encodeCall(Rollup.initialize, (abi.encode(params))));
     }
@@ -145,7 +153,9 @@ contract RollupInitializationTest is RollupBase {
             acceptDepositDeadline: 10,
             incentiveFee: 0,
             challenger: address(0),
-            prover: address(0)
+            prover: address(0),
+            nitroVerifier: address(0),
+            preconfirmationRole: address(0)
         });
         new ERC1967Proxy(address(rollupImpl), abi.encodeCall(Rollup.initialize, (abi.encode(params))));
     }
@@ -169,7 +179,9 @@ contract RollupInitializationTest is RollupBase {
             acceptDepositDeadline: 10,
             incentiveFee: 0,
             challenger: address(0),
-            prover: address(0)
+            prover: address(0),
+            nitroVerifier: address(0),
+            preconfirmationRole: address(0)
         });
         new ERC1967Proxy(address(rollupImpl), abi.encodeCall(Rollup.initialize, (abi.encode(params))));
     }

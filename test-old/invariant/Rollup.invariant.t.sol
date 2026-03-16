@@ -37,20 +37,23 @@ contract RollupInvariantTest is MinimalTest {
         Rollup rollupImpl = new Rollup();
         RollupStorageLayout.InitConfiguration memory initParams = RollupStorageLayout.InitConfiguration({
             admin: address(this),
-            pauser: address(0),
+            emergency: address(0),
             sequencer: address(handler),
             challengeDepositAmount: 10000,
-            challengeBlockCount: 5000,
-            approveBlockCount: 1,
-            verifier: address(verifierMock),
+            challengeWindow: 5000,
+            finalizationDelay: 6000,
+            submitBlobsWindow: 1,
+            preconfirmWindow: 2,
+            sp1Verifier: address(verifierMock),
             programVKey: MOCK_VK_KEY,
             genesisHash: MOCK_GENESIS_HASH,
             bridge: address(bridge),
-            batchSize: 1,
             acceptDepositDeadline: 100,
             incentiveFee: 0,
             challenger: address(0),
-            prover: address(0)
+            prover: address(0),
+            nitroVerifier: address(0),
+            preconfirmationRole: address(0)
         });
 
         ERC1967Proxy rollupProxy = new ERC1967Proxy(address(rollupImpl), abi.encodeCall(Rollup.initialize, (abi.encode(initParams))));
@@ -60,6 +63,8 @@ contract RollupInvariantTest is MinimalTest {
         rollup.setDaCheck(false);
         rollup.grantRole(rollup.DEFAULT_ADMIN_ROLE(), address(handler));
         rollup.grantRole(rollup.PAUSER_ROLE(), address(handler));
+        rollup.grantRole(rollup.CHALLENGER_ROLE(), address(handler));
+        rollup.grantRole(rollup.PROVER_ROLE(), address(handler));
         rollup.renounceRole(rollup.DEFAULT_ADMIN_ROLE(), address(this));
         rollup.renounceRole(rollup.PAUSER_ROLE(), address(this));
 

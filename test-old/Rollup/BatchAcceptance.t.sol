@@ -18,15 +18,6 @@ contract RollupBatchAcceptanceTest is RollupBase {
         });
     }
 
-    function _buildLinkedBatch(bytes32 prevHash) internal pure returns (RollupStorageLayout.BlockCommitment[] memory batch) {
-        batch = new RollupStorageLayout.BlockCommitment[](2);
-        bytes32 blockHash1 = keccak256("accept-batch-1");
-        bytes32 blockHash2 = keccak256("accept-batch-2");
-
-        batch[0] = _buildCommitment(prevHash, blockHash1, ZERO_HASH, ZERO_HASH);
-        batch[1] = _buildCommitment(blockHash1, blockHash2, ZERO_HASH, ZERO_HASH);
-    }
-
     function test_acceptNextBatch_updatesState() public {
         RollupStorageLayout.BlockCommitment[] memory batch = _buildLinkedBatch(MOCK_GENESIS_HASH);
         bytes32 expectedRoot = rollup.calculateBatchRoot(batch);
@@ -35,7 +26,7 @@ contract RollupBatchAcceptanceTest is RollupBase {
         rollup.acceptNextBatch(batch, new RollupStorageLayout.DepositsInBlock[](0), 0);
 
         assertEq(rollup.nextBatchIndex(), 2, "next batch index not incremented");
-        assertEq(rollup.acceptedBatchHash(1), expectedRoot, "accepted root mismatch");
+        assertEq(rollup.acceptedBatchRoot(1), expectedRoot, "accepted root mismatch");
         assertEq(rollup.lastBlockHashInBatch(1), batch[1].blockHash, "last block hash mismatch");
     }
 
@@ -52,9 +43,7 @@ contract RollupBatchAcceptanceTest is RollupBase {
         bytes32 wrongPrevHash = keccak256("wrong-prev-hash");
         RollupStorageLayout.BlockCommitment[] memory batch = _buildLinkedBatch(wrongPrevHash);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(IRollupErrors.WrongPreviousBlockHash.selector, MOCK_GENESIS_HASH, wrongPrevHash)
-        );
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.WrongPreviousBlockHash.selector, MOCK_GENESIS_HASH, wrongPrevHash));
         vm.prank(SEQUENCER);
         rollup.acceptNextBatch(batch, new RollupStorageLayout.DepositsInBlock[](0), 0);
     }

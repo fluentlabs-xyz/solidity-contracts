@@ -26,13 +26,13 @@ l1 = "https://ethereum-sepolia-rpc.publicnode.com"
 l2 = "https://rpc.dev.fluent.xyz"
 
 # Additional named endpoints (optional env-driven)
+fluentDev = "${FLUENT_DEV_RPC_URL}"
+fluentTestnet = "${FLUENT_TESTNET_RPC_URL}"
 mainnet = "${MAINNET_RPC}"
 sepolia = "${RPC_URL_SEPOLIA_ETH}"
-fluentTestnet = "${RPC_URL_FLUENT_TESTNET}"
-fluentDev = "${RPC_URL_FLUENT_DEV}"
 
 [etherscan]
-sepolia = { key = "${ETHERSCAN_API_KEY}" }
+sepolia = {key = "${ETHERSCAN_API_KEY}"}
 
 [profile.coverage]
 via_ir = true

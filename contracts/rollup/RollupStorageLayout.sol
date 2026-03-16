@@ -7,10 +7,16 @@ import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/Pau
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 
-import {IRollupEvents, IRollupErrors, IRollupRead} from "../interfaces/IRollup.sol";
+import {IRollupEvents, IRollupErrors, IRollupRead, IRollupConfig, IRollupAdmin} from "../interfaces/IRollup.sol";
+import {BatchStatus, BatchRecord, ChallengeRecord, L2BlockHeader, InitConfiguration} from "../interfaces/IRollupTypes.sol";
+import {Heap} from "../libraries/Heap.sol";
+import {MerkleTree} from "../libraries/MerkleTree.sol";
 
 /**
- *
+ * @title RollupStorageLayout
+ * @author Fluent Labs
+ * @dev ERC-7201 namespaced storage base for {Rollup}. Contains all storage fields,
+ *      view getters, admin setters, and initialization logic.
  */
 contract RollupStorageLayout is
     Initializable,
@@ -20,527 +26,507 @@ contract RollupStorageLayout is
     PausableUpgradeable,
     IRollupEvents,
     IRollupErrors,
-    IRollupRead
+    IRollupRead,
+    IRollupConfig,
+    IRollupAdmin
 {
-    // ============ Roles ============
+    using Heap for Heap.HeapStorage;
 
-    bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
+    // ============ Constants ============
 
+    /**
+     * @notice Role that can perform emergency actions.
+     */
+    bytes32 public constant EMERGENCY_ROLE = keccak256("EMERGENCY_ROLE");
+
+    /**
+     * @notice Role that can submit batches.
+     */
     bytes32 public constant SEQUENCER_ROLE = keccak256("SEQUENCER_ROLE");
 
+    /**
+     * @notice Role that can preconfirm batches.
+     */
+    bytes32 public constant PRECONFIRMATION_ROLE = keccak256("PRECONFIRMATION_ROLE");
+
+    /**
+     * @notice Role that can challenge batches.
+     */
     bytes32 public constant CHALLENGER_ROLE = keccak256("CHALLENGER_ROLE");
 
+    /**
+     * @notice Role that can prove batches.
+     */
     bytes32 public constant PROVER_ROLE = keccak256("PROVER_ROLE");
 
-    /// @dev Constant representing an empty deposit hash.
+    /// @dev keccak256 of empty bytes — used to detect zero-message roots.
     bytes32 public constant ZERO_BYTES_HASH = 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
 
     /**
      * @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.RollupStorage")) - 1)) & ~bytes32(uint256(0xff))
-     * @custom:storage-location erc7201:fluent.storage.RollupStorage
+     * @custom:storage-location erc7201:fluent.storage.RollupStorageLayout
      */
     bytes32 private constant ROLLUP_STORAGE_LOCATION = 0x3c5cb8ff22ae9906a910cecced8ac84ef594b2ee1cab438e85f81b70bddcc700;
 
+    // ============ Storage ============
+
+    /// @dev Storage layout — WARNING: breaking change, incompatible with previous layout.
     struct RollupStorage {
-        address bridge;
-        /// @dev zk-SNARK verifier instance.
-        address verifier;
-        bytes32 programVKey;
-        uint256 nextBatchIndex;
-        uint256 approveBlockCount;
-        uint256 challengeDepositAmount;
-        uint256 incentiveFee;
-        uint256 challengeBlockCount;
-        uint256 batchSize;
-        mapping(uint256 => bytes32) lastBlockHashInBatch;
-        uint256 lastDepositAcceptedBlockNumber;
-        uint256 acceptDepositDeadline;
-        mapping(uint256 => bytes32) acceptedBatchHash;
-        mapping(uint256 => bool) alreadyApprovedBatch;
-        mapping(uint256 => uint256) acceptedBlock;
-        mapping(bytes32 => bool) provenBlockCommitment;
-        mapping(address => uint256) challengerDeposit;
-        mapping(address => uint256) challengerReadyForWithdrawal;
-        mapping(address => uint256) proverReadyForWithdrawal;
-        mapping(bytes32 => address) blockCommitmentChallenger;
-        mapping(bytes32 => uint256) challengeDeadline;
-        bytes32[] challengeQueue;
-        uint256 challengeQueueStart;
-        mapping(bytes32 => uint256) challengeQueueIndex;
-        mapping(uint256 => bytes32[]) batchBlobHashes;
-        bool daCheck;
-        mapping(uint256 => bytes32[]) batchChallengedCommitments;
-        mapping(uint256 => bytes32[]) provenCommitmentInBatch;
-        uint256[30] __gap;
+        // ─── Slot 1: address(20) + uint96(12) = 32 ───
+        /// @dev L1 FluentBridge contract; source of deposit messages consumed during batch acceptance
+        address _bridge;
+        /// @dev incremented on each acceptNextBatch; starts at 1 (index 0 holds the genesis hash)
+        uint96 _nextBatchIndex;
+        // ─── Slot 2: address(20) + 12 bytes padding ───
+        /// @dev SP1 verifier contract used for ZK proof validation during challenge resolution
+        address _sp1Verifier;
+        // ─── Slot 3: bytes32(32) ───
+        /// @dev SP1 program verification key; binds proofs to the current rollup program
+        bytes32 _programVKey;
+        // ─── Slot 4: 4 × uint64 = 32 ───
+        /// @dev Number of L1 blocks after batch acceptance during which challenges can be submitted
+        ///      and proofs verified. After this window elapses, the batch becomes eligible for
+        ///      finalization via `finalizeBatches`. Must be greater than `challengeWindow` to
+        ///      guarantee challengers always have a full `challengeWindow` to respond.
+        uint64 _finalizationDelay;
+        /// @dev Number of L1 blocks a prover has to resolve a challenge after it is opened.
+        ///      A challenge may only be submitted if `block.number + challengeWindow <= acceptedAtBlock
+        ///      + finalizationDelay`, ensuring the prover always has the full window to respond and
+        ///      finalization is never delayed beyond `acceptedAtBlock + finalizationDelay + challengeWindow`.
+        ///      Must be strictly less than `finalizationDelay`.
+        uint64 _challengeWindow;
+        /// @dev Maximum number of L1 blocks after batch acceptance for the sequencer to submit
+        ///      all expected blob hashes via `submitBlobs`. Exceeding this deadline without
+        ///      completing DA submission triggers the corrupted state. Set to 0 to disable.
+        uint64 _submitBlobsWindow;
+        /// @dev Maximum number of L1 blocks after batch acceptance for the preconfirmation service
+        ///      to call `preconfirmBatch`. Both `submitBlobsWindow` and this deadline are measured
+        ///      from `acceptedAtBlock`, so this value must exceed `submitBlobsWindow` to give the
+        ///      preconfirmation service time to act after DA submission completes. Set to 0 to disable.
+        uint64 _preconfirmWindow;
+        // ─── Slot 5: uint256(32) ───
+        /// @dev ETH deposit required to open a challenge; awarded to prover on resolution
+        uint256 _challengeDepositAmount;
+        // ─── Slot 6: uint256(32) ───
+        /// @dev ETH reward paid to challengers during force revert (on top of deposit refund)
+        uint256 _incentiveFee;
+        // ─── Slot 7: uint64(8) + uint64(8) + uint32(4) + uint32(4) = 24 bytes ───
+        /// @dev highest batch index with Finalized status; enforces sequential finalization
+        uint64 _lastFinalizedBatchIndex;
+        /// @dev TODO: remove if unused or document purpose — not currently written
+        uint64 _lastDepositAcceptedBlockNumber;
+        /// @dev minimum gasleft() required per block header iteration in acceptNextBatch
+        uint32 _gasLeft;
+        /// @dev max L1 blocks between deposit creation and its inclusion in a batch
+        uint32 _acceptDepositDeadline;
+        // ─── Per-batch records ───
+        /// @dev packed per-batch state (root, accepted block, expected blobs, status)
+        mapping(uint256 => BatchRecord) _batches;
+        /// @dev chain-linking hash; index 0 holds genesis, index N holds last block hash of batch N
+        mapping(uint256 => bytes32) _lastBlockHashInBatch;
+        /// @dev EIP-4844 versioned blob hashes recorded per batch for proof binding
+        mapping(uint256 => bytes32[]) _batchBlobHashes;
+        /// @dev commitments proven during challenge resolution; cleaned on force revert
+        mapping(uint256 => bytes32[]) _batchProvenBlocks;
+        /// @dev commitments challenged per batch; used for refund iteration in force revert
+        mapping(uint256 => bytes32[]) _batchChallengedBlocks;
+        // ─── Challenge state (keyed by commitment) ───
+        /// @dev tracks which block commitments have been proven; prevents duplicate proofs
+        mapping(bytes32 => bool) _provenBlocks;
+        /// @dev active challenge records keyed by block commitment hash
+        mapping(bytes32 => ChallengeRecord) _challenges;
+        /// @dev min-heap of challenged commitments ordered by deadline for corruption detection
+        Heap.HeapStorage _challengeQueue;
+        /// @dev heap priority map: commitment → deadline (used by Heap for ordering)
+        mapping(bytes32 => uint256) _challengePriority;
+        /// @dev heap position map: commitment → 1-based index (used by Heap for O(1) removal)
+        mapping(bytes32 => uint256) _challengeQueueIndex;
+        // ─── Reward balances ───
+        /// @dev ETH balances claimable by challengers after force revert
+        mapping(address => uint256) _challengerRewards;
+        /// @dev ETH balances claimable by provers after resolving challenges
+        mapping(address => uint256) _proverRewards;
+        // ─── Verifier whitelist ───
+        /// @dev whitelist of Nitro enclave verifier contracts allowed for preconfirmation
+        mapping(address => bool) _enabledNitroVerifiers;
+        // ─── Upgrade gap ───
+        /// @dev reserved storage slots for future upgrades
+        uint256[28] __gap;
     }
 
-    /// @dev Structure representing a committed block.
-    struct BlockCommitment {
-        bytes32 previousBlockHash;
-        bytes32 blockHash;
-        bytes32 withdrawalHash;
-        bytes32 depositHash;
-    }
+    // ============ Storage Initializer ============
 
-    /// @dev Represents metadata about deposits included in a block.
-    struct DepositsInBlock {
-        bytes32 blockHash;
-        uint256 depositCount;
-    }
-
-    struct InitConfiguration {
-        address admin;
-        address sequencer;
-        address pauser;
-        uint256 challengeDepositAmount;
-        uint256 challengeBlockCount;
-        uint256 approveBlockCount;
-        address verifier;
-        bytes32 programVKey;
-        bytes32 genesisHash;
-        address bridge;
-        uint256 batchSize;
-        uint256 acceptDepositDeadline;
-        uint256 incentiveFee;
-        address challenger;
-        address prover;
-    }
-
-    function __initRollupStorage(bytes memory data) internal {
+    /**
+     * @dev Initializes rollup storage from ABI-encoded {InitConfiguration}.
+     *      Called once from {Rollup.initialize} via the UUPS proxy.
+     */
+    function __RollupStorage_init(bytes memory data) internal onlyInitializing {
         RollupStorage storage $ = _getRollupStorage();
 
-        (InitConfiguration memory params) = abi.decode(data, (InitConfiguration));
+        InitConfiguration memory params = abi.decode(data, (InitConfiguration));
 
+        // ─── Deadline invariants ───
+        require(params.submitBlobsWindow <= type(uint64).max, InvalidWindowConfig("submitBlobsWindow out of range"));
+        require(params.preconfirmWindow <= type(uint64).max, InvalidWindowConfig("preconfirmWindow out of range"));
+        require(params.challengeWindow <= type(uint64).max, InvalidWindowConfig("challengeWindow out of range"));
+        require(params.finalizationDelay <= type(uint64).max, InvalidWindowConfig("finalizationDelay out of range"));
+        require(params.acceptDepositDeadline <= type(uint32).max, InvalidWindowConfig("acceptDepositDeadline out of range"));
+        if (params.submitBlobsWindow != 0 && params.preconfirmWindow != 0) {
+            require(params.preconfirmWindow > params.submitBlobsWindow, InvalidWindowConfig("preconfirmWindow must exceed submitBlobsWindow"));
+        }
+        _setSubmitBlobsWindow(uint64(params.submitBlobsWindow));
+        _setPreconfirmWindow(uint64(params.preconfirmWindow));
+        require(params.challengeWindow < params.finalizationDelay, InvalidWindowConfig("challengeWindow must be less than finalizationDelay"));
+        _setChallengeWindow(uint64(params.challengeWindow));
+        _setFinalizationDelay(uint64(params.finalizationDelay));
+
+        _setAcceptDepositDeadline(uint32(params.acceptDepositDeadline));
+
+        // ─── Role setup ───
         require(params.admin != address(0), ZeroAddressNotAllowed("admin"));
-        require(params.verifier != address(0), ZeroAddressNotAllowed("verifier"));
-        require(params.programVKey != bytes32(0), ZeroValueNotAllowed("programVKey"));
-        require(params.genesisHash != bytes32(0), ZeroValueNotAllowed("genesisHash"));
-        require(params.batchSize != 0, ZeroValueNotAllowed("batchSize"));
+        address emergencyRole = params.emergency != address(0) ? params.emergency : params.admin;
+        address challengerRole = params.challenger != address(0) ? params.challenger : params.admin;
+        address proverRole = params.prover != address(0) ? params.prover : params.admin;
+        address sequencerRole = params.sequencer != address(0) ? params.sequencer : params.admin;
+        address preconfirmationRole = params.preconfirmationRole != address(0) ? params.preconfirmationRole : params.admin;
 
         _grantRole(DEFAULT_ADMIN_ROLE, params.admin);
-        _grantRole(PAUSER_ROLE, params.pauser != address(0) ? params.pauser : params.admin);
-        _grantRole(CHALLENGER_ROLE, params.challenger != address(0) ? params.challenger : params.admin);
-        _grantRole(PROVER_ROLE, params.prover != address(0) ? params.prover : params.admin);
-        _grantRole(SEQUENCER_ROLE, params.sequencer != address(0) ? params.sequencer : params.admin);
+        _grantRole(EMERGENCY_ROLE, emergencyRole);
+        _grantRole(CHALLENGER_ROLE, challengerRole);
+        _grantRole(PROVER_ROLE, proverRole);
+        _grantRole(SEQUENCER_ROLE, sequencerRole);
+        _grantRole(PRECONFIRMATION_ROLE, preconfirmationRole);
 
-        $.challengeDepositAmount = params.challengeDepositAmount;
-        $.challengeBlockCount = params.challengeBlockCount;
-        $.approveBlockCount = params.approveBlockCount;
-        $.verifier = params.verifier;
-        $.programVKey = params.programVKey;
-        $.lastBlockHashInBatch[0] = params.genesisHash;
-        $.bridge = params.bridge;
-        $.batchSize = params.batchSize;
-        $.acceptDepositDeadline = params.acceptDepositDeadline;
-        $.incentiveFee = params.incentiveFee;
-        $.nextBatchIndex = 1;
-        $.daCheck = true;
+        // ─── Storage setup ───
+        require(params.genesisHash != bytes32(0), ZeroValueNotAllowed("genesisHash"));
+        $._lastBlockHashInBatch[0] = params.genesisHash;
+        $._nextBatchIndex = 1;
+
+        _setBridge(params.bridge);
+        _setSp1Verifier(params.sp1Verifier);
+        _setProgramVKey(params.programVKey);
+        if (params.nitroVerifier != address(0)) _enableNitroVerifier(params.nitroVerifier);
+
+        _setChallengeDepositAmount(params.challengeDepositAmount);
+        _setIncentiveFee(params.incentiveFee);
     }
+
+    // ============ IRollupConfig ============
+
+    /// @inheritdoc IRollupConfig
+    function bridge() public view returns (address) {
+        return _getRollupStorage()._bridge;
+    }
+
+    /// @inheritdoc IRollupConfig
+    function sp1Verifier() public view returns (address) {
+        return _getRollupStorage()._sp1Verifier;
+    }
+
+    /// @inheritdoc IRollupConfig
+    function programVKey() public view returns (bytes32) {
+        return _getRollupStorage()._programVKey;
+    }
+
+    /// @inheritdoc IRollupConfig
+    function finalizationDelay() public view returns (uint256) {
+        return uint256(_getRollupStorage()._finalizationDelay);
+    }
+
+    /// @inheritdoc IRollupConfig
+    function challengeWindow() public view returns (uint256) {
+        return uint256(_getRollupStorage()._challengeWindow);
+    }
+
+    /// @inheritdoc IRollupConfig
+    function challengeDepositAmount() public view returns (uint256) {
+        return _getRollupStorage()._challengeDepositAmount;
+    }
+
+    /// @inheritdoc IRollupConfig
+    function incentiveFee() public view returns (uint256) {
+        return _getRollupStorage()._incentiveFee;
+    }
+
+    /// @inheritdoc IRollupConfig
+    function acceptDepositDeadline() public view returns (uint256) {
+        return uint256(_getRollupStorage()._acceptDepositDeadline);
+    }
+
+    /// @inheritdoc IRollupConfig
+    function submitBlobsWindow() public view returns (uint256) {
+        return uint256(_getRollupStorage()._submitBlobsWindow);
+    }
+
+    /// @inheritdoc IRollupConfig
+    function preconfirmWindow() public view returns (uint256) {
+        return uint256(_getRollupStorage()._preconfirmWindow);
+    }
+
+    // ============ IRollupRead ============
+
+    /// @inheritdoc IRollupRead
+    function getBatch(uint256 batchIndex) public view returns (BatchRecord memory) {
+        return _getRollupStorage()._batches[batchIndex];
+    }
+
+    /// @inheritdoc IRollupRead
+    function nextBatchIndex() public view returns (uint256) {
+        return uint256(_getRollupStorage()._nextBatchIndex);
+    }
+
+    /// @inheritdoc IRollupRead
+    function lastFinalizedBatchIndex() public view returns (uint256) {
+        return uint256(_getRollupStorage()._lastFinalizedBatchIndex);
+    }
+
+    /// @inheritdoc IRollupRead
+    function lastBlockHashInBatch(uint256 batchIndex) public view returns (bytes32) {
+        return _getRollupStorage()._lastBlockHashInBatch[batchIndex];
+    }
+
+    /// @inheritdoc IRollupRead
+    function isBatchFinalized(uint256 batchIndex) public view returns (bool) {
+        return _getRollupStorage()._batches[batchIndex].status == BatchStatus.Finalized;
+    }
+
+    /// @inheritdoc IRollupRead
+    function isBatchPreconfirmed(uint256 batchIndex) public view returns (bool) {
+        return _getRollupStorage()._batches[batchIndex].status == BatchStatus.Preconfirmed;
+    }
+
+    /// @inheritdoc IRollupRead
+    function getChallenge(bytes32 commitment) public view returns (ChallengeRecord memory) {
+        return _getRollupStorage()._challenges[commitment];
+    }
+
+    /// @inheritdoc IRollupRead
+    /// @dev Elements are in heap-internal order — only index 0 is guaranteed to be the
+    ///      earliest deadline. Sort off-chain by getChallenge(commitment).deadline if
+    ///      ordered traversal is needed. This full snapshot is intended for off-chain use;
+    ///      for large queues, prefer challengeQueueLength/challengeQueueAt iteration.
+    function challengeQueue() public view returns (bytes32[] memory) {
+        RollupStorage storage $ = _getRollupStorage();
+        uint256 size = $._challengeQueue.length();
+        if (size == 0) return new bytes32[](0);
+
+        bytes32[] memory queue = new bytes32[](size);
+        for (uint256 i = 0; i < size; ++i) {
+            queue[i] = $._challengeQueue.at(i);
+        }
+
+        return queue;
+    }
+
+    /// @inheritdoc IRollupRead
+    function challengeQueueLength() public view returns (uint256) {
+        return _getRollupStorage()._challengeQueue.length();
+    }
+
+    /// @inheritdoc IRollupRead
+    function challengeQueueAt(uint256 index) public view returns (bytes32) {
+        return _getRollupStorage()._challengeQueue.at(index);
+    }
+
+    /// @inheritdoc IRollupRead
+    function batchBlobHashes(uint256 batchIndex) public view returns (bytes32[] memory) {
+        return _getRollupStorage()._batchBlobHashes[batchIndex];
+    }
+
+    /// @inheritdoc IRollupRead
+    function batchChallengedBlocks(uint256 batchIndex) public view returns (bytes32[] memory) {
+        return _getRollupStorage()._batchChallengedBlocks[batchIndex];
+    }
+
+    /// @inheritdoc IRollupRead
+    function batchProvenBlocks(uint256 batchIndex) public view returns (bytes32[] memory) {
+        return _getRollupStorage()._batchProvenBlocks[batchIndex];
+    }
+
+    /// @inheritdoc IRollupRead
+    function isBlockProven(bytes32 commitment) public view returns (bool) {
+        return _getRollupStorage()._provenBlocks[commitment];
+    }
+
+    /// @inheritdoc IRollupRead
+    function claimableChallengerReward(address challenger) public view returns (uint256) {
+        return _getRollupStorage()._challengerRewards[challenger];
+    }
+
+    /// @inheritdoc IRollupRead
+    function claimableProofReward(address prover) public view returns (uint256) {
+        return _getRollupStorage()._proverRewards[prover];
+    }
+
+    // ============ IRollupAdmin ============
+
+    /// @inheritdoc IRollupAdmin
+    function setBridge(address newBridge) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setBridge(newBridge);
+    }
+
+    function _setBridge(address newBridge) internal {
+        RollupStorage storage $ = _getRollupStorage();
+        require(newBridge != address(0), ZeroAddressNotAllowed("bridge"));
+        emit BridgeUpdated($._bridge, newBridge);
+        $._bridge = newBridge;
+    }
+
+    /// @inheritdoc IRollupAdmin
+    function setSp1Verifier(address newVerifier) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setSp1Verifier(newVerifier);
+    }
+
+    function _setSp1Verifier(address newVerifier) internal {
+        require(newVerifier != address(0), ZeroAddressNotAllowed("sp1Verifier"));
+        RollupStorage storage $ = _getRollupStorage();
+        emit SP1VerifierUpdated($._sp1Verifier, newVerifier);
+        $._sp1Verifier = newVerifier;
+    }
+
+    /// @inheritdoc IRollupAdmin
+    function setProgramVKey(bytes32 newVKey) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setProgramVKey(newVKey);
+    }
+
+    function _setProgramVKey(bytes32 newVKey) internal {
+        require(newVKey != bytes32(0), ZeroValueNotAllowed("programVKey"));
+        RollupStorage storage $ = _getRollupStorage();
+        emit ProgramVKeyUpdated($._programVKey, newVKey);
+        $._programVKey = newVKey;
+    }
+
+    /// @inheritdoc IRollupAdmin
+    function enableNitroVerifier(address verifier) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _enableNitroVerifier(verifier);
+    }
+
+    function _enableNitroVerifier(address verifier) internal {
+        require(verifier != address(0), ZeroAddressNotAllowed("nitroVerifier"));
+        require(!_getRollupStorage()._enabledNitroVerifiers[verifier], NitroVerifierAlreadyEnabled(verifier));
+        _getRollupStorage()._enabledNitroVerifiers[verifier] = true;
+        emit NitroVerifierEnabled(verifier);
+    }
+
+    /// @inheritdoc IRollupAdmin
+    function disableNitroVerifier(address verifier) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _disableNitroVerifier(verifier);
+    }
+
+    function _disableNitroVerifier(address verifier) internal {
+        require(verifier != address(0), ZeroAddressNotAllowed("verifier"));
+        require(_getRollupStorage()._enabledNitroVerifiers[verifier], NitroVerifierNotEnabled(verifier));
+        _getRollupStorage()._enabledNitroVerifiers[verifier] = false;
+        emit NitroVerifierDisabled(verifier);
+    }
+
+    /// @inheritdoc IRollupAdmin
+    function setGasLeft(uint32 newGasLeft) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setGasLeft(newGasLeft);
+    }
+
+    function _setGasLeft(uint32 newGasLeft) internal {
+        RollupStorage storage $ = _getRollupStorage();
+        emit GasLeftUpdated($._gasLeft, newGasLeft);
+        $._gasLeft = newGasLeft;
+    }
+
+    /// @inheritdoc IRollupAdmin
+    function setAcceptDepositDeadline(uint32 newAcceptDepositDeadline) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setAcceptDepositDeadline(newAcceptDepositDeadline);
+    }
+
+    function _setAcceptDepositDeadline(uint32 newAcceptDepositDeadline) internal {
+        RollupStorage storage $ = _getRollupStorage();
+        require(newAcceptDepositDeadline != 0, ZeroValueNotAllowed("acceptDepositDeadline"));
+        emit AcceptDepositDeadlineUpdated($._acceptDepositDeadline, newAcceptDepositDeadline);
+        $._acceptDepositDeadline = newAcceptDepositDeadline;
+    }
+
+    /// @inheritdoc IRollupAdmin
+    function setSubmitBlobsWindow(uint64 newSubmitBlobsWindow) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setSubmitBlobsWindow(newSubmitBlobsWindow);
+    }
+
+    function _setSubmitBlobsWindow(uint64 newSubmitBlobsWindow) internal {
+        RollupStorage storage $ = _getRollupStorage();
+        if ($._preconfirmWindow != 0) {
+            require(newSubmitBlobsWindow < $._preconfirmWindow, InvalidWindowConfig("submitBlobsWindow >= preconfirmWindow"));
+        }
+        emit SubmitBlobsWindowUpdated($._submitBlobsWindow, newSubmitBlobsWindow);
+        $._submitBlobsWindow = newSubmitBlobsWindow;
+    }
+
+    /// @inheritdoc IRollupAdmin
+    function setPreconfirmWindow(uint64 newPreconfirmWindow) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setPreconfirmWindow(newPreconfirmWindow);
+    }
+
+    function _setPreconfirmWindow(uint64 newPreconfirmWindow) internal {
+        RollupStorage storage $ = _getRollupStorage();
+        if (newPreconfirmWindow != 0 && $._submitBlobsWindow != 0) {
+            require(newPreconfirmWindow > $._submitBlobsWindow, InvalidWindowConfig("preconfirmWindow <= submitBlobsWindow"));
+        }
+        emit PreconfirmWindowUpdated($._preconfirmWindow, newPreconfirmWindow);
+        $._preconfirmWindow = newPreconfirmWindow;
+    }
+
+    /// @inheritdoc IRollupAdmin
+    function setChallengeWindow(uint64 newChallengeWindow) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setChallengeWindow(newChallengeWindow);
+    }
+
+    function _setChallengeWindow(uint64 newChallengeWindow) internal {
+        RollupStorage storage $ = _getRollupStorage();
+        if ($._finalizationDelay != 0) {
+            require(newChallengeWindow < $._finalizationDelay, InvalidWindowConfig("challengeWindow >= finalizationDelay"));
+        }
+        emit ChallengeWindowUpdated($._challengeWindow, newChallengeWindow);
+        $._challengeWindow = newChallengeWindow;
+    }
+
+    /// @inheritdoc IRollupAdmin
+    function setFinalizationDelay(uint64 newFinalizationDelay) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setFinalizationDelay(newFinalizationDelay);
+    }
+
+    function _setFinalizationDelay(uint64 newFinalizationDelay) internal {
+        RollupStorage storage $ = _getRollupStorage();
+        require(newFinalizationDelay > $._challengeWindow, InvalidWindowConfig("finalizationDelay <= challengeWindow"));
+        emit FinalizationDelayUpdated($._finalizationDelay, newFinalizationDelay);
+        $._finalizationDelay = newFinalizationDelay;
+    }
+
+    /// @inheritdoc IRollupAdmin
+    function setChallengeDepositAmount(uint256 newChallengeDepositAmount) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setChallengeDepositAmount(newChallengeDepositAmount);
+    }
+
+    function _setChallengeDepositAmount(uint256 newChallengeDepositAmount) internal {
+        RollupStorage storage $ = _getRollupStorage();
+        emit ChallengeDepositAmountUpdated($._challengeDepositAmount, newChallengeDepositAmount);
+        $._challengeDepositAmount = newChallengeDepositAmount;
+    }
+
+    /// @inheritdoc IRollupAdmin
+    function setIncentiveFee(uint256 newIncentiveFee) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setIncentiveFee(newIncentiveFee);
+    }
+
+    function _setIncentiveFee(uint256 newIncentiveFee) internal {
+        RollupStorage storage $ = _getRollupStorage();
+        emit IncentiveFeeUpdated($._incentiveFee, newIncentiveFee);
+        $._incentiveFee = newIncentiveFee;
+    }
+
+    // ============ Internal helpers ============
 
     /// @inheritdoc UUPSUpgradeable
     function _authorizeUpgrade(address) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
 
-    // ========= Storage View Getters =========
-
-    function bridge() public view returns (address) {
-        return _getRollupStorage().bridge;
-    }
-
-    function verifier() public view returns (address) {
-        return _getRollupStorage().verifier;
-    }
-
-    function programVKey() public view returns (bytes32) {
-        return _getRollupStorage().programVKey;
-    }
-
-    function nextBatchIndex() public view returns (uint256) {
-        return _getRollupStorage().nextBatchIndex;
-    }
-
-    function approveBlockCount() public view returns (uint256) {
-        return _getRollupStorage().approveBlockCount;
-    }
-
-    function challengeDepositAmount() public view returns (uint256) {
-        return _getRollupStorage().challengeDepositAmount;
-    }
-
-    function incentiveFee() public view returns (uint256) {
-        return _getRollupStorage().incentiveFee;
-    }
-
-    function challengeBlockCount() public view returns (uint256) {
-        return _getRollupStorage().challengeBlockCount;
-    }
-
-    function batchSize() public view returns (uint256) {
-        return _getRollupStorage().batchSize;
-    }
-
-    function lastBlockHashInBatch(uint256 batchIndex) public view returns (bytes32) {
-        return _getRollupStorage().lastBlockHashInBatch[batchIndex];
-    }
-
-    function lastDepositAcceptedBlockNumber() public view returns (uint256) {
-        return _getRollupStorage().lastDepositAcceptedBlockNumber;
-    }
-
-    function acceptDepositDeadline() public view returns (uint256) {
-        return _getRollupStorage().acceptDepositDeadline;
-    }
-
-    function acceptedBatchHash(uint256 batchIndex) public view returns (bytes32) {
-        return _getRollupStorage().acceptedBatchHash[batchIndex];
-    }
-
-    function alreadyApprovedBatch(uint256 batchIndex) public view returns (bool) {
-        return _getRollupStorage().alreadyApprovedBatch[batchIndex];
-    }
-
-    function acceptedBlock(uint256 batchIndex) public view returns (uint256) {
-        return _getRollupStorage().acceptedBlock[batchIndex];
-    }
-
-    function provenBlockCommitment(bytes32 commitmentHash) public view returns (bool) {
-        return _getRollupStorage().provenBlockCommitment[commitmentHash];
-    }
-
-    function challengerDeposit(address challenger) public view returns (uint256) {
-        return _getRollupStorage().challengerDeposit[challenger];
-    }
-
-    function challengerReadyForWithdrawal(address challenger) public view returns (uint256) {
-        return _getRollupStorage().challengerReadyForWithdrawal[challenger];
-    }
-
-    function proverReadyForWithdrawal(address prover) public view returns (uint256) {
-        return _getRollupStorage().proverReadyForWithdrawal[prover];
-    }
-
-    function blockCommitmentChallenger(bytes32 commitmentHash) public view returns (address) {
-        return _getRollupStorage().blockCommitmentChallenger[commitmentHash];
-    }
-
-    function challengeDeadline(bytes32 commitmentHash) public view returns (uint256) {
-        return _getRollupStorage().challengeDeadline[commitmentHash];
-    }
-
-    function batchBlobHashes(uint256 batchIndex) public view returns (bytes32[] memory) {
-        return _getRollupStorage().batchBlobHashes[batchIndex];
-    }
-
-    function daCheck() public view returns (bool) {
-        return _getRollupStorage().daCheck;
-    }
-
-    function batchChallengedCommitments(uint256 batchIndex) public view returns (bytes32[] memory) {
-        return _getRollupStorage().batchChallengedCommitments[batchIndex];
-    }
-
-    function provenCommitmentInBatch(uint256 batchIndex) public view returns (bytes32[] memory) {
-        return _getRollupStorage().provenCommitmentInBatch[batchIndex];
-    }
-
     /**
-     * @notice Checks if a batch has been accepted.
-     * @param _batchIndex The index of the batch to check.
-     * @return True if the batch has been accepted (i.e., its index is less than the next expected batch index).
+     * @dev Returns a storage pointer to the ERC-7201 namespaced rollup storage slot.
      */
-    function acceptedBatch(uint256 _batchIndex) external view returns (bool) {
-        return _acceptedBatch(_batchIndex);
-    }
-
-    function _acceptedBatch(uint256 _batchIndex) internal view returns (bool) {
-        RollupStorage storage $ = _getRollupStorage();
-        return _batchIndex < $.nextBatchIndex;
-    }
-
-    /**
-     * @notice Returns the challenge queue.
-     */
-    function getChallengeQueue() public view returns (bytes32[] memory) {
-        RollupStorage storage $ = _getRollupStorage();
-        return $.challengeQueue;
-    }
-
-    /**
-     * @notice Checks if rollup is corrupted.
-     */
-    function rollupCorrupted() external view returns (bool) {
-        return _rollupCorrupted();
-    }
-
-    /**
-     * @dev Checks if the rollup is in a corrupted state.
-     * @return True if the earliest challenged batch has exceeded its challenge deadline without resolution.
-     *
-     * A rollup is considered corrupted when:
-     * - There is at least one challenged batch in the challenge queue, AND
-     * - The current block number has exceeded the challenge deadline for the first challenged batch in queue.
-     */
-    function _rollupCorrupted() internal view returns (bool) {
-        RollupStorage storage $ = _getRollupStorage();
-        if ($.challengeQueue.length == 0 || $.challengeQueueStart >= $.challengeQueue.length) {
-            return false;
-        }
-
-        bytes32 oldestChallenge = $.challengeQueue[$.challengeQueueStart];
-        if (oldestChallenge == bytes32(0)) return false;
-
-        return $.challengeDeadline[oldestChallenge] < block.number;
-    }
-
-    /**
-     * @notice Checks if a batch has been approved.
-     * @param _batchIndex The index of the batch to check.
-     * @return True if the batch has been approved, either because enough blocks have passed since acceptance,
-     *         or the batch has already been proven.
-     */
-    function approvedBatch(uint256 _batchIndex) external view returns (bool) {
-        return _approvedBatch(_batchIndex);
-    }
-
-    /**
-     * @dev Internal helper to determine whether a batch is approved.
-     * @param _batchIndex The index of the batch.
-     * @return True if:
-     *         - The batch has been accepted, AND
-     *         - Either `approveBlockCount` blocks have passed since the batch was accepted, OR
-     *           the batch has already been proven via zk-SNARK proof.
-     */
-    function _approvedBatch(uint256 _batchIndex) internal view returns (bool) {
-        RollupStorage storage $ = _getRollupStorage();
-
-        if (!_acceptedBatch(_batchIndex)) return false;
-        if ($.alreadyApprovedBatch[_batchIndex]) return true;
-
-        for (uint256 idx = _batchIndex; idx > 0 && !$.alreadyApprovedBatch[idx]; --idx) {
-            bytes32[] storage earlierChallenged = $.batchChallengedCommitments[idx];
-            for (uint256 j = 0; j < earlierChallenged.length; j++) {
-                if ($.blockCommitmentChallenger[earlierChallenged[j]] != address(0)) return false;
-            }
-        }
-
-        bytes32[] storage challengedCommitments = $.batchChallengedCommitments[_batchIndex];
-        for (uint256 j = 0; j < challengedCommitments.length; j++) {
-            if ($.blockCommitmentChallenger[challengedCommitments[j]] != address(0)) return false;
-        }
-
-        return block.number - $.acceptedBlock[_batchIndex] > $.approveBlockCount;
-    }
-
-    /**
-     * @dev Encodes all block commitment fields as public values for proof verification.
-     * @param _commitment The block commitment structure.
-     * @return The encoded public values.
-     */
-    function _getPublicValuesFromCommitment(BlockCommitment calldata _commitment) internal pure returns (bytes memory) {
-        bytes memory publicValues = new bytes(160); // 4 * 32 bytes + 4 * 8 bytes for length
-
-        publicValues[0] = 0x20;
-        publicValues[40] = 0x20;
-        publicValues[80] = 0x20;
-        publicValues[120] = 0x20;
-
-        for (uint256 i = 0; i < 32; i++) {
-            publicValues[8 + i] = _commitment.previousBlockHash[i];
-            publicValues[48 + i] = _commitment.blockHash[i];
-            publicValues[88 + i] = _commitment.withdrawalHash[i];
-            publicValues[128 + i] = _commitment.depositHash[i];
-        }
-
-        return publicValues;
-    }
-
-    /**
-     * @dev Encodes blob hash together with all block commitment fields as public values for SP1 proof verification.
-     * @param _commitment The block commitment structure.
-     * @param _blobHash The blob hash used for this block's data availability.
-     * @return The encoded public values.
-     */
-    function _getPublicValuesFromCommitmentAndBlob(
-        BlockCommitment calldata _commitment,
-        bytes32 _blobHash
-    ) internal pure returns (bytes memory) {
-        // Layout: blobHash || previousBlockHash || blockHash || withdrawalHash || depositHash
-        bytes memory publicValues = new bytes(160);
-
-        for (uint256 i = 0; i < 32; i++) {
-            publicValues[i] = _blobHash[i];
-            publicValues[32 + i] = _commitment.previousBlockHash[i];
-            publicValues[64 + i] = _commitment.blockHash[i];
-            publicValues[96 + i] = _commitment.withdrawalHash[i];
-            publicValues[128 + i] = _commitment.depositHash[i];
-        }
-
-        return publicValues;
-    }
-
-    // ========= Storage Setters =========
-
-    /**
-     * @notice Pauses the contract, preventing all non-pauser functions from being called
-     * @dev Only callable by the owner
-     */
-    function pause() external onlyRole(PAUSER_ROLE) {
-        _pause();
-    }
-
-    /**
-     * @notice Unpauses the contract, allowing all functions to be called again
-     * @dev Only callable by the pauser
-     */
-    function unpause() external onlyRole(PAUSER_ROLE) {
-        _unpause();
-    }
-
-    /**
-     * @notice Set a new program verification key.
-     * @param _programVKey The new program verification key.
-     */
-    function setProgramVKey(bytes32 _programVKey) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        RollupStorage storage $ = _getRollupStorage();
-        require(_programVKey != bytes32(0), ZeroValueNotAllowed("programVKey"));
-        emit ProgramVKeyUpdated($.programVKey, _programVKey);
-        $.programVKey = _programVKey;
-    }
-
-    /**
-     * @notice Toggle data availability check.
-     * @param isCheck Whether to enable the check.
-     */
-    function setDaCheck(bool isCheck) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        RollupStorage storage $ = _getRollupStorage();
-        emit DaCheckUpdated($.daCheck, isCheck);
-        $.daCheck = isCheck;
-    }
-
-    /**
-     * @notice Set a new bridge contract address.
-     * @param _bridge The new bridge address.
-     */
-    function setBridge(address _bridge) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        RollupStorage storage $ = _getRollupStorage();
-        require(_bridge != address(0), ZeroAddressNotAllowed("bridge"));
-        emit BridgeUpdated($.bridge, _bridge);
-        $.bridge = _bridge;
-    }
-
-    /**
-     * @notice Set a new verifier contract address.
-     * @param _newVerifier The address of the new verifier.
-     */
-    function setVerifier(address _newVerifier) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        require(_newVerifier != address(0), ZeroAddressNotAllowed("verifier"));
-        RollupStorage storage $ = _getRollupStorage();
-        emit VerifierUpdated($.verifier, _newVerifier);
-        $.verifier = _newVerifier;
-    }
-
-    // ========= Internal Helpers =========
-
-    /**
-     * @notice Calculates the hash of a blob for DA check.
-     * @param blob The blob data.
-     * @return hash The resulting blob hash.
-     */
-    function calculateBlobHash(bytes memory blob) public pure returns (bytes32) {
-        bytes32 hash = sha256(blob);
-
-        hash &= 0x00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff;
-        hash |= 0x0100000000000000000000000000000000000000000000000000000000000000;
-
-        return hash;
-    }
-
-    /**
-     * @notice Calculates the Merkle root of a batch of block commitments.
-     * @dev Each commitment is hashed using keccak256 and used as a leaf in the Merkle tree.
-     *      The resulting Merkle root represents the batch's integrity and can be used to verify inclusion.
-     * @param commitmentBatch An array of BlockCommitment structs representing the batch.
-     * @return The Merkle root (batch root) derived from the block commitments.
-     */
-    function calculateBatchRoot(BlockCommitment[] calldata commitmentBatch) public pure returns (bytes32) {
-        bytes memory leafs = new bytes(commitmentBatch.length * 32);
-
-        for (uint256 i = 0; i < commitmentBatch.length; ++i) {
-            bytes32 hash = keccak256(
-                abi.encodePacked(
-                    commitmentBatch[i].previousBlockHash,
-                    commitmentBatch[i].blockHash,
-                    commitmentBatch[i].withdrawalHash,
-                    commitmentBatch[i].depositHash
-                )
-            );
-            assembly {
-                mstore(add(add(leafs, 32), mul(i, 32)), hash)
-            }
-        }
-
-        return _calculateMerkleRoot(leafs);
-    }
-
-    function _calculateMerkleRoot(bytes memory _leafs) internal pure returns (bytes32) {
-        uint256 count = _leafs.length / 32;
-
-        require(count != 0, NoLeavesProvided());
-
-        while (count > 0) {
-            bytes32 hash;
-            bytes32 left;
-            bytes32 right;
-            for (uint256 i = 0; i < count / 2; i++) {
-                assembly {
-                    left := mload(add(add(_leafs, 32), mul(mul(i, 2), 32)))
-                    right := mload(add(add(_leafs, 32), mul(add(mul(i, 2), 1), 32)))
-                }
-                hash = _efficientHash(left, right);
-                assembly {
-                    mstore(add(add(_leafs, 32), mul(i, 32)), hash)
-                }
-            }
-
-            if (count % 2 == 1 && count > 1) {
-                assembly {
-                    left := mload(add(add(_leafs, 32), mul(sub(count, 1), 32)))
-                }
-                hash = _efficientHash(left, left);
-
-                assembly {
-                    mstore(add(add(_leafs, 32), mul(div(sub(count, 1), 2), 32)), hash)
-                }
-                count += 1;
-            }
-
-            count = count / 2;
-        }
-        bytes32 root;
-        assembly {
-            root := mload(add(_leafs, 32))
-        }
-
-        return root;
-    }
-
-    function _efficientHash(bytes32 a, bytes32 b) private pure returns (bytes32 value) {
-        assembly {
-            mstore(0x00, a)
-            mstore(0x20, b)
-            value := keccak256(0x00, 0x40)
-        }
-    }
-
-    /**
-     * @dev Returns the blob hash for the given blob index using the BLOBHASH opcode.
-     * @param index The blob index for the current transaction.
-     */
-    function _getBlobHash(uint256 index) internal view returns (bytes32 blobHash) {
-        assembly {
-            blobHash := blobhash(index)
-        }
-    }
-
     function _getRollupStorage() internal pure returns (RollupStorage storage $) {
         assembly {
             $.slot := ROLLUP_STORAGE_LOCATION
