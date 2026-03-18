@@ -51,15 +51,10 @@ abstract contract FluentBridge is FluentBridgeStorageLayout {
     }
 
     /**
-     * @notice Initializes the upgradeable bridge (replaces constructor when used behind a proxy).
-     * @param data Configuration data encoded as InitConfiguration struct.
-     * * - adminRole: Address authorized to perform admin actions.
-     * * - pauserRole: Address authorized to pause the contract.
-     * * - relayerRole: Address authorized to send authorized messages (a trusted relayer or bridge controller).
-     * * - otherBridge: Address of the bridge contract on the other chain.
+     * @notice Initialization happens in chain-specific implementations:
+     *         `L1FluentBridge.initialize(bytes,address)` and `L2FluentBridge.initialize(bytes,uint256,address)`.
      */
 
-    /// @inheritdoc IFluentBridge
     function sendMessage(address to, bytes calldata message) external payable whenNotPaused {
         require(to != address(this) && to != getOtherBridge(), InvalidDestinationAddress());
 
@@ -73,7 +68,7 @@ abstract contract FluentBridge is FluentBridgeStorageLayout {
         emit SentMessage(from, to, value, block.chainid, block.number, messageNonce, messageHash, message);
     }
 
-    /// @dev Virtual function that can be overridden by child contracts: L1_FluentBridge and L2_FluentBridge
+    /// @dev Virtual function that can be overridden by child contracts: L1FluentBridge and L2FluentBridge
     function _afterSendMessage(
         address _from,
         address _to,
@@ -84,7 +79,10 @@ abstract contract FluentBridge is FluentBridgeStorageLayout {
         bytes calldata _message
     ) internal virtual {}
 
-    /// @inheritdoc IFluentBridge
+    /**
+     * @notice If it's L2 -> we mint EHH internally, it's supposed to be on the bridge
+        on L1 -> we don't mint EHH, it's supposed to be on the bridge -> we unlock it
+     */
     function receiveMessage(
         address from,
         address to,
@@ -93,17 +91,20 @@ abstract contract FluentBridge is FluentBridgeStorageLayout {
         uint256 blockNumber,
         uint256 messageNonce,
         bytes calldata message
-    ) external onlyRole(RELAYER_ROLE) nonReentrant whenNotPaused {
+    ) external payable onlyRole(RELAYER_ROLE) nonReentrant whenNotPaused {
         // if it's L2 -> we mint EHH internally, it's supposed to be on the bridge
         // on L1 -> we don't mint EHH, it's supposed to be on the bridge -> we unlock it
         require(messageNonce == _takeNextReceivedNonce(), MessageReceivedOutOfOrder());
         bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, blockNumber, messageNonce, message));
         require(getReceivedMessage(messageHash) == IFluentBridge.MessageStatus.None, MessageAlreadyReceived());
 
-        _receiveMessage(from, to, value, chainId, blockNumber, messageNonce, message, messageHash);
+        _receiveMessage(getExecuteGasLimit(), from, to, value, chainId, blockNumber, messageNonce, message, messageHash);
     }
 
-    /// @inheritdoc IFluentBridge
+    /**
+     * @notice If it's L2 -> we mint ETH internally, it's supposed to be on the bridge
+        on L1 -> we don't mint ETH, it's supposed to be on the bridge -> we unlock it
+     */
     function receiveFailedMessage(
         address from,
         address to,
@@ -112,28 +113,29 @@ abstract contract FluentBridge is FluentBridgeStorageLayout {
         uint256 blockNumber,
         uint256 messageNonce,
         bytes calldata message
-    ) external nonReentrant whenNotPaused {
+    ) external payable nonReentrant whenNotPaused {
         require(msg.value == value, InvalidMessageValue(value, msg.value));
         bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, blockNumber, messageNonce, message));
         require(getReceivedMessage(messageHash) == IFluentBridge.MessageStatus.Failed, MessageNotFailed());
 
-        _receiveMessage(from, to, value, chainId, blockNumber, messageNonce, message, messageHash);
+        _receiveMessage(gasleft(), from, to, value, chainId, blockNumber, messageNonce, message, messageHash);
     }
 
-    /// @dev Virtual function that can be overridden by child contracts: L1_FluentBridge and L2_FluentBridge
+    /// @dev Virtual function that can be overridden by child contracts: L1FluentBridge and L2FluentBridge
     function _beforeReceiveMessage(
-        address _from,
-        address _to,
-        uint256 _value,
-        uint256 _chainId,
-        uint256 _blockNumber,
-        uint256 _messageNonce,
-        bytes calldata _message
+        address /* _from */,
+        address /* _to */,
+        uint256 /* _value */,
+        uint256 /* _chainId */,
+        uint256 /* _blockNumber */,
+        uint256 /* _messageNonce */,
+        bytes calldata /* _message */
     ) internal virtual returns (bool) {
         return true;
     }
 
     function _receiveMessage(
+        uint256 gasLimit,
         address from,
         address to,
         uint256 value,
@@ -150,7 +152,8 @@ abstract contract FluentBridge is FluentBridgeStorageLayout {
         if (!_beforeReceiveMessage(from, to, value, chainId, blockNumber, messageNonce, message)) return;
 
         $._nativeSender = from;
-        (bool success, bytes memory data) = ExcessivelySafeCall.excessivelySafeCall(to, value, message, 50_000);
+        // TODO(chillhacker): figure out why we need to truncate a returned data. Malicious call data might be less than 1024 bytes.
+        (bool success, bytes memory data) = ExcessivelySafeCall.excessivelySafeCall(to, value, message, gasLimit);
         $._nativeSender = address(0);
 
         $._receivedMessage[messageHash] = success ? IFluentBridge.MessageStatus.Success : IFluentBridge.MessageStatus.Failed;

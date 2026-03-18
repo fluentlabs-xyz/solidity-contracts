@@ -7,6 +7,9 @@ import {Upgrades, UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.s
 import {Options} from "openzeppelin-foundry-upgrades/Options.sol";
 
 import {FluentBridge} from "../../contracts/bridge/FluentBridge.sol";
+import {L1FluentBridge} from "../../contracts/bridge/L1/L1FluentBridge.sol";
+import {L2FluentBridge} from "../../contracts/bridge/L2/L2FluentBridge.sol";
+import {FluentBridgeStorageLayout} from "../../contracts/bridge/FluentBridgeStorageLayout.sol";
 import {PaymentGateway} from "../../contracts/gateways/PaymentGateway.sol";
 import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol";
 import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
@@ -55,21 +58,34 @@ abstract contract DeployLib is Script {
         address relayerRole,
         uint256 receiveMessageDeadline,
         address otherBridgePlaceholder,
-        address l1BlockOracle
+        address l1BlockOracle,
+        address rollup
     ) internal returns (address bridgeProxy, address bridgeImpl) {
-        FluentBridge.InitConfiguration memory params = FluentBridge.InitConfiguration({
+        // NOTE: This repo uses chain-specific bridge implementations (L1FluentBridge / L2FluentBridge).
+        // We deploy the appropriate implementation based on whether a receive deadline is configured.
+        FluentBridgeStorageLayout.InitConfiguration memory params = FluentBridgeStorageLayout.InitConfiguration({
             adminRole: adminRole,
             pauserRole: pauserRole,
             relayerRole: relayerRole,
-            rollup: address(0),
             otherBridge: otherBridgePlaceholder
         });
         bytes memory initData = abi.encode(params);
-        bytes memory initializerData = abi.encodeCall(FluentBridge.initialize, (initData));
-        bridgeProxy = Upgrades.deployUUPSProxy(FLUENT_BRIDGE, initializerData, _upgradesOpts());
-        bridgeImpl = Upgrades.getImplementationAddress(bridgeProxy);
-    }
 
+        _requireUnsafeUpgradeApproval();
+        if (receiveMessageDeadline == 0) {
+            require(rollup != address(0), "ROLLUP required when RECEIVE_MSG_DEADLINE == 0 (L1 deploy)");
+            L1FluentBridge impl = new L1FluentBridge();
+            bridgeImpl = address(impl);
+            bytes memory initializerData = abi.encodeCall(L1FluentBridge.initialize, (initData, rollup));
+            bridgeProxy = UnsafeUpgrades.deployUUPSProxy(bridgeImpl, initializerData);
+        } else {
+            require(l1BlockOracle != address(0), "L1_BLOCK_ORACLE required when RECEIVE_MSG_DEADLINE != 0");
+            L2FluentBridge impl = new L2FluentBridge();
+            bridgeImpl = address(impl);
+            bytes memory initializerData = abi.encodeCall(L2FluentBridge.initialize, (initData, receiveMessageDeadline, l1BlockOracle));
+            bridgeProxy = UnsafeUpgrades.deployUUPSProxy(bridgeImpl, initializerData);
+        }
+    }
     /// @dev Deploys ERC20 factory stack (L1): pegged impl, then factory UUPS proxy (factory creates beacon in initialize). Caller must be in broadcast.
     function _deployERC20TokenFactory(address initialOwner) internal returns (ERC20FactoryResult memory r) {
         ERC20PeggedToken peggedImpl = new ERC20PeggedToken();

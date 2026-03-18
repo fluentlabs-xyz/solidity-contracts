@@ -7,11 +7,11 @@ import {IFluentBridge} from "./IFluentBridge.sol";
 import {L2BlockHeader} from "../IRollupTypes.sol";
 
 /**
- * @title IL1_FluentBridge
+ * @title IL1FluentBridge
  * @author Fluent Labs
  * @dev Interface for the L1 bridge contract.
  */
-interface IL1_FluentBridge {
+interface IL1FluentBridge {
     // ---------------------------
     // ========= Errors ==========
     // ---------------------------
@@ -109,7 +109,7 @@ interface IL1_FluentBridge {
         bytes calldata _message,
         MerkleTree.MerkleProof calldata _withdrawal_proof,
         MerkleTree.MerkleProof calldata _block_proof
-    ) external payable;
+    ) external;
 
     /// @notice Processes a rollback with Merkle proofs (L1 only; refunds sender when message was not received on L2).
     /// @dev Can only be used on the **L1 side** to refund the original sender when a message was not successfully received on L2.
@@ -136,5 +136,5 @@ interface IL1_FluentBridge {
         bytes calldata _message,
         MerkleTree.MerkleProof calldata _rollback_proof,
         MerkleTree.MerkleProof calldata _block_proof
-    ) external payable;
+    ) external;
 }

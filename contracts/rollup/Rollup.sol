@@ -8,7 +8,7 @@ import {RollupStorageLayout} from "./RollupStorageLayout.sol";
 import {IRollupWrite, IRollupEmergency} from "../interfaces/IRollup.sol";
 import {IVerifier} from "../interfaces/IVerifier.sol";
 import {INitroEnclaveVerifier} from "../interfaces/INitroEnclaveVerifier.sol";
-import {IL1_FluentBridge} from "../interfaces/bridge/IL1_FluentBridge.sol";
+import {IL1FluentBridge} from "../interfaces/bridge/IL1FluentBridge.sol";
 import {L2BlockHeader, BatchStatus, BatchRecord, ChallengeRecord} from "../interfaces/IRollupTypes.sol";
 
 /**
@@ -74,6 +74,8 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
     function unpause() external onlyRole(EMERGENCY_ROLE) {
         _unpause();
     }
+
+    //  ============ Emergency ============
 
     /// @inheritdoc IRollupEmergency
     function forceRevertBatch(uint256 fromBatchIndex) external payable onlyRole(EMERGENCY_ROLE) nonReentrant {
@@ -510,7 +512,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         uint256 deadline = $._acceptDepositDeadline;
         bytes32[] memory depositIds = new bytes32[](header.depositCount);
         for (uint256 i = 0; i < header.depositCount; ++i) {
-            (bytes32 depositId, uint256 depositBlockNumber) = IL1_FluentBridge($._bridge).popSentMessage(); // wake-disable-line reentrancy
+            (bytes32 depositId, uint256 depositBlockNumber) = IL1FluentBridge($._bridge).popSentMessage(); // wake-disable-line reentrancy
             require(block.number <= depositBlockNumber + deadline, AcceptDepositDeadlineExceeded(depositBlockNumber + deadline, block.number));
             depositIds[i] = depositId;
         }

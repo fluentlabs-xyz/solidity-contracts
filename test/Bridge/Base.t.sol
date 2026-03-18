@@ -4,13 +4,14 @@ pragma solidity 0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-import {FluentBridge} from "../../contracts/bridge/FluentBridge.sol";
 import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {L1BlockOracle} from "../../contracts/oracle/L1BlockOracle.sol";
 import {PaymentGateway} from "../../contracts/gateways/PaymentGateway.sol";
 import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol";
 import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
 import {MockERC20Token} from "../../contracts/mocks/MockERC20.sol";
+import {L2FluentBridge} from "../../contracts/bridge/L2/L2FluentBridge.sol";
+import {FluentBridgeStorageLayout} from "../../contracts/bridge/FluentBridgeStorageLayout.sol";
 
 contract NoopReceiver {
     uint256 public calls;
@@ -43,7 +44,7 @@ abstract contract BridgeGatewayBase is Test {
     uint256 internal sourceChainId;
     uint256 internal nextSourceBlock = 1;
 
-    FluentBridge internal bridge;
+    IFluentBridge internal bridge;
     L1BlockOracle internal oracle;
     ERC20TokenFactory internal factory;
     PaymentGateway internal gateway;
@@ -57,19 +58,22 @@ abstract contract BridgeGatewayBase is Test {
     function _deployBridge(uint256 receiveMessageDeadline) internal {
         oracle = new L1BlockOracle();
 
-        FluentBridge impl = new FluentBridge();
-        FluentBridge.InitConfiguration memory params = FluentBridge.InitConfiguration({
+        L2FluentBridge impl = new L2FluentBridge();
+        FluentBridgeStorageLayout.InitConfiguration memory params = FluentBridgeStorageLayout.InitConfiguration({
             adminRole: admin,
             pauserRole: admin,
             relayerRole: relayer,
-            rollup: address(0),
-            receiveMessageDeadline: receiveMessageDeadline,
-            otherBridge: remoteBridge,
-            l1BlockOracle: receiveMessageDeadline == 0 ? address(0) : address(oracle)
+            otherBridge: remoteBridge
         });
 
-        ERC1967Proxy proxy = new ERC1967Proxy(address(impl), abi.encodeCall(FluentBridge.initialize, (abi.encode(params))));
-        bridge = FluentBridge(payable(address(proxy)));
+        // Gateway tests rely on the trusted relayer path (receiveMessage),
+        // which exists on L2 bridge and needs a deadline + oracle config.
+        uint256 deadline = receiveMessageDeadline == 0 ? 1 : receiveMessageDeadline;
+        ERC1967Proxy proxy = new ERC1967Proxy(
+            address(impl),
+            abi.encodeCall(L2FluentBridge.initialize, (abi.encode(params), deadline, address(oracle)))
+        );
+        bridge = IFluentBridge(payable(address(proxy)));
     }
 
     function _deployGatewayStack() internal {
@@ -117,7 +121,7 @@ abstract contract BridgeGatewayBase is Test {
         uint256 value,
         bytes memory message
     ) internal returns (bytes32 messageHash, uint256 nonce, uint256 sourceBlock) {
-        nonce = bridge.receivedNonce();
+        nonce = bridge.getReceivedNonce();
         sourceBlock = nextSourceBlock++;
         messageHash = _bridgeMessageHash(from, to, value, sourceChainId, sourceBlock, nonce, message);
 

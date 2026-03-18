@@ -3,12 +3,12 @@ pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
 
-import {FluentBridge} from "../../contracts/bridge/FluentBridge.sol";
+import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {PaymentGateway} from "../../contracts/gateways/PaymentGateway.sol";
 import {MockERC20Token} from "../../contracts/mocks/MockERC20.sol";
 
 contract BridgeGatewayHandler is Test {
-    FluentBridge internal immutable bridge;
+    IFluentBridge internal immutable bridge;
     PaymentGateway internal immutable gateway;
     MockERC20Token internal immutable originToken;
     address internal immutable relayer;
@@ -19,7 +19,7 @@ contract BridgeGatewayHandler is Test {
     uint256 internal nextSourceBlock = 1;
 
     constructor(
-        FluentBridge _bridge,
+        IFluentBridge _bridge,
         PaymentGateway _gateway,
         MockERC20Token _originToken,
         address _relayer,
@@ -65,7 +65,7 @@ contract BridgeGatewayHandler is Test {
             (address(originToken), predictedPegged, user, recipient, amount, tokenMetadata)
         );
 
-        uint256 nonce = bridge.receivedNonce();
+        uint256 nonce = bridge.getReceivedNonce();
         uint256 blockNumber = nextSourceBlock++;
         vm.prank(relayer);
         bridge.receiveMessage(remoteGateway, address(gateway), 0, sourceChainId, blockNumber, nonce, message);

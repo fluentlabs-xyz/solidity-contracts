@@ -4,34 +4,41 @@ pragma solidity 0.8.30;
 import {DeployLib} from "./DeployLib.s.sol";
 
 /**
- * @notice Deployment script for the FluentBridge contract behind an ERC1967 proxy.
+ * @notice Deploy only the L1 FluentBridge (UUPS proxy + implementation).
  * @dev Environment:
- * - INITIAL_OWNER (address): fallback admin if ADMIN_ROLE is not set
- * - ADMIN_ROLE (address): DEFAULT_ADMIN_ROLE; defaults to INITIAL_OWNER
- * - PAUSER_ROLE (address): pauser; defaults to ADMIN_ROLE/INITIAL_OWNER
- * - RELAYER_ROLE (address): relayer; defaults to BRIDGE_AUTHORITY/ADMIN_ROLE/INITIAL_OWNER
- * - BRIDGE_AUTHORITY (address): legacy fallback for RELAYER_ROLE
- * - RECEIVE_MSG_DEADLINE (uint256): deadline for receiving messages; default 0
- * - OTHER_BRIDGE_PLACEHOLDER (address): placeholder for the other bridge; default 0x1
- * - L1_BLOCK_ORACLE (address): L1 block oracle; default 0
- * - OUTPUT_PATH (string): path to write deployment JSON; default empty
+ * - INITIAL_OWNER (address, required) OR ADMIN_ROLE (address, required)
+ * - ADMIN_ROLE (address, optional; defaults to INITIAL_OWNER)
+ * - PAUSER_ROLE (address, optional; defaults to ADMIN_ROLE)
+ * - RELAYER_ROLE (address, optional; defaults to BRIDGE_AUTHORITY/ADMIN_ROLE)
+ * - BRIDGE_AUTHORITY (address, optional; legacy fallback for RELAYER_ROLE)
+ * - OTHER_BRIDGE_PLACEHOLDER (address, optional; default 0x1)
+ * - ROLLUP (address, required) (or ROLLUP_ADDRESS as fallback)
+ * - OUTPUT_PATH (string, optional; default empty)
+ * - ALLOW_UNSAFE_UPGRADES=true (required)
  */
-contract DeployFluentBridge is DeployLib {
+contract DeployL1FluentBridge is DeployLib {
     function run() external returns (address bridgeProxy) {
         address initialOwner = vm.envExists("INITIAL_OWNER") ? vm.envAddress("INITIAL_OWNER") : address(0);
         address adminRole = vm.envOr("ADMIN_ROLE", initialOwner);
+        require(adminRole != address(0), "ADMIN_ROLE/INITIAL_OWNER required");
+
         address pauserRole = vm.envOr("PAUSER_ROLE", adminRole);
         address relayerRole = vm.envOr("RELAYER_ROLE", vm.envOr("BRIDGE_AUTHORITY", adminRole));
-        uint256 receiveMessageDeadline = vm.envOr("RECEIVE_MSG_DEADLINE", uint256(0));
         address otherBridgePlaceholder = vm.envOr("OTHER_BRIDGE_PLACEHOLDER", address(0x1));
-        address l1BlockOracle = vm.envOr("L1_BLOCK_ORACLE", address(0));
+        address l1BlockOracle = address(0);
         address rollup = vm.envOr("ROLLUP", vm.envOr("ROLLUP_ADDRESS", address(0)));
         string memory outputPath = vm.envOr("OUTPUT_PATH", string(""));
 
         vm.startBroadcast();
         address bridgeImpl;
         (bridgeProxy, bridgeImpl) = _deployFluentBridge(
-            adminRole, pauserRole, relayerRole, receiveMessageDeadline, otherBridgePlaceholder, l1BlockOracle, rollup
+            adminRole,
+            pauserRole,
+            relayerRole,
+            0,
+            otherBridgePlaceholder,
+            l1BlockOracle,
+            rollup
         );
         vm.stopBroadcast();
 
@@ -42,3 +49,4 @@ contract DeployFluentBridge is DeployLib {
         }
     }
 }
+

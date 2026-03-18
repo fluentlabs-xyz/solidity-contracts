@@ -45,12 +45,10 @@ contract FluentBridgeStorageLayout is
      * @notice Default gas limit for message execution.
      */
     uint256 public constant DEFAULT_EXECUTE_GAS_LIMIT = 100_000;
-
     /**
      * @notice Role authorized to pause the contract.
      */
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
-
     /**
      * @notice Role authorized to send authorized messages (a trusted relayer or bridge controller).
      */
@@ -138,45 +136,37 @@ contract FluentBridgeStorageLayout is
 
     // ============ IFluentBridgeRead ============
 
-    /// @inheritdoc IFluentBridgeRead
     function getNonce() public view returns (uint256) {
         return _getFluentBridgeStorage()._nonce;
     }
 
-    /// @inheritdoc IFluentBridgeRead
     function getReceivedNonce() public view returns (uint256) {
         return _getFluentBridgeStorage()._receivedNonce;
     }
 
-    /// @inheritdoc IFluentBridgeRead
     function getNativeSender() public view returns (address) {
         return _getFluentBridgeStorage()._nativeSender;
     }
 
-    /// @inheritdoc IFluentBridgeRead
     function getOtherBridge() public view returns (address) {
         return _getFluentBridgeStorage()._otherBridge;
     }
 
-    /// @inheritdoc IFluentBridgeRead
     function getReceivedMessage(bytes32 key) public view returns (IFluentBridge.MessageStatus) {
         return _getFluentBridgeStorage()._receivedMessage[key];
     }
 
-    /// @inheritdoc IFluentBridgeRead
     function getSentMessageQueueSize() public view returns (uint256) {
         FluentBridgeStorage storage $ = _getFluentBridgeStorage();
         return Queue.size($._sentMessageQueue);
     }
 
-    /// @inheritdoc IFluentBridgeRead
     function getExecuteGasLimit() public view returns (uint256) {
         return _getFluentBridgeStorage()._executeGasLimit;
     }
 
     // ============ IFluentBridgeAdmin ============
 
-    /// @inheritdoc IFluentBridgeAdmin
     function setOtherBridge(address newOtherBridge) external onlyRole(DEFAULT_ADMIN_ROLE) {
         _setOtherBridge(newOtherBridge);
     }
@@ -187,7 +177,6 @@ contract FluentBridgeStorageLayout is
         _getFluentBridgeStorage()._otherBridge = newOtherBridge;
     }
 
-    /// @inheritdoc IFluentBridgeAdmin
     function setRelayerRole(address newRelayer) external onlyRole(DEFAULT_ADMIN_ROLE) {
         _setRelayerRole(newRelayer);
     }
@@ -197,7 +186,6 @@ contract FluentBridgeStorageLayout is
         _grantRole(RELAYER_ROLE, newRelayer);
     }
 
-    /// @inheritdoc IFluentBridgeAdmin
     function setExecuteGasLimit(uint256 newExecuteGasLimit) external onlyRole(DEFAULT_ADMIN_ROLE) {
         _setExecuteGasLimit(newExecuteGasLimit);
     }

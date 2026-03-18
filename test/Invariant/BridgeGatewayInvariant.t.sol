@@ -19,7 +19,7 @@ contract BridgeGatewayInvariantTest is StdInvariant, BridgeGatewayBase {
     }
 
     function invariant_nativeSenderIsAlwaysClearedOutsideExecution() public view {
-        assertEq(bridge.nativeSender(), address(0));
+        assertEq(bridge.getNativeSender(), address(0));
     }
 
     function invariant_registeredPeggedTokenMappingRemainsConsistent() public view {

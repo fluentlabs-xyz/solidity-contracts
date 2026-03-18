@@ -13,7 +13,7 @@ contract FluentBridgeTest is BridgeGatewayBase {
     }
 
     function test_receiveMessage_requiresRelayerToFundNativeValue() public {
-        uint256 nonce = bridge.receivedNonce();
+        uint256 nonce = bridge.getReceivedNonce();
         uint256 sourceBlock = nextSourceBlock++;
 
         vm.prank(relayer);
@@ -27,7 +27,7 @@ contract FluentBridgeTest is BridgeGatewayBase {
         (bytes32 messageHash, , ) = _relayMessage(remoteBridge, recipient, amount, "");
 
         assertEq(recipient.balance - balanceBefore, amount);
-        assertEq(uint256(bridge.receivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Success));
+        assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Success));
     }
 
     function test_receiveMessage_afterDeadline_marksFailureWithoutExecutingTarget() public {
@@ -38,7 +38,7 @@ contract FluentBridgeTest is BridgeGatewayBase {
         (bytes32 messageHash, , ) = _relayMessage(remoteBridge, address(receiver), 0, payload);
 
         assertEq(receiver.calls(), 0);
-        assertEq(uint256(bridge.receivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
+        assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
     }
 
     function test_receiveFailedMessage_retriesPreviouslyFailedCall() public {
@@ -46,10 +46,10 @@ contract FluentBridgeTest is BridgeGatewayBase {
         bytes memory payload = abi.encodeCall(RevertingReceiver.fail, ());
 
         (bytes32 messageHash, uint256 nonce, uint256 sourceBlock) = _relayMessage(remoteBridge, address(receiver), 0, payload);
-        assertEq(uint256(bridge.receivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
+        assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
 
         _retryFailedMessage(remoteBridge, address(receiver), 0, sourceBlock, nonce, payload);
-        assertEq(uint256(bridge.receivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
+        assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
     }
 
     function testFuzz_receiveMessage_transfersExactRelayedValue(uint96 rawAmount) public {

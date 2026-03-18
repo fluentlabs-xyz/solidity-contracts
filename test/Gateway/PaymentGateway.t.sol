@@ -44,7 +44,7 @@ contract PaymentGatewayTest is BridgeGatewayBase {
         bytes memory message = abi.encodeCall(PaymentGateway.receiveNativeTokens, (user, address(rejector), 1 ether));
         (bytes32 messageHash, , ) = _relayMessage(remoteGateway, address(gateway), 1 ether, message);
 
-        assertEq(uint256(bridge.receivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
+        assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
     }
 
     function test_sendTokens_peggedTokenPath_burnsSupply() public {

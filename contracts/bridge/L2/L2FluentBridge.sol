@@ -5,24 +5,22 @@ import {FluentBridge} from "../FluentBridge.sol";
 
 import {IFluentBridge} from "../../interfaces/bridge/IFluentBridge.sol";
 import {IL1BlockOracle} from "../../interfaces/IL1BlockOracle.sol";
-import {IL2_FluentBridge} from "../../interfaces/bridge/IL2_FluentBridge.sol";
+import {IL2FluentBridge} from "../../interfaces/bridge/IL2FluentBridge.sol";
 
 /**
- * @title L2_FluentBridge
+ * @title L2FluentBridge
  * @author Fluent Labs
- * @dev L2 bridge contract for the Fluent bridge.
+ * @dev L2 bridge contract lives on Fluent chain.
  */
-contract L2_FluentBridge is FluentBridge, IL2_FluentBridge {
+contract L2FluentBridge is FluentBridge, IL2FluentBridge {
     /**
      * @notice Number of blocks after which a message becomes eligible for rollback.
      */
     uint256 internal _receiveMessageDeadline;
-
     /**
      * @notice Address of the L1 block oracle used for rollback deadline checks.
      */
     IL1BlockOracle internal _l1BlockOracle;
-
     /**
      * @notice Gap for future storage.
      */
@@ -40,6 +38,11 @@ contract L2_FluentBridge is FluentBridge, IL2_FluentBridge {
         _setL1BlockOracle(newL1BlockOracle);
     }
 
+    // Relayer tries to run receiveMessage -> gasLimit | impossible to execute message
+    // ReceiveFailedMessage -> 10_000_000 -> success
+    // impossible to execute a message -> waits for _receiveMessageDeadline -> ReceiveFailedMessage -> Emit RollbackMessage
+
+    /// L1 -> L2 rollback
     function _beforeReceiveMessage(
         address _from,
         address _to,
@@ -54,7 +57,7 @@ contract L2_FluentBridge is FluentBridge, IL2_FluentBridge {
         bytes32 messageHash = keccak256(_encodeMessage(_from, _to, _value, _chainId, _blockNumber, _messageNonce, _message));
         if (l1BlockNumber >= _blockNumber && l1BlockNumber - _blockNumber >= _receiveMessageDeadline) {
             _getFluentBridgeStorage()._receivedMessage[messageHash] = IFluentBridge.MessageStatus.Failed;
-            emit RollbackMessage(messageHash, block.number);
+            emit RollbackMessage(messageHash, block.number); // -> L2BlockHeader.withdrawalRoot
             emit ReceivedMessage(messageHash, false, "");
             return false;
         }
@@ -65,7 +68,7 @@ contract L2_FluentBridge is FluentBridge, IL2_FluentBridge {
         return address(_l1BlockOracle);
     }
 
-    /// @inheritdoc IL2_FluentBridge
+    /// @inheritdoc IL2FluentBridge
     function getReceiveMessageDeadline() public view returns (uint256) {
         return _receiveMessageDeadline;
     }

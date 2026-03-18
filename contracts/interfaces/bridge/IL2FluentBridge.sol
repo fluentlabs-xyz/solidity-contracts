@@ -2,11 +2,11 @@
 pragma solidity ^0.8.0;
 
 /**
- * @title IL2_FluentBridge
+ * @title IL2FluentBridge
  * @author Fluent Labs
  * @dev Interface for the L2 bridge contract.
  */
-interface IL2_FluentBridge {
+interface IL2FluentBridge {
     // ========= Errors ==========
 
     // ========== Events ==========
