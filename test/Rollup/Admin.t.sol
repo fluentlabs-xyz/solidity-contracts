@@ -56,6 +56,12 @@ contract AdminTest is RollupBase {
         rollup.setProgramVKey(bytes32(0));
     }
 
+    function test_revert_setGasLeft_zeroValue() public {
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, bytes32("gasLeft")));
+        rollup.setGasLeft(0);
+    }
+
     function test_revert_enableNitroVerifier_zeroAddress() public {
         vm.prank(admin);
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroAddressNotAllowed.selector, bytes32("nitroVerifier")));
@@ -110,7 +116,9 @@ contract AdminTest is RollupBase {
         });
         Rollup impl = new Rollup();
         vm.expectRevert(
-            abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "challengeWindow must be less than finalizationDelay")
+            abi.encodeWithSelector(
+                IRollupErrors.InvalidWindowConfig.selector, "challengeWindow must be less than finalizationDelay"
+            )
         );
         new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
     }
@@ -138,7 +146,11 @@ contract AdminTest is RollupBase {
             preconfirmWindow: 50
         });
         Rollup impl = new Rollup();
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "preconfirmWindow must exceed submitBlobsWindow"));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IRollupErrors.InvalidWindowConfig.selector, "preconfirmWindow must exceed submitBlobsWindow"
+            )
+        );
         new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
     }
 }

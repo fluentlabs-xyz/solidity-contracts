@@ -30,6 +30,9 @@ interface IGatewayErrors {
     /// @dev selector: 0x81c609f7
     error TokenAddressZero();
 
+    /// @dev Thrown when an admin mapping update targets a token that has not been registered as pegged.
+    error UnknownPeggedToken();
+
     /// @dev Thrown when msg.value does not match expected native amount.
     /// @dev selector: 0x44e8bd2c
     error InvalidNativeAmount();
@@ -57,7 +60,9 @@ interface IGatewayEvents {
     event ReceivedTokens(address indexed source, address indexed target, uint256 amount);
 
     /// @dev Emitted when the token mapping is updated.
-    event UpdateTokenMapping(address indexed _peggedToken, address indexed _oldOriginToken, address indexed _newOriginToken);
+    event UpdateTokenMapping(
+        address indexed _peggedToken, address indexed _oldOriginToken, address indexed _newOriginToken
+    );
 
     /// @dev Emitted when the other side is updated.
     event OtherSideUpdated(

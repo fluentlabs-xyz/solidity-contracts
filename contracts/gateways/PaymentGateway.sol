@@ -11,7 +11,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
-import {FluentBridge} from "../FluentBridge.sol";
+import {FluentBridge} from "../bridge/FluentBridge.sol";
 import {ERC20PeggedToken} from "../tokens/ERC20PeggedToken.sol";
 
 import {IGateway} from "../interfaces/IGateway.sol";
@@ -67,6 +67,7 @@ contract PaymentGateway is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
 
     /// @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.PaymentGatewayStorage")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant PAYMENT_GATEWAY_STORAGE_LOCATION = 0xcaa08bf2435fec1ef38988227447dbd9b56d025c40329ce35d36c83ed0b9cf00;
+
     /// @dev returns the storage pointer for the PaymentGatewayStorage struct.
     function _getPaymentGatewayStorage() private pure returns (PaymentGatewayStorage storage $) {
         assembly {
@@ -162,7 +163,7 @@ contract PaymentGateway is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
         bytes calldata _tokenMetadata
     ) external payable onlyBridgeSender nonReentrant {
         PaymentGatewayStorage storage $ = _getPaymentGatewayStorage();
-        require(FluentBridge(msg.sender).nativeSender() == $.otherSide, MessageFromWrongGateway());
+        require(FluentBridge(msg.sender).getNativeSender() == $.otherSide, MessageFromWrongGateway());
         require(msg.value == 0, MessageValueMustBeZero());
         require(_originToken != address(0), OriginTokenZero());
         require(_to != address(0), InvalidRecipient());
@@ -187,7 +188,7 @@ contract PaymentGateway is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
         address _to,
         uint256 _amount
     ) external payable onlyBridgeSender nonReentrant {
-        require(FluentBridge(msg.sender).nativeSender() == _getPaymentGatewayStorage().otherSide, MessageFromWrongGateway());
+        require(FluentBridge(msg.sender).getNativeSender() == _getPaymentGatewayStorage().otherSide, MessageFromWrongGateway());
         require(msg.value == 0, MessageValueMustBeZero());
         require(_to != address(0), InvalidRecipient());
 
@@ -198,7 +199,7 @@ contract PaymentGateway is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
 
     /// @inheritdoc IGateway
     function receiveNativeTokens(address _from, address _to, uint256 _amount) external payable onlyBridgeSender nonReentrant {
-        require(FluentBridge(msg.sender).nativeSender() == _getPaymentGatewayStorage().otherSide, MessageFromWrongGateway());
+        require(FluentBridge(msg.sender).getNativeSender() == _getPaymentGatewayStorage().otherSide, MessageFromWrongGateway());
         require(msg.value == _amount, InvalidNativeAmount());
         require(_to != address(0), InvalidRecipient());
 
@@ -536,6 +537,7 @@ contract PaymentGateway is Initializable, UUPSUpgradeable, Ownable2StepUpgradeab
         require(_peggedToken != address(0), TokenAddressZero());
         PaymentGatewayStorage storage $ = _getPaymentGatewayStorage();
         address _oldOriginToken = $.tokenMapping[_peggedToken];
+        require(_oldOriginToken != address(0), UnknownPeggedToken());
         $.tokenMapping[_peggedToken] = _originToken;
         emit UpdateTokenMapping(_peggedToken, _oldOriginToken, _originToken);
     }

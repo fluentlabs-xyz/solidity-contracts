@@ -70,7 +70,6 @@ contract RollupStorageLayout is
 
     // ============ Storage ============
 
-    /// @dev Storage layout — WARNING: breaking change, incompatible with previous layout.
     struct RollupStorage {
         // ─── Slot 1: address(20) + uint96(12) = 32 ───
         /// @dev L1 FluentBridge contract; source of deposit messages consumed during batch acceptance
@@ -113,7 +112,7 @@ contract RollupStorageLayout is
         // ─── Slot 7: uint64(8) + uint64(8) + uint32(4) + uint32(4) = 24 bytes ───
         /// @dev highest batch index with Finalized status; enforces sequential finalization
         uint64 _lastFinalizedBatchIndex;
-        /// @dev TODO: remove if unused or document purpose — not currently written
+        /// @dev Reserved for future deposit-tracking upgrades. Kept in storage to avoid layout churn.
         uint64 _lastDepositAcceptedBlockNumber;
         /// @dev minimum gasleft() required per block header iteration in acceptNextBatch
         uint32 _gasLeft;
@@ -427,6 +426,7 @@ contract RollupStorageLayout is
 
     function _setGasLeft(uint32 newGasLeft) internal {
         RollupStorage storage $ = _getRollupStorage();
+        require(newGasLeft != 0, ZeroValueNotAllowed("gasLeft"));
         emit GasLeftUpdated($._gasLeft, newGasLeft);
         $._gasLeft = newGasLeft;
     }

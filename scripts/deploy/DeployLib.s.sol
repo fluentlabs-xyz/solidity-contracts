@@ -6,7 +6,7 @@ import {Script} from "forge-std/Script.sol";
 import {Upgrades, UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {Options} from "openzeppelin-foundry-upgrades/Options.sol";
 
-import {FluentBridge} from "../../contracts/FluentBridge.sol";
+import {FluentBridge} from "../../contracts/bridge/FluentBridge.sol";
 import {PaymentGateway} from "../../contracts/gateways/PaymentGateway.sol";
 import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol";
 import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
@@ -16,6 +16,8 @@ import {MockERC20Token} from "../../contracts/mocks/MockERC20.sol";
 /**
  * @notice Shared deployment logic for L1/L2 stacks. No broadcast; caller must vm.startBroadcast/stopBroadcast.
  * @dev Uses Upgrades.deployUUPSProxy(contractName, ...) with unsafeSkipAllChecks where vm.getCode(contractName) works.
+ *      All unsafe upgrade flows require ALLOW_UNSAFE_UPGRADES=true so operators cannot
+ *      accidentally skip storage and upgrade safety validations during deployment.
  *      UniversalTokenFactory uses UniversalTokenSDK (unlinked artifact); it uses UnsafeUpgrades.deployUUPSProxy(impl, ...) with new Impl().
  */
 abstract contract DeployLib is Script {
@@ -37,8 +39,13 @@ abstract contract DeployLib is Script {
     string constant ERC20_TOKEN_FACTORY = "ERC20TokenFactory.sol:ERC20TokenFactory";
     string constant UNIVERSAL_TOKEN_FACTORY = "UniversalTokenFactory.sol:UniversalTokenFactory";
 
-    function _upgradesOpts() internal pure returns (Options memory opts) {
+    function _upgradesOpts() internal view returns (Options memory opts) {
+        _requireUnsafeUpgradeApproval();
         opts.unsafeSkipAllChecks = true;
+    }
+
+    function _requireUnsafeUpgradeApproval() internal view {
+        require(vm.envOr("ALLOW_UNSAFE_UPGRADES", false), "ALLOW_UNSAFE_UPGRADES=true required");
     }
 
     /// @dev Deploys FluentBridge via UUPS proxy. Caller must be in broadcast. Returns (proxy, impl).
@@ -55,9 +62,7 @@ abstract contract DeployLib is Script {
             pauserRole: pauserRole,
             relayerRole: relayerRole,
             rollup: address(0),
-            receiveMessageDeadline: receiveMessageDeadline,
-            otherBridge: otherBridgePlaceholder,
-            l1BlockOracle: l1BlockOracle
+            otherBridge: otherBridgePlaceholder
         });
         bytes memory initData = abi.encode(params);
         bytes memory initializerData = abi.encodeCall(FluentBridge.initialize, (initData));
@@ -81,6 +86,7 @@ abstract contract DeployLib is Script {
         address bridgeAddress,
         address factoryAddress
     ) internal returns (PaymentGatewayResult memory r) {
+        _requireUnsafeUpgradeApproval();
         bytes memory initializerData = abi.encodeCall(PaymentGateway.initialize, (initialOwner, bridgeAddress, factoryAddress));
         PaymentGateway impl = new PaymentGateway();
         r.gatewayImpl = address(impl);
@@ -89,6 +95,7 @@ abstract contract DeployLib is Script {
 
     /// @dev Deploys UniversalTokenFactory via UUPS proxy. Uses UnsafeUpgrades because artifact is unlinked (UniversalTokenSDK). Caller must be in broadcast.
     function _deployUniversalTokenFactory(address initialOwner) internal returns (address factoryProxy, address factoryImpl) {
+        _requireUnsafeUpgradeApproval();
         UniversalTokenFactory impl = new UniversalTokenFactory();
         factoryImpl = address(impl);
         bytes memory initializerData = abi.encodeCall(UniversalTokenFactory.initialize, (initialOwner));

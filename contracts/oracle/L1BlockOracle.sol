@@ -18,6 +18,9 @@ contract L1BlockOracle is Ownable, IL1BlockOracle {
 
     /// @inheritdoc IL1BlockOracle
     function updateL1BlockNumber(uint256 _blockNumber) external override onlyOwner {
+        if (_blockNumber < _l1BlockNumber) {
+            revert IL1BlockOracle.L1BlockNumberDecreased(_l1BlockNumber, _blockNumber);
+        }
         _l1BlockNumber = _blockNumber;
         emit L1BlockNumberUpdated(_blockNumber);
     }

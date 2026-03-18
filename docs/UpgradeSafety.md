@@ -1,0 +1,39 @@
+# Upgrade Safety
+
+## Current Upgrade Surfaces
+
+- `FluentBridge.sol`: UUPS proxy, authorized by `DEFAULT_ADMIN_ROLE`.
+- `PaymentGateway.sol`: UUPS proxy, authorized by `owner()`.
+- `GenericTokenFactory.sol` descendants: UUPS proxies, authorized by `owner()`.
+- `ERC20TokenFactory` beacon: owner can upgrade all deployed `ERC20PeggedToken` proxies through `upgradeTo`.
+
+## Required Procedure
+
+1. Produce a storage-layout diff before any proxy or beacon upgrade.
+2. Deploy the new implementation without broadcasting the upgrade transaction.
+3. Run the full test suite, including bridge/gateway and rollup regression tests, against the candidate implementation.
+4. Verify initializer and role assumptions remain unchanged.
+5. Broadcast the upgrade from the expected admin account or multisig.
+6. Record the implementation address, transaction hash, and storage-layout evidence in the deployment artifacts.
+
+## Unsafe Upgrade Tooling
+
+- `scripts/deploy/DeployLib.s.sol`
+- `scripts/upgrade/UpgradeFluentBridge.s.sol`
+- `scripts/upgrade/UpgradePaymentGateway.s.sol`
+
+These scripts still use unsafe upgrade helpers in some paths. They now require `ALLOW_UNSAFE_UPGRADES=true` to make operator intent explicit, but they should still be treated as high-risk operational tools.
+
+## Deployment Checks
+
+- Confirm `otherBridge`, remote gateway, remote factory, and chain ID values before linking stacks.
+- Confirm whether the destination uses beacon-based pegged tokens or universal-token deployment.
+- For L2 deployments with receive deadlines, confirm `l1BlockOracle` is set and already operational.
+- For rollup deployments, confirm verifier addresses, program VKey, genesis hash, and timing windows match the intended environment.
+
+## Auditor Evidence Checklist
+
+- Storage layout outputs from the build used for deployment.
+- Broadcast artifacts for proxy deployment and upgrade transactions.
+- Deployment JSON and human-readable address docs updated together.
+- Test results covering upgrade guards, role restrictions, and message-path regressions.

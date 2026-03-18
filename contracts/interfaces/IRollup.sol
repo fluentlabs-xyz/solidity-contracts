@@ -6,7 +6,7 @@ import {MerkleTree} from "../libraries/MerkleTree.sol";
 
 /**
  * @title IRollupErrors
- * @dev Custom errors for the rollup contract. Prefer these over require strings.
+ * @dev Custom errors for the rollup contract.
  */
 interface IRollupErrors {
     /**
