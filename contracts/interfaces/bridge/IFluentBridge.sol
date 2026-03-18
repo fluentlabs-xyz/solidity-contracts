@@ -76,10 +76,6 @@ interface IFluentBridgeErrors {
      * @notice Zero value supplied for a required configuration field.
      */
     error ZeroValueNotAllowed(string field);
-    /**
-     * @notice msg.value does not match the message's native value (receive: caller must supply value; rollback: must be 0).
-     */
-    error InvalidMessageValue(uint256 expected, uint256 provided);
 }
 
 interface IFluentBridgeEvents {

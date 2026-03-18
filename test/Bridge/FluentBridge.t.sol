@@ -12,15 +12,6 @@ contract FluentBridgeTest is BridgeGatewayBase {
         _deployBridge(RECEIVE_DEADLINE);
     }
 
-    function test_receiveMessage_requiresRelayerToFundNativeValue() public {
-        uint256 nonce = bridge.getReceivedNonce();
-        uint256 sourceBlock = nextSourceBlock++;
-
-        vm.prank(relayer);
-        vm.expectRevert(abi.encodeWithSelector(bytes4(keccak256("InvalidMessageValue(uint256,uint256)")), 1 ether, 0));
-        bridge.receiveMessage(remoteBridge, recipient, 1 ether, sourceChainId, sourceBlock, nonce, "");
-    }
-
     function test_receiveMessage_transfersValueAndMarksSuccess() public {
         uint256 amount = 1 ether;
         uint256 balanceBefore = recipient.balance;
