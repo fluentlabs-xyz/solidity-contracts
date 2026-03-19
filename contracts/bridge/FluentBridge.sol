@@ -98,7 +98,8 @@ abstract contract FluentBridge is FluentBridgeStorageLayout {
         bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, blockNumber, messageNonce, message));
         require(getReceivedMessage(messageHash) == IFluentBridge.MessageStatus.None, MessageAlreadyReceived());
 
-        _receiveMessage(getExecuteGasLimit(), from, to, value, chainId, blockNumber, messageNonce, message, messageHash);
+        if (!_beforeReceiveMessage(from, to, value, chainId, blockNumber, messageNonce, message)) return;
+        _receiveMessage(getExecuteGasLimit(), from, to, value, message, messageHash);
     }
 
     /**
@@ -117,7 +118,8 @@ abstract contract FluentBridge is FluentBridgeStorageLayout {
         bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, blockNumber, messageNonce, message));
         require(getReceivedMessage(messageHash) == IFluentBridge.MessageStatus.Failed, MessageNotFailed());
 
-        _receiveMessage(gasleft(), from, to, value, chainId, blockNumber, messageNonce, message, messageHash);
+        if (!_beforeReceiveMessage(from, to, value, chainId, blockNumber, messageNonce, message)) return;
+        _receiveMessage(gasleft(), from, to, value, message, messageHash);
     }
 
     /// @dev Virtual function that can be overridden by child contracts: L1FluentBridge and L2FluentBridge
@@ -133,22 +135,10 @@ abstract contract FluentBridge is FluentBridgeStorageLayout {
         return true;
     }
 
-    function _receiveMessage(
-        uint256 gasLimit,
-        address from,
-        address to,
-        uint256 value,
-        uint256 chainId,
-        uint256 blockNumber,
-        uint256 messageNonce,
-        bytes calldata message,
-        bytes32 messageHash
-    ) internal {
+    function _receiveMessage(uint256 gasLimit, address from, address to, uint256 value, bytes calldata message, bytes32 messageHash) internal {
         FluentBridgeStorage storage $ = _getFluentBridgeStorage();
 
         require(to != address(this), ForbiddenSelfCall());
-
-        if (!_beforeReceiveMessage(from, to, value, chainId, blockNumber, messageNonce, message)) return;
 
         $._nativeSender = from;
         // TODO(chillhacker): figure out why we need to truncate a returned data. Malicious call data might be less than 1024 bytes.
