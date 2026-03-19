@@ -205,7 +205,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
     function preconfirmBatch(
         address nitroVerifier,
         uint256 batchIndex,
-        bytes32 signature
+        bytes calldata signature
     ) external onlyRole(PRECONFIRMATION_ROLE) whenNotPaused nonReentrant {
         RollupStorage storage $ = _getRollupStorage();
         require(!_rollupCorrupted(), RollupCorrupted());
@@ -263,7 +263,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         L2BlockHeader calldata blockHeader,
         MerkleTree.MerkleProof calldata blockProof,
         address nitroVerifier,
-        bytes32 nitroSignature,
+        bytes calldata nitroSignature,
         bytes calldata sp1Proof
     ) external nonReentrant whenNotPaused onlyRole(PROVER_ROLE) {
         RollupStorage storage $ = _getRollupStorage();
@@ -422,7 +422,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         uint256 batchIndex,
         L2BlockHeader calldata blockHeader,
         address nitroVerifier,
-        bytes32 nitroSignature,
+        bytes calldata nitroSignature,
         bytes calldata sp1Proof
     ) private view {
         RollupStorage storage $ = _getRollupStorage();
@@ -433,12 +433,11 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
     }
 
     /**
-     * @dev Validates that `verifier` is whitelisted and its attestation is current.
+     * @dev Validates that `verifier` is whitelisted.
      */
     function _validateNitroVerifier(address verifier) private view {
         RollupStorage storage $ = _getRollupStorage();
         require($._enabledNitroVerifiers[verifier], NitroVerifierNotEnabled(verifier));
-        require(INitroEnclaveVerifier(verifier).isAttestationVerified(), InvalidNitroSignature());
     }
 
     /**
@@ -448,7 +447,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         address verifier,
         bytes32 batchRoot,
         bytes32[] memory blobHashes,
-        bytes32 signature
+        bytes calldata signature
     ) private view returns (bool) {
         _validateNitroVerifier(verifier);
         return INitroEnclaveVerifier(verifier).verifyBatch(batchRoot, blobHashes, signature);
@@ -460,7 +459,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
     function _proveBlockWithNitro(
         address verifier,
         L2BlockHeader calldata header,
-        bytes32 signature,
+        bytes calldata signature,
         bytes32[] memory blobHashes
     ) private view returns (bool) {
         _validateNitroVerifier(verifier);

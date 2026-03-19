@@ -1,53 +1,56 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.30;
 
 import {IVerifier} from "contracts/interfaces/IVerifier.sol";
+import {INitroEnclaveVerifier} from "contracts/interfaces/INitroEnclaveVerifier.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 
-contract NitroVerifier is AccessControl {
-    // ============ Errors ============
-
-    error ZeroAddress();
-    error ZeroVKey();
-    error VKeyUnchanged();
-    error NoPendingUpdate();
-    error TimelockNotExpired();
-    error RoleGrantFailed();
-    error PubkeyAlreadyVerified();
-    error PubkeyNotVerified();
-    error InvalidSignatureLength();
-    error BlockAlreadyVerified();
-    error SignerNotAttested();
-    error InvalidSignature();
-
+/**
+ * @title NitroVerifier
+ * @dev Two-phase verifier for AWS Nitro Enclave-based block and batch signing.
+ *
+ *      Phase 1 — Attestation: an SP1 ZK proof is submitted via {verifyAttestation},
+ *      confirming that a Nitro enclave controls a given pubkey. The SP1 program
+ *      verifies the AWS Nitro certificate chain off-chain; the resulting proof is
+ *      verified on-chain against {PROGRAM_VKEY}. Attested pubkeys are stored in
+ *      {verifiedPubkeys}.
+ *
+ *      Phase 2 — Verification: the attested enclave signs L2 block and batch payloads
+ *      with its private key. {verifyBlock} and {verifyBatch} recover the signer via
+ *      ECDSA and confirm it is in {verifiedPubkeys}.
+ *
+ *      Multiple pubkeys may be attested simultaneously to allow zero-downtime enclave
+ *      rotation. Full pubkey enumeration is available off-chain via
+ *      {INitroEnclaveVerifier-AttestationVerified} and
+ *      {INitroEnclaveVerifier-AttestationRevoked} events.
+ *
+ *      {PROGRAM_VKEY} rotation uses a two-step timelock: {proposeVKeyUpdate} followed
+ *      by {executeVKeyUpdate} after {VKEY_UPDATE_DELAY} seconds.
+ */
+contract NitroVerifier is AccessControl, INitroEnclaveVerifier {
     // ============ Constants ============
 
-    /// @notice Delay between proposing and executing a VKey rotation
+    /// @dev Minimum seconds between {proposeVKeyUpdate} and {executeVKeyUpdate}.
     uint256 public constant VKEY_UPDATE_DELAY = 1 days;
 
-    // ============ State Variables ============
+    // ============ Storage ============
 
+    /// @dev SP1 verifier contract used to validate attestation proofs. Immutable — set in constructor.
     address public immutable _attestationVerifier;
 
+    /// @dev Current SP1 program verification key for attestation proofs.
     bytes32 public PROGRAM_VKEY = 0x00e34107e4c5284bd4ecc4269c650671038c1e85d9dacb931b534e984f607334;
 
+    /// @dev VKey queued for rotation; zero if no update is pending.
     bytes32 public pendingVKey;
-    uint256 public pendingVKeyValidAt;
 
-    /// @notice Enclave pubkeys that have passed ZK attestation
+    /// @dev Earliest timestamp at which {executeVKeyUpdate} may be called. Zero if no update is pending.
+    ///      uint64 leaves 24 bytes in its slot free for future packing.
+    uint64 public pendingVKeyValidAt;
+
+    /// @dev Enclave pubkeys that have passed ZK attestation.
+    ///      Enumeration is intentionally off-chain via events — avoids array SSTORE overhead.
     mapping(address => bool) public verifiedPubkeys;
-
-    /// @notice Block hashes that have been verified to prevent replay
-    mapping(bytes32 => bool) public verifiedBlocks;
-
-    // ============ Events ============
-
-    event VKeyUpdateProposed(bytes32 indexed proposedVKey, uint256 validAt);
-    event VKeyUpdateCancelled(bytes32 indexed cancelledVKey);
-    event ProgramVKeyUpdated(bytes32 indexed oldVKey, bytes32 indexed newVKey);
-    event AttestationVerified(bytes32 indexed programVKey, address indexed pubkey);
-    event AttestationRevoked(address indexed pubkey);
-    event BlockVerified(bytes32 indexed blockHash, bytes32 parentHash, address indexed signer);
 
     // ============ Constructor ============
 
@@ -58,108 +61,113 @@ contract NitroVerifier is AccessControl {
         if (!granted) revert RoleGrantFailed();
     }
 
+    // ============ INitroEnclaveVerifier ============
+
+    /// @inheritdoc INitroEnclaveVerifier
+    function verifyBlock(
+        bytes32 parentHash,
+        bytes32 blockHash,
+        bytes32 withdrawalHash,
+        bytes32 depositHash,
+        bytes calldata signature,
+        bytes32[] calldata blobHashes
+    ) external view returns (bool) {
+        if (signature.length != 65) revert InvalidSignatureLength();
+        // abi.encode includes array length prefix — prevents hash collisions on variable-length blobHashes
+        bytes32 payload = sha256(abi.encode(parentHash, blockHash, withdrawalHash, depositHash, blobHashes));
+        _assertSignerAttested(payload, signature);
+        return true;
+    }
+
+    /// @inheritdoc INitroEnclaveVerifier
+    function verifyBatch(bytes32 batchRoot, bytes32[] calldata blobHashes, bytes calldata signature) external view returns (bool) {
+        if (signature.length != 65) revert InvalidSignatureLength();
+        // abi.encode includes array length prefix — prevents hash collisions on variable-length blobHashes
+        bytes32 payload = sha256(abi.encode(batchRoot, blobHashes));
+        _assertSignerAttested(payload, signature);
+        return true;
+    }
+
     // ============ Admin: VKey Rotation ============
 
-    /// @notice Step 1 — propose a VKey rotation; executable after VKEY_UPDATE_DELAY
+    /**
+     * @notice Step 1 — propose a VKey rotation; executable after {VKEY_UPDATE_DELAY}.
+     */
     function proposeVKeyUpdate(bytes32 newProgramVKey) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (newProgramVKey == bytes32(0)) revert ZeroVKey();
         if (newProgramVKey == PROGRAM_VKEY) revert VKeyUnchanged();
         pendingVKey = newProgramVKey;
-        pendingVKeyValidAt = block.timestamp + VKEY_UPDATE_DELAY;
-        emit VKeyUpdateProposed(newProgramVKey, pendingVKeyValidAt);
+        uint64 validAt = uint64(block.timestamp + VKEY_UPDATE_DELAY);
+        pendingVKeyValidAt = validAt;
+        emit VKeyUpdateProposed(newProgramVKey, validAt);
     }
 
-    /// @notice Step 2 — execute the proposed VKey rotation after timelock expires
+    /**
+     * @notice Step 2 — execute the proposed VKey rotation after the timelock expires.
+     */
     function executeVKeyUpdate() external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (pendingVKey == bytes32(0)) revert NoPendingUpdate();
+        bytes32 pending = pendingVKey; // 1 SLOAD, used twice below
+        if (pending == bytes32(0)) revert NoPendingUpdate();
         if (block.timestamp < pendingVKeyValidAt) revert TimelockNotExpired();
         bytes32 oldVKey = PROGRAM_VKEY;
-        PROGRAM_VKEY = pendingVKey;
+        PROGRAM_VKEY = pending;
         pendingVKey = bytes32(0);
         pendingVKeyValidAt = 0;
-        emit ProgramVKeyUpdated(oldVKey, PROGRAM_VKEY);
+        emit ProgramVKeyUpdated(oldVKey, pending);
     }
 
-    /// @notice Cancel a pending VKey update before it is executed
+    /**
+     * @notice Cancel a pending VKey rotation before it is executed.
+     */
     function cancelVKeyUpdate() external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (pendingVKey == bytes32(0)) revert NoPendingUpdate();
-        emit VKeyUpdateCancelled(pendingVKey);
+        bytes32 pending = pendingVKey; // 1 SLOAD, used twice below
+        if (pending == bytes32(0)) revert NoPendingUpdate();
+        emit VKeyUpdateCancelled(pending);
         pendingVKey = bytes32(0);
         pendingVKeyValidAt = 0;
     }
 
     // ============ Admin: Attestation Management ============
 
+    /**
+     * @notice Revoke a previously attested enclave pubkey.
+     * @dev Enclave signatures from `pubkey` are rejected by {verifyBlock} and
+     *      {verifyBatch} immediately after revocation.
+     */
     function revokeAttestation(address pubkey) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (!verifiedPubkeys[pubkey]) revert PubkeyNotVerified();
         verifiedPubkeys[pubkey] = false;
         emit AttestationRevoked(pubkey);
     }
 
-    // ============ External Functions ============
+    // ============ External: Attestation ============
 
     /**
-     * @notice Verify SP1 ZK proof that a Nitro enclave controls `expectedPubkey`.
-     * @param expectedPubkey  Enclave-derived address to attest
-     * @param proofBytes      SP1 proof bytes
+     * @notice Verify an SP1 ZK proof of a Nitro enclave attestation document,
+     *         confirming that `expectedPubkey` is controlled by a valid enclave.
+     * @dev The SP1 program verifies the AWS Nitro certificate chain off-chain and
+     *      produces a proof with `abi.encode(expectedPubkey)` as the public output,
+     *      verified here against {PROGRAM_VKEY}.
+     * @param expectedPubkey Enclave-derived address to attest.
+     * @param proofBytes     Encoded SP1 proof.
      */
     function verifyAttestation(address expectedPubkey, bytes calldata proofBytes) external {
         if (expectedPubkey == address(0)) revert ZeroAddress();
         if (verifiedPubkeys[expectedPubkey]) revert PubkeyAlreadyVerified();
-
-        IVerifier(_attestationVerifier).verifyProof(PROGRAM_VKEY, abi.encode(expectedPubkey), proofBytes);
-
+        bytes32 vkey = PROGRAM_VKEY; // 1 SLOAD, passed to external call and event
+        IVerifier(_attestationVerifier).verifyProof(vkey, abi.encode(expectedPubkey), proofBytes);
         verifiedPubkeys[expectedPubkey] = true;
-        emit AttestationVerified(PROGRAM_VKEY, expectedPubkey);
+        emit AttestationVerified(vkey, expectedPubkey);
     }
+
+    // ============ Internal ============
 
     /**
-     * @notice Verify a block signed by a previously attested enclave.
-     * @param parentHash     Parent block hash
-     * @param blockHash      Current block hash
-     * @param withdrawalHash Hash of withdrawal events
-     * @param depositHash    Hash of deposit events
-     * @param signature      65-byte ECDSA signature (r || s || v)
-     * @return signer        Recovered enclave address
+     * @dev Recovers the signer from (payload, signature) and reverts if the
+     *      recovered address is not in {verifiedPubkeys}.
+     *      Signature layout: r (32 bytes) || s (32 bytes) || v (1 byte).
      */
-    function verifyBlock(
-        bytes32 parentHash,
-        bytes32 blockHash,
-        bytes32 withdrawalHash,
-        bytes32 depositHash,
-        bytes calldata signature
-    ) external returns (address signer) {
-        if (signature.length != 65) revert InvalidSignatureLength();
-        if (verifiedBlocks[blockHash]) revert BlockAlreadyVerified();
-
-        bytes32 signingPayload = computeSigningPayload(parentHash, blockHash, withdrawalHash, depositHash);
-        signer = recoverSigner(signingPayload, signature);
-
-        if (!verifiedPubkeys[signer]) revert SignerNotAttested();
-
-        verifiedBlocks[blockHash] = true;
-        emit BlockVerified(blockHash, parentHash, signer);
-    }
-
-    // ============ Public Functions ============
-
-    /**
-     * @notice Compute signing payload: SHA256(data || SHA256(data))
-     * @dev Double-hash scheme binds all four block fields into a single digest
-     */
-    function computeSigningPayload(
-        bytes32 parentHash,
-        bytes32 blockHash,
-        bytes32 withdrawalHash,
-        bytes32 depositHash
-    ) public pure returns (bytes32) {
-        bytes memory data = abi.encodePacked(parentHash, blockHash, withdrawalHash, depositHash);
-        return sha256(abi.encodePacked(data, sha256(data)));
-    }
-
-    // ============ Internal Functions ============
-
-    function recoverSigner(bytes32 messageHash, bytes calldata signature) internal pure returns (address) {
+    function _assertSignerAttested(bytes32 payload, bytes calldata signature) internal view {
         bytes32 r;
         bytes32 s;
         uint8 v;
@@ -168,8 +176,8 @@ contract NitroVerifier is AccessControl {
             s := calldataload(add(signature.offset, 32))
             v := byte(0, calldataload(add(signature.offset, 64)))
         }
-        address recovered = ecrecover(messageHash, v, r, s);
+        address recovered = ecrecover(payload, v, r, s);
         if (recovered == address(0)) revert InvalidSignature();
-        return recovered;
+        if (!verifiedPubkeys[recovered]) revert SignerNotAttested();
     }
 }

@@ -470,7 +470,7 @@ interface IRollupWrite {
     /**
      * @notice Preconfirm a batch using a Nitro enclave signature.
      */
-    function preconfirmBatch(address nitroVerifier, uint256 batchIndex, bytes32 signature) external;
+    function preconfirmBatch(address nitroVerifier, uint256 batchIndex, bytes calldata signature) external;
 
     // ============ Challenger ============
 
@@ -489,7 +489,7 @@ interface IRollupWrite {
         L2BlockHeader calldata blockHeader,
         MerkleTree.MerkleProof calldata blockProof,
         address nitroVerifier,
-        bytes32 nitroSignature,
+        bytes calldata nitroSignature,
         bytes calldata sp1Proof
     ) external;
 
