@@ -19,7 +19,7 @@ script = "scripts"
 solc_version = "0.8.30"
 src = "contracts"
 test = "test"
-via_ir = true
+
 
 [rpc_endpoints]
 # Fork targets for dual-fork e2e tests

@@ -2,11 +2,11 @@
 pragma solidity 0.8.30;
 
 import {Script} from "forge-std/Script.sol";
-import {PaymentGateway} from "../../contracts/gateways/PaymentGateway.sol";
+import {ERC20Gateway} from "../../contracts/gateways/ERC20Gateway.sol";
 
-/// @notice Burns pegged ERC20 on L2 via PaymentGateway and sends a withdrawal message to L1.
+/// @notice Burns pegged ERC20 on L2 via ERC20Gateway and sends a withdrawal message to L1.
 /// @dev Environment:
-/// - GATEWAY_ADDRESS      (address, required): L2 PaymentGateway address
+/// - GATEWAY_ADDRESS      (address, required): L2 ERC20Gateway address
 /// - ORIGIN_TOKEN_ADDRESS (address, required): L1 origin token address
 /// - RECIPIENT_ADDRESS    (address, required): L1 recipient of the unlocked tokens
 /// - AMOUNT               (uint256, required): amount to withdraw (in pegged token units)
@@ -21,7 +21,7 @@ contract WithdrawERC20FluentToSepolia is Script {
         require(recipient != address(0), "RECIPIENT_ADDRESS is zero");
         require(amount > 0, "AMOUNT must be > 0");
 
-        PaymentGateway gateway = PaymentGateway(payable(gatewayAddress));
+        ERC20Gateway gateway = ERC20Gateway(payable(gatewayAddress));
         address peggedToken = gateway.computePeggedTokenAddress(originToken);
         require(peggedToken.code.length > 0, "pegged token is not deployed");
 

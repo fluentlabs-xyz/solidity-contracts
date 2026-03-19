@@ -24,7 +24,7 @@ contract BridgeGatewayInvariantTest is StdInvariant, BridgeGatewayBase {
 
     function invariant_registeredPeggedTokenMappingRemainsConsistent() public view {
         address predictedPegged = _predictedPegged();
-        address mappedOrigin = gateway.tokenMapping(predictedPegged);
+        address mappedOrigin = gateway.getTokenMapping(predictedPegged);
 
         if (mappedOrigin != address(0)) {
             assertEq(mappedOrigin, address(originToken));

@@ -10,7 +10,7 @@ import {FluentBridge} from "../../contracts/bridge/FluentBridge.sol";
 import {L1FluentBridge} from "../../contracts/bridge/L1/L1FluentBridge.sol";
 import {L2FluentBridge} from "../../contracts/bridge/L2/L2FluentBridge.sol";
 import {FluentBridgeStorageLayout} from "../../contracts/bridge/FluentBridgeStorageLayout.sol";
-import {PaymentGateway} from "../../contracts/gateways/PaymentGateway.sol";
+import {ERC20Gateway} from "../../contracts/gateways/ERC20Gateway.sol";
 import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol";
 import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
 import {UniversalTokenFactory} from "../../contracts/factories/UniversalTokenFactory.sol";
@@ -38,7 +38,7 @@ abstract contract DeployLib is Script {
 
     /// @dev Contract name for Upgrades lib: Foundry artifact is out/<ContractName>.sol/<ContractName>.json (no contracts/ prefix)
     string constant FLUENT_BRIDGE = "FluentBridge.sol:FluentBridge";
-    string constant PAYMENT_GATEWAY = "PaymentGateway.sol:PaymentGateway";
+    string constant ERC20_GATEWAY = "ERC20Gateway.sol:ERC20Gateway";
     string constant ERC20_TOKEN_FACTORY = "ERC20TokenFactory.sol:ERC20TokenFactory";
     string constant UNIVERSAL_TOKEN_FACTORY = "UniversalTokenFactory.sol:UniversalTokenFactory";
 
@@ -96,15 +96,15 @@ abstract contract DeployLib is Script {
         r.factoryBeacon = ERC20TokenFactory(r.factory).beacon();
     }
 
-    /// @dev Deploys PaymentGateway via UUPS proxy. Caller must call factory.setPaymentGateway(gateway) after.
+    /// @dev Deploys ERC20Gateway via UUPS proxy. Caller must call factory.setPaymentGateway(gateway) after.
     function _deployPaymentGateway(
         address initialOwner,
         address bridgeAddress,
         address factoryAddress
     ) internal returns (PaymentGatewayResult memory r) {
         _requireUnsafeUpgradeApproval();
-        bytes memory initializerData = abi.encodeCall(PaymentGateway.initialize, (initialOwner, bridgeAddress, factoryAddress));
-        PaymentGateway impl = new PaymentGateway();
+        bytes memory initializerData = abi.encodeCall(ERC20Gateway.initialize, (initialOwner, bridgeAddress, factoryAddress));
+        ERC20Gateway impl = new ERC20Gateway();
         r.gatewayImpl = address(impl);
         r.gateway = UnsafeUpgrades.deployUUPSProxy(r.gatewayImpl, initializerData);
     }

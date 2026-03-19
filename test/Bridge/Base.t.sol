@@ -6,7 +6,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 
 import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {L1BlockOracle} from "../../contracts/oracle/L1BlockOracle.sol";
-import {PaymentGateway} from "../../contracts/gateways/PaymentGateway.sol";
+import {ERC20Gateway} from "../../contracts/gateways/ERC20Gateway.sol";
 import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol";
 import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
 import {MockERC20Token} from "../../contracts/mocks/MockERC20.sol";
@@ -47,7 +47,7 @@ abstract contract BridgeGatewayBase is Test {
     IFluentBridge internal bridge;
     L1BlockOracle internal oracle;
     ERC20TokenFactory internal factory;
-    PaymentGateway internal gateway;
+    ERC20Gateway internal gateway;
     ERC20PeggedToken internal peggedImplementation;
     MockERC20Token internal originToken;
 
@@ -74,6 +74,9 @@ abstract contract BridgeGatewayBase is Test {
             abi.encodeCall(L2FluentBridge.initialize, (abi.encode(params), deadline, address(oracle)))
         );
         bridge = IFluentBridge(payable(address(proxy)));
+        vm.prank(admin);
+        (bool ok, ) = address(bridge).call(abi.encodeWithSignature("setExecuteGasLimit(uint256)", 2_000_000));
+        require(ok, "setExecuteGasLimit failed");
     }
 
     function _deployGatewayStack() internal {
@@ -86,12 +89,12 @@ abstract contract BridgeGatewayBase is Test {
         );
         factory = ERC20TokenFactory(address(factoryProxy));
 
-        PaymentGateway gatewayImpl = new PaymentGateway();
+        ERC20Gateway gatewayImpl = new ERC20Gateway();
         ERC1967Proxy gatewayProxy = new ERC1967Proxy(
             address(gatewayImpl),
-            abi.encodeCall(PaymentGateway.initialize, (admin, address(bridge), address(factory)))
+            abi.encodeCall(ERC20Gateway.initialize, (admin, address(bridge), address(factory)))
         );
-        gateway = PaymentGateway(payable(address(gatewayProxy)));
+        gateway = ERC20Gateway(payable(address(gatewayProxy)));
 
         vm.prank(admin);
         factory.setPaymentGateway(address(gateway));
