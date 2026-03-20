@@ -11,7 +11,7 @@ import {IL1BlockOracle} from "../interfaces/IL1BlockOracle.sol";
  * @dev Provides a function to get the current L1 block number
  */
 contract L1BlockOracle is Ownable, IL1BlockOracle {
-    /// @notice The current L1 block number
+    /// @dev The current L1 block number
     uint256 internal _l1BlockNumber;
 
     /// @dev Hot key address authorized to submit block number updates.
@@ -21,6 +21,8 @@ contract L1BlockOracle is Ownable, IL1BlockOracle {
         submitter = _submitter;
     }
 
+    // ============ Submitter ============
+
     /// @inheritdoc IL1BlockOracle
     function updateL1BlockNumber(uint256 _blockNumber) external override {
         if (msg.sender != submitter) revert OwnableUnauthorizedAccount(msg.sender);
@@ -29,10 +31,23 @@ contract L1BlockOracle is Ownable, IL1BlockOracle {
         emit L1BlockNumberUpdated(_blockNumber);
     }
 
+    // ============ Owner ============
+
+    /**
+     * @notice Overrides the stored block number. Use only to correct a corrupted value.
+     * @dev Bypasses monotonicity check. Only callable by owner.
+     */
+    function setL1BlockNumber(uint256 _blockNumber) external onlyOwner {
+        _l1BlockNumber = _blockNumber;
+        emit L1BlockNumberUpdated(_blockNumber);
+    }
+
     /// @notice Updates the submitter address.
     function setSubmitter(address _submitter) external onlyOwner {
         submitter = _submitter;
     }
+
+    // ============ Views ============
 
     /// @inheritdoc IL1BlockOracle
     function getL1BlockNumber() external view override returns (uint256) {
