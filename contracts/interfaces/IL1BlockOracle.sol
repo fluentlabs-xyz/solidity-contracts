@@ -8,6 +8,9 @@ pragma solidity ^0.8.30;
  * @dev Provides a function to get the current L1 block number
  */
 interface IL1BlockOracle {
+    /// @notice Submitted block number is not greater than the current value.
+    error BlockNotMonotonic(uint256 current, uint256 proposed);
+
     /// @dev Emitted when the L1 block number is updated
     event L1BlockNumberUpdated(uint256 indexed _blockNumber);
 

@@ -14,12 +14,24 @@ contract L1BlockOracle is Ownable, IL1BlockOracle {
     /// @notice The current L1 block number
     uint256 internal _l1BlockNumber;
 
-    constructor() Ownable(msg.sender) {}
+    /// @dev Hot key address authorized to submit block number updates.
+    address public submitter;
+
+    constructor(address _submitter) Ownable(msg.sender) {
+        submitter = _submitter;
+    }
 
     /// @inheritdoc IL1BlockOracle
-    function updateL1BlockNumber(uint256 _blockNumber) external override onlyOwner {
+    function updateL1BlockNumber(uint256 _blockNumber) external override {
+        if (msg.sender != submitter) revert OwnableUnauthorizedAccount(msg.sender);
+        if (_blockNumber <= _l1BlockNumber) revert BlockNotMonotonic(_l1BlockNumber, _blockNumber);
         _l1BlockNumber = _blockNumber;
         emit L1BlockNumberUpdated(_blockNumber);
+    }
+
+    /// @notice Updates the submitter address.
+    function setSubmitter(address _submitter) external onlyOwner {
+        submitter = _submitter;
     }
 
     /// @inheritdoc IL1BlockOracle
