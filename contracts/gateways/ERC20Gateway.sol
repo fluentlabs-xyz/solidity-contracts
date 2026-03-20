@@ -95,7 +95,7 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
             message = _sendPeggedTokens(token, sender, sender, to, amount);
         }
 
-        FluentBridge(getBridgeContract()).sendMessage{value: msg.value}(getOtherSideGateway(), message);
+        FluentBridge(getBridgeContract()).sendMessage(getOtherSideGateway(), message);
     }
 
     /// @notice Used on L1 to send origin tokens to the other side.
@@ -206,17 +206,14 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         return _getERC20GatewayStorage().tokenFactory;
     }
 
-    /// @inheritdoc IERC20Gateway
     function getOtherSideTokenImplementation() public view returns (address) {
         return _getERC20GatewayStorage().otherSideTokenImplementation;
     }
 
-    /// @inheritdoc IERC20Gateway
     function getOtherSideFactory() public view returns (address) {
         return _getERC20GatewayStorage().otherSideFactory;
     }
 
-    /// @inheritdoc IERC20Gateway
     function getOtherSideBeacon() public view returns (address) {
         return _getERC20GatewayStorage().otherSideBeacon;
     }

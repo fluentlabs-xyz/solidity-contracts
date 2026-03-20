@@ -44,7 +44,7 @@ contract NativeGateway is GatewayBase, INativeGateway {
     }
 
     /// @inheritdoc INativeGateway
-    function sendNativeTokens(address _to, uint256 _amount) external payable onlyFluentBridge nonReentrant {
+    function sendNativeTokens(address _to, uint256 _amount) external payable nonReentrant {
         require(_to != address(0), InvalidRecipient());
         require(msg.value == _amount, InvalidNativeAmount());
 
@@ -88,7 +88,7 @@ contract NativeGateway is GatewayBase, INativeGateway {
     }
 
     function _setGasLimit(uint256 newGasLimit) internal {
-        require(newGasLimit > 0, ZeroValueNotAllowed("gasLimit"));
+        require(newGasLimit > 0, InvalidGasLimit());
         emit GasLimitUpdated(_gasLimit, newGasLimit);
         _gasLimit = newGasLimit;
     }

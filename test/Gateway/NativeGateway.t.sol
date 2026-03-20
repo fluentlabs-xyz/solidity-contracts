@@ -49,7 +49,7 @@ contract NativeGatewayTest is BridgeGatewayBase {
         vm.deal(user, amount);
 
         vm.prank(user);
-        vm.expectRevert(bytes4(keccak256("ZeroAddressNotAllowed(string)")));
+        vm.expectRevert(IGatewayErrors.InvalidRecipient.selector);
         nativeGateway.sendNativeTokens{value: amount}(address(0), amount);
     }
 
@@ -172,7 +172,7 @@ contract NativeGatewayTest is BridgeGatewayBase {
 
     function test_setGasLimit_revertsForZero() public {
         vm.prank(admin);
-        vm.expectRevert(IGatewayErrors.InvalidGasLimit.selector);
+        vm.expectRevert(INativeGatewayErrors.InvalidGasLimit.selector);
         nativeGateway.setGasLimit(0);
     }
 
@@ -195,7 +195,7 @@ contract NativeGatewayTest is BridgeGatewayBase {
 
     function test_rescueNative_revertsForZeroRecipient() public {
         vm.prank(admin);
-        vm.expectRevert(INativeGatewayErrors.InvalidRecipient.selector);
+        vm.expectRevert(IGatewayErrors.InvalidRecipient.selector);
         nativeGateway.rescueNative(payable(address(0)), 1);
     }
 
