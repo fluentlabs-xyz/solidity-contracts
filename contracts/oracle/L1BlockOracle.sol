@@ -17,18 +17,18 @@ contract L1BlockOracle is Ownable, IL1BlockOracle {
     /// @dev Hot key address authorized to submit block number updates.
     address public submitter;
 
-    constructor(address _submitter) Ownable(msg.sender) {
-        submitter = _submitter;
+    constructor(address newSubmitter) Ownable(msg.sender) {
+        submitter = newSubmitter;
     }
 
     // ============ Submitter ============
 
     /// @inheritdoc IL1BlockOracle
-    function updateL1BlockNumber(uint256 _blockNumber) external override {
+    function updateL1BlockNumber(uint256 blockNumber) external override {
         if (msg.sender != submitter) revert OwnableUnauthorizedAccount(msg.sender);
-        if (_blockNumber <= _l1BlockNumber) revert BlockNotMonotonic(_l1BlockNumber, _blockNumber);
-        _l1BlockNumber = _blockNumber;
-        emit L1BlockNumberUpdated(_blockNumber);
+        if (blockNumber <= _l1BlockNumber) revert BlockNotMonotonic(_l1BlockNumber, blockNumber);
+        _l1BlockNumber = blockNumber;
+        emit L1BlockNumberUpdated(blockNumber);
     }
 
     // ============ Owner ============
@@ -37,14 +37,17 @@ contract L1BlockOracle is Ownable, IL1BlockOracle {
      * @notice Overrides the stored block number. Use only to correct a corrupted value.
      * @dev Bypasses monotonicity check. Only callable by owner.
      */
-    function setL1BlockNumber(uint256 _blockNumber) external onlyOwner {
-        _l1BlockNumber = _blockNumber;
-        emit L1BlockNumberUpdated(_blockNumber);
+    function setL1BlockNumber(uint256 blockNumber) external onlyOwner {
+        _l1BlockNumber = blockNumber;
+        emit L1BlockNumberUpdated(blockNumber);
     }
 
-    /// @notice Updates the submitter address.
-    function setSubmitter(address _submitter) external onlyOwner {
-        submitter = _submitter;
+    /**
+     * @notice Updates the submitter address.
+     */
+    function setSubmitter(address newSubmitter) external onlyOwner {
+        emit SubmitterUpdated(submitter, newSubmitter);
+        submitter = newSubmitter;
     }
 
     // ============ Views ============

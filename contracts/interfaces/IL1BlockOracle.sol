@@ -14,6 +14,9 @@ interface IL1BlockOracle {
     /// @dev Emitted when the L1 block number is updated
     event L1BlockNumberUpdated(uint256 indexed _blockNumber);
 
+    /// @dev Emitted when the submitter address is updated
+    event SubmitterUpdated(address indexed oldSubmitter, address indexed newSubmitter);
+
     /**
      * @notice Updates the current L1 block number
      * @param _blockNumber The new L1 block number
