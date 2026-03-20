@@ -67,7 +67,7 @@ contract NativeGateway is GatewayBase, INativeGateway {
     }
 
     /// @inheritdoc INativeGateway
-    function rescueNative(address payable to, uint256 amount) external onlyOwner {
+    function rescueNative(address payable to, uint256 amount) external nonReentrant onlyOwner {
         require(to != address(0), InvalidRecipient());
         (bool success, ) = to.call{value: amount}("");
         require(success, NativeTransferFailed());

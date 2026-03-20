@@ -1,14 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
-import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
-import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
-import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
-
-import {Queue} from "../libraries/Queue.sol";
-import {MerkleTree} from "../libraries/MerkleTree.sol";
 import {ExcessivelySafeCall} from "../libraries/ExcessivelySafeCall.sol";
 
 import {IFluentBridge} from "../interfaces/bridge/IFluentBridge.sol";
@@ -18,6 +10,7 @@ import {FluentBridgeStorageLayout} from "./FluentBridgeStorageLayout.sol";
 /**
  * @title FluentBridge
  * @author Fluent Labs
+ *
  * @notice Core bridge contract for sending and receiving cross-chain messages between L1 and L2 using rollup validation.
  * @dev Deployed on both L1 and L2 with different config (L1: rollup set, deadline 0; L2: rollup zero, deadline non-zero).
  *      Upgradeable via UUPS proxy (ERC1967Proxy); upgrade authorized by owner.
@@ -45,11 +38,6 @@ import {FluentBridgeStorageLayout} from "./FluentBridgeStorageLayout.sol";
  *    - Allows retrying after fixing conditions (e.g. gateway config).
  */
 abstract contract FluentBridge is FluentBridgeStorageLayout {
-    /// @custom:oz-upgrades-unsafe-allow constructor
-    constructor() {
-        _disableInitializers();
-    }
-
     /**
      * @notice Initialization happens in chain-specific implementations:
      *         `L1FluentBridge.initialize(bytes,address)` and `L2FluentBridge.initialize(bytes,uint256,address)`.
@@ -140,18 +128,10 @@ abstract contract FluentBridge is FluentBridgeStorageLayout {
         return true;
     }
 
-    function _receiveMessage(
-        uint256 gasLimit,
-        address from,
-        address to,
-        uint256 value,
-        bytes calldata message,
-        bytes32 messageHash
-    ) internal {
+    function _receiveMessage(uint256 gasLimit, address from, address to, uint256 value, bytes calldata message, bytes32 messageHash) internal {
         FluentBridgeStorage storage $ = _getFluentBridgeStorage();
 
         $._nativeSender = from;
-        // TODO(chillhacker): figure out why we need to truncate a returned data. Malicious call data might be less than 1024 bytes.
         (bool success, bytes memory data) = ExcessivelySafeCall.excessivelySafeCall(to, value, message, gasLimit);
         $._nativeSender = address(0);
 

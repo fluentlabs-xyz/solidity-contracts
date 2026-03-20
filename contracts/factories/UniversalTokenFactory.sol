@@ -55,7 +55,7 @@ contract UniversalTokenFactory is GenericTokenFactory {
         require(bridgedTokens(originToken) == address(0), TokenAlreadyDeployed());
 
         bytes memory deploymentData = _deploymentData(name, symbol, decimals, initialSupply, minter, pauser);
-        bytes32 salt = _bridgeTokenSalt(originToken);
+        bytes32 salt = _calculateSalt(originToken);
 
         return (Create2.deploy(0, salt, deploymentData), originToken);
     }
@@ -88,7 +88,7 @@ contract UniversalTokenFactory is GenericTokenFactory {
         );
 
         bytes memory deploymentData = _deploymentData(name, symbol, decimals, initialSupply, minter, pauser);
-        bytes32 salt = _bridgeTokenSalt(originToken);
+        bytes32 salt = _calculateSalt(originToken);
         bytes32 initCodeHash = keccak256(deploymentData);
         bytes32 hash = keccak256(abi.encodePacked(bytes1(0xff), factory, salt, initCodeHash));
         return address(uint160(uint256(hash)));
@@ -102,14 +102,14 @@ contract UniversalTokenFactory is GenericTokenFactory {
         );
 
         bytes memory deploymentData = _deploymentData(name, symbol, decimals, initialSupply, minter, pauser);
-        bytes32 salt = _bridgeTokenSalt(originToken);
+        bytes32 salt = _calculateSalt(originToken);
         bytes32 initCodeHash = keccak256(deploymentData);
         bytes32 hash = keccak256(abi.encodePacked(bytes1(0xff), address(this), salt, initCodeHash));
         return address(uint160(uint256(hash)));
     }
 
     /// @dev Salt for CREATE2 (must match SDK: keccak256(BRIDGE_TOKEN_PREFIX, originToken)). No chainId.
-    function _bridgeTokenSalt(address originToken) internal pure returns (bytes32) {
+    function _calculateSalt(address originToken) internal pure returns (bytes32) {
         return keccak256(abi.encodePacked(BRIDGE_TOKEN_PREFIX, originToken));
     }
 

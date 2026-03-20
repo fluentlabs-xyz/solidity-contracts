@@ -38,10 +38,6 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
         _setL1BlockOracle(newL1BlockOracle);
     }
 
-    // Relayer tries to run receiveMessage -> gasLimit | impossible to execute message
-    // ReceiveFailedMessage -> 10_000_000 -> success
-    // impossible to execute a message -> waits for _receiveMessageDeadline -> ReceiveFailedMessage -> Emit RollbackMessage
-
     /// L1 -> L2 rollback
     function _beforeReceiveMessage(
         address _from,

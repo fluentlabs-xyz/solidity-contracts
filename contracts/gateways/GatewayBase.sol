@@ -104,6 +104,7 @@ abstract contract GatewayBase is Initializable, UUPSUpgradeable, Ownable2StepUpg
 
     function _setOtherSideChainId(uint256 newOtherSideChainId) internal {
         GatewayBaseStorage storage $ = _getGatewayBaseStorage();
+        require(newOtherSideChainId != 0, ZeroValueNotAllowed("newOtherSideChainId"));
         emit OtherSideChainIdUpdated($._otherSideChainId, newOtherSideChainId);
         $._otherSideChainId = newOtherSideChainId;
     }

@@ -86,10 +86,6 @@ contract FluentBridgeStorageLayout is
          */
         mapping(bytes32 => IFluentBridge.MessageStatus) _receivedMessage;
         /**
-         * @notice Queue of sent messages.
-         */
-        Queue.QueueStorage _sentMessageQueue;
-        /**
          * @notice Gap for future storage.
          */
         uint256[50] __gap;
@@ -156,11 +152,6 @@ contract FluentBridgeStorageLayout is
         return _getFluentBridgeStorage()._receivedMessage[key];
     }
 
-    function getSentMessageQueueSize() public view returns (uint256) {
-        FluentBridgeStorage storage $ = _getFluentBridgeStorage();
-        return Queue.size($._sentMessageQueue);
-    }
-
     function getExecuteGasLimit() public view returns (uint256) {
         return _getFluentBridgeStorage()._executeGasLimit;
     }
@@ -184,6 +175,10 @@ contract FluentBridgeStorageLayout is
     function _setRelayerRole(address newRelayer) internal {
         require(newRelayer != address(0), ZeroAddressNotAllowed("relayer"));
         _grantRole(RELAYER_ROLE, newRelayer);
+    }
+
+    function removeRelayerRole(address relayer) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _revokeRole(RELAYER_ROLE, relayer);
     }
 
     function setExecuteGasLimit(uint256 newExecuteGasLimit) external onlyRole(DEFAULT_ADMIN_ROLE) {

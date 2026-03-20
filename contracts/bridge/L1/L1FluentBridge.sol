@@ -15,6 +15,7 @@ import {IL1FluentBridge} from "../../interfaces/bridge/IL1FluentBridge.sol";
 /**
  * @title L1FluentBridge
  * @author Fluent Labs
+ *
  * @dev L1 bridge contract for the Fluent bridge.
  */
 contract L1FluentBridge is FluentBridge, IL1FluentBridge {
@@ -123,7 +124,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         require(getRollbackMessage(messageHash) == IFluentBridge.MessageStatus.None, MessageAlreadyReceived());
 
         _verifyWithdrawal(batchIndex, blockHeader, withdrawalProof, blockProof, messageHash);
-        _rollbackMessage(gasleft(), from, to, value, blockNumber, messageNonce, message, messageHash);
+        _rollbackMessage(getExecuteGasLimit(), from, to, value, blockNumber, messageNonce, message, messageHash);
     }
 
     function _verifyWithdrawal(
@@ -153,7 +154,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     }
 
     function _rollbackMessage(
-        uint256 /*gasLimit*/,
+        uint256 gasLimit,
         address from,
         address to,
         uint256 value,
@@ -164,7 +165,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     ) internal {
         require(to != address(this), ForbiddenSelfCall());
 
-        (bool success, bytes memory data) = ExcessivelySafeCall.excessivelySafeCall(from, value, "", 50_000);
+        (bool success, bytes memory data) = ExcessivelySafeCall.excessivelySafeCall(from, value, "", gasLimit);
         _rollbackMessages[messageHash] = success ? IFluentBridge.MessageStatus.Success : IFluentBridge.MessageStatus.Failed;
 
         emit ReceivedMessageRollback(messageHash, success, data);
