@@ -148,9 +148,27 @@ contract RollupStorageLayout is
         // ─── Verifier whitelist ───
         /// @dev whitelist of Nitro enclave verifier contracts allowed for preconfirmation
         mapping(address => bool) _enabledNitroVerifiers;
+
+        // ============ Emergency revert pagination ============
+        /**
+         * @dev Non-zero while a paginated `forceRevertBatchPaginated` is in progress.
+         *      Used to treat the rollup as corrupted during chunked emergency recovery.
+         */
+        uint96 _forceRevertPaginatedFromBatchIndex;
+
+        /**
+         * @dev Cursor into `_batchChallengedBlocks[batchIndex]` for chunked emergency revert.
+         */
+        mapping(uint256 => uint256) _forceRevertChallengedCursor;
+
+        /**
+         * @dev Cursor into `_batchProvenBlocks[batchIndex]` for chunked emergency revert.
+         */
+        mapping(uint256 => uint256) _forceRevertProvenCursor;
+
         // ─── Upgrade gap ───
         /// @dev reserved storage slots for future upgrades
-        uint256[28] __gap;
+        uint256[25] __gap;
     }
 
     // ============ Storage Initializer ============
