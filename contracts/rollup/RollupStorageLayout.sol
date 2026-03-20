@@ -35,7 +35,7 @@ contract RollupStorageLayout is
     // ============ Constants ============
 
     /**
-     * @notice Role that can perform emergency actions.
+     * @notice Role that can perform emergency actions. Should be Timelock Contract
      */
     bytes32 public constant EMERGENCY_ROLE = keccak256("EMERGENCY_ROLE");
 
@@ -59,6 +59,26 @@ contract RollupStorageLayout is
      */
     bytes32 public constant PROVER_ROLE = keccak256("PROVER_ROLE");
 
+    /**
+     * @dev Default gas left per block header iteration in acceptNextBatch.
+     */
+    uint32 public constant DEFAULT_GAS_LEFT = 1_000_000;
+
+    /**
+     * @dev Maximum number of L1 deposits per block.
+     */
+    uint256 public constant MAX_DEPOSITS_PER_BLOCK = 256;
+
+    /**
+     * @dev Maximum number of L2 block headers per batch.
+     */
+    uint256 public constant MAX_BLOCKS_PER_BATCH = 1024;
+
+    /**
+     * @dev Maximum number of blobs per batch.
+     */
+    uint32 public constant MAX_BLOBS_PER_BATCH = 128;
+
     /// @dev keccak256 of empty bytes — used to detect zero-message roots.
     bytes32 public constant ZERO_BYTES_HASH = 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
 
@@ -72,102 +92,151 @@ contract RollupStorageLayout is
 
     struct RollupStorage {
         // ─── Slot 1: address(20) + uint96(12) = 32 ───
-        /// @dev L1 FluentBridge contract; source of deposit messages consumed during batch acceptance
+        /**
+         * @dev L1 FluentBridge contract; source of deposit messages consumed during batch acceptance
+         */
         address _bridge;
-        /// @dev incremented on each acceptNextBatch; starts at 1 (index 0 holds the genesis hash)
+        /**
+         * @dev incremented on each acceptNextBatch; starts at 1 (index 0 holds the genesis hash)
+         */
         uint96 _nextBatchIndex;
         // ─── Slot 2: address(20) + 12 bytes padding ───
-        /// @dev SP1 verifier contract used for ZK proof validation during challenge resolution
+        /**
+         * @dev SP1 verifier contract used for ZK proof validation during challenge resolution
+         */
         address _sp1Verifier;
         // ─── Slot 3: bytes32(32) ───
-        /// @dev SP1 program verification key; binds proofs to the current rollup program
+        /**
+         * @dev SP1 program verification key; binds proofs to the current rollup program
+         */
         bytes32 _programVKey;
         // ─── Slot 4: 4 × uint64 = 32 ───
-        /// @dev Number of L1 blocks after batch acceptance during which challenges can be submitted
-        ///      and proofs verified. After this window elapses, the batch becomes eligible for
-        ///      finalization via `finalizeBatches`. Must be greater than `challengeWindow` to
-        ///      guarantee challengers always have a full `challengeWindow` to respond.
+        /**
+         * @dev Number of L1 blocks after batch acceptance during which challenges can be submitted
+         *          and proofs verified. After this window elapses, the batch becomes eligible for
+         *          finalization via `finalizeBatches`. Must be greater than `challengeWindow` to
+         *          guarantee challengers always have a full `challengeWindow` to respond.
+         */
         uint64 _finalizationDelay;
-        /// @dev Number of L1 blocks a prover has to resolve a challenge after it is opened.
-        ///      A challenge may only be submitted if `block.number + challengeWindow <= acceptedAtBlock
-        ///      + finalizationDelay`, ensuring the prover always has the full window to respond and
-        ///      finalization is never delayed beyond `acceptedAtBlock + finalizationDelay + challengeWindow`.
-        ///      Must be strictly less than `finalizationDelay`.
+        /**
+         * @dev Number of L1 blocks a prover has to resolve a challenge after it is opened.
+         *      A challenge may only be submitted if `block.number + challengeWindow <= acceptedAtBlock
+         *      + finalizationDelay`, ensuring the prover always has the full window to respond and
+         *      finalization is never delayed beyond `acceptedAtBlock + finalizationDelay + challengeWindow`.
+         *      Must be strictly less than `finalizationDelay`.
+         */
         uint64 _challengeWindow;
-        /// @dev Maximum number of L1 blocks after batch acceptance for the sequencer to submit
-        ///      all expected blob hashes via `submitBlobs`. Exceeding this deadline without
-        ///      completing DA submission triggers the corrupted state. Set to 0 to disable.
+        /**
+         * @dev Maximum number of L1 blocks after batch acceptance for the sequencer to submit
+         *      all expected blob hashes via `submitBlobs`. Exceeding this deadline without
+         *      completing DA submission triggers the corrupted state. Set to 0 to disable.
+         */
         uint64 _submitBlobsWindow;
-        /// @dev Maximum number of L1 blocks after batch acceptance for the preconfirmation service
-        ///      to call `preconfirmBatch`. Both `submitBlobsWindow` and this deadline are measured
-        ///      from `acceptedAtBlock`, so this value must exceed `submitBlobsWindow` to give the
-        ///      preconfirmation service time to act after DA submission completes. Set to 0 to disable.
+        /**
+         * @dev Maximum number of L1 blocks after batch acceptance for the preconfirmation service
+         *      to call `preconfirmBatch`. Both `submitBlobsWindow` and this deadline are measured
+         *      from `acceptedAtBlock`, so this value must exceed `submitBlobsWindow` to give the
+         *      preconfirmation service time to act after DA submission completes. Set to 0 to disable.
+         */
         uint64 _preconfirmWindow;
         // ─── Slot 5: uint256(32) ───
-        /// @dev ETH deposit required to open a challenge; awarded to prover on resolution
+        /**
+         * @dev ETH deposit required to open a challenge; awarded to prover on resolution
+         */
         uint256 _challengeDepositAmount;
         // ─── Slot 6: uint256(32) ───
-        /// @dev ETH reward paid to challengers during force revert (on top of deposit refund)
+        /**
+         * @dev ETH reward paid to challengers during force revert (on top of deposit refund)
+         */
         uint256 _incentiveFee;
         // ─── Slot 7: uint64(8) + uint64(8) + uint32(4) + uint32(4) = 24 bytes ───
-        /// @dev highest batch index with Finalized status; enforces sequential finalization
+        /**
+         * @dev highest batch index with Finalized status; enforces sequential finalization
+         */
         uint64 _lastFinalizedBatchIndex;
-        /// @dev Reserved for future deposit-tracking upgrades. Kept in storage to avoid layout churn.
+        /**
+         * @dev Reserved for future deposit-tracking upgrades. Kept in storage to avoid layout churn.
+         */
         uint64 _lastDepositAcceptedBlockNumber;
-        /// @dev minimum gasleft() required per block header iteration in acceptNextBatch
+        /**
+         * @dev minimum gasleft() required per block header iteration in acceptNextBatch
+         */
         uint32 _gasLeft;
-        /// @dev max L1 blocks between deposit creation and its inclusion in a batch
+        /**
+         * @dev max L1 blocks between deposit creation and its inclusion in a batch
+         */
         uint32 _acceptDepositDeadline;
         // ─── Per-batch records ───
-        /// @dev packed per-batch state (root, accepted block, expected blobs, status)
+        /**
+         * @dev packed per-batch state (root, accepted block, expected blobs, status)
+         */
         mapping(uint256 => BatchRecord) _batches;
-        /// @dev chain-linking hash; index 0 holds genesis, index N holds last block hash of batch N
+        /**
+         * @dev chain-linking hash; index 0 holds genesis, index N holds last block hash of batch N
+         */
         mapping(uint256 => bytes32) _lastBlockHashInBatch;
-        /// @dev EIP-4844 versioned blob hashes recorded per batch for proof binding
+        /**
+         * @dev EIP-4844 versioned blob hashes recorded per batch for proof binding
+         */
         mapping(uint256 => bytes32[]) _batchBlobHashes;
-        /// @dev commitments proven during challenge resolution; cleaned on force revert
+        /**
+         * @dev commitments proven during challenge resolution; cleaned on force revert
+         */
         mapping(uint256 => bytes32[]) _batchProvenBlocks;
-        /// @dev commitments challenged per batch; used for refund iteration in force revert
+        /**
+         * @dev commitments challenged per batch; used for refund iteration in force revert
+         */
         mapping(uint256 => bytes32[]) _batchChallengedBlocks;
         // ─── Challenge state (keyed by commitment) ───
-        /// @dev tracks which block commitments have been proven; prevents duplicate proofs
+        /**
+         * @dev tracks which block commitments have been proven; prevents duplicate proofs
+         */
         mapping(bytes32 => bool) _provenBlocks;
-        /// @dev active challenge records keyed by block commitment hash
+        /**
+         * @dev active challenge records keyed by block commitment hash
+         */
         mapping(bytes32 => ChallengeRecord) _challenges;
-        /// @dev min-heap of challenged commitments ordered by deadline for corruption detection
+        /**
+         * @dev min-heap of challenged commitments ordered by deadline for corruption detection
+         */
         Heap.HeapStorage _challengeQueue;
-        /// @dev heap priority map: commitment → deadline (used by Heap for ordering)
+        /**
+         * @dev heap priority map: commitment → deadline (used by Heap for ordering)
+         */
         mapping(bytes32 => uint256) _challengePriority;
-        /// @dev heap position map: commitment → 1-based index (used by Heap for O(1) removal)
+        /**
+         * @dev min-heap of challenged commitments ordered by deadline for corruption detection
+         */
         mapping(bytes32 => uint256) _challengeQueueIndex;
         // ─── Reward balances ───
-        /// @dev ETH balances claimable by challengers after force revert
+        /**
+         * @dev ETH balances claimable by challengers after force revert
+         */
         mapping(address => uint256) _challengerRewards;
-        /// @dev ETH balances claimable by provers after resolving challenges
+        /**
+         * @dev ETH balances claimable by provers after resolving challenges
+         */
         mapping(address => uint256) _proverRewards;
         // ─── Verifier whitelist ───
-        /// @dev whitelist of Nitro enclave verifier contracts allowed for preconfirmation
+        /**
+         * @dev whitelist of Nitro enclave verifier contracts allowed for preconfirmation
+         */
         mapping(address => bool) _enabledNitroVerifiers;
-
         // ============ Emergency revert pagination ============
         /**
          * @dev Non-zero while a paginated `forceRevertBatchPaginated` is in progress.
          *      Used to treat the rollup as corrupted during chunked emergency recovery.
          */
         uint96 _forceRevertPaginatedFromBatchIndex;
-
         /**
          * @dev Cursor into `_batchChallengedBlocks[batchIndex]` for chunked emergency revert.
          */
         mapping(uint256 => uint256) _forceRevertChallengedCursor;
-
         /**
          * @dev Cursor into `_batchProvenBlocks[batchIndex]` for chunked emergency revert.
          */
         mapping(uint256 => uint256) _forceRevertProvenCursor;
-
         // ─── Upgrade gap ───
-        /// @dev reserved storage slots for future upgrades
         uint256[25] __gap;
     }
 
@@ -226,6 +295,7 @@ contract RollupStorageLayout is
 
         _setChallengeDepositAmount(params.challengeDepositAmount);
         _setIncentiveFee(params.incentiveFee);
+        _setGasLeft(DEFAULT_GAS_LEFT);
     }
 
     // ============ IRollupConfig ============
@@ -318,10 +388,7 @@ contract RollupStorageLayout is
     }
 
     /// @inheritdoc IRollupRead
-    /// @dev Elements are in heap-internal order — only index 0 is guaranteed to be the
-    ///      earliest deadline. Sort off-chain by getChallenge(commitment).deadline if
-    ///      ordered traversal is needed. This full snapshot is intended for off-chain use;
-    ///      for large queues, prefer challengeQueueLength/challengeQueueAt iteration.
+
     function challengeQueue() public view returns (bytes32[] memory) {
         RollupStorage storage $ = _getRollupStorage();
         uint256 size = $._challengeQueue.length();
@@ -397,6 +464,7 @@ contract RollupStorageLayout is
     function _setSp1Verifier(address newVerifier) internal {
         require(newVerifier != address(0), ZeroAddressNotAllowed("sp1Verifier"));
         RollupStorage storage $ = _getRollupStorage();
+        require(newVerifier.code.length != 0, NotAContract("sp1Verifier"));
         emit SP1VerifierUpdated($._sp1Verifier, newVerifier);
         $._sp1Verifier = newVerifier;
     }
@@ -420,6 +488,7 @@ contract RollupStorageLayout is
 
     function _enableNitroVerifier(address verifier) internal {
         require(verifier != address(0), ZeroAddressNotAllowed("nitroVerifier"));
+        require(verifier.code.length != 0, NotAContract("nitroVerifier"));
         require(!_getRollupStorage()._enabledNitroVerifiers[verifier], NitroVerifierAlreadyEnabled(verifier));
         _getRollupStorage()._enabledNitroVerifiers[verifier] = true;
         emit NitroVerifierEnabled(verifier);
@@ -522,6 +591,7 @@ contract RollupStorageLayout is
 
     function _setChallengeDepositAmount(uint256 newChallengeDepositAmount) internal {
         RollupStorage storage $ = _getRollupStorage();
+        require(newChallengeDepositAmount > 0, ZeroValueNotAllowed("challengeDepositAmount"));
         emit ChallengeDepositAmountUpdated($._challengeDepositAmount, newChallengeDepositAmount);
         $._challengeDepositAmount = newChallengeDepositAmount;
     }

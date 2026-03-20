@@ -15,7 +15,7 @@ contract ChallengeTest is RollupBase {
         headers = _makeBatch(parentHash);
         batchIndex = rollup.nextBatchIndex();
         vm.prank(sequencer);
-        rollup.acceptNextBatch(headers, 0);
+        rollup.acceptNextBatch(headers, 1);
         _submitBlobs(batchIndex, 0);
         _preconfirmBatch(batchIndex);
     }

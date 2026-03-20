@@ -26,7 +26,7 @@ contract ForceRevertTest is RollupBase {
         L2BlockHeader[] memory batch2Headers = _makeBatch(lastHash1);
         uint256 batch2 = rollup.nextBatchIndex();
         vm.prank(sequencer);
-        rollup.acceptNextBatch(batch2Headers, 0);
+        rollup.acceptNextBatch(batch2Headers, 1);
 
         // verify batch2 stored the correct last block hash before revert
         bytes32 expectedBatch2LastHash = batch2Headers[batch2Headers.length - 1].blockHash;
@@ -47,7 +47,7 @@ contract ForceRevertTest is RollupBase {
         bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);
         L2BlockHeader[] memory batch2Commits = _makeBatch(lastHash);
         vm.prank(sequencer);
-        rollup.acceptNextBatch(batch2Commits, 0);
+        rollup.acceptNextBatch(batch2Commits, 1);
         uint256 batch2 = batch1 + 1;
         _submitBlobs(batch2, 0);
         _preconfirmBatch(batch2);
@@ -106,7 +106,7 @@ contract ForceRevertTest is RollupBase {
 
         uint256 batch2Again = _acceptBatch(batch1LastHash, 0);
         assertEq(batch2Again, batch2, "re-submitted batch should have same index");
-        _assertBatchRecord(batch2Again, BatchStatus.HeadersSubmitted, 0, rollup.getBatch(batch2Again).batchRoot);
+        _assertBatchRecord(batch2Again, BatchStatus.HeadersSubmitted, 1, rollup.getBatch(batch2Again).batchRoot);
     }
 
     function test_forceRevert_allowsReChallengeAfterResubmit() public {
@@ -115,7 +115,7 @@ contract ForceRevertTest is RollupBase {
         bytes32 lastHash1 = rollup.lastBlockHashInBatch(batch1);
         L2BlockHeader[] memory batch2Commits = _makeBatch(lastHash1);
         vm.prank(sequencer);
-        rollup.acceptNextBatch(batch2Commits, 0);
+        rollup.acceptNextBatch(batch2Commits, 1);
         uint256 batch2 = batch1 + 1;
         _submitBlobs(batch2, 0);
         _preconfirmBatch(batch2);
@@ -129,7 +129,7 @@ contract ForceRevertTest is RollupBase {
         rollup.forceRevertBatch{value: fee}(batch2);
 
         vm.prank(sequencer);
-        rollup.acceptNextBatch(batch2Commits, 0);
+        rollup.acceptNextBatch(batch2Commits, 1);
         _submitBlobs(batch2, 0);
         _preconfirmBatch(batch2);
 
@@ -182,7 +182,7 @@ contract ForceRevertTest is RollupBase {
         L2BlockHeader[] memory batch = _makeBatch(lastHash);
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.RollupCorrupted.selector));
         vm.prank(sequencer);
-        rollup.acceptNextBatch(batch, 0);
+        rollup.acceptNextBatch(batch, 1);
     }
 
     function test_corruptedRecoveryViaForceRevert() public {
@@ -255,7 +255,7 @@ contract ForceRevertTest is RollupBase {
         bytes32 lastHash1 = rollup.lastBlockHashInBatch(batch1);
         L2BlockHeader[] memory batch2Commits = _makeBatch(lastHash1);
         vm.prank(sequencer);
-        rollup.acceptNextBatch(batch2Commits, 0);
+        rollup.acceptNextBatch(batch2Commits, 1);
         uint256 batch2 = batch1 + 1;
         _submitBlobs(batch2, 0);
         _preconfirmBatch(batch2);
@@ -278,7 +278,7 @@ contract ForceRevertTest is RollupBase {
         bytes32 lastHash1 = rollup.lastBlockHashInBatch(batch1);
         L2BlockHeader[] memory batch2Commits = _makeBatch(lastHash1);
         vm.prank(sequencer);
-        rollup.acceptNextBatch(batch2Commits, 0);
+        rollup.acceptNextBatch(batch2Commits, 1);
         uint256 batch2 = batch1 + 1;
         _submitBlobs(batch2, 0);
         _preconfirmBatch(batch2);
@@ -302,7 +302,7 @@ contract ForceRevertTest is RollupBase {
         bytes32 lastHash1 = rollup.lastBlockHashInBatch(batch1);
         L2BlockHeader[] memory batch2Commits = _makeBatch(lastHash1);
         vm.prank(sequencer);
-        rollup.acceptNextBatch(batch2Commits, 0);
+        rollup.acceptNextBatch(batch2Commits, 1);
         uint256 batch2 = batch1 + 1;
         _submitBlobs(batch2, 0);
         _preconfirmBatch(batch2);
@@ -318,7 +318,7 @@ contract ForceRevertTest is RollupBase {
         bytes32 lastHash2 = rollup.lastBlockHashInBatch(batch2);
         L2BlockHeader[] memory batch3Commits = _makeBatch(lastHash2);
         vm.prank(sequencer);
-        rollup.acceptNextBatch(batch3Commits, 0);
+        rollup.acceptNextBatch(batch3Commits, 1);
         uint256 batch3 = batch2 + 1;
         _submitBlobs(batch3, 0);
         _preconfirmBatch(batch3);
@@ -342,7 +342,7 @@ contract ForceRevertTest is RollupBase {
         bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);
         L2BlockHeader[] memory batch2Commits = _makeBatch(lastHash);
         vm.prank(sequencer);
-        rollup.acceptNextBatch(batch2Commits, 0);
+        rollup.acceptNextBatch(batch2Commits, 1);
         uint256 batch2 = batch1 + 1;
         _submitBlobs(batch2, 0);
         _preconfirmBatch(batch2);

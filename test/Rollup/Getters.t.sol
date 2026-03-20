@@ -31,7 +31,7 @@ contract RollupGettersTest is RollupBase {
         L2BlockHeader[] memory headers = _makeBatch(GENESIS_HASH);
         uint256 batchIndex = rollup.nextBatchIndex();
         vm.prank(sequencer);
-        rollup.acceptNextBatch(headers, 0);
+        rollup.acceptNextBatch(headers, 1);
         _submitBlobs(batchIndex, 0);
         _preconfirmBatch(batchIndex);
         assertTrue(rollup.isBatchPreconfirmed(batchIndex), "precondition: batch must be preconfirmed");

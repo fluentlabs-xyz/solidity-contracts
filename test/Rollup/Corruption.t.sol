@@ -16,7 +16,7 @@ contract CorruptionTest is RollupBase {
 
         L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
         vm.prank(sequencer);
-        r.acceptNextBatch(batch, 0);
+        r.acceptNextBatch(batch, 1);
 
         vm.roll(block.number + 51);
 
@@ -28,10 +28,22 @@ contract CorruptionTest is RollupBase {
 
         L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
         vm.prank(sequencer);
-        r.acceptNextBatch(batch, 0);
+        r.acceptNextBatch(batch, 1);
 
         vm.roll(block.number + 1000);
 
+        assertFalse(r.isRollupCorrupted());
+    }
+
+    function test_healthy_daDeadlineAtBoundary() public {
+        Rollup r = _deployRollupWithConfig(50, 0);
+
+        L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
+        vm.prank(sequencer);
+        r.acceptNextBatch(batch, 1);
+
+        // DA corruption uses strict `>`; boundary block must remain healthy.
+        vm.roll(block.number + 50);
         assertFalse(r.isRollupCorrupted());
     }
 
@@ -43,14 +55,36 @@ contract CorruptionTest is RollupBase {
         uint256 batchIndex = r.nextBatchIndex();
         L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
         vm.prank(sequencer);
-        r.acceptNextBatch(batch, 0);
+        r.acceptNextBatch(batch, 1);
 
+        bytes32[] memory h1 = new bytes32[](1);
+        h1[0] = keccak256(abi.encode("blob", batchIndex, uint256(0)));
+        vm.blobhashes(h1);
         vm.prank(sequencer);
-        r.submitBlobs(batchIndex, 0);
+        r.submitBlobs(batchIndex, 1);
 
         vm.roll(block.number + 51);
 
         assertTrue(r.isRollupCorrupted());
+    }
+
+    function test_healthy_preconfirmDeadlineAtBoundary() public {
+        Rollup r = _deployRollupWithConfig(0, 50);
+
+        uint256 batchIndex = r.nextBatchIndex();
+        L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
+        vm.prank(sequencer);
+        r.acceptNextBatch(batch, 1);
+
+        bytes32[] memory h = new bytes32[](1);
+        h[0] = keccak256(abi.encode("blob", batchIndex, uint256(0)));
+        vm.blobhashes(h);
+        vm.prank(sequencer);
+        r.submitBlobs(batchIndex, 1);
+
+        // Preconfirm corruption uses strict `>`; boundary block must remain healthy.
+        vm.roll(block.number + 50);
+        assertFalse(r.isRollupCorrupted());
     }
 
     function test_corrupt_preconfirmDeadlineDisabled_zeroMeansDisabled() public {
@@ -59,10 +93,13 @@ contract CorruptionTest is RollupBase {
         uint256 batchIndex = r.nextBatchIndex();
         L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
         vm.prank(sequencer);
-        r.acceptNextBatch(batch, 0);
+        r.acceptNextBatch(batch, 1);
 
+        bytes32[] memory h2 = new bytes32[](1);
+        h2[0] = keccak256(abi.encode("blob", batchIndex, uint256(0)));
+        vm.blobhashes(h2);
         vm.prank(sequencer);
-        r.submitBlobs(batchIndex, 0);
+        r.submitBlobs(batchIndex, 1);
 
         vm.roll(block.number + 1000);
 
@@ -78,7 +115,7 @@ contract CorruptionTest is RollupBase {
         uint256 batchIndex = rollup.nextBatchIndex();
         L2BlockHeader[] memory headers = _makeBatch(lastHash);
         vm.prank(sequencer);
-        rollup.acceptNextBatch(headers, 0);
+        rollup.acceptNextBatch(headers, 1);
         _submitBlobs(batchIndex, 0);
         _preconfirmBatch(batchIndex);
 
@@ -90,6 +127,26 @@ contract CorruptionTest is RollupBase {
         assertTrue(rollup.isRollupCorrupted());
     }
 
+    function test_healthy_challengeDeadlineAtBoundary() public {
+        uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
+        bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);
+
+        uint256 batchIndex = rollup.nextBatchIndex();
+        L2BlockHeader[] memory headers = _makeBatch(lastHash);
+        vm.prank(sequencer);
+        rollup.acceptNextBatch(headers, 1);
+        _submitBlobs(batchIndex, 0);
+        _preconfirmBatch(batchIndex);
+
+        MerkleTree.MerkleProof memory proof = _buildMerkleProof(headers, 0);
+        _challengeBlock(batchIndex, headers[0], proof);
+        uint256 deadline = rollup.getChallenge(_computeCommitment(headers[0])).deadline;
+
+        // Challenge corruption uses strict `<`; exact deadline block is still healthy.
+        vm.roll(deadline);
+        assertFalse(rollup.isRollupCorrupted());
+    }
+
     function test_healthy_afterChallengeResolved() public {
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
         bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);
@@ -97,7 +154,7 @@ contract CorruptionTest is RollupBase {
         uint256 batchIndex = rollup.nextBatchIndex();
         L2BlockHeader[] memory headers = _makeBatch(lastHash);
         vm.prank(sequencer);
-        rollup.acceptNextBatch(headers, 0);
+        rollup.acceptNextBatch(headers, 1);
         _submitBlobs(batchIndex, 0);
         _preconfirmBatch(batchIndex);
 
@@ -112,6 +169,45 @@ contract CorruptionTest is RollupBase {
         assertFalse(rollup.isRollupCorrupted());
     }
 
+    function test_healthy_preconfirmedWithoutChallenges_afterLongDelay() public {
+        uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
+        bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);
+
+        uint256 batchIndex = rollup.nextBatchIndex();
+        L2BlockHeader[] memory headers = _makeBatch(lastHash);
+        vm.prank(sequencer);
+        rollup.acceptNextBatch(headers, 1);
+        _submitBlobs(batchIndex, 0);
+        _preconfirmBatch(batchIndex);
+
+        // No open challenges; corruption checks should stay healthy even after long delays.
+        vm.roll(block.number + CHALLENGE_WINDOW + 1000);
+        assertFalse(rollup.isRollupCorrupted());
+    }
+
+    function test_corrupt_whenPaginatedForceRevertSessionActive() public {
+        // Finalize first batch to make following batches oldest non-finalized range.
+        uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
+        bytes32 lastHash1 = rollup.lastBlockHashInBatch(batch1);
+
+        // Create two non-finalized preconfirmed batches.
+        uint256 batch2 = _acceptBatch(lastHash1, 0);
+        _submitBlobs(batch2, 0);
+        _preconfirmBatch(batch2);
+
+        bytes32 lastHash2 = rollup.lastBlockHashInBatch(batch2);
+        uint256 batch3 = _acceptBatch(lastHash2, 0);
+        _submitBlobs(batch3, 0);
+        _preconfirmBatch(batch3);
+
+        // Process only one batch in paginated mode: session remains active for next chunk.
+        vm.prank(admin);
+        rollup.forceRevertBatchPaginated(batch2, 1, 1);
+
+        // Active paginated session must force corrupted state until fully completed.
+        assertTrue(rollup.isRollupCorrupted());
+    }
+
     // ============ Checks oldest non-finalized batch ============
 
     function test_corrupt_checksOldestNonFinalizedBatch() public {
@@ -123,13 +219,13 @@ contract CorruptionTest is RollupBase {
         uint256 batchIndex = rollup.nextBatchIndex();
         L2BlockHeader[] memory headers = _makeBatch(lastHash);
         vm.prank(sequencer);
-        rollup.acceptNextBatch(headers, 0);
+        rollup.acceptNextBatch(headers, 1);
 
         // batch 3 also accepted — but corruption should trigger on batch 2
         bytes32 lastHash2 = rollup.lastBlockHashInBatch(batchIndex);
         L2BlockHeader[] memory headers3 = _makeBatch(lastHash2);
         vm.prank(sequencer);
-        rollup.acceptNextBatch(headers3, 0);
+        rollup.acceptNextBatch(headers3, 1);
 
         vm.roll(block.number + SUBMIT_BLOBS_WINDOW + 1);
 

@@ -101,23 +101,31 @@ abstract contract RollupBase is Test, IRollupEvents {
 
     // ============ Lifecycle Action Helpers ============
 
+    function _normalizedExpectedBlobs(uint256 expectedBlobs) internal pure returns (uint256) {
+        // submitBlobs now requires numBlobs > 0, so tests that used expectedBlobs=0
+        // are normalized to a single blob batch.
+        return expectedBlobs == 0 ? 1 : expectedBlobs;
+    }
+
     function _acceptBatch(bytes32 parentHash, uint256 expectedBlobs) internal returns (uint256 batchIndex) {
+        uint256 normalizedExpectedBlobs = _normalizedExpectedBlobs(expectedBlobs);
         batchIndex = rollup.nextBatchIndex();
         L2BlockHeader[] memory batch = _makeBatch(parentHash);
         vm.prank(sequencer);
-        rollup.acceptNextBatch(batch, expectedBlobs);
+        rollup.acceptNextBatch(batch, normalizedExpectedBlobs);
     }
 
     function _submitBlobs(uint256 batchIndex, uint256 numBlobs) internal {
-        if (numBlobs > 0) {
-            bytes32[] memory hashes = new bytes32[](numBlobs);
-            for (uint256 i = 0; i < numBlobs; i++) {
+        uint256 normalizedNumBlobs = numBlobs == 0 ? 1 : numBlobs;
+        if (normalizedNumBlobs > 0) {
+            bytes32[] memory hashes = new bytes32[](normalizedNumBlobs);
+            for (uint256 i = 0; i < normalizedNumBlobs; i++) {
                 hashes[i] = keccak256(abi.encode("blob", batchIndex, i));
             }
             vm.blobhashes(hashes);
         }
         vm.prank(sequencer);
-        rollup.submitBlobs(batchIndex, numBlobs);
+        rollup.submitBlobs(batchIndex, normalizedNumBlobs);
     }
 
     function _preconfirmBatch(uint256 batchIndex) internal {
@@ -135,15 +143,15 @@ abstract contract RollupBase is Test, IRollupEvents {
         rollup.challengeBlock{value: CHALLENGE_DEPOSIT}(batchIndex, blockHeader, blockProof);
     }
 
-    /// @dev expectedBlobs=0 shortcut — submitBlobs(batchIndex, 0) with expectedBlobs=0
-    ///      transitions immediately to Accepted (0 submitted == 0 expected).
+    /// @dev expectedBlobs=0 in tests is normalized to a single-blob batch.
     function _fullyFinalizeBatch(bytes32 parentHash) internal returns (uint256 batchIndex) {
         return _fullyFinalizeBatch(parentHash, 0);
     }
 
     function _fullyFinalizeBatch(bytes32 parentHash, uint256 expectedBlobs) internal returns (uint256 batchIndex) {
-        batchIndex = _acceptBatch(parentHash, expectedBlobs);
-        _submitBlobs(batchIndex, expectedBlobs);
+        uint256 normalizedExpectedBlobs = _normalizedExpectedBlobs(expectedBlobs);
+        batchIndex = _acceptBatch(parentHash, normalizedExpectedBlobs);
+        _submitBlobs(batchIndex, normalizedExpectedBlobs);
         _preconfirmBatch(batchIndex);
         vm.roll(block.number + FINALIZATION_DELAY + 1);
         assertTrue(_finalizeBatch(batchIndex));
