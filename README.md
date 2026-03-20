@@ -6,6 +6,13 @@ This repository contains the Fluent bridge, gateway, factory, token, verifier, o
 
 The main production surface is:
 
+### Rollup
+
+Optimistic Rollup Protocol
+The Rollup contract implements an Optimistic Rollup system with dual verification paths: AWS Nitro Enclave for preconfirmation and SP1 for ZK proof-based challenge resolution. It manages batch submission, challenge-response mechanisms, and finalization of L2 state commitments on L1. The system progresses batches through multiple states (HeadersSubmitted → Accepted → Preconfirmed → Finalized) with a challenge mechanism that can temporarily branch to a Challenged state.
+
+##
+
 - `contracts/FluentBridge.sol`: cross-chain message transport, native-value custody, relayer delivery, proof-based withdrawals, and rollback handling.
 - `contracts/gateways/PaymentGateway.sol`: native/ERC20 bridging built on top of `FluentBridge`.
 - `contracts/factories/*.sol`: deterministic pegged-token deployment and beacon management.

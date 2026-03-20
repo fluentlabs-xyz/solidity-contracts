@@ -236,22 +236,20 @@ contract BaseFlowTest is Test {
     }
 
     function test_eth_roundtrip_l1_to_l2_and_back_trusted_relayer() public {
-        uint256 amount = 1 ether;
-
         // ============ Step 1: L1 sender sends native to L2 recipient ============
         _logL1State("step1/before");
         _selectL1();
-        vm.deal(l1Sender, amount);
+        vm.deal(l1Sender, 1 ether);
 
         uint256 l1BlockNumber = block.number;
         uint256 l1OutboundNonce = l1Bridge.getNonce();
 
-        bytes memory l1ToL2Message = abi.encodeCall(NativeGateway.receiveNativeTokens, (l1Sender, l2Recipient, amount));
+        bytes memory l1ToL2Message = abi.encodeCall(NativeGateway.receiveNativeTokens, (l1Sender, l2Recipient, 1 ether));
 
         vm.prank(l1Sender);
-        l1Gateway.sendNativeTokens{value: amount}(l2Recipient, amount);
+        l1Gateway.sendNativeTokens{value: 1 ether}(l2Recipient, 1 ether);
 
-        assertEq(address(l1Bridge).balance, amount, "L1 bridge should lock funds");
+        assertEq(address(l1Bridge).balance, 1 ether, "L1 bridge should lock funds");
         assertEq(address(l2Bridge).balance, 0, "L2 bridge should start empty");
         _logL1State("step1/after sendNativeTokens");
 
@@ -261,15 +259,15 @@ contract BaseFlowTest is Test {
         uint256 l2PreRecipientBal = l2Recipient.balance;
 
         // Simulate "underhood mint/unlock" into the L2 bridge so it can forward value.
-        vm.deal(address(l2Bridge), amount);
-        assertEq(address(l2Bridge).balance, amount, "L2 bridge pre-fund missing");
+        vm.deal(address(l2Bridge), 1 ether);
+        assertEq(address(l2Bridge).balance, 1 ether, "L2 bridge pre-fund missing");
 
         uint256 l2ReceiveNonce = l1OutboundNonce;
         assertEq(l2Bridge.getReceivedNonce(), l2ReceiveNonce, "unexpected L2 received nonce");
         bytes32 l2MessageHash = _messageHash(
             address(l1Gateway),
             address(l2Gateway),
-            amount,
+            1 ether,
             l1ChainId,
             l1BlockNumber,
             l2ReceiveNonce,
@@ -277,10 +275,10 @@ contract BaseFlowTest is Test {
         );
 
         vm.prank(relayer);
-        l2Bridge.receiveMessage(address(l1Gateway), address(l2Gateway), amount, l1ChainId, l1BlockNumber, l2ReceiveNonce, l1ToL2Message);
+        l2Bridge.receiveMessage(address(l1Gateway), address(l2Gateway), 1 ether, l1ChainId, l1BlockNumber, l2ReceiveNonce, l1ToL2Message);
 
         assertEq(uint256(l2Bridge.getReceivedMessage(l2MessageHash)), uint256(IFluentBridge.MessageStatus.Success));
-        assertEq(l2Recipient.balance - l2PreRecipientBal, amount, "L2 recipient didn't get ETH");
+        assertEq(l2Recipient.balance - l2PreRecipientBal, 1 ether, "L2 recipient didn't get ETH");
         assertEq(address(l2Bridge).balance, 0, "L2 bridge should have forwarded all value");
         _logL2State("step2/after receiveMessage");
         console2.logBytes32(l2MessageHash);
@@ -293,14 +291,14 @@ contract BaseFlowTest is Test {
         _logL2State("step3/before return sendNativeTokens");
         uint256 l2OutboundNonce = l2Bridge.getNonce();
 
-        bytes memory l2ToL1Message = abi.encodeCall(NativeGateway.receiveNativeTokens, (l2Recipient, l1Recipient, amount));
+        bytes memory l2ToL1Message = abi.encodeCall(NativeGateway.receiveNativeTokens, (l2Recipient, l1Recipient, 1 ether));
 
         assertEq(l2Bridge.getNonce(), l2OutboundNonce, "sanity");
         vm.recordLogs();
         vm.prank(l2Recipient);
-        l2Gateway.sendNativeTokens{value: amount}(l1Recipient, amount);
+        l2Gateway.sendNativeTokens{value: 1 ether}(l1Recipient, 1 ether);
 
-        assertEq(address(l2Bridge).balance, amount, "L2 bridge should lock on return send");
+        assertEq(address(l2Bridge).balance, 1 ether, "L2 bridge should lock on return send");
 
         // Extract message metadata from SentMessage emitted by l2Bridge.
         {
@@ -324,7 +322,7 @@ contract BaseFlowTest is Test {
                     (uint256, uint256, uint256, uint256, bytes32, bytes)
                 );
 
-                assertEq(sentValue, amount, "return send value mismatch");
+                assertEq(sentValue, 1 ether, "return send value mismatch");
                 l2ChainIdForProof = sentChainId;
                 l2BlockNumberForProof = sentBlockNumber;
                 l1ReceiveNonce = sentNonce;
@@ -342,7 +340,7 @@ contract BaseFlowTest is Test {
         _logL1State("step4/before receiveMessage");
         _selectL1();
         uint256 l1PreRecipientBal = l1Recipient.balance;
-        assertEq(address(l1Bridge).balance, amount, "L1 bridge should have funds to unlock");
+        assertEq(address(l1Bridge).balance, 1 ether, "L1 bridge should have funds to unlock");
 
         // l2ChainIdForProof / l2BlockNumberForProof / l1ReceiveNonce / l1MessageHash
         // are extracted from the L2 SentMessage event above.
@@ -383,56 +381,49 @@ contract BaseFlowTest is Test {
         _logBatchStatus("step4/after finalizeBatches", batchIndex);
 
         // -------- execute withdrawal via proof path --------
-        MerkleTree.MerkleProof memory withdrawalProof = MerkleTree.MerkleProof({nonce: 0, proof: ""});
-        MerkleTree.MerkleProof memory blockProof = MerkleTree.MerkleProof({nonce: 0, proof: ""});
-
-        l1Bridge.receiveMessageWithProof(
-            batchIndex,
-            header,
-            address(l2Gateway),
-            payable(address(l1Gateway)),
-            amount,
-            l2ChainIdForProof,
-            l2BlockNumberForProof,
-            l1ReceiveNonce,
-            l2ToL1Message,
-            withdrawalProof,
-            blockProof
-        );
+        ReceiveMessageWithProofArgs memory callArgs;
+        callArgs.batchIndex = batchIndex;
+        callArgs.header = header;
+        callArgs.l2Gateway = address(l2Gateway);
+        callArgs.l1Gateway = payable(address(l1Gateway));
+        callArgs.value = 1 ether;
+        callArgs.l2ChainId = l2ChainIdForProof;
+        callArgs.l2BlockNumber = l2BlockNumberForProof;
+        callArgs.l1ReceiveNonce = l1ReceiveNonce;
+        callArgs.message = l2ToL1Message;
+        callArgs.withdrawalProof = MerkleTree.MerkleProof({nonce: 0, proof: ""});
+        callArgs.blockProof = MerkleTree.MerkleProof({nonce: 0, proof: ""});
+        _receiveMessageWithProofNative(l1Bridge, relayer, callArgs);
 
         assertEq(uint256(l1Bridge.getReceivedMessage(l1MessageHash)), uint256(IFluentBridge.MessageStatus.Success));
-        assertEq(l1Recipient.balance - l1PreRecipientBal, amount, "L1 recipient didn't get ETH back");
+        assertEq(l1Recipient.balance - l1PreRecipientBal, 1 ether, "L1 recipient didn't get ETH back");
         assertEq(address(l1Bridge).balance, 0, "L1 bridge should have forwarded all locked value");
         _logL1State("step4/after receiveMessage");
         console2.logBytes32(l1MessageHash);
     }
 
     function test_rollback_l1_to_l2_deadline_refunds_on_l1() public {
-        uint256 amount = 1 ether;
-
         // ============ Step 1: L1 sender sends native to L2 recipient ============
         _logL1State("rollback/step1/before sendNativeTokens");
         _selectL1();
-        vm.deal(l1Sender, amount);
+        vm.deal(l1Sender, 1 ether);
 
         uint256 l1OutboundNonce = l1Bridge.getNonce();
-        bytes memory l1ToL2Message = abi.encodeCall(NativeGateway.receiveNativeTokens, (l1Sender, l2Recipient, amount));
+        bytes memory l1ToL2Message = abi.encodeCall(NativeGateway.receiveNativeTokens, (l1Sender, l2Recipient, 1 ether));
 
         vm.recordLogs();
         vm.prank(l1Sender);
-        l1Gateway.sendNativeTokens{value: amount}(l2Recipient, amount);
+        l1Gateway.sendNativeTokens{value: 1 ether}(l2Recipient, 1 ether);
 
-        assertEq(address(l1Bridge).balance, amount, "L1 bridge should lock funds");
+        assertEq(address(l1Bridge).balance, 1 ether, "L1 bridge should lock funds");
 
         // Extract the exact SentMessage fields emitted by l1Bridge.
         address sentFrom;
         address sentTo;
         uint256 sentValue;
-        uint256 sentBlockChainId;
         uint256 sentBlockNumber;
         uint256 sentNonce;
         bytes memory sentData;
-        bytes32 sentMessageHash;
 
         {
             Vm.Log[] memory logs = vm.getRecordedLogs();
@@ -446,7 +437,9 @@ contract BaseFlowTest is Test {
                 sentFrom = address(uint160(uint256(entry.topics[1])));
                 sentTo = address(uint160(uint256(entry.topics[2])));
 
-                (sentValue, sentBlockChainId, sentBlockNumber, sentNonce, sentMessageHash, sentData) = abi.decode(
+                uint256 _sentBlockChainId;
+                bytes32 _sentMessageHash;
+                (sentValue, _sentBlockChainId, sentBlockNumber, sentNonce, _sentMessageHash, sentData) = abi.decode(
                     entry.data,
                     (uint256, uint256, uint256, uint256, bytes32, bytes)
                 );
@@ -457,7 +450,7 @@ contract BaseFlowTest is Test {
             assertTrue(found, "SentMessage log not found for L1->L2 send");
         }
 
-        assertEq(sentValue, amount, "sent value mismatch");
+        assertEq(sentValue, 1 ether, "sent value mismatch");
         assertEq(sentNonce, l1OutboundNonce, "sent nonce mismatch");
         assertEq(sentData, l1ToL2Message, "sent message payload mismatch");
         assertEq(sentFrom, address(l1Gateway), "unexpected sentFrom");
@@ -515,38 +508,30 @@ contract BaseFlowTest is Test {
 
         // ============ Step 4: Relayer executes rollback on L1 ============
         uint256 l1GatewayBalBefore = address(l1Gateway).balance;
-        assertEq(address(l1Bridge).balance, amount, "precondition: bridge should still hold funds");
+        assertEq(address(l1Bridge).balance, 1 ether, "precondition: bridge should still hold funds");
 
-        // Use deterministic stored L2 chain id for the rollback call.
-        uint256 l2ChainIdForRollback = l2ChainId;
-        MerkleTree.MerkleProof memory withdrawalProof = MerkleTree.MerkleProof({nonce: 0, proof: ""});
-        MerkleTree.MerkleProof memory blockProof = MerkleTree.MerkleProof({nonce: 0, proof: ""});
-
-        vm.prank(relayer);
-        l1Bridge.rollbackMessageWithProof(
-            batchIndex,
-            header,
-            sentFrom,
-            payable(sentTo),
-            sentValue,
-            l2ChainIdForRollback,
-            sentBlockNumber,
-            sentNonce,
-            sentData,
-            withdrawalProof,
-            blockProof
-        );
+        RollbackMessageWithProofArgs memory rollbackArgs;
+        rollbackArgs.batchIndex = batchIndex;
+        rollbackArgs.header = header;
+        rollbackArgs.from = sentFrom;
+        rollbackArgs.to = payable(sentTo);
+        rollbackArgs.value = sentValue;
+        rollbackArgs.l2ChainId = l2ChainId;
+        rollbackArgs.blockNumber = sentBlockNumber;
+        rollbackArgs.messageNonce = sentNonce;
+        rollbackArgs.message = sentData;
+        rollbackArgs.withdrawalProof = MerkleTree.MerkleProof({nonce: 0, proof: ""});
+        rollbackArgs.blockProof = MerkleTree.MerkleProof({nonce: 0, proof: ""});
+        _rollbackMessageWithProofNative(l1Bridge, relayer, rollbackArgs);
 
         assertEq(uint256(l1Bridge.getRollbackMessage(l2FailedMessageHash)), uint256(IFluentBridge.MessageStatus.Success));
         assertEq(address(l1Bridge).balance, 0, "L1 bridge should refund locked value");
-        assertEq(address(l1Gateway).balance - l1GatewayBalBefore, amount, "L1 gateway should receive refund");
+        assertEq(address(l1Gateway).balance - l1GatewayBalBefore, 1 ether, "L1 gateway should receive refund");
 
         _logL1State("rollback/step4/after rollbackMessageWithProof");
     }
 
     function test_receiveMessageWithProof_l2_to_l1_native_happy_path() public {
-        uint256 amount = 1 ether;
-
         // We focus on the L2 -> L1 proof path:
         // - create an outbound native message on L2 (locks ETH in L2 bridge)
         // - finalize a Rollup batch on L1
@@ -555,73 +540,49 @@ contract BaseFlowTest is Test {
         // -------- Step 1: Prefund L1 bridge so it can pay out --------
         _selectL1();
         uint256 l1RecipientBalBefore = l1Recipient.balance;
-        vm.deal(address(l1Bridge), amount);
-        assertEq(address(l1Bridge).balance, amount, "L1 bridge pre-fund missing");
+        vm.deal(address(l1Bridge), 1 ether);
+        assertEq(address(l1Bridge).balance, 1 ether, "L1 bridge pre-fund missing");
 
         // -------- Step 2: L2 sends native to L1 --------
         _selectL2();
-        vm.deal(l2Recipient, amount);
+        vm.deal(l2Recipient, 1 ether);
 
         // Capture the exact message fields enqueued by l2Bridge.sendMessage.
         vm.recordLogs();
-        vm.deal(l2Recipient, amount);
+        vm.deal(l2Recipient, 1 ether);
         vm.prank(l2Recipient);
-        l2Gateway.sendNativeTokens{value: amount}(l1Recipient, amount);
-        assertEq(address(l2Bridge).balance, amount, "L2 bridge should lock value");
+        l2Gateway.sendNativeTokens{value: 1 ether}(l1Recipient, 1 ether);
+        assertEq(address(l2Bridge).balance, 1 ether, "L2 bridge should lock value");
 
         // Decode SentMessage(from, to, value, chainId, blockNumber, nonce, messageHash, data)
         // emitted by the L2 bridge itself.
-        address sentFrom;
-        address sentTo;
-        uint256 sentValue;
-        uint256 sentChainId;
-        uint256 sentBlockNumber;
-        uint256 sentNonce;
         bytes memory l2ToL1Message;
         bytes32 l1MessageHash;
+        uint256 l1ReceiveNonce;
+        uint256 l2ChainIdForProof;
+        uint256 l2BlockNumberForProof;
 
         {
             Vm.Log[] memory logs = vm.getRecordedLogs();
             bool found;
+            uint256 sentValue; // kept only to satisfy abi.decode tuple arity
             for (uint256 i = 0; i < logs.length; i++) {
                 Vm.Log memory entry = logs[i];
                 if (entry.emitter != address(l2Bridge)) continue;
                 if (entry.topics.length != 3) continue;
                 if (entry.topics[0] != SENT_MESSAGE_SIG) continue;
 
-                sentFrom = address(uint160(uint256(entry.topics[1])));
-                sentTo = address(uint160(uint256(entry.topics[2])));
-
-                uint256 _sentValue;
-                uint256 _sentChainId;
-                uint256 _sentBlockNumber;
-                uint256 _sentNonce;
-                bytes32 _sentMessageHash;
-                bytes memory _sentData;
-                (_sentValue, _sentChainId, _sentBlockNumber, _sentNonce, _sentMessageHash, _sentData) = abi.decode(
+                // Decode SentMessage(from, to, value, chainId, blockNumber, nonce, messageHash, data)
+                // emitted by the L2 bridge itself.
+                (sentValue, l2ChainIdForProof, l2BlockNumberForProof, l1ReceiveNonce, l1MessageHash, l2ToL1Message) = abi.decode(
                     entry.data,
                     (uint256, uint256, uint256, uint256, bytes32, bytes)
                 );
-
-                sentValue = _sentValue;
-                sentChainId = _sentChainId;
-                sentBlockNumber = _sentBlockNumber;
-                sentNonce = _sentNonce;
-                l1MessageHash = _sentMessageHash;
-                l2ToL1Message = _sentData;
                 found = true;
                 break;
             }
             assertTrue(found, "SentMessage log not found for L2->L1 send");
         }
-
-        assertEq(sentValue, amount, "sent value mismatch");
-        assertEq(sentFrom, address(l2Gateway), "sentFrom mismatch");
-        assertEq(sentTo, address(l1Gateway), "sentTo mismatch");
-
-        uint256 l1ReceiveNonce = sentNonce;
-        uint256 l2ChainIdForProof = sentChainId;
-        uint256 l2BlockNumberForProof = sentBlockNumber;
 
         // -------- Step 3: Create + finalize Rollup batch on L1 --------
         _selectL1();
@@ -635,40 +596,101 @@ contract BaseFlowTest is Test {
             depositRoot: ZERO_BYTES_HASH,
             depositCount: 0
         });
-        L2BlockHeader[] memory headers = new L2BlockHeader[](1);
-        headers[0] = header;
 
-        vm.prank(relayer);
-        l1Rollup.acceptNextBatch(headers, 0);
-        vm.prank(relayer);
-        l1Rollup.submitBlobs(batchIndex, 0);
-        vm.prank(relayer);
-        l1Rollup.preconfirmBatch(address(l1NitroVerifier), batchIndex, DUMMY_SIGNATURE);
-        vm.roll(block.number + FINALIZATION_DELAY + 2);
-        l1Rollup.finalizeBatches(batchIndex);
-        assertTrue(l1Rollup.isBatchFinalized(batchIndex));
+        {
+            L2BlockHeader[] memory headers = new L2BlockHeader[](1);
+            headers[0] = header;
+
+            vm.prank(relayer);
+            l1Rollup.acceptNextBatch(headers, 0);
+            vm.prank(relayer);
+            l1Rollup.submitBlobs(batchIndex, 0);
+            vm.prank(relayer);
+            l1Rollup.preconfirmBatch(address(l1NitroVerifier), batchIndex, DUMMY_SIGNATURE);
+            vm.roll(block.number + FINALIZATION_DELAY + 2);
+            l1Rollup.finalizeBatches(batchIndex);
+            assertTrue(l1Rollup.isBatchFinalized(batchIndex));
+        }
 
         // -------- Step 4: Execute unlock via proof path --------
-        MerkleTree.MerkleProof memory withdrawalProof = MerkleTree.MerkleProof({nonce: 0, proof: ""});
-        MerkleTree.MerkleProof memory blockProof = MerkleTree.MerkleProof({nonce: 0, proof: ""});
-
-        vm.prank(relayer);
-        l1Bridge.receiveMessageWithProof(
-            batchIndex,
-            header,
-            address(l2Gateway),
-            payable(address(l1Gateway)),
-            amount,
-            l2ChainIdForProof,
-            l2BlockNumberForProof,
-            l1ReceiveNonce,
-            l2ToL1Message,
-            withdrawalProof,
-            blockProof
-        );
+        ReceiveMessageWithProofArgs memory callArgs;
+        callArgs.batchIndex = batchIndex;
+        callArgs.header = header;
+        callArgs.l2Gateway = address(l2Gateway);
+        callArgs.l1Gateway = payable(address(l1Gateway));
+        callArgs.value = 1 ether;
+        callArgs.l2ChainId = l2ChainIdForProof;
+        callArgs.l2BlockNumber = l2BlockNumberForProof;
+        callArgs.l1ReceiveNonce = l1ReceiveNonce;
+        callArgs.message = l2ToL1Message;
+        callArgs.withdrawalProof = MerkleTree.MerkleProof({nonce: 0, proof: ""});
+        callArgs.blockProof = MerkleTree.MerkleProof({nonce: 0, proof: ""});
+        _receiveMessageWithProofNative(l1Bridge, relayer, callArgs);
 
         assertEq(uint256(l1Bridge.getReceivedMessage(l1MessageHash)), uint256(IFluentBridge.MessageStatus.Success));
-        assertEq(l1Recipient.balance - l1RecipientBalBefore, amount, "L1 recipient didn't get ETH");
+        assertEq(l1Recipient.balance - l1RecipientBalBefore, 1 ether, "L1 recipient didn't get ETH");
         assertEq(address(l1Bridge).balance, 0, "L1 bridge should have forwarded all value");
+    }
+
+    struct ReceiveMessageWithProofArgs {
+        uint256 batchIndex;
+        L2BlockHeader header;
+        address l2Gateway;
+        address payable l1Gateway;
+        uint256 value;
+        uint256 l2ChainId;
+        uint256 l2BlockNumber;
+        uint256 l1ReceiveNonce;
+        bytes message;
+        MerkleTree.MerkleProof withdrawalProof;
+        MerkleTree.MerkleProof blockProof;
+    }
+
+    function _receiveMessageWithProofNative(L1FluentBridge l1Bridge_, address relayer_, ReceiveMessageWithProofArgs memory args) internal {
+        vm.prank(relayer_);
+        l1Bridge_.receiveMessageWithProof(
+            args.batchIndex,
+            args.header,
+            args.l2Gateway,
+            args.l1Gateway,
+            args.value,
+            args.l2ChainId,
+            args.l2BlockNumber,
+            args.l1ReceiveNonce,
+            args.message,
+            args.withdrawalProof,
+            args.blockProof
+        );
+    }
+
+    struct RollbackMessageWithProofArgs {
+        uint256 batchIndex;
+        L2BlockHeader header;
+        address from;
+        address payable to;
+        uint256 value;
+        uint256 l2ChainId;
+        uint256 blockNumber;
+        uint256 messageNonce;
+        bytes message;
+        MerkleTree.MerkleProof withdrawalProof;
+        MerkleTree.MerkleProof blockProof;
+    }
+
+    function _rollbackMessageWithProofNative(L1FluentBridge l1Bridge_, address relayer_, RollbackMessageWithProofArgs memory args) internal {
+        vm.prank(relayer_);
+        l1Bridge_.rollbackMessageWithProof(
+            args.batchIndex,
+            args.header,
+            args.from,
+            args.to,
+            args.value,
+            args.l2ChainId,
+            args.blockNumber,
+            args.messageNonce,
+            args.message,
+            args.withdrawalProof,
+            args.blockProof
+        );
     }
 }

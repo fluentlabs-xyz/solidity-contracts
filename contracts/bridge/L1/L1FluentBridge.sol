@@ -93,7 +93,10 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         require(getReceivedMessage(messageHash) == IFluentBridge.MessageStatus.None, MessageAlreadyReceived());
 
         _verifyWithdrawal(batchIndex, blockHeader, withdrawalProof, blockProof, messageHash);
-        _receiveMessage(gasleft(), from, to, value, chainId, blockNumber, messageNonce, message, messageHash);
+        require(to != address(this), ForbiddenSelfCall());
+        if (!_beforeReceiveMessage(from, to, value, chainId, blockNumber, messageNonce, message)) return;
+
+        _receiveMessage(gasleft(), from, to, value, message, messageHash);
     }
 
     /// @dev should live on the bridge on L1
