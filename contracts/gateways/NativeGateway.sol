@@ -10,21 +10,23 @@ import {INativeGateway} from "../interfaces/gateways/INativeGateway.sol";
  * @title NativeGateway
  * @author Fluent Lab
  *
- * @notice Gateway for bridging native (ETH) tokens between two chains via FluentBridge.
- * @dev Upgradeable via UUPS proxy (ERC1967Proxy); upgrade authorized by owner. State in NativeGatewayStorage (ERC-7201). Only the configured bridge
- *      may call receive* entrypoints; native receive requires msg.value == amount (bridge forwards value from its receive caller).
- * @notice Workflows:
- * 1. Send native tokens (this chain -> other chain):
- *    - User calls sendNativeTokens(to, amount) with msg.value == amount.
- *    - Gateway forwards value to FluentBridge.sendMessage{value: amount}(otherSide, receiveNativeTokens(sender, to, amount)).
- *    - Native is locked in the bridge on this chain; relayer must supply same amount when executing receive on the other chain.
- * 2. Receive native tokens (other chain -> this chain):
- *    - Only callable by bridge; bridge must call with msg.value == amount. Gateway forwards amount to recipient via call with gasLimit().
- * Admin: setGasLimit, rescueNative (recover stuck ETH).
+ * @notice Gateway for bridging native ETH between chains through `FluentBridge`.
+ * @dev UUPS-upgradeable gateway. Bridge routing state is inherited from `GatewayBase` (ERC-7201 namespace),
+ *      while this contract stores only `_gasLimit` for outbound native transfer execution.
+ * @dev Security model:
+ *      - `sendNativeTokens` requires `msg.value == amount`.
+ *      - `receiveNativeTokens` is restricted to the configured bridge and verifies the remote gateway sender.
+ *      - Incoming bridge calls must provide `msg.value == amount`, then ETH is forwarded to the recipient.
+ * @dev Flows:
+ *      1) Source chain: user calls `sendNativeTokens(to, amount)` and ETH is forwarded into
+ *         `FluentBridge.sendMessage{value: amount}(otherSide, payload)`.
+ *      2) Destination chain: relayer executes bridge delivery; gateway validates origin and transfers ETH to `to`
+ *         using `call{gas: getGasLimit(), value: amount}`.
+ * @dev Admin functions: `setGasLimit` and `rescueNative`.
  */
 contract NativeGateway is GatewayBase, INativeGateway {
     /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
-    uint256 public constant DEFAULT_GAS_LIMIT = 50_000;
+    uint256 public constant DEFAULT_GAS_LIMIT = 100_000;
 
     uint256 internal _gasLimit;
 
@@ -35,8 +37,6 @@ contract NativeGateway is GatewayBase, INativeGateway {
 
     /// @notice Initializes the upgradeable gateway (replaces constructor when used behind a proxy).
     function initialize(address initialOwner, address bridgeContract) public initializer {
-        require(initialOwner != address(0) && bridgeContract != address(0), ZeroAddress());
-
         __GatewayBase_init(initialOwner, bridgeContract);
 
         // ============ Storage ============
@@ -44,19 +44,19 @@ contract NativeGateway is GatewayBase, INativeGateway {
     }
 
     /// @inheritdoc INativeGateway
-    function sendNativeTokens(address _to, uint256 _amount) external payable nonReentrant {
+    function sendNativeTokens(address _to, uint256 _amount) external payable onlyFluentBridge nonReentrant {
         require(_to != address(0), InvalidRecipient());
         require(msg.value == _amount, InvalidNativeAmount());
 
         FluentBridge(getBridgeContract()).sendMessage{value: _amount}(
-            getOtherSide(),
+            getOtherSideGateway(),
             abi.encodeCall(NativeGateway.receiveNativeTokens, (msg.sender, _to, _amount))
         );
     }
 
     /// @inheritdoc INativeGateway
-    function receiveNativeTokens(address _from, address _to, uint256 _amount) external payable onlyBridgeSender nonReentrant {
-        require(FluentBridge(msg.sender).getNativeSender() == getOtherSide(), MessageFromWrongGateway());
+    function receiveNativeTokens(address _from, address _to, uint256 _amount) external payable onlyFluentBridge nonReentrant {
+        require(FluentBridge(msg.sender).getNativeSender() == getOtherSideGateway(), MessageFromWrongGateway());
         require(msg.value == _amount, InvalidNativeAmount());
         require(_to != address(0), InvalidRecipient());
 
@@ -66,11 +66,7 @@ contract NativeGateway is GatewayBase, INativeGateway {
         emit ReceivedTokens(_from, _to, _amount);
     }
 
-    /**
-     * @notice Recovers ETH accidentally sent or force-sent to this contract.
-     * @param to The address to send the ETH to.
-     * @param amount The amount of ETH to send.
-     */
+    /// @inheritdoc INativeGateway
     function rescueNative(address payable to, uint256 amount) external onlyOwner {
         require(to != address(0), InvalidRecipient());
         (bool success, ) = to.call{value: amount}("");
@@ -79,24 +75,23 @@ contract NativeGateway is GatewayBase, INativeGateway {
 
     // ============ Public getters ============
 
+    /// @inheritdoc INativeGateway
     function getGasLimit() public view returns (uint256) {
         return _gasLimit;
     }
 
-    /**
-     * @notice Sets the gas limit for the bridge.
-     * @param newGasLimit The new gas limit.
-     */
+    // ============ Admin functions ============
+
+    /// @inheritdoc INativeGateway
     function setGasLimit(uint256 newGasLimit) external onlyOwner {
         _setGasLimit(newGasLimit);
     }
 
     function _setGasLimit(uint256 newGasLimit) internal {
-        require(newGasLimit > 0, InvalidGasLimit());
+        require(newGasLimit > 0, ZeroValueNotAllowed("gasLimit"));
         emit GasLimitUpdated(_gasLimit, newGasLimit);
         _gasLimit = newGasLimit;
     }
 
-    /// @notice Receives ETH (e.g. forced transfers). Prefer bridge entrypoints for normal flow.
     receive() external payable {}
 }

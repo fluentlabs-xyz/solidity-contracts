@@ -30,7 +30,7 @@ contract NativeGatewayTest is BridgeGatewayBase {
     function test_initialize_setsDefaults() public {
         assertEq(nativeGateway.owner(), admin);
         assertEq(nativeGateway.getBridgeContract(), address(bridge));
-        assertEq(nativeGateway.getOtherSide(), remoteGateway);
+        assertEq(nativeGateway.getOtherSideGateway(), remoteGateway);
         assertEq(nativeGateway.getGasLimit(), nativeGateway.DEFAULT_GAS_LIMIT());
     }
 
@@ -49,7 +49,7 @@ contract NativeGatewayTest is BridgeGatewayBase {
         vm.deal(user, amount);
 
         vm.prank(user);
-        vm.expectRevert(INativeGatewayErrors.InvalidRecipient.selector);
+        vm.expectRevert(bytes4(keccak256("ZeroAddressNotAllowed(string)")));
         nativeGateway.sendNativeTokens{value: amount}(address(0), amount);
     }
 
@@ -155,10 +155,10 @@ contract NativeGatewayTest is BridgeGatewayBase {
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
     }
 
-    function test_receiveNativeTokens_directCall_revertsOnlyBridgeSender() public {
+    function test_receiveNativeTokens_directCall_revertsOnlyFluentBridge() public {
         vm.deal(user, 1 ether);
         vm.prank(user);
-        vm.expectRevert(IGatewayErrors.OnlyBridgeSender.selector);
+        vm.expectRevert(IGatewayErrors.OnlyFluentBridge.selector);
         nativeGateway.receiveNativeTokens{value: 1 ether}(user, recipient, 1 ether);
     }
 

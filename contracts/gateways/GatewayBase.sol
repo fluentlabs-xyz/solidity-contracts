@@ -1,11 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-import {BeaconProxy} from "@openzeppelin/contracts/proxy/beacon/BeaconProxy.sol";
-import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
@@ -17,23 +12,27 @@ import {IGateway} from "../interfaces/gateways/IGateway.sol";
  * @title GatewayBase
  * @author Fluent Lab
  *
- * @notice Base contract for all gateway implementations.
- * @dev Implements IGateway interface and provides common functionality for all gateways.
- * @dev Storage in GatewayBaseStorage (ERC-7201): bridgeContract, otherSide, otherSideChainId.
- * @dev Only the configured bridge may call receive* entrypoints; native receive requires msg.value == amount (bridge forwards value from its receive caller).
- * @dev Admin: setBridgeContract, setOtherSideGateway.
+ * @notice Shared gateway foundation for cross-chain token gateways.
+ * @dev UUPS-upgradeable base that centralizes:
+ *      - common access control (`onlyOwner`, bridge-caller checks),
+ *      - shared bridge routing config (`_bridgeContract`, `_otherSide`, `_otherSideChainId`),
+ *      - common admin setters for bridge and remote gateway addresses.
+ * @dev Storage is namespaced under ERC-7201 (`GatewayBaseStorage`) and consumed by derived gateways
+ *      such as `NativeGateway` and `ERC20Gateway`.
+ * @dev `onlyFluentBridge` enforces that receive entrypoints are callable only by the configured local
+ *      `FluentBridge` instance.
  */
 abstract contract GatewayBase is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuardUpgradeable, IGateway {
-    /// @custom:storage-location erc7201:fluent.storage.PaymentGateway
+    /// @custom:storage-location erc7201:fluent.storage.GatewayBaseStorage
     struct GatewayBaseStorage {
         address _bridgeContract;
-        address _otherSide;
+        address _otherSideGateway;
         uint256 _otherSideChainId;
         uint256[50] __gap;
     }
 
-    /// @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.PaymentGatewayStorage")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant GATEWAY_BASE_STORAGE_LOCATION = 0xcaa08bf2435fec1ef38988227447dbd9b56d025c40329ce35d36c83ed0b9cf00;
+    /// @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.GatewayBaseStorage")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant GATEWAY_BASE_STORAGE_LOCATION = 0x76174ff789203cf2db8238f11acb33783dc695662454a2feabb4fb5ea262c400;
 
     /// @dev returns the storage pointer for the GatewayBaseStorage struct.
     function _getGatewayBaseStorage() internal pure returns (GatewayBaseStorage storage $) {
@@ -42,13 +41,13 @@ abstract contract GatewayBase is Initializable, UUPSUpgradeable, Ownable2StepUpg
         }
     }
 
-    modifier onlyBridgeSender() {
-        require(msg.sender == _getGatewayBaseStorage()._bridgeContract, OnlyBridgeSender());
+    modifier onlyFluentBridge() {
+        require(msg.sender == _getGatewayBaseStorage()._bridgeContract, OnlyFluentBridge());
         _;
     }
 
     function __GatewayBase_init(address initialOwner, address bridgeContract) internal onlyInitializing {
-        require(initialOwner != address(0) && bridgeContract != address(0), ZeroAddress());
+        require(initialOwner != address(0) && bridgeContract != address(0), ZeroAddressNotAllowed("initialOwner or bridgeContract"));
 
         __Ownable_init(initialOwner);
         __Ownable2Step_init();
@@ -64,8 +63,8 @@ abstract contract GatewayBase is Initializable, UUPSUpgradeable, Ownable2StepUpg
         return _getGatewayBaseStorage()._bridgeContract;
     }
 
-    function getOtherSide() public view returns (address) {
-        return _getGatewayBaseStorage()._otherSide;
+    function getOtherSideGateway() public view returns (address) {
+        return _getGatewayBaseStorage()._otherSideGateway;
     }
 
     function getOtherSideChainId() public view returns (uint256) {
@@ -74,38 +73,39 @@ abstract contract GatewayBase is Initializable, UUPSUpgradeable, Ownable2StepUpg
 
     // ============ Admin functions ============
 
-    /**
-     * @notice Updates the bridge contract address used for sending and receiving messages.
-     * @param newBridgeContract The address of the bridge contract.
-     */
+    /// @inheritdoc IGateway
     function setBridgeContract(address newBridgeContract) external onlyOwner {
         _setBridgeContract(newBridgeContract);
     }
 
     function _setBridgeContract(address newBridgeContract) internal {
-        require(newBridgeContract != address(0), ZeroAddress());
+        require(newBridgeContract != address(0), ZeroAddressNotAllowed("newBridgeContract"));
         GatewayBaseStorage storage $ = _getGatewayBaseStorage();
         emit BridgeContractUpdated($._bridgeContract, newBridgeContract);
         $._bridgeContract = newBridgeContract;
     }
 
-    /**
-     * @notice Updates the remote gateway address used as message destination.
-     * @param newOtherSide The address of the other side gateway.
-     */
-    function setOtherSideGateway(address newOtherSide) external onlyOwner {
-        _setOtherSideGateway(newOtherSide);
+    /// @inheritdoc IGateway
+    function setOtherSideGateway(address newOtherSideGateway) external onlyOwner {
+        _setOtherSideGateway(newOtherSideGateway);
     }
 
-    function _setOtherSideGateway(address newOtherSide) internal {
-        require(newOtherSide != address(0), ZeroAddress());
+    function _setOtherSideGateway(address newOtherSideGateway) internal {
+        require(newOtherSideGateway != address(0), ZeroAddressNotAllowed("newOtherSideGateway"));
         GatewayBaseStorage storage $ = _getGatewayBaseStorage();
-        emit OtherSideGatewayUpdated($._otherSide, newOtherSide);
-        $._otherSide = newOtherSide;
+        emit OtherSideGatewayUpdated($._otherSideGateway, newOtherSideGateway);
+        $._otherSideGateway = newOtherSideGateway;
+    }
+
+    /// @inheritdoc IGateway
+    function setOtherSideChainId(uint256 newOtherSideChainId) external onlyOwner {
+        _setOtherSideChainId(newOtherSideChainId);
     }
 
     function _setOtherSideChainId(uint256 newOtherSideChainId) internal {
-        _getGatewayBaseStorage()._otherSideChainId = newOtherSideChainId;
+        GatewayBaseStorage storage $ = _getGatewayBaseStorage();
+        emit OtherSideChainIdUpdated($._otherSideChainId, newOtherSideChainId);
+        $._otherSideChainId = newOtherSideChainId;
     }
 
     /// @inheritdoc UUPSUpgradeable

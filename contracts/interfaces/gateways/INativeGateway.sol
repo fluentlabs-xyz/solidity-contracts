@@ -9,22 +9,18 @@ interface INativeGatewayErrors {
     error InvalidNativeAmount();
 
     /**
-     * @notice Thrown when the recipient is zero.
-     * @dev selector: TODO
-     */
-    error InvalidRecipient();
-
-    /**
-     * @notice Zero address supplied for a required configuration field.
-     * @dev selector: TODO
-     */
-    error ZeroAddressNotAllowed(string field);
-
-    /**
      * @notice Thrown when native token transfer fails.
      * @dev selector: 0xf4b3b1bc
      */
     error NativeTransferFailed();
+
+    /**
+     * @notice Thrown when a supplied gas limit is zero or otherwise invalid for gateway execution.
+     * @dev Raised by gas-limit validation (e.g. `setGasLimit`) when the configured `_gasLimit` would render
+     *      cross-chain native transfers unsafe or non-functional.
+     * @dev selector: TODO
+     */
+    error InvalidGasLimit();
 }
 
 interface INativeGateway is INativeGatewayErrors {
@@ -42,4 +38,25 @@ interface INativeGateway is INativeGatewayErrors {
      * @param _amount The amount of native tokens to receive.
      */
     function receiveNativeTokens(address _from, address _to, uint256 _amount) external payable;
+
+    /**
+     * @notice Rescues native tokens from the gateway.
+     * @param to The address to send the native tokens to.
+     * @param amount The amount of native tokens to send.
+     */
+    function rescueNative(address payable to, uint256 amount) external;
+
+    /**
+     * @notice Sets the gas limit for the bridge.
+     * @param newGasLimit The new gas limit.
+     *
+     * @dev Emits GasLimitUpdated
+     */
+    function setGasLimit(uint256 newGasLimit) external;
+
+    /**
+     * @notice Gets the gas limit for the bridge.
+     * @return The gas limit for the bridge.
+     */
+    function getGasLimit() external view returns (uint256);
 }

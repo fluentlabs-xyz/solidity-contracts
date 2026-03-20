@@ -65,26 +65,4 @@ contract ERC20GatewayTest is BridgeGatewayBase {
 
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
     }
-
-    function test_updateTokenMapping_requiresExistingPeggedToken() public {
-        vm.prank(admin);
-        vm.expectRevert(bytes4(keccak256("UnknownPeggedToken()")));
-        gateway.updateTokenMapping(address(originToken), makeAddr("unknownPegged"));
-    }
-
-    function test_updateTokenMapping_updatesKnownPeggedTokenOnly() public {
-        address predictedPegged = _predictedPegged();
-        bytes memory tokenMetadata = abi.encode("MOCK", "Mock Token", uint8(18));
-        bytes memory message = abi.encodeCall(
-            ERC20Gateway.receivePeggedTokens,
-            (address(originToken), predictedPegged, user, recipient, 1 ether, tokenMetadata)
-        );
-        _relayMessage(remoteGateway, address(gateway), 0, message);
-
-        address customOrigin = makeAddr("customOrigin");
-        vm.prank(admin);
-        gateway.updateTokenMapping(customOrigin, predictedPegged);
-
-        assertEq(gateway.getTokenMapping(predictedPegged), customOrigin);
-    }
 }

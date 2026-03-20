@@ -2,55 +2,49 @@
 pragma solidity ^0.8.0;
 
 interface IGatewayErrors {
-    /// @dev Thrown when the caller is not the configured local bridge contract.
-    /// @dev selector: 0xf591effd
-    error OnlyBridgeSender();
+    /**
+     * @dev Thrown when the caller is not the configured FluentBridge contract.
+     * @dev selector: 0xacba36a5
+     */
+    error OnlyFluentBridge();
 
-    /// @dev Thrown when bridge-native sender does not match the configured remote gateway.
-    /// @dev selector: 0xa5c0236c
+    /**
+     * @dev Thrown when bridge-native sender does not match the configured remote gateway.
+     * @dev selector: TODO
+     */
     error MessageFromWrongGateway();
 
-    /// @dev Thrown when a message unexpectedly includes ETH value.
-    /// @dev selector: 0xde373c7e
-    error MessageValueMustBeZero();
+    /**
+     * @dev Thrown when a value is zero.
+     */
+    error ZeroValueNotAllowed(string field);
 
-    /// @dev Thrown when the origin token is zero.
-    /// @dev selector: 0x690be5f9
-    error OriginTokenZero();
+    /**
+     * @dev Thrown when an address is zero.
+     */
+    error ZeroAddressNotAllowed(string field);
 
-    /// @dev Thrown when the pegged token is wrong.
-    /// @dev selector: 0x164f4f0e
-    error WrongPeggedToken();
-
-    /// @dev Thrown when the token mapping check failed.
-    /// @dev selector: 0xc0260b4c
-    error TokenMappingCheckFailed();
-
-    /// @dev Thrown when the token address is zero.
-    /// @dev selector: 0x81c609f7
-    error TokenAddressZero();
-
-    /// @dev Thrown when an admin mapping update targets a token that has not been registered as pegged.
-    error UnknownPeggedToken();
-
-    /// @dev Thrown when the address is zero.
-    /// @dev selector: 0xd92e233d
-    error ZeroAddress();
-
-    /// @notice Thrown when a supplied gas limit is zero or otherwise invalid for gateway execution.
-    /// @dev Raised by gas-limit validation (e.g. `setGasLimit`) when the configured `_gasLimit` would render
-    ///      cross-chain native transfers unsafe or non-functional.
-    error InvalidGasLimit();
+    /**
+     * @notice Thrown when the recipient is zero.
+     * @dev selector: TODO
+     */
+    error InvalidRecipient();
 }
 
 interface IGatewayEvents {
-    /// @dev Emitted when tokens are received.
+    /**
+     * @notice Emitted when tokens are received.
+     */
     event ReceivedTokens(address indexed source, address indexed target, uint256 amount);
 
-    /// @dev Emitted when the token mapping is updated.
+    /**
+     * @notice Emitted when the token mapping is updated.
+     */
     event UpdateTokenMapping(address indexed _peggedToken, address indexed _oldOriginToken, address indexed _newOriginToken);
 
-    /// @dev Emitted when the other side is updated.
+    /**
+     * @notice Emitted when the other side is updated.
+     */
     event OtherSideUpdated(
         address indexed _oldOtherSide,
         address indexed _newOtherSide,
@@ -67,17 +61,72 @@ interface IGatewayEvents {
      */
     event TokenFactoryUpdated(address indexed prevValue, address indexed newValue);
 
+    /**
+     * @notice Emitted when the other side gateway is updated.
+     */
     event OtherSideGatewayUpdated(address indexed prevValue, address indexed newValue);
 
+    /**
+     * @notice Emitted when the other side token implementation is updated.
+     */
     event OtherSideTokenImplementationUpdated(address indexed prevValue, address indexed newValue);
 
-    /// @notice Emitted when the address of the bridge contract is updated.
+    /**
+     * @notice Emitted when the address of the bridge contract is updated.
+     */
     event BridgeContractUpdated(address indexed prevValue, address indexed newValue);
 
     /**
      * @notice Emitted when the gas limit is updated.
      */
     event GasLimitUpdated(uint256 prevValue, uint256 newValue);
+
+    /**
+     * @notice Emitted when the other side chain id is updated.
+     */
+    event OtherSideChainIdUpdated(uint256 indexed prevValue, uint256 indexed newValue);
 }
 
-interface IGateway is IGatewayErrors, IGatewayEvents {}
+interface IGateway is IGatewayErrors, IGatewayEvents {
+    /**
+     * @notice Returns the address of the bridge contract.
+     * @return The address of the bridge contract.
+     */
+    function getBridgeContract() external view returns (address);
+
+    /**
+     * @notice Returns the address of the other side gateway.
+     * @return The address of the other side gateway.
+     */
+    function getOtherSideGateway() external view returns (address);
+
+    /**
+     * @notice Returns the other side chain id.
+     * @return The other side chain id.
+     */
+    function getOtherSideChainId() external view returns (uint256);
+
+    /**
+     * @notice Updates the bridge contract address used for sending and receiving messages.
+     * @param newBridgeContract The address of the bridge contract.
+     *
+     * @dev Emits BridgeContractUpdated
+     */
+    function setBridgeContract(address newBridgeContract) external;
+
+    /**
+     * @notice Updates the other side gateway address used as message destination.
+     * @param newOtherSideGateway The address of the other side gateway.
+     *
+     * @dev Emits OtherSideGatewayUpdated
+     */
+    function setOtherSideGateway(address newOtherSideGateway) external;
+
+    /**
+     * @notice Updates the other side chain id used for message destination.
+     * @param newOtherSideChainId The new other side chain id.
+     *
+     * @dev Emits OtherSideChainIdUpdated
+     */
+    function setOtherSideChainId(uint256 newOtherSideChainId) external;
+}
