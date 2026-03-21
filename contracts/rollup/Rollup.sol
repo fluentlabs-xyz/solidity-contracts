@@ -296,16 +296,11 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         require(!_rollupCorrupted(), RollupCorrupted());
 
         bytes32 commitment = _computeCommitment(blockHeader);
-        ChallengeRecord storage challenged = $._challenges[commitment];
-        uint256 challengedBatchIndex = challenged.batchIndex;
-        if (challengedBatchIndex != 0) {
-            require(challengedBatchIndex == batchIndex, BatchIndexMismatch(challengedBatchIndex, batchIndex));
-            // Enforce the recorded per-challenge resolution deadline.
-            require(block.number <= challenged.deadline, ChallengeResolutionTooLate(batchIndex, challenged.deadline, block.number));
-        }
-        _verifyChallenge(batchIndex, commitment, blockProof);
+
+        _validateChallenge(batchIndex, commitment, blockProof);
         _verifyNitroAndSp1(batchIndex, blockHeader, nitroVerifier, nitroSignature, sp1Proof);
 
+        ChallengeRecord storage challenged = $._challenges[commitment];
         uint256 deposit = challenged.deposit;
 
         $._provenBlocks[commitment] = true;
@@ -404,7 +399,6 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
      */
     function _rollupCorrupted() internal view returns (bool) {
         RollupStorage storage $ = _getRollupStorage();
-
         uint256 batchIndex = uint256($._lastFinalizedBatchIndex) + 1;
         if (batchIndex >= $._nextBatchIndex) return false;
 
@@ -444,14 +438,18 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
     /**
      * @dev Validates that the commitment is challenged, not yet proven, and present in the batch root.
      */
-    function _verifyChallenge(uint256 batchIndex, bytes32 commitment, MerkleTree.MerkleProof calldata blockProof) private view {
+    function _validateChallenge(uint256 batchIndex, bytes32 commitment, MerkleTree.MerkleProof calldata blockProof) private view {
         RollupStorage storage $ = _getRollupStorage();
-        require($._challenges[commitment].batchIndex != 0, BlockNotChallenged(commitment));
+        ChallengeRecord storage challenged = $._challenges[commitment];
+        require(challenged.batchIndex != 0, BlockNotChallenged(commitment));
         require(!$._provenBlocks[commitment], BlockAlreadyProven(commitment));
         require(
             MerkleTree.verifyMerkleProof($._batches[batchIndex].batchRoot, commitment, blockProof.nonce, blockProof.proof),
             InvalidBlockProof()
         );
+
+        // Enforce the recorded per-challenge resolution deadline.
+        require(block.number <= challenged.deadline, ChallengeResolutionTooLate(batchIndex, challenged.deadline, block.number));
     }
 
     /**
@@ -522,7 +520,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         uint256 deadline = $._acceptDepositDeadline;
         bytes32[] memory depositIds = new bytes32[](header.depositCount);
         for (uint256 i = 0; i < header.depositCount; ++i) {
-            (bytes32 depositId, uint256 depositBlockNumber) = IL1FluentBridge($._bridge).popSentMessage();
+            (bytes32 depositId, uint256 depositBlockNumber) = IL1FluentBridge($._bridge).popSentMessage(); // wake-disable-line reentrancy
             require(block.number <= depositBlockNumber + deadline, AcceptDepositDeadlineExceeded(depositBlockNumber + deadline, block.number));
             depositIds[i] = depositId;
         }
