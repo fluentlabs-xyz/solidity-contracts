@@ -27,6 +27,8 @@ import {IL1BlockOracle} from "../interfaces/IL1BlockOracle.sol";
  * @author Fluent Labs
  * @dev ERC-7201 namespaced storage base for {FluentBridge}. Contains all storage fields,
  *      view getters, admin setters, and initialization logic.
+ *
+ * @notice DEFAULT_ADMIN_ROLE is a MULTI-SIG role that can perform admin actions.
  */
 contract FluentBridgeStorageLayout is
     Initializable,
@@ -116,6 +118,11 @@ contract FluentBridgeStorageLayout is
      *      Called once from {FluentBridge.initialize} via the UUPS proxy.
      */
     function __FluentBridgeStorage_init(bytes memory data) internal {
+        __ReentrancyGuard_init();
+        __AccessControl_init();
+        __Pausable_init();
+        __UUPSUpgradeable_init();
+
         InitConfiguration memory params = abi.decode(data, (InitConfiguration));
 
         // ==== setup roles ====

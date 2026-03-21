@@ -16,21 +16,24 @@ import {IL1FluentBridge} from "../../interfaces/bridge/IL1FluentBridge.sol";
  * @title L1FluentBridge
  * @author Fluent Labs
  *
- * @dev L1 bridge contract for the Fluent bridge.
+ * @dev L1 bridge contract for the Fluent bridge that lives on Ethereum.
  */
 contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     /**
      * @notice Status of a rollback execution by message hash.
      */
     mapping(bytes32 => IFluentBridge.MessageStatus) internal _rollbackMessages;
+
     /**
      * @notice Rollup contract.
      */
     Rollup internal _rollup;
+
     /**
      * @notice Queue of sent messages.
      */
     Queue.QueueStorage _sentMessageQueue;
+
     /**
      * @notice Gap for future storage.
      */
@@ -49,11 +52,6 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     }
 
     function initialize(bytes calldata data, address newRollup) external initializer {
-        __ReentrancyGuard_init();
-        __AccessControl_init();
-        __Pausable_init();
-        __UUPSUpgradeable_init();
-
         __FluentBridgeStorage_init(data);
 
         _setRollup(newRollup);
@@ -134,6 +132,10 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         MerkleTree.MerkleProof calldata blockProof,
         bytes32 messageHash
     ) internal view {
+        // Add additional validation
+        require(blockHeader.blockHash != bytes32(0), ZeroValueNotAllowed("blockHeader.blockHash"));
+        require(blockHeader.withdrawalRoot != bytes32(0), ZeroValueNotAllowed("withdrawalRoot"));
+
         bool blockValid = MerkleTree.verifyMerkleProof(
             Rollup(_rollup).getBatch(batchIndex).batchRoot,
             keccak256(
