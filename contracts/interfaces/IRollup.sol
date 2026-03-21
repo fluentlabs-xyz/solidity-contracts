@@ -295,7 +295,7 @@ interface IRollupEvents {
     /**
      * @notice Emitted when Nitro preconfirmation is committed for a batch.
      */
-    event BatchPreconfirmed(uint256 indexed batchIndex);
+    event BatchPreconfirmed(uint256 indexed batchIndex, address indexed verifierContract, address indexed verifier);
 
     /**
      * @notice Emitted when a batch is permanently finalized after the challenge period.

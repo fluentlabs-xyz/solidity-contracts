@@ -108,12 +108,12 @@ interface INitroEnclaveVerifier {
         bytes32 depositHash,
         bytes calldata signature,
         bytes32[] calldata blobHashes
-    ) external view returns (bool);
+    ) external view returns (address);
 
     /**
      * @notice Verifies a batch payload signed by an attested enclave.
      * @dev Does not deduplicate — caller must track `batchRoot` to prevent replay.
      * @param signature 65-byte ECDSA signature (r || s || v).
      */
-    function verifyBatch(bytes32 batchRoot, bytes32[] calldata blobHashes, bytes calldata signature) external view returns (bool);
+    function verifyBatch(bytes32 batchRoot, bytes32[] calldata blobHashes, bytes calldata signature) external view returns (address);
 }

@@ -349,15 +349,17 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         uint256 batchIndex,
         bytes calldata signature
     ) external onlyRole(PRECONFIRMATION_ROLE) whenNotPaused nonReentrant {
+        _validateNitroVerifier(nitroVerifier);
+
         RollupStorage storage $ = _getRollupStorage();
         require(!_rollupCorrupted(), RollupCorrupted());
         BatchRecord storage batch = $._batches[batchIndex];
 
         require(batch.status == BatchStatus.Accepted, InvalidBatchStatus(batchIndex, uint8(batch.status)));
-        require(_proveBatchWithNitro(nitroVerifier, batch.batchRoot, $._batchBlobHashes[batchIndex], signature), InvalidNitroSignature());
+        address verifier = INitroEnclaveVerifier(nitroVerifier).verifyBatch(batch.batchRoot, $._batchBlobHashes[batchIndex], signature);
 
         batch.status = BatchStatus.Preconfirmed;
-        emit BatchPreconfirmed(batchIndex);
+        emit BatchPreconfirmed(batchIndex, nitroVerifier, verifier);
     }
 
     // ============ Challenger ============
@@ -578,10 +580,18 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         bytes calldata nitroSignature,
         bytes calldata sp1Proof
     ) private view {
+        _validateNitroVerifier(nitroVerifier);
         RollupStorage storage $ = _getRollupStorage();
         bytes32[] memory blobHashes = $._batchBlobHashes[batchIndex];
 
-        require(_proveBlockWithNitro(nitroVerifier, blockHeader, nitroSignature, blobHashes), InvalidNitroSignature());
+        INitroEnclaveVerifier(nitroVerifier).verifyBlock(
+            blockHeader.previousBlockHash,
+            blockHeader.blockHash,
+            blockHeader.withdrawalRoot,
+            blockHeader.depositRoot,
+            nitroSignature,
+            blobHashes
+        );
         _proveBlockWithSp1(sp1Verifier(), blobHashes, blockHeader, sp1Proof);
     }
 
@@ -591,40 +601,6 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
     function _validateNitroVerifier(address verifier) private view {
         RollupStorage storage $ = _getRollupStorage();
         require($._enabledNitroVerifiers[verifier], NitroVerifierNotEnabled(verifier));
-    }
-
-    /**
-     * @dev Proves a batch with a Nitro enclave signature.
-     */
-    function _proveBatchWithNitro(
-        address verifier,
-        bytes32 batchRoot,
-        bytes32[] memory blobHashes,
-        bytes calldata signature
-    ) private view returns (bool) {
-        _validateNitroVerifier(verifier);
-        return INitroEnclaveVerifier(verifier).verifyBatch(batchRoot, blobHashes, signature);
-    }
-
-    /**
-     * @dev Proves an L2 block with a Nitro enclave signature.
-     */
-    function _proveBlockWithNitro(
-        address verifier,
-        L2BlockHeader calldata header,
-        bytes calldata signature,
-        bytes32[] memory blobHashes
-    ) private view returns (bool) {
-        _validateNitroVerifier(verifier);
-        return
-            INitroEnclaveVerifier(verifier).verifyBlock(
-                header.previousBlockHash,
-                header.blockHash,
-                header.withdrawalRoot,
-                header.depositRoot,
-                signature,
-                blobHashes
-            );
     }
 
     /**

@@ -71,21 +71,23 @@ contract NitroVerifier is AccessControl, INitroEnclaveVerifier {
         bytes32 depositHash,
         bytes calldata signature,
         bytes32[] calldata blobHashes
-    ) external view returns (bool) {
-        if (signature.length != 65) revert InvalidSignatureLength();
-        // abi.encode includes array length prefix — prevents hash collisions on variable-length blobHashes
+    ) external view returns (address) {
+        require(signature.length == 65, InvalidSignatureLength());
+
         bytes32 payload = sha256(abi.encode(parentHash, blockHash, withdrawalHash, depositHash, blobHashes));
-        _assertSignerAttested(payload, signature);
-        return true;
+        address verifier = _assertSignerAttested(payload, signature);
+
+        return verifier;
     }
 
     /// @inheritdoc INitroEnclaveVerifier
-    function verifyBatch(bytes32 batchRoot, bytes32[] calldata blobHashes, bytes calldata signature) external view returns (bool) {
-        if (signature.length != 65) revert InvalidSignatureLength();
-        // abi.encode includes array length prefix — prevents hash collisions on variable-length blobHashes
+    function verifyBatch(bytes32 batchRoot, bytes32[] calldata blobHashes, bytes calldata signature) external view returns (address) {
+        require(signature.length == 65, InvalidSignatureLength());
+
         bytes32 payload = sha256(abi.encode(batchRoot, blobHashes));
-        _assertSignerAttested(payload, signature);
-        return true;
+        address verifier = _assertSignerAttested(payload, signature);
+
+        return verifier;
     }
 
     // ============ Admin: VKey Rotation ============
@@ -167,7 +169,7 @@ contract NitroVerifier is AccessControl, INitroEnclaveVerifier {
      *      recovered address is not in {verifiedPubkeys}.
      *      Signature layout: r (32 bytes) || s (32 bytes) || v (1 byte).
      */
-    function _assertSignerAttested(bytes32 payload, bytes calldata signature) internal view {
+    function _assertSignerAttested(bytes32 payload, bytes calldata signature) internal view returns (address) {
         bytes32 r;
         bytes32 s;
         uint8 v;
@@ -176,8 +178,10 @@ contract NitroVerifier is AccessControl, INitroEnclaveVerifier {
             s := calldataload(add(signature.offset, 32))
             v := byte(0, calldataload(add(signature.offset, 64)))
         }
-        address recovered = ecrecover(payload, v, r, s);
-        if (recovered == address(0)) revert InvalidSignature();
-        if (!verifiedPubkeys[recovered]) revert SignerNotAttested();
+        address verifier = ecrecover(payload, v, r, s);
+        require(verifier != address(0), InvalidSignature());
+        require(verifiedPubkeys[verifier], SignerNotAttested());
+
+        return verifier;
     }
 }

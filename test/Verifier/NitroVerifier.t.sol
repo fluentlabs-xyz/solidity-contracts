@@ -61,6 +61,7 @@ contract NitroVerifierTest is Test {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, digest);
         bytes memory signature = abi.encodePacked(r, s, v);
 
-        assertTrue(verifier.verifyBlock(parentHash, blockHash, withdrawalHash, depositHash, signature, blobHashes));
+        address signer_ = verifier.verifyBlock(parentHash, blockHash, withdrawalHash, depositHash, signature, blobHashes);
+        assertEq(signer_, signer);
     }
 }

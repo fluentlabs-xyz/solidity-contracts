@@ -176,7 +176,7 @@ abstract contract RollupBase is Test, IRollupEvents {
 
     function _expectBatchPreconfirmed(uint256 batchIndex) internal {
         vm.expectEmit(true, false, false, false, address(rollup));
-        emit BatchPreconfirmed(batchIndex);
+        emit BatchPreconfirmed(batchIndex, address(1), address(2));
     }
 
     function _expectBatchFinalized(uint256 batchIndex) internal {
