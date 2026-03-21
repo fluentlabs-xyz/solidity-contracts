@@ -27,7 +27,8 @@ contract BaseFlowERC20Test is Test {
     bytes32 internal constant ZERO_BYTES_HASH = 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
     bytes32 internal constant GENESIS_HASH = keccak256("genesis");
     bytes32 internal constant PROGRAM_VKEY = keccak256("vkey");
-    bytes32 internal constant DUMMY_SIGNATURE = bytes32(0);
+    bytes internal constant DUMMY_SIGNATURE =
+        abi.encodePacked(keccak256("r"), keccak256("s"), uint8(27));
     uint256 internal constant FINALIZATION_DELAY = 1;
     bytes32 internal constant SENT_MESSAGE_SIG = keccak256("SentMessage(address,address,uint256,uint256,uint256,uint256,bytes32,bytes)");
     uint256 internal constant AMOUNT = 100 ether;
@@ -72,8 +73,10 @@ contract BaseFlowERC20Test is Test {
         l2ForkId = vm.createFork(l2RpcUrlOrAlias);
 
         _selectL1();
+        if (block.number < 1) vm.roll(1);
         l1ChainId = block.chainid;
         _selectL2();
+        if (block.number < 1) vm.roll(1);
         l2ChainId = block.chainid;
 
         _deployOnL1();
@@ -158,7 +161,7 @@ contract BaseFlowERC20Test is Test {
     function _deployOnL2() internal {
         _selectL2();
 
-        l2BlockOracle = new L1BlockOracle();
+        l2BlockOracle = new L1BlockOracle(address(this));
 
         FluentBridgeStorageLayout.InitConfiguration memory params = FluentBridgeStorageLayout.InitConfiguration({
             adminRole: admin,
@@ -258,9 +261,12 @@ contract BaseFlowERC20Test is Test {
         L2BlockHeader[] memory headers = new L2BlockHeader[](1);
         headers[0] = header;
         vm.prank(relayer);
-        l1Rollup.acceptNextBatch(headers, 0);
+        l1Rollup.acceptNextBatch(headers, 1);
+        bytes32[] memory blobHashes = new bytes32[](1);
+        blobHashes[0] = keccak256(abi.encode("erc20-flow-blob", batchIndex));
+        vm.blobhashes(blobHashes);
         vm.prank(relayer);
-        l1Rollup.submitBlobs(batchIndex, 0);
+        l1Rollup.submitBlobs(batchIndex, 1);
         vm.prank(relayer);
         l1Rollup.preconfirmBatch(address(l1NitroVerifier), batchIndex, DUMMY_SIGNATURE);
         vm.roll(block.number + FINALIZATION_DELAY + 2);

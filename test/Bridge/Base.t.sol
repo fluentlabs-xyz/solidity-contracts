@@ -56,7 +56,7 @@ abstract contract BridgeGatewayBase is Test {
     }
 
     function _deployBridge(uint256 receiveMessageDeadline) internal {
-        oracle = new L1BlockOracle();
+        oracle = new L1BlockOracle(admin);
 
         L2FluentBridge impl = new L2FluentBridge();
         FluentBridgeStorageLayout.InitConfiguration memory params = FluentBridgeStorageLayout.InitConfiguration({

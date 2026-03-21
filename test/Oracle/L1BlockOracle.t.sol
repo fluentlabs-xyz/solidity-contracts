@@ -10,13 +10,13 @@ contract L1BlockOracleTest is Test {
     L1BlockOracle internal oracle;
 
     function setUp() public {
-        oracle = new L1BlockOracle();
+        oracle = new L1BlockOracle(address(this));
     }
 
     function test_updateL1BlockNumber_isMonotonic() public {
         oracle.updateL1BlockNumber(100);
 
-        vm.expectRevert(abi.encodeWithSelector(IL1BlockOracle.L1BlockNumberDecreased.selector, 100, 99));
+        vm.expectRevert(abi.encodeWithSelector(IL1BlockOracle.BlockNotMonotonic.selector, uint256(100), uint256(99)));
         oracle.updateL1BlockNumber(99);
     }
 

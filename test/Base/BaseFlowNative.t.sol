@@ -26,7 +26,8 @@ contract BaseFlowTest is Test {
     bytes32 internal constant ZERO_BYTES_HASH = 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
     bytes32 internal constant GENESIS_HASH = keccak256("genesis");
     bytes32 internal constant PROGRAM_VKEY = keccak256("vkey");
-    bytes32 internal constant DUMMY_SIGNATURE = bytes32(0);
+    bytes internal constant DUMMY_SIGNATURE =
+        abi.encodePacked(keccak256("r"), keccak256("s"), uint8(27));
     uint256 internal constant FINALIZATION_DELAY = 1;
     bytes32 internal constant SENT_MESSAGE_SIG = keccak256("SentMessage(address,address,uint256,uint256,uint256,uint256,bytes32,bytes)");
 
@@ -89,8 +90,10 @@ contract BaseFlowTest is Test {
         l2ForkId = vm.createFork(l2RpcUrl);
 
         _selectL1();
+        if (block.number < 1) vm.roll(1);
         l1ChainId = block.chainid;
         _selectL2();
+        if (block.number < 1) vm.roll(1);
         l2ChainId = block.chainid;
 
         _deployOnL1();
@@ -164,7 +167,7 @@ contract BaseFlowTest is Test {
 
         // Oracle is used for L2 deadline/rollback checks. We keep it at the default (0),
         // so our test messages will not trip the "deadline exceeded" branch.
-        l2BlockOracle = new L1BlockOracle();
+        l2BlockOracle = new L1BlockOracle(address(this));
 
         FluentBridgeStorageLayout.InitConfiguration memory params = FluentBridgeStorageLayout.InitConfiguration({
             adminRole: admin,
@@ -241,7 +244,7 @@ contract BaseFlowTest is Test {
         _selectL1();
         vm.deal(l1Sender, 1 ether);
 
-        uint256 l1BlockNumber = block.number;
+        uint256 l1BlockNumber = block.number < 1 ? 1 : block.number;
         uint256 l1OutboundNonce = l1Bridge.getNonce();
 
         bytes memory l1ToL2Message = abi.encodeCall(NativeGateway.receiveNativeTokens, (l1Sender, l2Recipient, 1 ether));
@@ -361,12 +364,15 @@ contract BaseFlowTest is Test {
         uint256 batchIndex = l1Rollup.nextBatchIndex();
         _logBatchStatus("step4/before acceptNextBatch", batchIndex);
         vm.prank(relayer);
-        l1Rollup.acceptNextBatch(headers, 0);
+        l1Rollup.acceptNextBatch(headers, 1);
         _logBatchStatus("step4/after acceptNextBatch", batchIndex);
 
         _logBatchStatus("step4/before submitBlobs", batchIndex);
+        bytes32[] memory blobHashes = new bytes32[](1);
+        blobHashes[0] = keccak256(abi.encode("native-flow-blob", batchIndex));
+        vm.blobhashes(blobHashes);
         vm.prank(relayer);
-        l1Rollup.submitBlobs(batchIndex, 0);
+        l1Rollup.submitBlobs(batchIndex, 1);
         _logBatchStatus("step4/after submitBlobs", batchIndex);
 
         _logBatchStatus("step4/before preconfirmBatch", batchIndex);
@@ -497,9 +503,12 @@ contract BaseFlowTest is Test {
         headers[0] = header;
 
         vm.prank(relayer);
-        l1Rollup.acceptNextBatch(headers, 0);
+        l1Rollup.acceptNextBatch(headers, 1);
+        bytes32[] memory blobHashesRb = new bytes32[](1);
+        blobHashesRb[0] = keccak256(abi.encode("native-rollback-blob", batchIndex));
+        vm.blobhashes(blobHashesRb);
         vm.prank(relayer);
-        l1Rollup.submitBlobs(batchIndex, 0);
+        l1Rollup.submitBlobs(batchIndex, 1);
         vm.prank(relayer);
         l1Rollup.preconfirmBatch(address(l1NitroVerifier), batchIndex, DUMMY_SIGNATURE);
         vm.roll(block.number + FINALIZATION_DELAY + 2);
@@ -602,9 +611,12 @@ contract BaseFlowTest is Test {
             headers[0] = header;
 
             vm.prank(relayer);
-            l1Rollup.acceptNextBatch(headers, 0);
+            l1Rollup.acceptNextBatch(headers, 1);
+            bytes32[] memory blobHashesPr = new bytes32[](1);
+            blobHashesPr[0] = keccak256(abi.encode("native-proof-blob", batchIndex));
+            vm.blobhashes(blobHashesPr);
             vm.prank(relayer);
-            l1Rollup.submitBlobs(batchIndex, 0);
+            l1Rollup.submitBlobs(batchIndex, 1);
             vm.prank(relayer);
             l1Rollup.preconfirmBatch(address(l1NitroVerifier), batchIndex, DUMMY_SIGNATURE);
             vm.roll(block.number + FINALIZATION_DELAY + 2);

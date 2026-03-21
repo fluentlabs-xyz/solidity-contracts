@@ -3,6 +3,7 @@ pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
 
+import {INitroEnclaveVerifier} from "../../contracts/interfaces/INitroEnclaveVerifier.sol";
 import {NitroVerifier} from "../../contracts/verifier/NitroVerifier.sol";
 import {VerifierMock} from "../../contracts/mocks/VerifierMock.sol";
 
@@ -23,7 +24,7 @@ contract NitroVerifierTest is Test {
         verifier.proposeVKeyUpdate(newVKey);
 
         vm.prank(admin);
-        vm.expectRevert(NitroVerifier.TimelockNotExpired.selector);
+        vm.expectRevert(INitroEnclaveVerifier.TimelockNotExpired.selector);
         verifier.executeVKeyUpdate();
 
         vm.warp(block.timestamp + verifier.VKEY_UPDATE_DELAY());
@@ -55,13 +56,11 @@ contract NitroVerifierTest is Test {
         bytes32 blockHash = keccak256("block");
         bytes32 withdrawalHash = keccak256("withdrawal");
         bytes32 depositHash = keccak256("deposit");
-        bytes32 digest = verifier.computeSigningPayload(parentHash, blockHash, withdrawalHash, depositHash);
+        bytes32[] memory blobHashes = new bytes32[](0);
+        bytes32 digest = sha256(abi.encode(parentHash, blockHash, withdrawalHash, depositHash, blobHashes));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, digest);
         bytes memory signature = abi.encodePacked(r, s, v);
 
-        address recovered = verifier.verifyBlock(parentHash, blockHash, withdrawalHash, depositHash, signature);
-
-        assertEq(recovered, signer);
-        assertTrue(verifier.verifiedBlocks(blockHash));
+        assertTrue(verifier.verifyBlock(parentHash, blockHash, withdrawalHash, depositHash, signature, blobHashes));
     }
 }

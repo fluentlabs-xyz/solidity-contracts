@@ -25,6 +25,7 @@ contract FluentBridgeTest is BridgeGatewayBase {
         NoopReceiver receiver = new NoopReceiver();
         bytes memory payload = abi.encodeCall(NoopReceiver.handle, ());
 
+        vm.prank(admin);
         oracle.updateL1BlockNumber(RECEIVE_DEADLINE + 100);
         (bytes32 messageHash, , ) = _relayMessage(remoteBridge, address(receiver), 0, payload);
 
