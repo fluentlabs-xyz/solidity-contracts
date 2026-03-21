@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.30;
 
-import {IVerifier} from "contracts/interfaces/IVerifier.sol";
-import {INitroEnclaveVerifier} from "contracts/interfaces/INitroEnclaveVerifier.sol";
+import {ISP1Verifier} from "contracts/interfaces/ISP1Verifier.sol";
+import {INitroVerifier} from "contracts/interfaces/INitroVerifier.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 
 /**
@@ -21,13 +21,13 @@ import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
  *
  *      Multiple pubkeys may be attested simultaneously to allow zero-downtime enclave
  *      rotation. Full pubkey enumeration is available off-chain via
- *      {INitroEnclaveVerifier-AttestationVerified} and
- *      {INitroEnclaveVerifier-AttestationRevoked} events.
+ *      {INitroVerifier-AttestationVerified} and
+ *      {INitroVerifier-AttestationRevoked} events.
  *
  *      {PROGRAM_VKEY} rotation uses a two-step timelock: {proposeVKeyUpdate} followed
  *      by {executeVKeyUpdate} after {VKEY_UPDATE_DELAY} seconds.
  */
-contract NitroVerifier is AccessControl, INitroEnclaveVerifier {
+contract NitroVerifier is AccessControl, INitroVerifier {
     // ============ Constants ============
 
     /// @dev Minimum seconds between {proposeVKeyUpdate} and {executeVKeyUpdate}.
@@ -61,9 +61,9 @@ contract NitroVerifier is AccessControl, INitroEnclaveVerifier {
         if (!granted) revert RoleGrantFailed();
     }
 
-    // ============ INitroEnclaveVerifier ============
+    // ============ INitroVerifier ============
 
-    /// @inheritdoc INitroEnclaveVerifier
+    /// @inheritdoc INitroVerifier
     function verifyBlock(
         bytes32 parentHash,
         bytes32 blockHash,
@@ -80,7 +80,7 @@ contract NitroVerifier is AccessControl, INitroEnclaveVerifier {
         return verifier;
     }
 
-    /// @inheritdoc INitroEnclaveVerifier
+    /// @inheritdoc INitroVerifier
     function verifyBatch(bytes32 batchRoot, bytes32[] calldata blobHashes, bytes calldata signature) external view returns (address) {
         require(signature.length == 65, InvalidSignatureLength());
 
@@ -157,7 +157,7 @@ contract NitroVerifier is AccessControl, INitroEnclaveVerifier {
         if (expectedPubkey == address(0)) revert ZeroAddress();
         if (verifiedPubkeys[expectedPubkey]) revert PubkeyAlreadyVerified();
         bytes32 vkey = PROGRAM_VKEY; // 1 SLOAD, passed to external call and event
-        IVerifier(_attestationVerifier).verifyProof(vkey, abi.encode(expectedPubkey), proofBytes);
+        ISP1Verifier(_attestationVerifier).verifyProof(vkey, abi.encode(expectedPubkey), proofBytes);
         verifiedPubkeys[expectedPubkey] = true;
         emit AttestationVerified(vkey, expectedPubkey);
     }

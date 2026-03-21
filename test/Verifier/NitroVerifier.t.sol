@@ -3,9 +3,9 @@ pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
 
-import {INitroEnclaveVerifier} from "../../contracts/interfaces/INitroEnclaveVerifier.sol";
-import {NitroVerifier} from "../../contracts/verifier/NitroVerifier.sol";
-import {VerifierMock} from "../../contracts/mocks/VerifierMock.sol";
+import {INitroVerifier} from "contracts/interfaces/INitroVerifier.sol";
+import {NitroVerifier} from "contracts/verifier/NitroVerifier.sol";
+import {VerifierMock} from "../mocks/VerifierMock.sol";
 
 contract NitroVerifierTest is Test {
     address internal admin = makeAddr("admin");
@@ -24,7 +24,7 @@ contract NitroVerifierTest is Test {
         verifier.proposeVKeyUpdate(newVKey);
 
         vm.prank(admin);
-        vm.expectRevert(INitroEnclaveVerifier.TimelockNotExpired.selector);
+        vm.expectRevert(INitroVerifier.TimelockNotExpired.selector);
         verifier.executeVKeyUpdate();
 
         vm.warp(block.timestamp + verifier.VKEY_UPDATE_DELAY());

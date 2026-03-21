@@ -2,14 +2,14 @@
 pragma solidity ^0.8.30;
 
 /**
- * @title INitroEnclaveVerifier
+ * @title INitroVerifier
  * @dev Interface for verifying AWS Nitro Enclave attestations and enclave-signed
  *      block/batch payloads. Supports multiple attested pubkeys simultaneously —
  *      use {AttestationVerified} and {AttestationRevoked} events for off-chain enumeration.
  *
  *      Replay protection (blockHash / batchRoot deduplication) is the caller's responsibility.
  */
-interface INitroEnclaveVerifier {
+interface INitroVerifier {
     // ============ Errors ============
 
     /**

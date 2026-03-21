@@ -6,8 +6,8 @@ import {Heap} from "../libraries/Heap.sol";
 import {RollupStorageLayout} from "./RollupStorageLayout.sol";
 
 import {IRollupWrite, IRollupEmergency} from "../interfaces/IRollup.sol";
-import {IVerifier} from "../interfaces/IVerifier.sol";
-import {INitroEnclaveVerifier} from "../interfaces/INitroEnclaveVerifier.sol";
+import {ISP1Verifier} from "../interfaces/ISP1Verifier.sol";
+import {INitroVerifier} from "../interfaces/INitroVerifier.sol";
 import {IL1FluentBridge} from "../interfaces/bridge/IL1FluentBridge.sol";
 import {L2BlockHeader, BatchStatus, BatchRecord, ChallengeRecord} from "../interfaces/IRollupTypes.sol";
 
@@ -356,7 +356,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         BatchRecord storage batch = $._batches[batchIndex];
 
         require(batch.status == BatchStatus.Accepted, InvalidBatchStatus(batchIndex, uint8(batch.status)));
-        address verifier = INitroEnclaveVerifier(nitroVerifier).verifyBatch(batch.batchRoot, $._batchBlobHashes[batchIndex], signature);
+        address verifier = INitroVerifier(nitroVerifier).verifyBatch(batch.batchRoot, $._batchBlobHashes[batchIndex], signature);
 
         batch.status = BatchStatus.Preconfirmed;
         emit BatchPreconfirmed(batchIndex, nitroVerifier, verifier);
@@ -584,7 +584,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         RollupStorage storage $ = _getRollupStorage();
         bytes32[] memory blobHashes = $._batchBlobHashes[batchIndex];
 
-        INitroEnclaveVerifier(nitroVerifier).verifyBlock(
+        INitroVerifier(nitroVerifier).verifyBlock(
             blockHeader.previousBlockHash,
             blockHeader.blockHash,
             blockHeader.withdrawalRoot,
@@ -616,7 +616,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
             abi.encodePacked(header.previousBlockHash, header.blockHash, header.withdrawalRoot, header.depositRoot),
             blobHashes
         );
-        IVerifier(verifier).verifyProof(_getRollupStorage()._programVKey, publicValues, sp1Proof);
+        ISP1Verifier(verifier).verifyProof(_getRollupStorage()._programVKey, publicValues, sp1Proof);
     }
 
     /**
