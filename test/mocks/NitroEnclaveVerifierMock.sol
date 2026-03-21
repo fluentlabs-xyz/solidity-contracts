@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.30;
 
-import {INitroEnclaveVerifier} from "../interfaces/INitroEnclaveVerifier.sol";
+import {INitroEnclaveVerifier} from "../../contracts/interfaces/INitroEnclaveVerifier.sol";
 
 /**
  * @title NitroEnclaveVerifierMock

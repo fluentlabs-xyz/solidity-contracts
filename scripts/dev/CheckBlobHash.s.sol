@@ -2,7 +2,7 @@
 pragma solidity 0.8.30;
 
 import {Script} from "forge-std/Script.sol";
-import {BlobHashMock} from "../../contracts/mocks/BlobHashMock.sol";
+import {BlobHashMock} from "../../test/mocks/BlobHashMock.sol";
 
 /// @notice Calls BlobHashMock.CheckBlobHash with a provided commitment to emit the blob/hash pair.
 /// @dev Environment:

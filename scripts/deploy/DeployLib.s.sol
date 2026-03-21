@@ -14,7 +14,7 @@ import {ERC20Gateway} from "../../contracts/gateways/ERC20Gateway.sol";
 import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol";
 import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
 import {UniversalTokenFactory} from "../../contracts/factories/UniversalTokenFactory.sol";
-import {MockERC20Token} from "../../contracts/mocks/MockERC20.sol";
+import {MockERC20Token} from "../../test/mocks/MockERC20.sol";
 
 /**
  * @notice Shared deployment logic for L1/L2 stacks. No broadcast; caller must vm.startBroadcast/stopBroadcast.

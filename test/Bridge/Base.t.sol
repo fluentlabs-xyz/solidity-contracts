@@ -9,7 +9,7 @@ import {L1BlockOracle} from "../../contracts/oracle/L1BlockOracle.sol";
 import {ERC20Gateway} from "../../contracts/gateways/ERC20Gateway.sol";
 import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol";
 import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
-import {MockERC20Token} from "../../contracts/mocks/MockERC20.sol";
+import {MockERC20Token} from "../../test/mocks/MockERC20.sol";
 import {L2FluentBridge} from "../../contracts/bridge/L2/L2FluentBridge.sol";
 import {FluentBridgeStorageLayout} from "../../contracts/bridge/FluentBridgeStorageLayout.sol";
 

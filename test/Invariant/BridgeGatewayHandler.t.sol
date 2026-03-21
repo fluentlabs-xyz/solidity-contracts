@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 
 import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {ERC20Gateway} from "../../contracts/gateways/ERC20Gateway.sol";
-import {MockERC20Token} from "../../contracts/mocks/MockERC20.sol";
+import {MockERC20Token} from "../../test/mocks/MockERC20.sol";
 
 contract BridgeGatewayHandler is Test {
     IFluentBridge internal immutable bridge;

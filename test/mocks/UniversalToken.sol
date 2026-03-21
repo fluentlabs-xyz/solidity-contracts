@@ -4,7 +4,7 @@ pragma solidity 0.8.30;
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 
-import {IUniversalTokenErrorCodes} from "../interfaces/IUniversalToken.sol";
+import {IUniversalTokenErrorCodes} from "../../contracts/interfaces/IUniversalToken.sol";
 
 /**
  * @title UniversalToken

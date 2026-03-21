@@ -9,7 +9,7 @@ import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol
 import {IGatewayErrors, IGatewayEvents} from "../../contracts/interfaces/gateways/IGateway.sol";
 import {IERC20GatewayErrors} from "../../contracts/interfaces/gateways/IERC20Gateway.sol";
 import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
-import {MockERC20Token} from "../../contracts/mocks/MockERC20.sol";
+import {MockERC20Token} from "../../test/mocks/MockERC20.sol";
 import {BridgeGatewayBase} from "../Bridge/Base.t.sol";
 
 contract ERC20GatewayTest is BridgeGatewayBase {

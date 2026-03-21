@@ -2,7 +2,7 @@
 
 pragma solidity ^0.8.30;
 
-import {BlobHashGetterDeployer, BlobHashGetter} from "../libraries/BlobHashGetter.sol";
+import {BlobHashGetterDeployer, BlobHashGetter} from "../../contracts/libraries/BlobHashGetter.sol";
 
 contract BlobHashMock is BlobHashGetterDeployer {
     address public blobHashGetter;
