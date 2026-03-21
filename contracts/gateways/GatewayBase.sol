@@ -99,12 +99,13 @@ abstract contract GatewayBase is Initializable, UUPSUpgradeable, Ownable2StepUpg
 
     /// @inheritdoc IGateway
     function setOtherSideChainId(uint256 newOtherSideChainId) external onlyOwner {
+        require(newOtherSideChainId != 0, ZeroValueNotAllowed("newOtherSideChainId"));
         _setOtherSideChainId(newOtherSideChainId);
     }
 
+    /// @dev Internal setter allows `0` (e.g. beacon-based `ERC20Gateway.setOtherSide` clears universal-chain routing).
     function _setOtherSideChainId(uint256 newOtherSideChainId) internal {
         GatewayBaseStorage storage $ = _getGatewayBaseStorage();
-        require(newOtherSideChainId != 0, ZeroValueNotAllowed("newOtherSideChainId"));
         emit OtherSideChainIdUpdated($._otherSideChainId, newOtherSideChainId);
         $._otherSideChainId = newOtherSideChainId;
     }

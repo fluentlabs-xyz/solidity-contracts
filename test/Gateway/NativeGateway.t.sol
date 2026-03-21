@@ -244,6 +244,18 @@ contract NativeGatewayTest is BridgeGatewayBase {
         assertEq(nativeGateway.getGasLimit(), 33333);
     }
 
+    /// @dev Covers `receive()` — native ETH can be sent to the gateway (e.g. accidental transfers / rescues).
+    function test_receive_acceptsDirectEth() public {
+        vm.deal(user, 2 ether);
+        uint256 beforeBal = address(nativeGateway).balance;
+
+        vm.prank(user);
+        (bool ok, ) = address(nativeGateway).call{value: 0.25 ether}("");
+        assertTrue(ok, "direct ETH transfer to gateway failed");
+
+        assertEq(address(nativeGateway).balance - beforeBal, 0.25 ether);
+    }
+
     function test_bridgePause_blocksSendAndReceive() public {
         vm.prank(admin);
         (bool pauseOk, ) = address(bridge).call(abi.encodeWithSignature("pause()"));

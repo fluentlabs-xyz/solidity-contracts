@@ -79,7 +79,7 @@ abstract contract FluentBridge is FluentBridgeStorageLayout {
         uint256 blockNumber,
         uint256 messageNonce,
         bytes calldata message
-    ) external onlyRole(RELAYER_ROLE) nonReentrant whenNotPaused {
+    ) external payable onlyRole(RELAYER_ROLE) nonReentrant whenNotPaused {
         // if it's L2 -> we mint EHH internally, it's supposed to be on the bridge
         // on L1 -> we don't mint EHH, it's supposed to be on the bridge -> we unlock it
         require(messageNonce == _takeNextReceivedNonce(), MessageReceivedOutOfOrder());
@@ -105,7 +105,7 @@ abstract contract FluentBridge is FluentBridgeStorageLayout {
         uint256 blockNumber,
         uint256 messageNonce,
         bytes calldata message
-    ) external nonReentrant whenNotPaused {
+    ) external payable nonReentrant whenNotPaused {
         bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, blockNumber, messageNonce, message));
         require(getReceivedMessage(messageHash) == IFluentBridge.MessageStatus.Failed, MessageNotFailed());
 
