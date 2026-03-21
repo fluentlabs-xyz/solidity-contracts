@@ -9,8 +9,8 @@ import {IRollupEvents, IRollupErrors} from "../../contracts/interfaces/IRollup.s
 import {L2BlockHeader, BatchStatus, BatchRecord, InitConfiguration} from "../../contracts/interfaces/IRollupTypes.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 
-import {MockNitroVerifier} from "./mocks/MockNitroVerifier.sol";
-import {MockSp1Verifier} from "./mocks/MockSp1Verifier.sol";
+import {MockNitroVerifier} from "../mocks/MockNitroVerifier.sol";
+import {MockSp1Verifier} from "../mocks/MockSp1Verifier.sol";
 
 abstract contract RollupBase is Test, IRollupEvents {
     // ============ Actors ============
@@ -47,6 +47,7 @@ abstract contract RollupBase is Test, IRollupEvents {
     uint256 internal constant PRECONFIRM_WINDOW = 100;
     uint256 internal constant FINALIZATION_DELAY = 200;
     uint256 internal constant CHALLENGE_WINDOW = 150;
+    uint256 internal constant MAX_FORCE_REVERT_BATCH_SIZE = 10;
 
     // ============ Setup ============
 
@@ -76,7 +77,8 @@ abstract contract RollupBase is Test, IRollupEvents {
             acceptDepositDeadline: 1000,
             incentiveFee: 0.1 ether,
             submitBlobsWindow: SUBMIT_BLOBS_WINDOW,
-            preconfirmWindow: PRECONFIRM_WINDOW
+            preconfirmWindow: PRECONFIRM_WINDOW,
+            maxForceRevertBatchSize: MAX_FORCE_REVERT_BATCH_SIZE
         });
         Rollup impl = new Rollup();
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));

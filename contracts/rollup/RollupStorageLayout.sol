@@ -223,19 +223,11 @@ contract RollupStorageLayout is
          */
         mapping(address => bool) _enabledNitroVerifiers;
         // ============ Emergency revert pagination ============
+        // TODO: check the best type for this value
         /**
-         * @dev Non-zero while a paginated `forceRevertBatchPaginated` is in progress.
-         *      Used to treat the rollup as corrupted during chunked emergency recovery.
+         * @dev Max batch size to prevent OOG during paginated force revert. Should be >= 1.
          */
-        uint96 _forceRevertPaginatedFromBatchIndex;
-        /**
-         * @dev Cursor into `_batchChallengedBlocks[batchIndex]` for chunked emergency revert.
-         */
-        mapping(uint256 => uint256) _forceRevertChallengedCursor;
-        /**
-         * @dev Cursor into `_batchProvenBlocks[batchIndex]` for chunked emergency revert.
-         */
-        mapping(uint256 => uint256) _forceRevertProvenCursor;
+        uint256 _maxForceRevertBatchSize;
         // ─── Upgrade gap ───
         uint256[25] __gap;
     }
@@ -257,6 +249,8 @@ contract RollupStorageLayout is
         require(params.challengeWindow <= type(uint64).max, InvalidWindowConfig("challengeWindow out of range"));
         require(params.finalizationDelay <= type(uint64).max, InvalidWindowConfig("finalizationDelay out of range"));
         require(params.acceptDepositDeadline <= type(uint32).max, InvalidWindowConfig("acceptDepositDeadline out of range"));
+        // TODO(chillhacker): add more meaningful validations for maxForceRevertBatchSize
+        require(params.maxForceRevertBatchSize != 0, ZeroValueNotAllowed("maxForceRevertBatchSize"));
         if (params.submitBlobsWindow != 0 && params.preconfirmWindow != 0) {
             require(params.preconfirmWindow > params.submitBlobsWindow, InvalidWindowConfig("preconfirmWindow must exceed submitBlobsWindow"));
         }
@@ -287,6 +281,7 @@ contract RollupStorageLayout is
         require(params.genesisHash != bytes32(0), ZeroValueNotAllowed("genesisHash"));
         $._lastBlockHashInBatch[0] = params.genesisHash;
         $._nextBatchIndex = 1;
+        $._maxForceRevertBatchSize = params.maxForceRevertBatchSize;
 
         _setBridge(params.bridge);
         _setSp1Verifier(params.sp1Verifier);

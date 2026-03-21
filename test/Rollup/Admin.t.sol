@@ -6,8 +6,8 @@ import {Rollup} from "../../contracts/rollup/Rollup.sol";
 import {InitConfiguration, L2BlockHeader, BatchStatus} from "../../contracts/interfaces/IRollupTypes.sol";
 import {IRollupErrors, IRollupEvents} from "../../contracts/interfaces/IRollup.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {MockSp1Verifier} from "./mocks/MockSp1Verifier.sol";
-import {MockNitroVerifier} from "./mocks/MockNitroVerifier.sol";
+import {MockSp1Verifier} from "../mocks/MockSp1Verifier.sol";
+import {MockNitroVerifier} from "../mocks/MockNitroVerifier.sol";
 
 contract AdminTest is RollupBase {
     function _defaultInitConfig(address admin_, address sequencer_) internal returns (InitConfiguration memory cfg) {
@@ -30,7 +30,8 @@ contract AdminTest is RollupBase {
             acceptDepositDeadline: 1000,
             incentiveFee: 0.1 ether,
             submitBlobsWindow: SUBMIT_BLOBS_WINDOW,
-            preconfirmWindow: PRECONFIRM_WINDOW
+            preconfirmWindow: PRECONFIRM_WINDOW,
+            maxForceRevertBatchSize: MAX_FORCE_REVERT_BATCH_SIZE
         });
     }
 
@@ -59,7 +60,8 @@ contract AdminTest is RollupBase {
             acceptDepositDeadline: 1000,
             incentiveFee: 0.1 ether,
             submitBlobsWindow: SUBMIT_BLOBS_WINDOW,
-            preconfirmWindow: PRECONFIRM_WINDOW
+            preconfirmWindow: PRECONFIRM_WINDOW,
+            maxForceRevertBatchSize: MAX_FORCE_REVERT_BATCH_SIZE
         });
         Rollup impl = new Rollup();
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
@@ -142,13 +144,12 @@ contract AdminTest is RollupBase {
             acceptDepositDeadline: 1000,
             incentiveFee: 0.1 ether,
             submitBlobsWindow: SUBMIT_BLOBS_WINDOW,
-            preconfirmWindow: PRECONFIRM_WINDOW
+            preconfirmWindow: PRECONFIRM_WINDOW,
+            maxForceRevertBatchSize: MAX_FORCE_REVERT_BATCH_SIZE
         });
         Rollup impl = new Rollup();
         vm.expectRevert(
-            abi.encodeWithSelector(
-                IRollupErrors.InvalidWindowConfig.selector, "challengeWindow must be less than finalizationDelay"
-            )
+            abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "challengeWindow must be less than finalizationDelay")
         );
         new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
     }
@@ -173,14 +174,11 @@ contract AdminTest is RollupBase {
             acceptDepositDeadline: 1000,
             incentiveFee: 0.1 ether,
             submitBlobsWindow: 100,
-            preconfirmWindow: 50
+            preconfirmWindow: 50,
+            maxForceRevertBatchSize: MAX_FORCE_REVERT_BATCH_SIZE
         });
         Rollup impl = new Rollup();
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IRollupErrors.InvalidWindowConfig.selector, "preconfirmWindow must exceed submitBlobsWindow"
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "preconfirmWindow must exceed submitBlobsWindow"));
         new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
     }
 

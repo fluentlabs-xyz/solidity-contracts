@@ -668,18 +668,9 @@ interface IRollupEmergency {
     /**
      * @notice Force-revert all non-finalized batches from a given index onward.
      * @dev Only callable by EMERGENCY_ROLE. Refunds challenger deposits with incentive fee.
-     * @param fromBatchIndex The batch index to revert from (inclusive).
+     * @param toBatchIndex The batch index to revert from (inclusive).
      */
-    function forceRevertBatch(uint256 fromBatchIndex) external payable;
-
-    /**
-     * @notice Force-revert all non-finalized batches from a given index onward.
-     * @dev Only callable by EMERGENCY_ROLE. Refunds challenger deposits with incentive fee.
-     * @param fromBatchIndex The batch index to revert from (inclusive).
-     * @param maxBatchesToProcess The maximum number of batches to process.
-     * @param maxChallengesPerBatch The maximum number of challenges to process per batch.
-     */
-    function forceRevertBatchPaginated(uint256 fromBatchIndex, uint256 maxBatchesToProcess, uint256 maxChallengesPerBatch) external payable;
+    function forceRevertBatch(uint256 toBatchIndex) external payable;
 }
 
 /**

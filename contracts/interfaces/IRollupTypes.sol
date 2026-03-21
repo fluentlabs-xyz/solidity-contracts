@@ -109,4 +109,6 @@ struct InitConfiguration {
     uint256 submitBlobsWindow;
     /// @dev Max L1 blocks after acceptance for preconfirmation; 0 = disabled
     uint256 preconfirmWindow;
+    /// @dev Max batch size to revert at once
+    uint256 maxForceRevertBatchSize;
 }

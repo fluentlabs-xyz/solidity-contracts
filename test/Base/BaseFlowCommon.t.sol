@@ -11,17 +11,17 @@ import {FluentBridgeStorageLayout} from "../../contracts/bridge/FluentBridgeStor
 import {L1BlockOracle} from "../../contracts/oracle/L1BlockOracle.sol";
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
 import {InitConfiguration, L2BlockHeader} from "../../contracts/interfaces/IRollupTypes.sol";
-import {MockNitroVerifier} from "../Rollup/mocks/MockNitroVerifier.sol";
-import {MockSp1Verifier} from "../Rollup/mocks/MockSp1Verifier.sol";
+import {MockNitroVerifier} from "../mocks/MockNitroVerifier.sol";
+import {MockSp1Verifier} from "../mocks/MockSp1Verifier.sol";
 
 abstract contract BaseFlowCommon is Test {
     uint256 internal constant RECEIVE_DEADLINE = 100;
     bytes32 internal constant ZERO_BYTES_HASH = 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
     bytes32 internal constant GENESIS_HASH = keccak256("genesis");
     bytes32 internal constant PROGRAM_VKEY = keccak256("vkey");
-    bytes internal constant DUMMY_SIGNATURE =
-        abi.encodePacked(keccak256("r"), keccak256("s"), uint8(27));
+    bytes internal constant DUMMY_SIGNATURE = abi.encodePacked(keccak256("r"), keccak256("s"), uint8(27));
     uint256 internal constant FINALIZATION_DELAY = 1;
+    uint256 internal constant MAX_FORCE_REVERT_BATCH_SIZE = 10;
     bytes32 internal constant SENT_MESSAGE_SIG = keccak256("SentMessage(address,address,uint256,uint256,uint256,uint256,bytes32,bytes)");
 
     uint256 internal l1ForkId;
@@ -97,7 +97,8 @@ abstract contract BaseFlowCommon is Test {
             acceptDepositDeadline: 1000,
             incentiveFee: 0,
             submitBlobsWindow: 0,
-            preconfirmWindow: 1
+            preconfirmWindow: 1,
+            maxForceRevertBatchSize: MAX_FORCE_REVERT_BATCH_SIZE
         });
 
         Rollup rollupImpl = new Rollup();
@@ -166,18 +167,32 @@ abstract contract BaseFlowCommon is Test {
         return keccak256(abi.encode(from, to, value, chainId, blockNumber, nonce, message));
     }
 
-    function _decodeBridgeSentMessage(Vm.Log[] memory logs, address bridgeAddress)
+    function _decodeBridgeSentMessage(
+        Vm.Log[] memory logs,
+        address bridgeAddress
+    )
         internal
         pure
-        returns (address from, address to, uint256 value, uint256 chainId, uint256 blockNumber, uint256 nonce, bytes32 messageHash, bytes memory data)
+        returns (
+            address from,
+            address to,
+            uint256 value,
+            uint256 chainId,
+            uint256 blockNumber,
+            uint256 nonce,
+            bytes32 messageHash,
+            bytes memory data
+        )
     {
         for (uint256 i = 0; i < logs.length; i++) {
             Vm.Log memory entry = logs[i];
             if (entry.emitter != bridgeAddress || entry.topics.length != 3 || entry.topics[0] != SENT_MESSAGE_SIG) continue;
             from = address(uint160(uint256(entry.topics[1])));
             to = address(uint160(uint256(entry.topics[2])));
-            (value, chainId, blockNumber, nonce, messageHash, data) =
-                abi.decode(entry.data, (uint256, uint256, uint256, uint256, bytes32, bytes));
+            (value, chainId, blockNumber, nonce, messageHash, data) = abi.decode(
+                entry.data,
+                (uint256, uint256, uint256, uint256, bytes32, bytes)
+            );
             return (from, to, value, chainId, blockNumber, nonce, messageHash, data);
         }
         revert("SentMessage log not found");

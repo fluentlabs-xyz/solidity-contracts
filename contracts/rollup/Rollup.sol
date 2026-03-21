@@ -76,160 +76,49 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
     }
 
     /// @inheritdoc IRollupEmergency
-    function forceRevertBatchPaginated(
-        uint256 fromBatchIndex,
-        uint256 maxBatchesToProcess,
-        uint256 maxChallengesPerBatch
-    ) external payable onlyRole(EMERGENCY_ROLE) nonReentrant {
+    function forceRevertBatch(uint256 toBatchIndex) external payable onlyRole(EMERGENCY_ROLE) nonReentrant {
         RollupStorage storage $ = _getRollupStorage();
-        require(fromBatchIndex > 0 && fromBatchIndex < $._nextBatchIndex, InvalidBatchIndex(fromBatchIndex, $._nextBatchIndex));
-        require(maxBatchesToProcess > 0, ZeroValueNotAllowed("maxBatchesToProcess"));
-        require(maxChallengesPerBatch > 0, ZeroValueNotAllowed("maxChallengesPerBatch"));
+        uint256 lastAcceptedBatchIndex = $._nextBatchIndex - 1;
+        require(toBatchIndex > 0, ZeroValueNotAllowed(bytes32(toBatchIndex)));
+        require(lastAcceptedBatchIndex - toBatchIndex <= $._maxForceRevertBatchSize, InvalidBatchIndex(toBatchIndex, lastAcceptedBatchIndex));
 
-        // Initialize or validate the current emergency revert session.
-        if ($._forceRevertPaginatedFromBatchIndex == 0) {
-            $._forceRevertPaginatedFromBatchIndex = uint96(fromBatchIndex);
-        } else {
-            require(
-                $._forceRevertPaginatedFromBatchIndex == uint96(fromBatchIndex),
-                InvalidBatchIndex(fromBatchIndex, $._forceRevertPaginatedFromBatchIndex)
-            );
+        for (uint256 i = lastAcceptedBatchIndex; i > toBatchIndex; i--) {
+            require($._batches[i].status != BatchStatus.Finalized, BatchAlreadyFinalized(i));
         }
 
-        uint256 originalNextBatchIndex = $._nextBatchIndex;
-        uint256 toBatchIndex = fromBatchIndex + maxBatchesToProcess;
-        if (toBatchIndex > originalNextBatchIndex) toBatchIndex = originalNextBatchIndex;
-
-        address payable caller = payable(_msgSender());
-        uint256 fee = $._incentiveFee;
+        // If we are calling this function - it means we must incentivize challengers and pay fees.
         uint256 totalIncentiveFees = 0;
+        uint256 fee = $._incentiveFee;
 
-        for (uint256 i = fromBatchIndex; i < toBatchIndex; i++) {
-            require($._batches[i].status != BatchStatus.Finalized, BatchAlreadyFinalized(i));
-
-            // ---- Process challenged blocks (bounded) ----
-            uint256 chCursor = $._forceRevertChallengedCursor[i];
-            (uint256 newChCursor, uint256 feeAdded) = _processForceRevertChallenged(i, chCursor, maxChallengesPerBatch, fee);
-            $._forceRevertChallengedCursor[i] = newChCursor;
-            totalIncentiveFees += feeAdded;
-
-            // Not enough gas budget for this batch yet.
-            if (newChCursor < $._batchChallengedBlocks[i].length) {
-                require(msg.value >= totalIncentiveFees, NotEnoughValueIncentiveFee(msg.value, totalIncentiveFees));
-                uint256 chunkRefund = msg.value - totalIncentiveFees;
-                if (chunkRefund != 0) {
-                    (bool success, ) = caller.call{value: chunkRefund}("");
-                    require(success, EthTransferFailed(caller, chunkRefund));
-                }
-                return;
-            }
-
-            // ---- Process proven blocks (bounded) ----
-            uint256 newPCursor = _processForceRevertProven(i, $._forceRevertProvenCursor[i], maxChallengesPerBatch);
-            $._forceRevertProvenCursor[i] = newPCursor;
-
-            if (newPCursor < $._batchProvenBlocks[i].length) {
-                require(msg.value >= totalIncentiveFees, NotEnoughValueIncentiveFee(msg.value, totalIncentiveFees));
-                uint256 chunkRefund = msg.value - totalIncentiveFees;
-                if (chunkRefund != 0) {
-                    (bool success, ) = caller.call{value: chunkRefund}("");
-                    require(success, EthTransferFailed(caller, chunkRefund));
-                }
-                return;
-            }
-
-            // ---- Batch fully processed: delete like `forceRevertBatch` ----
+        for (uint256 i = lastAcceptedBatchIndex; i > toBatchIndex; i--) {
+            totalIncentiveFees += _processForceRevertChallenged($._batchChallengedBlocks[i], fee);
             _cleanupForceRevertBatch(i);
         }
 
         require(msg.value >= totalIncentiveFees, NotEnoughValueIncentiveFee(msg.value, totalIncentiveFees));
+        $._nextBatchIndex = uint96(toBatchIndex + 1);
 
-        // If we processed the entire remaining range, reset the batch cursor and end the session.
-        if (toBatchIndex == originalNextBatchIndex) {
-            $._nextBatchIndex = uint96(fromBatchIndex);
-            $._forceRevertPaginatedFromBatchIndex = 0;
-            emit BatchReverted(fromBatchIndex);
-        }
-
-        // Refund any surplus incentive-fee funding that wasn't needed for this chunk.
-        uint256 totalRefund = msg.value - totalIncentiveFees;
-        if (totalRefund != 0) {
-            (bool success, ) = caller.call{value: totalRefund}("");
-            require(success, EthTransferFailed(caller, totalRefund));
-        }
+        emit BatchReverted(toBatchIndex);
     }
 
-    /// @inheritdoc IRollupEmergency
-    function forceRevertBatch(uint256 fromBatchIndex) external payable onlyRole(EMERGENCY_ROLE) nonReentrant {
+    function _processForceRevertChallenged(bytes32[] storage challengedBlocks, uint256 fee) internal returns (uint256 totalFees) {
         RollupStorage storage $ = _getRollupStorage();
-        require(fromBatchIndex > 0 && fromBatchIndex < $._nextBatchIndex, InvalidBatchIndex(fromBatchIndex, $._nextBatchIndex));
-
-        for (uint256 i = fromBatchIndex; i < $._nextBatchIndex; i++) {
-            require($._batches[i].status != BatchStatus.Finalized, BatchAlreadyFinalized(i));
-        }
-
-        uint256 fee = $._incentiveFee;
-        uint256 totalIncentiveFees = 0;
-
-        for (uint256 i = fromBatchIndex; i < $._nextBatchIndex; i++) {
-            (, uint256 feeAdded) = _processForceRevertChallenged(i, 0, $._batchChallengedBlocks[i].length, fee);
-            totalIncentiveFees += feeAdded;
-            _processForceRevertProven(i, 0, $._batchProvenBlocks[i].length);
-            _cleanupForceRevertBatch(i);
-        }
-
-        require(msg.value >= totalIncentiveFees, NotEnoughValueIncentiveFee(msg.value, totalIncentiveFees));
-        $._nextBatchIndex = uint96(fromBatchIndex);
-        $._forceRevertPaginatedFromBatchIndex = 0;
-
-        emit BatchReverted(fromBatchIndex);
-    }
-
-    function _processForceRevertChallenged(
-        uint256 batchIndex,
-        uint256 cursor,
-        uint256 maxToProcess,
-        uint256 fee
-    ) internal returns (uint256 newCursor, uint256 incentiveFeeAdded) {
-        RollupStorage storage $ = _getRollupStorage();
-        bytes32[] storage challengedBlocks = $._batchChallengedBlocks[batchIndex];
-
-        uint256 processed = 0;
-        while (cursor < challengedBlocks.length && processed < maxToProcess) {
-            bytes32 commitment = challengedBlocks[cursor];
+        for (uint256 i = 0; i < challengedBlocks.length; i++) {
+            bytes32 commitment = challengedBlocks[i];
             ChallengeRecord storage challenge = $._challenges[commitment];
             address challenger = challenge.challenger;
 
             if (challenger != address(0)) {
                 // Refund the actual locked deposit and pay an incentive fee.
                 $._challengerRewards[challenger] += challenge.deposit + fee;
-                incentiveFeeAdded += fee;
+                totalFees += fee;
             }
 
             _removeChallengeFromQueue(commitment);
+
             delete $._challenges[commitment];
-
-            unchecked {
-                ++cursor;
-                ++processed;
-            }
+            delete $._provenBlocks[commitment];
         }
-        newCursor = cursor;
-    }
-
-    function _processForceRevertProven(uint256 batchIndex, uint256 cursor, uint256 maxToProcess) internal returns (uint256 newCursor) {
-        RollupStorage storage $ = _getRollupStorage();
-        bytes32[] storage provenBlocks = $._batchProvenBlocks[batchIndex];
-
-        uint256 processed = 0;
-        while (cursor < provenBlocks.length && processed < maxToProcess) {
-            delete $._provenBlocks[provenBlocks[cursor]];
-            unchecked {
-                ++cursor;
-                ++processed;
-            }
-        }
-        newCursor = cursor;
     }
 
     function _cleanupForceRevertBatch(uint256 batchIndex) internal {
@@ -239,10 +128,6 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         delete $._batchChallengedBlocks[batchIndex];
         delete $._batchBlobHashes[batchIndex];
         delete $._lastBlockHashInBatch[batchIndex];
-
-        // Also clear cursors for safety / idempotence.
-        delete $._forceRevertChallengedCursor[batchIndex];
-        delete $._forceRevertProvenCursor[batchIndex];
     }
 
     // ============ Sequencer ============
@@ -519,7 +404,6 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
      */
     function _rollupCorrupted() internal view returns (bool) {
         RollupStorage storage $ = _getRollupStorage();
-        if ($._forceRevertPaginatedFromBatchIndex != 0) return true;
 
         uint256 batchIndex = uint256($._lastFinalizedBatchIndex) + 1;
         if (batchIndex >= $._nextBatchIndex) return false;

@@ -6,7 +6,7 @@ import {L2BlockHeader, BatchStatus, InitConfiguration} from "../../contracts/int
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {MockSp1Verifier} from "./mocks/MockSp1Verifier.sol";
+import {MockSp1Verifier} from "../mocks/MockSp1Verifier.sol";
 
 contract CorruptionTest is RollupBase {
     // ============ DA deadline ============
@@ -185,29 +185,6 @@ contract CorruptionTest is RollupBase {
         assertFalse(rollup.isRollupCorrupted());
     }
 
-    function test_corrupt_whenPaginatedForceRevertSessionActive() public {
-        // Finalize first batch to make following batches oldest non-finalized range.
-        uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
-        bytes32 lastHash1 = rollup.lastBlockHashInBatch(batch1);
-
-        // Create two non-finalized preconfirmed batches.
-        uint256 batch2 = _acceptBatch(lastHash1, 0);
-        _submitBlobs(batch2, 0);
-        _preconfirmBatch(batch2);
-
-        bytes32 lastHash2 = rollup.lastBlockHashInBatch(batch2);
-        uint256 batch3 = _acceptBatch(lastHash2, 0);
-        _submitBlobs(batch3, 0);
-        _preconfirmBatch(batch3);
-
-        // Process only one batch in paginated mode: session remains active for next chunk.
-        vm.prank(admin);
-        rollup.forceRevertBatchPaginated(batch2, 1, 1);
-
-        // Active paginated session must force corrupted state until fully completed.
-        assertTrue(rollup.isRollupCorrupted());
-    }
-
     // ============ Checks oldest non-finalized batch ============
 
     function test_corrupt_checksOldestNonFinalizedBatch() public {
@@ -256,7 +233,8 @@ contract CorruptionTest is RollupBase {
             acceptDepositDeadline: 1000,
             incentiveFee: 0.1 ether,
             submitBlobsWindow: daDeadline,
-            preconfirmWindow: preconfirmDeadline
+            preconfirmWindow: preconfirmDeadline,
+            maxForceRevertBatchSize: MAX_FORCE_REVERT_BATCH_SIZE
         });
         Rollup impl = new Rollup();
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
