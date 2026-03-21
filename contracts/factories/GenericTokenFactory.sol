@@ -172,4 +172,9 @@ abstract contract GenericTokenFactory is Initializable, UUPSUpgradeable, Ownable
     function _setTokenInfo(address _tokenAddress, TokenInfo memory _info) internal {
         _getGenericTokenFactoryStorage().tokenInfo[_tokenAddress] = _info;
     }
+
+    /// @dev Salt for CREATE2 — matches {ERC20TokenFactory._calculateSalt}.
+    function _calculateSalt(address gateway, address originToken) internal pure returns (bytes32) {
+        return keccak256(abi.encodePacked(gateway, originToken));
+    }
 }

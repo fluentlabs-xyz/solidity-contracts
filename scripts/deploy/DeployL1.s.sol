@@ -44,6 +44,7 @@ contract DeployL1 is DeployLib {
         uint256 receiveMessageDeadline = vm.envOr("RECEIVE_MSG_DEADLINE", uint256(0));
         address otherBridgePlaceholder = vm.envOr("OTHER_BRIDGE_PLACEHOLDER", address(0x1));
         address l1BlockOracle = vm.envOr("L1_BLOCK_ORACLE", address(0));
+        address rollup = vm.envOr("ROLLUP", vm.envOr("ROLLUP_ADDRESS", address(0)));
         string memory outputPath = vm.envOr("OUTPUT_PATH", string("deployments/sepolia.json"));
         Deployment memory d;
 
@@ -55,7 +56,8 @@ contract DeployL1 is DeployLib {
             relayerRole,
             receiveMessageDeadline,
             otherBridgePlaceholder,
-            l1BlockOracle
+            l1BlockOracle,
+            rollup
         );
 
         {

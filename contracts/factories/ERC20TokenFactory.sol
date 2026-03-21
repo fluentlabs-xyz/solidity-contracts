@@ -89,8 +89,4 @@ contract ERC20TokenFactory is GenericTokenFactory {
     function _decodeKeyData(bytes calldata keyData) internal pure returns (address _gateway, address _originToken) {
         return abi.decode(keyData, (address, address));
     }
-
-    function _calculateSalt(address _gateway, address _originToken) internal pure returns (bytes32) {
-        return keccak256(abi.encodePacked(_gateway, _originToken));
-    }
 }

@@ -1,0 +1,97 @@
+// SPDX-License-Identifier: MIT
+pragma solidity 0.8.30;
+
+interface IERC20GatewayErrors {
+    /**
+     * @notice Thrown when the token is not found.
+     * @dev selector: TODO
+     */
+    error TokenNotFound();
+
+    /**
+     * @dev Thrown when the origin token is zero.
+     * @dev selector: TODO
+     */
+    error OriginTokenZero();
+
+    /**
+     * @dev Thrown when the pegged token is wrong.
+     * @dev selector: TODO
+     */
+    error WrongPeggedToken();
+
+    /**
+     * @dev Thrown when the token mapping check failed.
+     * @dev selector: TODO
+     */
+    error TokenMappingCheckFailed();
+}
+
+interface IERC20Gateway is IERC20GatewayErrors {
+    /**
+     * @notice Bridges ERC20 tokens to the remote chain and starts cross-chain delivery.
+     * @dev Round-trip flow:
+     *      1) L1 -> L2 (deposit): caller sends an L1 origin token; gateway escrows tokens locally and bridge
+     *         message triggers `receivePeggedTokens` on L2, minting/unlocking pegged tokens for `_to`.
+     *      2) L2 -> L1 (withdraw): caller sends the L2 pegged token; gateway burns pegged tokens and bridge
+     *         message triggers `receiveOriginTokens` on L1, releasing origin tokens for `_to`.
+     * @param _token Token being bridged from the current chain (origin on deposit path, pegged on withdraw path).
+     * @param _to Recipient address on the destination chain.
+     * @param _amount Amount of tokens to bridge.
+     */
+    function sendTokens(address _token, address _to, uint256 _amount) external;
+
+    /**
+     * @notice Receives tokens from the other side. Used on L1 to receive origin tokens from the other side.
+     * @param _originToken The address of the origin token.
+     * @param _from The address of the sender on the other side.
+     * @param _to The address of the recipient on the local side.
+     * @param _amount The amount of tokens to receive.
+     */
+    function receiveOriginTokens(address _originToken, address _from, address _to, uint256 _amount) external;
+
+    /**
+     * @notice Receives pegged tokens from the other side. Used on L2 to receive pegged tokens from the other side.
+     * @param _originToken The address of the origin token.
+     * @param _peggedToken The address of the pegged token.
+     * @param _from The address of the sender on the other side.
+     * @param _to The address of the recipient on the local side.
+     * @param _amount The amount of tokens to receive.
+     * @param _tokenMetadata The metadata of the token (symbol, name, decimals)
+     */
+    function receivePeggedTokens(
+        address _originToken,
+        address _peggedToken,
+        address _from,
+        address _to,
+        uint256 _amount,
+        bytes calldata _tokenMetadata
+    ) external;
+
+    /**
+     * @notice Computes the address of a pegged token for a given token for the other side.
+     * @param _token The address of the token to compute the pegged token address for.
+     * @return The address of the pegged token.
+     */
+    function computeOtherSidePeggedTokenAddress(address _token) external view returns (address);
+
+    /**
+     * @notice Computes the local pegged token address for a given origin token.
+     * @param _originToken The origin token address used for local CREATE2 prediction.
+     * @return The address of the pegged token.
+     */
+    function computePeggedTokenAddress(address _originToken) external view returns (address);
+
+    /**
+     * @notice Returns the token mapping for a given key.
+     * @param key The key to get the token mapping for.
+     * @return The address of the token mapping.
+     */
+    function getTokenMapping(address key) external view returns (address);
+
+    /**
+     * @notice Returns the token factory.
+     * @return The address of the token factory.
+     */
+    function getTokenFactory() external view returns (address);
+}

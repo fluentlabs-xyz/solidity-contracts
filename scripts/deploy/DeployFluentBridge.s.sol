@@ -25,12 +25,13 @@ contract DeployFluentBridge is DeployLib {
         uint256 receiveMessageDeadline = vm.envOr("RECEIVE_MSG_DEADLINE", uint256(0));
         address otherBridgePlaceholder = vm.envOr("OTHER_BRIDGE_PLACEHOLDER", address(0x1));
         address l1BlockOracle = vm.envOr("L1_BLOCK_ORACLE", address(0));
+        address rollup = vm.envOr("ROLLUP", vm.envOr("ROLLUP_ADDRESS", address(0)));
         string memory outputPath = vm.envOr("OUTPUT_PATH", string(""));
 
         vm.startBroadcast();
         address bridgeImpl;
         (bridgeProxy, bridgeImpl) = _deployFluentBridge(
-            adminRole, pauserRole, relayerRole, receiveMessageDeadline, otherBridgePlaceholder, l1BlockOracle
+            adminRole, pauserRole, relayerRole, receiveMessageDeadline, otherBridgePlaceholder, l1BlockOracle, rollup
         );
         vm.stopBroadcast();
 

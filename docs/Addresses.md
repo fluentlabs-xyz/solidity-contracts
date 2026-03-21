@@ -18,7 +18,7 @@ Source: `deployments/sepolia.json`, `deployments/fluent_testnet.json`.
 | UpgradeableBeacon | `0x89C1066323dBb4a0fC8a23343EC2966579cc0877` | [View](https://sepolia.etherscan.io/address/0x89C1066323dBb4a0fC8a23343EC2966579cc0877) |
 | ERC20PeggedToken (impl) | `0xe2963EC5EE91C5EF911Ea5993135C72b7ce6CA2e` | [View](https://sepolia.etherscan.io/address/0xe2963EC5EE91C5EF911Ea5993135C72b7ce6CA2e) |
 | **PaymentGateway** (proxy) | `0x8a2b6627fFbd481907b23070Faf5a33C596A1b9f` | [View](https://sepolia.etherscan.io/address/0x8a2b6627fFbd481907b23070Faf5a33C596A1b9f) |
-| PaymentGateway (impl) | `0x497Aaa773d9F02A36737bfc59669667c8CC28B49` | [View](https://sepolia.etherscan.io/address/0x497Aaa773d9F02A36737bfc59669667c8CC28B49) |
+| PaymentGateway (impl) | `0x246f6AA064F607AEb76208BcF7948212F0894ceA` | [View](https://sepolia.etherscan.io/address/0x246f6AA064F607AEb76208BcF7948212F0894ceA) |
 | **MockERC20** (test token) | `0x39f86A7d19f1bF090EbBaF6BFAbB900c5CF48DB8` | [View](https://sepolia.etherscan.io/address/0x39f86A7d19f1bF090EbBaF6BFAbB900c5CF48DB8) |
 
 - **Chain ID:** 11155111
@@ -36,7 +36,7 @@ Source: `deployments/sepolia.json`, `deployments/fluent_testnet.json`.
 | **UniversalTokenFactory** (proxy) | `0x4c64F50F9CbeE440f8c4ea6147517018D680AE6c` | [View](https://testnet.fluentscan.xyz/address/0x4c64F50F9CbeE440f8c4ea6147517018D680AE6c) |
 | UniversalTokenFactory (impl) | `0x4bc7ef271d5659025c2A88B149BD1da019570538` | [View](https://testnet.fluentscan.xyz/address/0x4bc7ef271d5659025c2A88B149BD1da019570538) |
 | **PaymentGateway** (proxy) | `0xdC9BF18a1c307ce1A84e2775C7645e57eB373CD4` | [View](https://testnet.fluentscan.xyz/address/0xdC9BF18a1c307ce1A84e2775C7645e57eB373CD4) |
-| PaymentGateway (impl) | `0x5D21C0E4040c6D5B6016D85255f85d0eFc42f6ac` | [View](https://testnet.fluentscan.xyz/address/0x5D21C0E4040c6D5B6016D85255f85d0eFc42f6ac) |
+| PaymentGateway (impl) | `0xdE0079364f24045Fa144CaE722055709d8547b4d` | [View](https://testnet.fluentscan.xyz/address/0xdE0079364f24045Fa144CaE722055709d8547b4d) |
 | Pegged token (precompile) | `0x0000000000000000000000000000000000520008` | — |
 
 - **Chain ID:** 20994 (confirm at runtime with `cast chain-id --rpc-url <L2_RPC>`)
@@ -66,6 +66,10 @@ Use these as **from-block** when indexing `SentMessage` (and other bridge events
 
 - **L1:** `deployments/sepolia.json`
 - **L2:** `deployments/fluent_testnet.json`
+
+## Rollup deployment status
+
+`DeployRollup.s.sol` exists, but no canonical rollup deployment is tracked in the public deployment JSON files above yet. Keep rollup addresses and verifier metadata with the deployment artifacts before sharing a package with auditors.
 
 ---
 

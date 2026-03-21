@@ -6,7 +6,7 @@ import {MerkleTree} from "../libraries/MerkleTree.sol";
 
 /**
  * @title IRollupErrors
- * @dev Custom errors for the rollup contract. Prefer these over require strings.
+ * @dev Custom errors for the rollup contract.
  */
 interface IRollupErrors {
     /**
@@ -156,10 +156,50 @@ interface IRollupErrors {
     error ChallengeTooLate(uint256 batchIndex);
 
     /**
+     * @notice Challenge resolution attempted after the recorded deadline.
+     */
+    error ChallengeResolutionTooLate(uint256 batchIndex, uint256 deadline, uint256 currentBlock);
+
+    /**
+     * @notice expectedBlobsCount does not fit into uint32 (storage truncation would occur).
+     */
+    error ExpectedBlobsCountOverflow(uint256 expectedBlobsCount);
+
+    /**
+     * @notice depositRoot is set to the "no-deposits" sentinel but depositCount is non-zero.
+     */
+    error InvalidDepositRootWithNonZeroCount(uint256 depositCount);
+
+    /**
      * @notice preconfirmWindow must exceed submitBlobsWindow — both are measured from
      *         acceptedAtBlock, so preconfirmation cannot be required before blob submission completes.
      */
     error InvalidWindowConfig(string reason);
+
+    /**
+     * @notice Block header `depositCount` exceeds the maximum value supported by on-chain processing.
+     */
+    error DepositCountTooLarge(uint256 depositCount);
+
+    /**
+     * @notice Number of block headers in a batch exceeds the protocol's maximum allowed batch size.
+     */
+    error BatchSizeTooLarge(uint256 batchSize);
+
+    /**
+     * @notice Number of blob hashes submitted exceeds the protocol's maximum allowed per batch.
+     */
+    error BlobCountTooLarge(uint256 blobCount);
+
+    /**
+     * @notice Batch index mismatch with challenge record.
+     */
+    error BatchIndexMismatch(uint256 challengedBatchIndex, uint256 batchIndex);
+
+    /**
+     * @notice Address field is not a contract.
+     */
+    error NotAContract(string field);
 }
 
 /**
@@ -476,6 +516,13 @@ interface IRollupWrite {
 
     /**
      * @notice Challenge a specific L2 block in a preconfirmed batch.
+     * @dev Caller must send exactly `challengeDepositAmount` in ETH as a deposit.
+     *      Challenges are accepted while `block.number < acceptedAtBlock + challengeWindow`.
+     *      The deadline is fixed at acceptance time — all windows are measured from
+     *      `acceptedAtBlock`, not from challenge creation.
+     * @param batchIndex The batch index to challenge.
+     * @param blockHeader The L2 block header to challenge.
+     * @param blockProof The Merkle proof of the L2 block header.
      */
     function challengeBlock(uint256 batchIndex, L2BlockHeader calldata blockHeader, MerkleTree.MerkleProof calldata blockProof) external payable;
 
@@ -624,6 +671,15 @@ interface IRollupEmergency {
      * @param fromBatchIndex The batch index to revert from (inclusive).
      */
     function forceRevertBatch(uint256 fromBatchIndex) external payable;
+
+    /**
+     * @notice Force-revert all non-finalized batches from a given index onward.
+     * @dev Only callable by EMERGENCY_ROLE. Refunds challenger deposits with incentive fee.
+     * @param fromBatchIndex The batch index to revert from (inclusive).
+     * @param maxBatchesToProcess The maximum number of batches to process.
+     * @param maxChallengesPerBatch The maximum number of challenges to process per batch.
+     */
+    function forceRevertBatchPaginated(uint256 fromBatchIndex, uint256 maxBatchesToProcess, uint256 maxChallengesPerBatch) external payable;
 }
 
 /**

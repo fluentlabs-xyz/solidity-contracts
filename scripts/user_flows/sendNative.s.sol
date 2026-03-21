@@ -2,11 +2,11 @@
 pragma solidity 0.8.30;
 
 import {Script} from "forge-std/Script.sol";
-import {PaymentGateway} from "../../contracts/gateways/PaymentGateway.sol";
+import {NativeGateway} from "../../contracts/gateways/NativeGateway.sol";
 
-/// @notice Sends native tokens via a PaymentGateway, initiating a cross-chain transfer.
+/// @notice Sends native tokens via a NativeGateway, initiating a cross-chain transfer.
 /// @dev Environment:
-/// - GATEWAY_ADDRESS (address, required): PaymentGateway contract address
+/// - GATEWAY_ADDRESS (address, required): NativeGateway contract address
 /// - RECIPIENT       (address, required): destination-chain recipient
 /// - AMOUNT_WEI      (uint256, optional): amount in wei (default: 0.01 ether)
 contract SendNative is Script {
@@ -18,7 +18,7 @@ contract SendNative is Script {
         require(gatewayAddress.code.length > 0, "GATEWAY_ADDRESS must be a contract");
         require(amountWei > 0, "AMOUNT_WEI must be > 0");
 
-        PaymentGateway gateway = PaymentGateway(payable(gatewayAddress));
+        NativeGateway gateway = NativeGateway(payable(gatewayAddress));
 
         vm.startBroadcast();
         gateway.sendNativeTokens{value: amountWei}(recipient, amountWei);

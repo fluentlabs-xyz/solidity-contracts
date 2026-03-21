@@ -94,7 +94,7 @@ contract SubmitBlobsTest is RollupBase {
         uint256 batchIndex = _acceptBatch(GENESIS_HASH, 0);
         _submitBlobs(batchIndex, 0);
 
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidBatchStatus.selector, batchIndex, uint8(BatchStatus.Accepted)));
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, bytes32("numBlobs")));
         vm.prank(sequencer);
         rollup.submitBlobs(batchIndex, 0);
     }

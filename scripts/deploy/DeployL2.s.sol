@@ -39,8 +39,10 @@ contract DeployL2 is DeployLib {
         address pauserRole = vm.envOr("PAUSER_ROLE", adminRole);
         address relayerRole = vm.envOr("RELAYER_ROLE", vm.envOr("BRIDGE_AUTHORITY", adminRole));
         uint256 receiveMessageDeadline = vm.envOr("RECEIVE_MSG_DEADLINE", uint256(0));
+        require(receiveMessageDeadline != 0, "RECEIVE_MSG_DEADLINE required for L2 deploy");
         address otherBridgePlaceholder = vm.envOr("OTHER_BRIDGE_PLACEHOLDER", address(0x1));
         address l1BlockOracle = vm.envOr("L1_BLOCK_ORACLE", address(0));
+        address rollup = address(0);
         string memory outputPath = vm.envOr("OUTPUT_PATH", string("deployments/fluent_dev.json"));
 
         vm.startBroadcast();
@@ -51,7 +53,8 @@ contract DeployL2 is DeployLib {
             relayerRole,
             receiveMessageDeadline,
             otherBridgePlaceholder,
-            l1BlockOracle
+            l1BlockOracle,
+            rollup
         );
 
         (address factoryProxy, address factoryImpl) = _deployUniversalTokenFactory(initialOwner);
