@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity 0.8.30;
 
 import {FluentBridge} from "../FluentBridge.sol";
 import {Rollup} from "../../rollup/Rollup.sol";
@@ -195,7 +195,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     function _setRollup(address newRollup) internal {
         require(newRollup != address(0), ZeroAddressNotAllowed("rollup"));
         require(Queue.size(_sentMessageQueue) == 0, QueueNotEmpty());
-        _rollup = Rollup(newRollup);
         emit RollupUpdated(getRollup(), newRollup);
+        _rollup = Rollup(newRollup);
     }
 }

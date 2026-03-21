@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity 0.8.30;
 
 import {FluentBridge} from "../FluentBridge.sol";
 
@@ -48,6 +48,8 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
         uint256 _messageNonce,
         bytes calldata _message
     ) internal override returns (bool) {
+        require(_blockNumber > 0, ZeroValueNotAllowed("blockNumber"));
+
         uint256 l1BlockNumber = _l1BlockOracle.getL1BlockNumber();
 
         bytes32 messageHash = keccak256(_encodeMessage(_from, _to, _value, _chainId, _blockNumber, _messageNonce, _message));
