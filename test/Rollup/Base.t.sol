@@ -32,7 +32,12 @@ abstract contract RollupBase is Test, IRollupEvents {
 
     bytes32 internal constant GENESIS_HASH = keccak256("genesis");
     bytes32 internal constant PROGRAM_VKEY = keccak256("vkey");
-    bytes32 internal constant DUMMY_SIGNATURE = keccak256("signature");
+    bytes internal constant DUMMY_SIGNATURE =
+        abi.encodePacked(
+            keccak256("r"), // 32 bytes — r
+            keccak256("s"), // 32 bytes — s
+            uint8(27) // 1 byte  — v
+        );
     /// @dev Mirrors RollupStorageLayout.ZERO_BYTES_HASH — keccak256 of empty bytes.
     bytes32 internal constant ZERO_BYTES_HASH = 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
 

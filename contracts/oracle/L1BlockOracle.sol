@@ -11,19 +11,46 @@ import {IL1BlockOracle} from "../interfaces/IL1BlockOracle.sol";
  * @dev Provides a function to get the current L1 block number
  */
 contract L1BlockOracle is Ownable, IL1BlockOracle {
-    /// @notice The current L1 block number
+    /// @dev The current L1 block number
     uint256 internal _l1BlockNumber;
 
-    constructor() Ownable(msg.sender) {}
+    /// @dev Hot key address authorized to submit block number updates.
+    address public submitter;
+
+    constructor(address newSubmitter) Ownable(msg.sender) {
+        submitter = newSubmitter;
+    }
+
+    // ============ Submitter ============
 
     /// @inheritdoc IL1BlockOracle
-    function updateL1BlockNumber(uint256 _blockNumber) external override onlyOwner {
-        if (_blockNumber < _l1BlockNumber) {
-            revert IL1BlockOracle.L1BlockNumberDecreased(_l1BlockNumber, _blockNumber);
-        }
-        _l1BlockNumber = _blockNumber;
-        emit L1BlockNumberUpdated(_blockNumber);
+    function updateL1BlockNumber(uint256 blockNumber) external override {
+        if (msg.sender != submitter) revert OwnableUnauthorizedAccount(msg.sender);
+        if (blockNumber <= _l1BlockNumber) revert BlockNotMonotonic(_l1BlockNumber, blockNumber);
+        _l1BlockNumber = blockNumber;
+        emit L1BlockNumberUpdated(blockNumber);
     }
+
+    // ============ Owner ============
+
+    /**
+     * @notice Overrides the stored block number. Use only to correct a corrupted value.
+     * @dev Bypasses monotonicity check. Only callable by owner.
+     */
+    function setL1BlockNumber(uint256 blockNumber) external onlyOwner {
+        _l1BlockNumber = blockNumber;
+        emit L1BlockNumberUpdated(blockNumber);
+    }
+
+    /**
+     * @notice Updates the submitter address.
+     */
+    function setSubmitter(address newSubmitter) external onlyOwner {
+        emit SubmitterUpdated(submitter, newSubmitter);
+        submitter = newSubmitter;
+    }
+
+    // ============ Views ============
 
     /// @inheritdoc IL1BlockOracle
     function getL1BlockNumber() external view override returns (uint256) {
