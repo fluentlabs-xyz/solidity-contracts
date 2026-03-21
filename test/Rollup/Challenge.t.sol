@@ -9,6 +9,7 @@ import {RollupBase} from "./Base.t.sol";
 import {L2BlockHeader, BatchStatus, BatchRecord, ChallengeRecord} from "../../contracts/interfaces/IRollupTypes.sol";
 import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 
 contract ChallengeTest is RollupBase {
     function _preconfirmedBatchWithHeaders(bytes32 parentHash) internal returns (uint256 batchIndex, L2BlockHeader[] memory headers) {
@@ -199,6 +200,18 @@ contract ChallengeTest is RollupBase {
         bytes32 commitment = _computeCommitment(headers[0]);
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.BlockNotChallenged.selector, commitment));
         _resolveChallenge(batchIndex, headers[0], proof);
+    }
+
+    function test_revert_resolveChallenge_unauthorizedProver() public {
+        uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
+        bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);
+        (uint256 batchIndex, L2BlockHeader[] memory headers) = _preconfirmedBatchWithHeaders(lastHash);
+        MerkleTree.MerkleProof memory proof = _buildMerkleProof(headers, 0);
+        _challengeBlock(batchIndex, headers[0], proof);
+
+        vm.expectRevert(abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, user, rollup.PROVER_ROLE()));
+        vm.prank(user);
+        rollup.resolveChallenge(batchIndex, headers[0], proof, address(nitroVerifier), DUMMY_SIGNATURE, "");
     }
 
     // ============ Heap priority queue ============

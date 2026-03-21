@@ -10,6 +10,30 @@ import {MockSp1Verifier} from "./mocks/MockSp1Verifier.sol";
 import {MockNitroVerifier} from "./mocks/MockNitroVerifier.sol";
 
 contract AdminTest is RollupBase {
+    function _defaultInitConfig(address admin_, address sequencer_) internal returns (InitConfiguration memory cfg) {
+        MockSp1Verifier sp1 = new MockSp1Verifier();
+        cfg = InitConfiguration({
+            admin: admin_,
+            emergency: admin_,
+            sequencer: sequencer_,
+            challenger: challenger,
+            prover: prover,
+            preconfirmationRole: preconfirmer,
+            sp1Verifier: address(sp1),
+            nitroVerifier: address(0),
+            bridge: bridgeAddr,
+            programVKey: PROGRAM_VKEY,
+            genesisHash: GENESIS_HASH,
+            challengeDepositAmount: CHALLENGE_DEPOSIT,
+            challengeWindow: CHALLENGE_WINDOW,
+            finalizationDelay: FINALIZATION_DELAY,
+            acceptDepositDeadline: 1000,
+            incentiveFee: 0.1 ether,
+            submitBlobsWindow: SUBMIT_BLOBS_WINDOW,
+            preconfirmWindow: PRECONFIRM_WINDOW
+        });
+    }
+
     function _makeAcceptedBatch(uint256 expectedBlobsCount) internal returns (uint256 batchIndex) {
         batchIndex = _acceptBatch(GENESIS_HASH, expectedBlobsCount);
         _submitBlobs(batchIndex, expectedBlobsCount);
@@ -158,6 +182,24 @@ contract AdminTest is RollupBase {
             )
         );
         new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
+    }
+
+    function test_revert_init_adminZeroAddress() public {
+        InitConfiguration memory cfg = _defaultInitConfig(address(0), sequencer);
+        Rollup impl = new Rollup();
+
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroAddressNotAllowed.selector, bytes32("admin")));
+        new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
+    }
+
+    function test_init_sequencerZeroFallsBackToAdmin() public {
+        InitConfiguration memory cfg = _defaultInitConfig(admin, address(0));
+        Rollup impl = new Rollup();
+        ERC1967Proxy proxy = new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
+        Rollup r = Rollup(address(proxy));
+
+        assertTrue(r.hasRole(r.SEQUENCER_ROLE(), admin));
+        assertFalse(r.hasRole(r.SEQUENCER_ROLE(), address(0)));
     }
 
     function test_disableNitroVerifier_emitsAndMakesPreconfirmRevert() public {
