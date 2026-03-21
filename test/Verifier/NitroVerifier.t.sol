@@ -35,12 +35,15 @@ contract NitroVerifierTest is Test {
         assertEq(verifier.pendingVKey(), bytes32(0));
     }
 
-    function test_verifyAttestation_andRevoke() public {
+    function test_verifyAttestation_whitelistsPubkey() public {
         address pubkey = makeAddr("pubkey");
-
         verifier.verifyAttestation(pubkey, hex"1234");
         assertTrue(verifier.verifiedPubkeys(pubkey));
+    }
 
+    function test_revokeAttestation_removesPubkey() public {
+        address pubkey = makeAddr("pubkey");
+        verifier.verifyAttestation(pubkey, hex"1234");
         vm.prank(admin);
         verifier.revokeAttestation(pubkey);
         assertFalse(verifier.verifiedPubkeys(pubkey));
@@ -63,5 +66,35 @@ contract NitroVerifierTest is Test {
 
         address signer_ = verifier.verifyBlock(parentHash, blockHash, withdrawalHash, depositHash, signature, blobHashes);
         assertEq(signer_, signer);
+    }
+
+    function test_RevertIf_verifyAttestation_pubkeyAlreadyVerified() public {
+        address pubkey = makeAddr("pubkey");
+        verifier.verifyAttestation(pubkey, hex"1234");
+        vm.expectRevert(INitroVerifier.PubkeyAlreadyVerified.selector);
+        verifier.verifyAttestation(pubkey, hex"1234");
+    }
+
+    function test_RevertIf_proposeVKeyUpdate_zeroVKey() public {
+        vm.prank(admin);
+        vm.expectRevert(INitroVerifier.ZeroVKey.selector);
+        verifier.proposeVKeyUpdate(bytes32(0));
+    }
+
+    function test_RevertIf_cancelVKeyUpdate_noPendingUpdate() public {
+        vm.prank(admin);
+        vm.expectRevert(INitroVerifier.NoPendingUpdate.selector);
+        verifier.cancelVKeyUpdate();
+    }
+
+    function test_RevertIf_revokeAttestation_pubkeyNotVerified() public {
+        vm.prank(admin);
+        vm.expectRevert(INitroVerifier.PubkeyNotVerified.selector);
+        verifier.revokeAttestation(makeAddr("unknown"));
+    }
+
+    function test_RevertIf_verifyBlock_invalidSignatureLength() public {
+        vm.expectRevert(INitroVerifier.InvalidSignatureLength.selector);
+        verifier.verifyBlock(keccak256("a"), keccak256("b"), keccak256("c"), keccak256("d"), hex"0102", new bytes32[](0));
     }
 }

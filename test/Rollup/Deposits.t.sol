@@ -4,13 +4,14 @@ pragma solidity 0.8.30;
 import {MockNitroVerifier} from "../mocks/MockNitroVerifier.sol";
 import {MockDepositBridge} from "../mocks/MockDepositBridge.sol";
 import {L2BlockHeader, BatchStatus} from "../../contracts/interfaces/IRollupTypes.sol";
+import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
 
-import {RollupBase} from "./Base.t.sol";
+import {RollupAssertions} from "./Base.t.sol";
 
 /**
  * @notice Covers Rollup._checkDeposits by feeding multiple L1 deposits into acceptNextBatch.
  */
-contract DepositsTest is RollupBase {
+contract DepositsTest is RollupAssertions {
     bytes32[3] internal _depositIds = [
         keccak256("deposit-0"),
         keccak256("deposit-1"),
@@ -50,5 +51,23 @@ contract DepositsTest is RollupBase {
 
         assertEq(uint8(rollup.getBatch(1).status), uint8(BatchStatus.HeadersSubmitted));
         assertEq(depositsBridge.poppedCount(), _depositCount, "not all deposits were popped");
+    }
+
+    function test_RevertIf_acceptNextBatch_depositRootMismatch() public {
+        L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
+        batch[0].depositRoot = keccak256("wrong-root");
+        batch[0].depositCount = 3;
+
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.DepositRootMismatch.selector, batch[0].blockHash));
+        vm.prank(sequencer);
+        rollup.acceptNextBatch(batch, 0);
+    }
+
+    function test_acceptNextBatch_zeroDepositsSkipsCheck() public {
+        L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
+        vm.prank(sequencer);
+        rollup.acceptNextBatch(batch, 0);
+        assertEq(uint8(rollup.getBatch(1).status), uint8(BatchStatus.HeadersSubmitted), "should accept without deposits");
+        assertEq(depositsBridge.poppedCount(), 0, "no deposits should be popped");
     }
 }

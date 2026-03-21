@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {RollupBase} from "./Base.t.sol";
+import {RollupAssertions} from "./Base.t.sol";
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
 import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
 import {L2BlockHeader, BatchStatus, InitConfiguration} from "../../contracts/interfaces/IRollupTypes.sol";
@@ -29,7 +29,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 // rolled-back deposits are consumable by the sequencer.
 // ============================================================================
 
-contract DeadlockDepositTest is RollupBase {
+contract DeadlockDepositTest is RollupAssertions {
     uint256 internal constant DEPOSIT_DEADLINE = 1000;
 
     MockDepositBridge internal depositBridge;
@@ -54,7 +54,7 @@ contract DeadlockDepositTest is RollupBase {
     /// consumes the deposit before the deadline fires. Here we verify that the
     /// per-deposit deadline check _does_ revert when a deposit has aged out —
     /// the safety net still works even though normal operation avoids it.
-    function test_staleDeposit_reverts_acceptDepositDeadlineExceeded() public {
+    function test_RevertIf_acceptNextBatch_staleDepositExceedsDeadline() public {
         uint256 depositBlock = 10;
         bytes32 depositHash = keccak256("stale-deposit");
         depositBridge.enqueue(depositHash, depositBlock);

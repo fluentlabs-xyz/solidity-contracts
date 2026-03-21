@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {RollupBase} from "./Base.t.sol";
+import {RollupAssertions} from "./Base.t.sol";
 import {L2BlockHeader, BatchStatus, InitConfiguration} from "../../contracts/interfaces/IRollupTypes.sol";
+import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MockSp1Verifier} from "../mocks/MockSp1Verifier.sol";
 
-contract CorruptionTest is RollupBase {
+contract CorruptionTest is RollupAssertions {
     // ============ DA deadline ============
 
     function test_corrupt_daDeadlineExceeded() public {
@@ -209,6 +210,91 @@ contract CorruptionTest is RollupBase {
         // Corruption checks lastFinalizedBatchIndex+1 = batch2, not batch3
         assertTrue(rollup.isRollupCorrupted());
         assertEq(rollup.lastFinalizedBatchIndex(), batch1);
+    }
+
+    // ============ Corruption blocks operations ============
+
+    function test_corruptedBatchBlocksNewAcceptance() public {
+        uint256 batch1 = _acceptBatch(GENESIS_HASH, 0);
+
+        vm.roll(block.number + SUBMIT_BLOBS_WINDOW + 1);
+        _assertRollupCorrupted();
+
+        bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);
+        L2BlockHeader[] memory batch = _makeBatch(lastHash);
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.RollupCorrupted.selector));
+        vm.prank(sequencer);
+        rollup.acceptNextBatch(batch, 1);
+    }
+
+    function test_preconfirmDeadlineCorruption() public {
+        uint256 batch1 = _acceptBatch(GENESIS_HASH, 0);
+        _submitBlobs(batch1, 0);
+
+        vm.roll(block.number + PRECONFIRM_WINDOW + 1);
+
+        _assertRollupCorrupted();
+    }
+
+    function test_submitBlobs_revertsAfterDeadline() public {
+        uint256 batch1 = _acceptBatch(GENESIS_HASH, 0);
+        uint256 acceptedBlock = rollup.getBatch(batch1).acceptedAtBlock;
+
+        vm.roll(acceptedBlock + SUBMIT_BLOBS_WINDOW + 1);
+
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.RollupCorrupted.selector));
+        vm.prank(sequencer);
+        rollup.submitBlobs(batch1, 0);
+    }
+
+    function test_submitBlobs_revertsWhenCorrupted() public {
+        uint256 batch1 = _acceptBatch(GENESIS_HASH, 0);
+
+        bytes32 lastHash1 = rollup.lastBlockHashInBatch(batch1);
+        uint256 batch2 = _acceptBatch(lastHash1, 0);
+
+        vm.roll(block.number + SUBMIT_BLOBS_WINDOW + 1);
+        _assertRollupCorrupted();
+
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.RollupCorrupted.selector));
+        vm.prank(sequencer);
+        rollup.submitBlobs(batch2, 0);
+    }
+
+    function test_preconfirmBatch_revertsWhenCorrupted() public {
+        uint256 batch1 = _acceptBatch(GENESIS_HASH, 0);
+
+        bytes32 lastHash1 = rollup.lastBlockHashInBatch(batch1);
+        uint256 batch2 = _acceptBatch(lastHash1, 0);
+        _submitBlobs(batch2, 0);
+
+        vm.roll(block.number + SUBMIT_BLOBS_WINDOW + 1);
+        _assertRollupCorrupted();
+
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.RollupCorrupted.selector));
+        vm.prank(preconfirmer);
+        rollup.preconfirmBatch(address(nitroVerifier), batch2, DUMMY_SIGNATURE);
+    }
+
+    function test_challengeBlock_revertsWhenCorrupted() public {
+        uint256 batch1 = _acceptBatch(GENESIS_HASH, 0);
+
+        bytes32 lastHash1 = rollup.lastBlockHashInBatch(batch1);
+        L2BlockHeader[] memory batch2Commits = _makeBatch(lastHash1);
+        vm.prank(sequencer);
+        rollup.acceptNextBatch(batch2Commits, 1);
+        uint256 batch2 = batch1 + 1;
+        _submitBlobs(batch2, 0);
+        _preconfirmBatch(batch2);
+
+        vm.roll(block.number + SUBMIT_BLOBS_WINDOW + 1);
+        _assertRollupCorrupted();
+
+        MerkleTree.MerkleProof memory proof = _buildMerkleProof(batch2Commits, 0);
+        vm.deal(challenger, CHALLENGE_DEPOSIT);
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.RollupCorrupted.selector));
+        vm.prank(challenger);
+        rollup.challengeBlock{value: CHALLENGE_DEPOSIT}(batch2, batch2Commits[0], proof);
     }
 
     // ============ Helpers ============

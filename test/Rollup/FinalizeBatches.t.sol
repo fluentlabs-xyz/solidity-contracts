@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {RollupBase} from "./Base.t.sol";
+import {RollupAssertions} from "./Base.t.sol";
 import {L2BlockHeader, BatchStatus, BatchRecord} from "../../contracts/interfaces/IRollupTypes.sol";
 import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 
-contract FinalizeBatchesTest is RollupBase {
+contract FinalizeBatchesTest is RollupAssertions {
     // ============ finalizeBatches — happy path ============
 
     function test_finalizeBatches_singleBatch() public {
@@ -140,7 +140,7 @@ contract FinalizeBatchesTest is RollupBase {
 
     // ============ finalizeBatches — reverts ============
 
-    function test_revert_finalizeBatches_invalidBatchIndex() public {
+    function test_RevertIf_finalizeBatches_invalidBatchIndex() public {
         // nextBatchIndex = 1 (no batches accepted yet). finalizeBatches requires
         // toBatchIndex < nextBatchIndex, so both args in the error are 1:
         // InvalidBatchIndex(providedBatchIndex=1, currentBatchIndex=1).
@@ -183,7 +183,7 @@ contract FinalizeBatchesTest is RollupBase {
 
     // ============ finalizeWithProofs — reverts ============
 
-    function test_revert_finalizeWithProofs_notPreconfirmed() public {
+    function test_RevertIf_finalizeWithProofs_notPreconfirmed() public {
         L2BlockHeader[] memory headers = _makeBatch(GENESIS_HASH);
         uint256 batchIndex = rollup.nextBatchIndex();
         vm.prank(sequencer);
@@ -193,7 +193,7 @@ contract FinalizeBatchesTest is RollupBase {
         rollup.finalizeWithProofs(batchIndex, headers);
     }
 
-    function test_revert_finalizeWithProofs_wrongSequentialOrder() public {
+    function test_RevertIf_finalizeWithProofs_wrongSequentialOrder() public {
         uint256 batch1 = _acceptBatch(GENESIS_HASH, 0);
         _submitBlobs(batch1, 0);
         _preconfirmBatch(batch1);
@@ -213,7 +213,7 @@ contract FinalizeBatchesTest is RollupBase {
         rollup.finalizeWithProofs(batch2, headers2);
     }
 
-    function test_revert_finalizeWithProofs_wrongHeaders() public {
+    function test_RevertIf_finalizeWithProofs_wrongHeaders() public {
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
         bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);
         uint256 batchIndex = _acceptBatch(lastHash, 0);
@@ -226,7 +226,7 @@ contract FinalizeBatchesTest is RollupBase {
         rollup.finalizeWithProofs(batchIndex, wrongHeaders);
     }
 
-    function test_revert_finalizeWithProofs_blockNotProven() public {
+    function test_RevertIf_finalizeWithProofs_blockNotProven() public {
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
         bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);
 

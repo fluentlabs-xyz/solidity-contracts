@@ -5,13 +5,13 @@ pragma solidity 0.8.30;
 // only one active challenge per batch is possible through the public API.
 // Multi-challenge partial resolution is therefore not testable.
 
-import {RollupBase} from "./Base.t.sol";
+import {RollupAssertions} from "./Base.t.sol";
 import {L2BlockHeader, BatchStatus, BatchRecord, ChallengeRecord} from "../../contracts/interfaces/IRollupTypes.sol";
 import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 
-contract ChallengeTest is RollupBase {
+contract ChallengeTest is RollupAssertions {
     function _preconfirmedBatchWithHeaders(bytes32 parentHash) internal returns (uint256 batchIndex, L2BlockHeader[] memory headers) {
         headers = _makeBatch(parentHash);
         batchIndex = rollup.nextBatchIndex();
@@ -53,7 +53,7 @@ contract ChallengeTest is RollupBase {
         assertEq(rollup.challengeQueue().length, 1);
     }
 
-    function test_revert_challengeBlock_notPreconfirmed_InvalidBatchStatus() public {
+    function test_RevertIf_challengeBlock_notPreconfirmed() public {
         uint256 batchIndex = _acceptBatch(GENESIS_HASH, 0);
         L2BlockHeader[] memory headers = _makeBatch(GENESIS_HASH);
         MerkleTree.MerkleProof memory proof = _buildMerkleProof(headers, 0);
@@ -64,7 +64,7 @@ contract ChallengeTest is RollupBase {
         rollup.challengeBlock{value: CHALLENGE_DEPOSIT}(batchIndex, headers[0], proof);
     }
 
-    function test_revert_challengeBlock_wrongDeposit_IncorrectChallengeDeposit() public {
+    function test_RevertIf_challengeBlock_incorrectDeposit() public {
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
         bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);
         (uint256 batchIndex, L2BlockHeader[] memory headers) = _preconfirmedBatchWithHeaders(lastHash);
@@ -76,7 +76,7 @@ contract ChallengeTest is RollupBase {
         rollup.challengeBlock{value: 0.5 ether}(batchIndex, headers[0], proof);
     }
 
-    function test_revert_challengeBlock_invalidProof_InvalidBlockProof() public {
+    function test_RevertIf_challengeBlock_invalidBlockProof() public {
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
         bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);
         (uint256 batchIndex, L2BlockHeader[] memory headers) = _preconfirmedBatchWithHeaders(lastHash);
@@ -88,7 +88,7 @@ contract ChallengeTest is RollupBase {
         rollup.challengeBlock{value: CHALLENGE_DEPOSIT}(batchIndex, headers[0], badProof);
     }
 
-    function test_revert_challengeBlock_provenBlock_BlockAlreadyProven() public {
+    function test_RevertIf_challengeBlock_blockAlreadyProven() public {
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
         bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);
         (uint256 batchIndex, L2BlockHeader[] memory headers) = _preconfirmedBatchWithHeaders(lastHash);
@@ -105,7 +105,7 @@ contract ChallengeTest is RollupBase {
         rollup.challengeBlock{value: CHALLENGE_DEPOSIT}(batchIndex, headers[0], proof);
     }
 
-    function test_revert_challengeBlock_corrupted_RollupCorrupted() public {
+    function test_RevertIf_challengeBlock_rollupCorrupted() public {
         uint256 batch1 = _acceptBatch(GENESIS_HASH, 0);
         bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);
         (uint256 batchIndex, L2BlockHeader[] memory headers) = _preconfirmedBatchWithHeaders(lastHash);
@@ -120,7 +120,7 @@ contract ChallengeTest is RollupBase {
         rollup.challengeBlock{value: CHALLENGE_DEPOSIT}(batchIndex, headers[0], proof);
     }
 
-    function test_revert_challengeBlock_tooLate_ChallengeTooLate() public {
+    function test_RevertIf_challengeBlock_challengeTooLate() public {
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
         bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);
         (uint256 batchIndex, L2BlockHeader[] memory headers) = _preconfirmedBatchWithHeaders(lastHash);
@@ -178,7 +178,7 @@ contract ChallengeTest is RollupBase {
         _assertProverWithdrawable(prover, CHALLENGE_DEPOSIT);
     }
 
-    function test_revert_resolveChallenge_unchallenged_BlockNotChallenged() public {
+    function test_RevertIf_resolveChallenge_blockNotChallenged() public {
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
         bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);
         (uint256 batchIndex, L2BlockHeader[] memory headers) = _preconfirmedBatchWithHeaders(lastHash);
@@ -189,7 +189,7 @@ contract ChallengeTest is RollupBase {
         _resolveChallenge(batchIndex, headers[0], proof);
     }
 
-    function test_revert_resolveChallenge_afterResolve_BlockNotChallenged() public {
+    function test_RevertIf_resolveChallenge_alreadyResolved() public {
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
         bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);
         (uint256 batchIndex, L2BlockHeader[] memory headers) = _preconfirmedBatchWithHeaders(lastHash);
@@ -202,7 +202,7 @@ contract ChallengeTest is RollupBase {
         _resolveChallenge(batchIndex, headers[0], proof);
     }
 
-    function test_revert_resolveChallenge_unauthorizedProver() public {
+    function test_RevertIf_resolveChallenge_callerNotProver() public {
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
         bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);
         (uint256 batchIndex, L2BlockHeader[] memory headers) = _preconfirmedBatchWithHeaders(lastHash);
@@ -346,13 +346,13 @@ contract ChallengeTest is RollupBase {
         _assertProverWithdrawable(prover, 0);
     }
 
-    function test_revert_withdrawChallengerReward_noBalance_NothingToWithdraw() public {
+    function test_RevertIf_withdrawChallengerReward_nothingToWithdraw() public {
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.NothingToWithdraw.selector));
         vm.prank(challenger);
         rollup.withdrawChallengerReward();
     }
 
-    function test_revert_withdrawProofReward_noBalance_NothingToWithdraw() public {
+    function test_RevertIf_withdrawProofReward_nothingToWithdraw() public {
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.NothingToWithdraw.selector));
         vm.prank(prover);
         rollup.withdrawProofReward();

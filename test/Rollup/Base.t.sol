@@ -12,6 +12,8 @@ import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 import {MockNitroVerifier} from "../mocks/MockNitroVerifier.sol";
 import {MockSp1Verifier} from "../mocks/MockSp1Verifier.sol";
 
+// ============ Layer 1: Actors, Constants, Deploy ============
+
 abstract contract RollupBase is Test, IRollupEvents {
     // ============ Actors ============
 
@@ -87,7 +89,11 @@ abstract contract RollupBase is Test, IRollupEvents {
         r.enableNitroVerifier(address(nitroVerifier));
         return r;
     }
+}
 
+// ============ Layer 2: Action Helpers (Lifecycle DSL) ============
+
+abstract contract RollupActions is RollupBase {
     // ============ Batch Construction ============
 
     function _makeBatch(bytes32 parentHash) internal pure returns (L2BlockHeader[] memory batch) {
@@ -109,8 +115,6 @@ abstract contract RollupBase is Test, IRollupEvents {
     // ============ Lifecycle Action Helpers ============
 
     function _normalizedExpectedBlobs(uint256 expectedBlobs) internal pure returns (uint256) {
-        // submitBlobs now requires numBlobs > 0, so tests that used expectedBlobs=0
-        // are normalized to a single blob batch.
         return expectedBlobs == 0 ? 1 : expectedBlobs;
     }
 
@@ -186,43 +190,6 @@ abstract contract RollupBase is Test, IRollupEvents {
         emit BatchFinalized(batchIndex);
     }
 
-    // ============ State Assertion Helpers ============
-
-    function _assertBatchRecord(uint256 batchIndex, BatchStatus status, uint256 expBlobs, bytes32 batchRoot) internal view {
-        BatchRecord memory batch = rollup.getBatch(batchIndex);
-        assertEq(uint8(batch.status), uint8(status), "batch status mismatch");
-        assertEq(batch.expectedBlobs, expBlobs, "expectedBlobs mismatch");
-        assertEq(batch.batchRoot, batchRoot, "batchRoot mismatch");
-    }
-
-    function _assertRollupCorrupted() internal view {
-        assertTrue(rollup.isRollupCorrupted(), "expected rollup to be corrupted");
-    }
-
-    function _assertRollupHealthy() internal view {
-        assertFalse(rollup.isRollupCorrupted(), "expected rollup to be healthy");
-    }
-
-    function _assertChallengeExists(bytes32 commitment) internal view {
-        assertTrue(rollup.getChallenge(commitment).challenger != address(0), "challenge should exist");
-    }
-
-    function _assertChallengeResolved(bytes32 commitment) internal view {
-        assertTrue(rollup.isBlockProven(commitment), "commitment should be proven");
-    }
-
-    function _assertChallengerWithdrawable(address _challenger, uint256 expected) internal view {
-        assertEq(rollup.claimableChallengerReward(_challenger), expected);
-    }
-
-    function _assertProverWithdrawable(address _prover, uint256 expected) internal view {
-        assertEq(rollup.claimableProofReward(_prover), expected);
-    }
-
-    function _assertLastFinalizedBatchIndex(uint256 expected) internal view {
-        assertEq(rollup.lastFinalizedBatchIndex(), expected);
-    }
-
     // ============ Merkle Helpers ============
 
     function _computeBatchRoot(L2BlockHeader[] memory headers) internal pure returns (bytes32) {
@@ -268,5 +235,44 @@ abstract contract RollupBase is Test, IRollupEvents {
 
     function _computeCommitment(L2BlockHeader memory header) internal pure returns (bytes32) {
         return keccak256(abi.encodePacked(header.previousBlockHash, header.blockHash, header.withdrawalRoot, header.depositRoot));
+    }
+}
+
+// ============ Layer 3: Assertion Helpers ============
+
+abstract contract RollupAssertions is RollupActions {
+    function _assertBatchRecord(uint256 batchIndex, BatchStatus status, uint256 expBlobs, bytes32 batchRoot) internal view {
+        BatchRecord memory batch = rollup.getBatch(batchIndex);
+        assertEq(uint8(batch.status), uint8(status), "batch status mismatch");
+        assertEq(batch.expectedBlobs, expBlobs, "expectedBlobs mismatch");
+        assertEq(batch.batchRoot, batchRoot, "batchRoot mismatch");
+    }
+
+    function _assertRollupCorrupted() internal view {
+        assertTrue(rollup.isRollupCorrupted(), "expected rollup to be corrupted");
+    }
+
+    function _assertRollupHealthy() internal view {
+        assertFalse(rollup.isRollupCorrupted(), "expected rollup to be healthy");
+    }
+
+    function _assertChallengeExists(bytes32 commitment) internal view {
+        assertTrue(rollup.getChallenge(commitment).challenger != address(0), "challenge should exist");
+    }
+
+    function _assertChallengeResolved(bytes32 commitment) internal view {
+        assertTrue(rollup.isBlockProven(commitment), "commitment should be proven");
+    }
+
+    function _assertChallengerWithdrawable(address _challenger, uint256 expected) internal view {
+        assertEq(rollup.claimableChallengerReward(_challenger), expected);
+    }
+
+    function _assertProverWithdrawable(address _prover, uint256 expected) internal view {
+        assertEq(rollup.claimableProofReward(_prover), expected);
+    }
+
+    function _assertLastFinalizedBatchIndex(uint256 expected) internal view {
+        assertEq(rollup.lastFinalizedBatchIndex(), expected);
     }
 }

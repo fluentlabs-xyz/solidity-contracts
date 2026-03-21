@@ -1,50 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {Test} from "forge-std/Test.sol";
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 
-import {L1FluentBridge} from "../../contracts/bridge/L1/L1FluentBridge.sol";
-import {L2FluentBridge} from "../../contracts/bridge/L2/L2FluentBridge.sol";
-import {FluentBridgeStorageLayout} from "../../contracts/bridge/FluentBridgeStorageLayout.sol";
-import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
-import {L2BlockHeader} from "../../contracts/interfaces/IRollupTypes.sol";
+import {BridgeBase} from "./Base.t.sol";
 
-contract BridgePauserTest is Test {
-    address internal admin;
-    address internal pauser;
-    address internal relayer;
-
-    L1FluentBridge internal l1Bridge;
-    L2FluentBridge internal l2Bridge;
-
-    function setUp() public {
-        admin = makeAddr("admin");
-        pauser = makeAddr("pauser");
-        relayer = makeAddr("relayer");
-
-        FluentBridgeStorageLayout.InitConfiguration memory cfg = FluentBridgeStorageLayout.InitConfiguration({
-            adminRole: admin,
-            pauserRole: pauser,
-            relayerRole: relayer,
-            otherBridge: makeAddr("otherBridge")
-        });
-
-        L1FluentBridge l1Impl = new L1FluentBridge();
-        ERC1967Proxy l1Proxy = new ERC1967Proxy(
-            address(l1Impl),
-            abi.encodeCall(L1FluentBridge.initialize, (abi.encode(cfg), makeAddr("rollupA")))
-        );
-        l1Bridge = L1FluentBridge(payable(address(l1Proxy)));
-
-        L2FluentBridge l2Impl = new L2FluentBridge();
-        ERC1967Proxy l2Proxy = new ERC1967Proxy(
-            address(l2Impl),
-            abi.encodeCall(L2FluentBridge.initialize, (abi.encode(cfg), 100, makeAddr("l1BlockOracleA")))
-        );
-        l2Bridge = L2FluentBridge(payable(address(l2Proxy)));
-    }
-
+contract BridgePauserTest is BridgeBase {
     function _pauseBoth() internal {
         vm.prank(pauser);
         l1Bridge.pause();
@@ -52,82 +13,77 @@ contract BridgePauserTest is Test {
         l2Bridge.pause();
     }
 
-    function _dummyHeader() internal pure returns (L2BlockHeader memory header) {
-        header = L2BlockHeader({
-            previousBlockHash: bytes32(uint256(1)),
-            blockHash: bytes32(uint256(2)),
-            withdrawalRoot: bytes32(uint256(3)),
-            depositRoot: bytes32(uint256(4)),
-            depositCount: 0
-        });
-    }
-
-    function _dummyProof() internal pure returns (MerkleTree.MerkleProof memory proof) {
-        proof = MerkleTree.MerkleProof({nonce: 0, proof: ""});
-    }
-
-    function test_pauser_can_pause_and_unpause() public {
+    function test_RevertIf_sendMessage_pausedOnL1() public {
         vm.prank(pauser);
         l1Bridge.pause();
-        assertTrue(l1Bridge.paused());
 
-        vm.prank(pauser);
-        l1Bridge.unpause();
-        assertTrue(!l1Bridge.paused());
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
+        l1Bridge.sendMessage(makeAddr("dst1"), hex"1234");
     }
 
-    function test_sendMessage_reverts_when_paused_on_l1_and_l2() public {
-        _pauseBoth();
+    function test_RevertIf_sendMessage_pausedOnL2() public {
+        vm.prank(pauser);
+        l2Bridge.pause();
 
-        vm.expectRevert();
-        l1Bridge.sendMessage(makeAddr("dst1"), hex"1234");
-
-        vm.expectRevert();
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
         l2Bridge.sendMessage(makeAddr("dst2"), hex"5678");
     }
 
-    function test_receiveMessage_reverts_when_paused_on_l1_and_l2() public {
-        _pauseBoth();
+    function test_RevertIf_receiveMessage_pausedOnL1() public {
+        vm.prank(pauser);
+        l1Bridge.pause();
 
-        vm.expectRevert();
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
         vm.prank(relayer);
         l1Bridge.receiveMessage(makeAddr("from"), payable(makeAddr("to")), 0, 1, 1, 0, "");
+    }
 
-        vm.expectRevert();
+    function test_RevertIf_receiveMessage_pausedOnL2() public {
+        vm.prank(pauser);
+        l2Bridge.pause();
+
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
         vm.prank(relayer);
         l2Bridge.receiveMessage(makeAddr("from"), payable(makeAddr("to")), 0, 1, 1, 0, "");
     }
 
-    function test_receiveFailedMessage_reverts_when_paused_on_l1_and_l2() public {
-        _pauseBoth();
-
-        vm.expectRevert();
-        l1Bridge.receiveFailedMessage(makeAddr("from"), payable(makeAddr("to")), 0, 1, 1, 0, "");
-
-        vm.expectRevert();
-        l2Bridge.receiveFailedMessage(makeAddr("from"), payable(makeAddr("to")), 0, 1, 1, 0, "");
-    }
-
-    function test_l1_proof_flows_revert_when_paused() public {
+    function test_RevertIf_receiveFailedMessage_pausedOnL1() public {
         vm.prank(pauser);
         l1Bridge.pause();
 
-        L2BlockHeader memory header = _dummyHeader();
-        MerkleTree.MerkleProof memory withdrawalProof = _dummyProof();
-        MerkleTree.MerkleProof memory blockProof = _dummyProof();
-
-        vm.expectRevert();
-        l1Bridge.receiveMessageWithProof(0, header, makeAddr("from"), payable(makeAddr("to")), 0, 1, 1, 0, "", withdrawalProof, blockProof);
-
-        vm.expectRevert();
-        l1Bridge.rollbackMessageWithProof(0, header, makeAddr("from"), makeAddr("to"), 0, 1, 1, 0, "", withdrawalProof, blockProof);
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
+        l1Bridge.receiveFailedMessage(makeAddr("from"), payable(makeAddr("to")), 0, 1, 1, 0, "");
     }
 
-    function test_sendMessage_works_again_after_unpause() public {
+    function test_RevertIf_receiveFailedMessage_pausedOnL2() public {
         vm.prank(pauser);
         l2Bridge.pause();
 
-        vm.expectRevert();
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
+        l2Bridge.receiveFailedMessage(makeAddr("from"), payable(makeAddr("to")), 0, 1, 1, 0, "");
+    }
+
+    function test_RevertIf_receiveMessageWithProof_paused() public {
+        vm.prank(pauser);
+        l1Bridge.pause();
+
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
+        l1Bridge.receiveMessageWithProof(0, _dummyHeader(), makeAddr("from"), payable(makeAddr("to")), 0, 1, 1, 0, "", _dummyProof(), _dummyProof());
+    }
+
+    function test_RevertIf_rollbackMessageWithProof_paused() public {
+        vm.prank(pauser);
+        l1Bridge.pause();
+
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
+        l1Bridge.rollbackMessageWithProof(0, _dummyHeader(), makeAddr("from"), makeAddr("to"), 0, 1, 1, 0, "", _dummyProof(), _dummyProof());
+    }
+
+    function test_sendMessage_worksAfterUnpause() public {
+        vm.prank(pauser);
+        l2Bridge.pause();
+
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
         l2Bridge.sendMessage(makeAddr("dst"), hex"01");
 
         vm.prank(pauser);

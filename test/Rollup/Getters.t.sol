@@ -3,9 +3,9 @@ pragma solidity 0.8.30;
 
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 import {L2BlockHeader} from "../../contracts/interfaces/IRollupTypes.sol";
-import {RollupBase} from "./Base.t.sol";
+import {RollupAssertions} from "./Base.t.sol";
 
-contract RollupGettersTest is RollupBase {
+contract RollupGettersTest is RollupAssertions {
     function test_getters_returnInitializedConfig() public {
         assertEq(rollup.finalizationDelay(), FINALIZATION_DELAY, "finalizationDelay");
         assertEq(rollup.challengeWindow(), CHALLENGE_WINDOW, "challengeWindow");

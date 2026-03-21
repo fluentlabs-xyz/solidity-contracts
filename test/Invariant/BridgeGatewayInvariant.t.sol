@@ -3,10 +3,10 @@ pragma solidity 0.8.30;
 
 import {StdInvariant} from "forge-std/StdInvariant.sol";
 
-import {BridgeGatewayBase} from "../Bridge/Base.t.sol";
-import {BridgeGatewayHandler} from "./BridgeGatewayHandler.t.sol";
+import {GatewayBase} from "../Gateway/Base.t.sol";
+import {BridgeGatewayHandler} from "./BridgeGatewayHandler.sol";
 
-contract BridgeGatewayInvariantTest is StdInvariant, BridgeGatewayBase {
+contract BridgeGatewayInvariantTest is StdInvariant, GatewayBase {
     BridgeGatewayHandler internal handler;
 
     function setUp() public override {

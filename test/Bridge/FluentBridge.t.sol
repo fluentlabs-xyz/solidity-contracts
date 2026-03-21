@@ -2,9 +2,10 @@
 pragma solidity 0.8.30;
 
 import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
-import {BridgeGatewayBase, NoopReceiver, RevertingReceiver} from "./Base.t.sol";
+import {GatewayBase} from "../Gateway/Base.t.sol";
+import {NoopReceiver, RevertingReceiver} from "./Base.t.sol";
 
-contract FluentBridgeTest is BridgeGatewayBase {
+contract FluentBridgeTest is GatewayBase {
     uint256 internal constant RECEIVE_DEADLINE = 10;
 
     function setUp() public override {

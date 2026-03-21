@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {RollupBase} from "./Base.t.sol";
+import {RollupAssertions} from "./Base.t.sol";
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
 import {InitConfiguration, L2BlockHeader, BatchStatus} from "../../contracts/interfaces/IRollupTypes.sol";
 import {IRollupErrors, IRollupEvents} from "../../contracts/interfaces/IRollup.sol";
@@ -9,7 +9,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {MockSp1Verifier} from "../mocks/MockSp1Verifier.sol";
 import {MockNitroVerifier} from "../mocks/MockNitroVerifier.sol";
 
-contract AdminTest is RollupBase {
+contract AdminTest is RollupAssertions {
     function _defaultInitConfig(address admin_, address sequencer_) internal returns (InitConfiguration memory cfg) {
         MockSp1Verifier sp1 = new MockSp1Verifier();
         cfg = InitConfiguration({
@@ -70,31 +70,31 @@ contract AdminTest is RollupBase {
         assertTrue(r.hasRole(r.EMERGENCY_ROLE(), admin), "admin should have EMERGENCY_ROLE when emergency=address(0)");
     }
 
-    function test_revert_setBridge_zeroAddress() public {
+    function test_RevertIf_setBridge_zeroAddress() public {
         vm.prank(admin);
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroAddressNotAllowed.selector, bytes32("bridge")));
         rollup.setBridge(address(0));
     }
 
-    function test_revert_setSp1Verifier_zeroAddress() public {
+    function test_RevertIf_setSp1Verifier_zeroAddress() public {
         vm.prank(admin);
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroAddressNotAllowed.selector, bytes32("sp1Verifier")));
         rollup.setSp1Verifier(address(0));
     }
 
-    function test_revert_setProgramVKey_zeroValue() public {
+    function test_RevertIf_setProgramVKey_zeroValue() public {
         vm.prank(admin);
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, bytes32("programVKey")));
         rollup.setProgramVKey(bytes32(0));
     }
 
-    function test_revert_setGasLeft_zeroValue() public {
+    function test_RevertIf_setGasLeft_zeroValue() public {
         vm.prank(admin);
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, bytes32("gasLeft")));
         rollup.setGasLeft(0);
     }
 
-    function test_revert_enableNitroVerifier_zeroAddress() public {
+    function test_RevertIf_enableNitroVerifier_zeroAddress() public {
         vm.prank(admin);
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroAddressNotAllowed.selector, bytes32("nitroVerifier")));
         rollup.enableNitroVerifier(address(0));
@@ -124,7 +124,7 @@ contract AdminTest is RollupBase {
         assertEq(rollup.programVKey(), newVKey);
     }
 
-    function test_revert_init_challengeWindowExceedsFinalizationDelay() public {
+    function test_RevertIf_initialize_challengeWindowExceedsFinalizationDelay() public {
         MockSp1Verifier sp1 = new MockSp1Verifier();
         InitConfiguration memory cfg = InitConfiguration({
             admin: admin,
@@ -154,7 +154,7 @@ contract AdminTest is RollupBase {
         new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
     }
 
-    function test_revert_init_preconfirmWindowLessThanSubmitBlobsWindow() public {
+    function test_RevertIf_initialize_preconfirmWindowLessThanSubmitBlobsWindow() public {
         MockSp1Verifier sp1 = new MockSp1Verifier();
         InitConfiguration memory cfg = InitConfiguration({
             admin: admin,
@@ -182,7 +182,7 @@ contract AdminTest is RollupBase {
         new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
     }
 
-    function test_revert_init_adminZeroAddress() public {
+    function test_RevertIf_initialize_adminZeroAddress() public {
         InitConfiguration memory cfg = _defaultInitConfig(address(0), sequencer);
         Rollup impl = new Rollup();
 
@@ -200,14 +200,17 @@ contract AdminTest is RollupBase {
         assertFalse(r.hasRole(r.SEQUENCER_ROLE(), address(0)));
     }
 
-    function test_disableNitroVerifier_emitsAndMakesPreconfirmRevert() public {
-        uint256 batchIndex = _makeAcceptedBatch(1);
-
+    function test_disableNitroVerifier_emitsEvent() public {
         vm.expectEmit(true, true, false, false, address(rollup));
         emit NitroVerifierDisabled(address(nitroVerifier));
         vm.prank(admin);
         rollup.disableNitroVerifier(address(nitroVerifier));
+    }
 
+    function test_disableNitroVerifier_preventsPreconfirm() public {
+        uint256 batchIndex = _makeAcceptedBatch(1);
+        vm.prank(admin);
+        rollup.disableNitroVerifier(address(nitroVerifier));
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.NitroVerifierNotEnabled.selector, address(nitroVerifier)));
         vm.prank(preconfirmer);
         rollup.preconfirmBatch(address(nitroVerifier), batchIndex, DUMMY_SIGNATURE);
@@ -337,12 +340,14 @@ contract AdminTest is RollupBase {
         assertEq(rollup.incentiveFee(), newFee);
     }
 
-    function test_setGasLeft_updatesViaBehavior_andRevertsWhenTooHigh() public {
-        // No public getter exists for `_gasLeft`, so validate via behavior:
-        // setting it above available gas must cause acceptNextBatch to revert.
+    function test_setGasLeft_updatesValue() public {
         vm.prank(admin);
         rollup.setGasLeft(type(uint32).max);
+    }
 
+    function test_RevertIf_acceptNextBatch_insufficientGasLeft() public {
+        vm.prank(admin);
+        rollup.setGasLeft(type(uint32).max);
         L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InsufficientGas.selector));
         vm.prank(sequencer);

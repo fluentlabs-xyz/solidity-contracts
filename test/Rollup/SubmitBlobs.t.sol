@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {RollupBase} from "./Base.t.sol";
+import {RollupAssertions} from "./Base.t.sol";
 import {L2BlockHeader, BatchStatus, BatchRecord} from "../../contracts/interfaces/IRollupTypes.sol";
 import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
 
-contract SubmitBlobsTest is RollupBase {
+contract SubmitBlobsTest is RollupAssertions {
     function test_submitBlobs_singleCallTransitionsToAccepted() public {
         uint256 batchIndex = _acceptBatch(GENESIS_HASH, 2);
         assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.HeadersSubmitted));
@@ -78,7 +78,7 @@ contract SubmitBlobsTest is RollupBase {
         rollup.submitBlobs(batchIndex, 1);
     }
 
-    function test_revert_submitBlobs_exceedsExpected() public {
+    function test_RevertIf_submitBlobs_exceedsExpected() public {
         uint256 batchIndex = _acceptBatch(GENESIS_HASH, 1);
 
         bytes32[] memory h = new bytes32[](2);
@@ -90,7 +90,7 @@ contract SubmitBlobsTest is RollupBase {
         rollup.submitBlobs(batchIndex, 2);
     }
 
-    function test_revert_submitBlobs_wrongStatus() public {
+    function test_RevertIf_submitBlobs_wrongStatus() public {
         uint256 batchIndex = _acceptBatch(GENESIS_HASH, 0);
         _submitBlobs(batchIndex, 0);
 
@@ -99,7 +99,7 @@ contract SubmitBlobsTest is RollupBase {
         rollup.submitBlobs(batchIndex, 0);
     }
 
-    function test_revert_submitBlobs_zeroBlobHash() public {
+    function test_RevertIf_submitBlobs_zeroBlobHash() public {
         uint256 batchIndex = _acceptBatch(GENESIS_HASH, 1);
 
         bytes32[] memory h = new bytes32[](1);
@@ -110,7 +110,7 @@ contract SubmitBlobsTest is RollupBase {
         rollup.submitBlobs(batchIndex, 1);
     }
 
-    function test_revert_submitBlobs_daDeadlineExceeded() public {
+    function test_RevertIf_submitBlobs_daDeadlineExceeded() public {
         uint256 batchIndex = _acceptBatch(GENESIS_HASH, 1);
 
         vm.roll(block.number + SUBMIT_BLOBS_WINDOW + 1);

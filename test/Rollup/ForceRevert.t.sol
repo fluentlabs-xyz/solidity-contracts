@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
-import {RollupBase} from "./Base.t.sol";
+import {RollupAssertions} from "./Base.t.sol";
 import {L2BlockHeader, BatchStatus, BatchRecord} from "../../contracts/interfaces/IRollupTypes.sol";
 import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 
-contract ForceRevertTest is RollupBase {
+contract ForceRevertTest is RollupAssertions {
     // ============ Cleanup ============
 
     function test_forceRevert_cleansUpBlobHashes() public {
@@ -182,19 +182,6 @@ contract ForceRevertTest is RollupBase {
 
     // ============ Corruption ============
 
-    function test_corruptedBatchBlocksNewAcceptance() public {
-        uint256 batch1 = _acceptBatch(GENESIS_HASH, 0);
-
-        vm.roll(block.number + SUBMIT_BLOBS_WINDOW + 1);
-        _assertRollupCorrupted();
-
-        bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);
-        L2BlockHeader[] memory batch = _makeBatch(lastHash);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.RollupCorrupted.selector));
-        vm.prank(sequencer);
-        rollup.acceptNextBatch(batch, 1);
-    }
-
     function test_corruptedRecoveryViaForceRevert() public {
         // Finalize batch1 first so we have a valid toBatchIndex > 0
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
@@ -213,76 +200,6 @@ contract ForceRevertTest is RollupBase {
 
         uint256 batch2Again = _acceptBatch(lastHash, 0);
         assertEq(batch2Again, batch2, "should reuse reverted batch index");
-    }
-
-    function test_preconfirmDeadlineCorruption() public {
-        uint256 batch1 = _acceptBatch(GENESIS_HASH, 0);
-        _submitBlobs(batch1, 0);
-
-        vm.roll(block.number + PRECONFIRM_WINDOW + 1);
-
-        _assertRollupCorrupted();
-    }
-
-    function test_submitBlobs_revertsAfterDeadline() public {
-        uint256 batch1 = _acceptBatch(GENESIS_HASH, 0);
-        uint256 acceptedBlock = rollup.getBatch(batch1).acceptedAtBlock;
-
-        vm.roll(acceptedBlock + SUBMIT_BLOBS_WINDOW + 1);
-
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.RollupCorrupted.selector));
-        vm.prank(sequencer);
-        rollup.submitBlobs(batch1, 0);
-    }
-
-    function test_submitBlobs_revertsWhenCorrupted() public {
-        uint256 batch1 = _acceptBatch(GENESIS_HASH, 0);
-
-        bytes32 lastHash1 = rollup.lastBlockHashInBatch(batch1);
-        uint256 batch2 = _acceptBatch(lastHash1, 0);
-
-        vm.roll(block.number + SUBMIT_BLOBS_WINDOW + 1);
-        _assertRollupCorrupted();
-
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.RollupCorrupted.selector));
-        vm.prank(sequencer);
-        rollup.submitBlobs(batch2, 0);
-    }
-
-    function test_preconfirmBatch_revertsWhenCorrupted() public {
-        uint256 batch1 = _acceptBatch(GENESIS_HASH, 0);
-
-        bytes32 lastHash1 = rollup.lastBlockHashInBatch(batch1);
-        uint256 batch2 = _acceptBatch(lastHash1, 0);
-        _submitBlobs(batch2, 0);
-
-        vm.roll(block.number + SUBMIT_BLOBS_WINDOW + 1);
-        _assertRollupCorrupted();
-
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.RollupCorrupted.selector));
-        vm.prank(preconfirmer);
-        rollup.preconfirmBatch(address(nitroVerifier), batch2, DUMMY_SIGNATURE);
-    }
-
-    function test_challengeBlock_revertsWhenCorrupted() public {
-        uint256 batch1 = _acceptBatch(GENESIS_HASH, 0);
-
-        bytes32 lastHash1 = rollup.lastBlockHashInBatch(batch1);
-        L2BlockHeader[] memory batch2Commits = _makeBatch(lastHash1);
-        vm.prank(sequencer);
-        rollup.acceptNextBatch(batch2Commits, 1);
-        uint256 batch2 = batch1 + 1;
-        _submitBlobs(batch2, 0);
-        _preconfirmBatch(batch2);
-
-        vm.roll(block.number + SUBMIT_BLOBS_WINDOW + 1);
-        _assertRollupCorrupted();
-
-        MerkleTree.MerkleProof memory proof = _buildMerkleProof(batch2Commits, 0);
-        vm.deal(challenger, CHALLENGE_DEPOSIT);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.RollupCorrupted.selector));
-        vm.prank(challenger);
-        rollup.challengeBlock{value: CHALLENGE_DEPOSIT}(batch2, batch2Commits[0], proof);
     }
 
     // ============ Challenger rewards ============
@@ -352,7 +269,7 @@ contract ForceRevertTest is RollupBase {
         assertEq(rollup.claimableChallengerReward(challenger2), CHALLENGE_DEPOSIT + fee, "challenger2 reward mismatch");
     }
 
-    function test_revert_forceRevert_insufficientIncentiveFee() public {
+    function test_RevertIf_forceRevertBatch_insufficientIncentiveFee() public {
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
         bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);
         L2BlockHeader[] memory batch2Commits = _makeBatch(lastHash);

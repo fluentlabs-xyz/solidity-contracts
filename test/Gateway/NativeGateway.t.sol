@@ -3,13 +3,16 @@ pragma solidity 0.8.30;
 
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+
 import {NativeGateway} from "../../contracts/gateways/NativeGateway.sol";
 import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {IGatewayErrors, IGatewayEvents} from "../../contracts/interfaces/gateways/IGateway.sol";
 import {INativeGatewayErrors} from "../../contracts/interfaces/gateways/INativeGateway.sol";
-import {BridgeGatewayBase, RejectEther} from "../Bridge/Base.t.sol";
+import {GatewayBase} from "./Base.t.sol";
+import {RejectEther} from "../Bridge/Base.t.sol";
 
-contract NativeGatewayTest is BridgeGatewayBase {
+contract NativeGatewayTest is GatewayBase {
     NativeGateway internal nativeGateway;
 
     function setUp() public override {
@@ -178,7 +181,7 @@ contract NativeGatewayTest is BridgeGatewayBase {
 
     function test_setGasLimit_revertsForNonOwner() public {
         vm.prank(user);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, user));
         nativeGateway.setGasLimit(100_000);
     }
 
@@ -236,7 +239,7 @@ contract NativeGatewayTest is BridgeGatewayBase {
         assertEq(nativeGateway.owner(), newOwner);
 
         vm.prank(admin);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, admin));
         nativeGateway.setGasLimit(1);
 
         vm.prank(newOwner);

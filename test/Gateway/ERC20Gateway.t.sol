@@ -10,9 +10,9 @@ import {IGatewayErrors, IGatewayEvents} from "../../contracts/interfaces/gateway
 import {IERC20GatewayErrors} from "../../contracts/interfaces/gateways/IERC20Gateway.sol";
 import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
 import {MockERC20Token} from "../../test/mocks/MockERC20.sol";
-import {BridgeGatewayBase} from "../Bridge/Base.t.sol";
+import {GatewayBase} from "./Base.t.sol";
 
-contract ERC20GatewayTest is BridgeGatewayBase {
+contract ERC20GatewayTest is GatewayBase {
     function setUp() public override {
         super.setUp();
         _deployBridge(0);
@@ -155,7 +155,7 @@ contract ERC20GatewayTest is BridgeGatewayBase {
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
     }
 
-    function test_setOtherSideL2_andComputeOtherSidePeggedTokenAddress_universalPath() public {
+    function test_setOtherSideL2_setsAllFields() public {
         address remoteFactory = makeAddr("remote-universal-factory");
         address remoteImplementation = makeAddr("remote-implementation");
 
@@ -166,6 +166,14 @@ contract ERC20GatewayTest is BridgeGatewayBase {
         assertEq(gateway.getOtherSideChainId(), sourceChainId);
         assertEq(gateway.getOtherSideFactory(), remoteFactory);
         assertEq(gateway.getOtherSideTokenImplementation(), remoteImplementation);
+    }
+
+    function test_computeOtherSidePeggedTokenAddress_withUniversalConfig() public {
+        address remoteFactory = makeAddr("remote-universal-factory");
+        address remoteImplementation = makeAddr("remote-implementation");
+
+        vm.prank(admin);
+        gateway.setOtherSideL2(remoteGateway, remoteImplementation, remoteFactory, sourceChainId);
 
         address computed = gateway.computeOtherSidePeggedTokenAddress(address(originToken));
         assertTrue(computed != address(0));

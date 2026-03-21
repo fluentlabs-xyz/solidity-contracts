@@ -5,7 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
-import {console} from "forge-std/console.sol";
+import {IGatewayErrors} from "../../contracts/interfaces/gateways/IGateway.sol";
 
 import {L1FluentBridge} from "../../contracts/bridge/L1/L1FluentBridge.sol";
 import {L2FluentBridge} from "../../contracts/bridge/L2/L2FluentBridge.sol";
@@ -68,8 +68,12 @@ contract BaseFlowERC20Test is Test {
         l2Recipient = makeAddr("l2Recipient");
         l1Recipient = makeAddr("l1Recipient");
 
-        string memory l1RpcUrlOrAlias = vm.envOr("L1_RPC_URL", string("http://127.0.0.1:9545"));
-        string memory l2RpcUrlOrAlias = vm.envOr("L2_RPC_URL", string("http://127.0.0.1:9546"));
+        string memory l1RpcUrlOrAlias = vm.envOr("L1_RPC_URL", string(""));
+        string memory l2RpcUrlOrAlias = vm.envOr("L2_RPC_URL", string(""));
+        if (bytes(l1RpcUrlOrAlias).length == 0 || bytes(l2RpcUrlOrAlias).length == 0) {
+            vm.skip(true);
+            return;
+        }
         l1ForkId = vm.createFork(l1RpcUrlOrAlias);
         l2ForkId = vm.createFork(l2RpcUrlOrAlias);
 
@@ -276,7 +280,7 @@ contract BaseFlowERC20Test is Test {
         require(l1Rollup.isBatchFinalized(batchIndex), "batch not finalized");
     }
 
-    function test_erc20_happy_l1_to_l2_and_back_trusted() public {
+    function test_sendTokens_roundtripL1ToL2AndBack() public {
         // L1 -> L2: lock origin, mint pegged.
         _selectL1();
         vm.prank(l1Sender);
@@ -304,7 +308,6 @@ contract BaseFlowERC20Test is Test {
         vm.prank(relayer);
         l2Bridge.receiveMessage(from1, to1, value1, chainId1, blockNumber1, nonce1, data1);
 
-        console.log("balance after receiveMessage", IERC20(peggedOnL2).balanceOf(l2Recipient));
         assertEq(IERC20(peggedOnL2).balanceOf(l2Recipient), AMOUNT, "pegged not minted");
 
         // L2 -> L1: burn pegged, unlock origin.
@@ -332,7 +335,7 @@ contract BaseFlowERC20Test is Test {
         assertEq(originToken.balanceOf(l1Recipient) - before, AMOUNT / 2, "origin not unlocked");
     }
 
-    function test_erc20_receiveFailedMessage_retry_unlocks_after_refund() public {
+    function test_receiveFailedMessage_retryUnlocksAfterRefund() public {
         // Prepare pegged on L2 by bridging L1->L2.
         _selectL1();
         vm.prank(l1Sender);
@@ -391,7 +394,7 @@ contract BaseFlowERC20Test is Test {
         assertEq(uint256(l1Bridge.getReceivedMessage(hash2)), uint256(IFluentBridge.MessageStatus.Success), "status not updated");
     }
 
-    function test_erc20_rollback_l1_to_l2_timeout_marksRollbackOnL1() public {
+    function test_rollbackMessageWithProof_timeoutMarksRollbackOnL1() public {
         // L1 send origin tokens to L2.
         _selectL1();
         vm.prank(l1Sender);
@@ -423,7 +426,7 @@ contract BaseFlowERC20Test is Test {
         assertEq(originToken.balanceOf(address(l1Gateway)), AMOUNT, "locked origin balance changed");
     }
 
-    function test_erc20_sendTokens_reverts_when_otherSide_not_set() public {
+    function test_RevertIf_sendTokens_otherSideNotSet() public {
         _selectL1();
         ERC20Gateway gImpl = new ERC20Gateway();
         ERC1967Proxy gProxy = new ERC1967Proxy(
@@ -434,14 +437,14 @@ contract BaseFlowERC20Test is Test {
 
         vm.prank(l1Sender);
         originToken.approve(address(unconfiguredGateway), 1 ether);
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(IGatewayErrors.ZeroAddressNotAllowed.selector, "getOtherSideGateway"));
         vm.prank(l1Sender);
         unconfiguredGateway.sendTokens(address(originToken), l2Recipient, 1 ether);
     }
 
-    function test_erc20_receiveOriginTokens_reverts_on_zero_recipient() public {
+    function test_RevertIf_receiveOriginTokens_zeroRecipient() public {
         _selectL1();
-        vm.expectRevert();
+        vm.expectRevert(IGatewayErrors.InvalidRecipient.selector);
         vm.prank(address(l1Bridge));
         l1Gateway.receiveOriginTokens(address(originToken), l1Sender, address(0), 1 ether);
     }

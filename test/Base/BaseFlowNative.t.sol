@@ -14,14 +14,13 @@ import {NativeGateway} from "../../contracts/gateways/NativeGateway.sol";
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
 
 import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
-import {console2} from "forge-std/console2.sol";
 import {InitConfiguration, L2BlockHeader} from "../../contracts/interfaces/IRollupTypes.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 
 import {MockNitroVerifier} from "../mocks/MockNitroVerifier.sol";
 import {MockSp1Verifier} from "../mocks/MockSp1Verifier.sol";
 
-contract BaseFlowTest is Test {
+contract BaseFlowNativeTest is Test {
     uint256 internal constant RECEIVE_DEADLINE = 100;
     bytes32 internal constant ZERO_BYTES_HASH = 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
     bytes32 internal constant GENESIS_HASH = keccak256("genesis");
@@ -30,26 +29,6 @@ contract BaseFlowTest is Test {
     uint256 internal constant FINALIZATION_DELAY = 1;
     uint256 internal constant MAX_FORCE_REVERT_BATCH_SIZE = 10;
     bytes32 internal constant SENT_MESSAGE_SIG = keccak256("SentMessage(address,address,uint256,uint256,uint256,uint256,bytes32,bytes)");
-
-    function _batchStatusName(uint8 status) internal pure returns (string memory) {
-        if (status == 0) return "None";
-        if (status == 1) return "HeadersSubmitted";
-        if (status == 2) return "Accepted";
-        if (status == 3) return "Preconfirmed";
-        if (status == 4) return "Challenged";
-        if (status == 5) return "Finalized";
-        return "Unknown";
-    }
-
-    function _logBatchStatus(string memory label, uint256 batchIndex) internal {
-        _selectL1();
-        uint8 status = uint8(l1Rollup.getBatch(batchIndex).status);
-        console2.logString(label);
-        console2.log("batchIndex", batchIndex);
-        console2.log("batchStatus(uint8)", status);
-        console2.logString(_batchStatusName(status));
-        console2.log("================================================");
-    }
 
     // Fork ids
     uint256 internal l1ForkId;
@@ -82,10 +61,12 @@ contract BaseFlowTest is Test {
         l2Recipient = makeAddr("l2Recipient");
         l1Recipient = makeAddr("l1Recipient");
 
-        // Two separate Anvil nodes are used to simulate L1/L2.
-        // Run `scripts/dev/start-anvils.sh` beforehand (defaults: 9545/9546).
-        string memory l1RpcUrl = vm.envOr("L1_RPC_URL", string("http://127.0.0.1:9545"));
-        string memory l2RpcUrl = vm.envOr("L2_RPC_URL", string("http://127.0.0.1:9546"));
+        string memory l1RpcUrl = vm.envOr("L1_RPC_URL", string(""));
+        string memory l2RpcUrl = vm.envOr("L2_RPC_URL", string(""));
+        if (bytes(l1RpcUrl).length == 0 || bytes(l2RpcUrl).length == 0) {
+            vm.skip(true);
+            return;
+        }
         l1ForkId = vm.createFork(l1RpcUrl);
         l2ForkId = vm.createFork(l2RpcUrl);
 
@@ -215,33 +196,8 @@ contract BaseFlowTest is Test {
         return keccak256(abi.encode(from, to, value, chainId, blockNumber, nonce, message));
     }
 
-    function _logL1State(string memory label) internal {
-        _selectL1();
-        console2.logString(label);
-        console2.log("l1Sender", l1Sender);
-        console2.log("l1Recipient", l1Recipient);
-        console2.log("l1Sender bal", l1Sender.balance);
-        console2.log("l1Recipient bal", l1Recipient.balance);
-        console2.log("l1Bridge bal", address(l1Bridge).balance);
-        console2.log("l1Bridge nonce(out)", l1Bridge.getNonce());
-        console2.log("l1Bridge receivedNonce(in)", l1Bridge.getReceivedNonce());
-        console2.log("================================================");
-    }
-
-    function _logL2State(string memory label) internal {
-        _selectL2();
-        console2.logString(label);
-        console2.log("l2Recipient", l2Recipient);
-        console2.log("l2Recipient bal", l2Recipient.balance);
-        console2.log("l2Bridge bal", address(l2Bridge).balance);
-        console2.log("l2Bridge nonce(out)", l2Bridge.getNonce());
-        console2.log("l2Bridge receivedNonce(in)", l2Bridge.getReceivedNonce());
-        console2.log("================================================");
-    }
-
-    function test_eth_roundtrip_l1_to_l2_and_back_trusted_relayer() public {
+    function test_sendNativeTokens_roundtripL1ToL2AndBack() public {
         // ============ Step 1: L1 sender sends native to L2 recipient ============
-        _logL1State("step1/before");
         _selectL1();
         vm.deal(l1Sender, 1 ether);
 
@@ -255,10 +211,8 @@ contract BaseFlowTest is Test {
 
         assertEq(address(l1Bridge).balance, 1 ether, "L1 bridge should lock funds");
         assertEq(address(l2Bridge).balance, 0, "L2 bridge should start empty");
-        _logL1State("step1/after sendNativeTokens");
 
         // ============ Step 2: Relayer executes on L2 ============
-        _logL2State("step2/before receiveMessage");
         _selectL2();
         uint256 l2PreRecipientBal = l2Recipient.balance;
 
@@ -284,15 +238,12 @@ contract BaseFlowTest is Test {
         assertEq(uint256(l2Bridge.getReceivedMessage(l2MessageHash)), uint256(IFluentBridge.MessageStatus.Success));
         assertEq(l2Recipient.balance - l2PreRecipientBal, 1 ether, "L2 recipient didn't get ETH");
         assertEq(address(l2Bridge).balance, 0, "L2 bridge should have forwarded all value");
-        _logL2State("step2/after receiveMessage");
-        console2.logBytes32(l2MessageHash);
 
         // ============ Step 3: L2 recipient sends back to L1 recipient ============
         uint256 l2ChainIdForProof;
         uint256 l2BlockNumberForProof;
         uint256 l1ReceiveNonce;
         bytes32 l1MessageHash;
-        _logL2State("step3/before return sendNativeTokens");
         uint256 l2OutboundNonce = l2Bridge.getNonce();
 
         bytes memory l2ToL1Message = abi.encodeCall(NativeGateway.receiveNativeTokens, (l2Recipient, l1Recipient, 1 ether));
@@ -338,10 +289,8 @@ contract BaseFlowTest is Test {
             assertTrue(found, "SentMessage log not found for L2->L1 return");
         }
 
-        _logL2State("step3/after return sendNativeTokens");
 
         // ============ Step 4: Relayer executes return on L1 ============
-        _logL1State("step4/before receiveMessage");
         _selectL1();
         uint256 l1PreRecipientBal = l1Recipient.balance;
         assertEq(address(l1Bridge).balance, 1 ether, "L1 bridge should have funds to unlock");
@@ -372,13 +321,10 @@ contract BaseFlowTest is Test {
         assertEq(uint256(l1Bridge.getReceivedMessage(l1MessageHash)), uint256(IFluentBridge.MessageStatus.Success));
         assertEq(l1Recipient.balance - l1PreRecipientBal, 1 ether, "L1 recipient didn't get ETH back");
         assertEq(address(l1Bridge).balance, 0, "L1 bridge should have forwarded all locked value");
-        _logL1State("step4/after receiveMessage");
-        console2.logBytes32(l1MessageHash);
     }
 
-    function test_rollback_l1_to_l2_deadline_refunds_on_l1() public {
+    function test_rollbackMessageWithProof_deadlineRefundsOnL1() public {
         // ============ Step 1: L1 sender sends native to L2 recipient ============
-        _logL1State("rollback/step1/before sendNativeTokens");
         _selectL1();
         vm.deal(l1Sender, 1 ether);
 
@@ -430,10 +376,8 @@ contract BaseFlowTest is Test {
         assertEq(sentFrom, address(l1Gateway), "unexpected sentFrom");
         assertEq(sentTo, address(l2Gateway), "unexpected sentTo");
 
-        _logL1State("rollback/step1/after sendNativeTokens");
 
         // ============ Step 2: Relayer tries receiveMessage on L2, but deadline expires ============
-        _logL2State("rollback/step2/before receiveMessage (expect rollback)");
         _selectL2();
 
         // Make L2 treat the message as timed-out (eligible for rollback).
@@ -451,10 +395,8 @@ contract BaseFlowTest is Test {
         l2Bridge.receiveMessage(sentFrom, sentTo, sentValue, l2ChainIdForMessage, sentBlockNumber, sentNonce, sentData);
 
         assertEq(uint256(l2Bridge.getReceivedMessage(l2FailedMessageHash)), uint256(IFluentBridge.MessageStatus.Failed));
-        _logL2State("rollback/step2/after receiveMessage (failed marked)");
 
         // ============ Step 3: Finalize rollup batch on L1 containing the rollback withdrawalRoot ============
-        _logL1State("rollback/step3/before finalize batch");
         _selectL1();
 
         uint256 batchIndex;
@@ -487,10 +429,9 @@ contract BaseFlowTest is Test {
         assertEq(address(l1Bridge).balance, 0, "L1 bridge should refund locked value");
         assertEq(address(l1Gateway).balance - l1GatewayBalBefore, 1 ether, "L1 gateway should receive refund");
 
-        _logL1State("rollback/step4/after rollbackMessageWithProof");
     }
 
-    function test_receiveMessageWithProof_l2_to_l1_native_happy_path() public {
+    function test_receiveMessageWithProof_l2ToL1NativeTransfer() public {
         // We focus on the L2 -> L1 proof path:
         // - create an outbound native message on L2 (locks ETH in L2 bridge)
         // - finalize a Rollup batch on L1
