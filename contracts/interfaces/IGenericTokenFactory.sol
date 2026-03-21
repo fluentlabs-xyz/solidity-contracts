@@ -78,7 +78,7 @@ interface IGenericTokenFactoryEvents {
  * @notice Single interface for all token factories (ERC20 pegged, Universal, etc.)
  * @dev Two external functions only. Use keyData + deployArgs so different factory types share one interface:
  *      - ERC20/gateway: keyData = abi.encode(gateway, originToken), deployArgs = ""
- *      - Universal: keyData = abi.encode(originToken), deployArgs = abi.encode(name, symbol, decimals, initialSupply, minter, pauser)
+ *      - Universal: keyData = abi.encode(gateway, originToken), deployArgs = abi.encode(name, symbol, decimals, initialSupply, minter, pauser)
  */
 interface IGenericTokenFactory is IGenericTokenFactoryErrors, IGenericTokenFactoryEvents {
     /**
@@ -100,7 +100,7 @@ interface IGenericTokenFactory is IGenericTokenFactoryErrors, IGenericTokenFacto
 
     /**
      * @notice Computes the address of a bridged/pegged token
-     * @param keyData Factory-specific key (e.g. abi.encode(gateway, originToken) or abi.encode(originToken))
+     * @param keyData Factory-specific key (abi.encode(gateway, originToken) for ERC20 and Universal factories)
      * @param deployArgs Optional deployment params (empty for ERC20; for Universal: name, symbol, decimals, initialSupply, minter, pauser)
      * @return Predicted token address
      */
@@ -108,7 +108,7 @@ interface IGenericTokenFactory is IGenericTokenFactoryErrors, IGenericTokenFacto
 
     /**
      * @notice Computes the address of a bridged/pegged token for the other side.
-     * @param keyData Factory-specific key (e.g. abi.encode(gateway, originToken) or abi.encode(originToken))
+     * @param keyData Factory-specific key (abi.encode(gateway, originToken) for ERC20 and Universal factories)
      * @param deployArgs Optional deployment params (empty for ERC20; for Universal: name, symbol, decimals, initialSupply, minter, pauser)
      * @return Predicted token address
      */

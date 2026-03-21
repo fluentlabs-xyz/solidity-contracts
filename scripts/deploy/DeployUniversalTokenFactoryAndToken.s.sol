@@ -8,6 +8,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 /// @notice Deploys a UniversalTokenFactory behind an ERC1967 proxy on Fluent Testnet and deploys a single Universal token via deployToken().
 /// @dev Environment (required unless noted otherwise):
 /// - INITIAL_OWNER           (address): owner of the UniversalTokenFactory
+/// - GATEWAY                 (address): ERC20Gateway (or PaymentGateway) address — must match keyData salt used on-chain
 /// - ORIGIN_TOKEN            (address): L1 origin token address
 /// - TOKEN_NAME              (string):  ERC20 name
 /// - TOKEN_SYMBOL            (string):  ERC20 symbol
@@ -27,6 +28,7 @@ contract DeployUniversalTokenFactoryAndToken is Script {
 
     function run() external returns (Deployment memory deployed) {
         address initialOwner = vm.envAddress("INITIAL_OWNER");
+        address gatewayAddr = vm.envAddress("GATEWAY");
         address originToken = vm.envAddress("ORIGIN_TOKEN");
 
         string memory name = vm.envOr("TOKEN_NAME", string("Bridged Token"));
@@ -39,7 +41,7 @@ contract DeployUniversalTokenFactoryAndToken is Script {
 
         string memory outputPath = vm.envOr("OUTPUT_PATH", string(""));
 
-        deployed = _deployAll(initialOwner, originToken, name, symbol, uint8(decimals), initialSupply, minter, pauser);
+        deployed = _deployAll(initialOwner, gatewayAddr, originToken, name, symbol, uint8(decimals), initialSupply, minter, pauser);
 
         emit UniversalTokenFactoryAndTokenDeployed(deployed.factoryImpl, deployed.factory, deployed.token);
 
@@ -50,6 +52,7 @@ contract DeployUniversalTokenFactoryAndToken is Script {
 
     function _deployAll(
         address initialOwner,
+        address gatewayAddr,
         address originToken,
         string memory name,
         string memory symbol,
@@ -69,8 +72,8 @@ contract DeployUniversalTokenFactoryAndToken is Script {
 
         UniversalTokenFactory factory = UniversalTokenFactory(address(factoryProxyContract));
 
-        // Build keyData and deployArgs for deployToken()
-        bytes memory keyData = abi.encode(originToken);
+        // Build keyData and deployArgs for deployToken() (must match ERC20Gateway: abi.encode(gateway, originToken))
+        bytes memory keyData = abi.encode(gatewayAddr, originToken);
         bytes memory deployArgs =
             abi.encode(name, symbol, decimals, initialSupply, minter, pauser);
 

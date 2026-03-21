@@ -42,11 +42,6 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
      */
     bytes4 private constant UNIVERSAL_TOKEN_MAGIC_BYTES = bytes4(0x45524320);
 
-    /**
-     * @dev CREATE2 salt prefix used by Universal token deployments.
-     */
-    string private constant BRIDGE_TOKEN_PREFIX = "BRIDGE_TOKEN";
-
     /// @custom:storage-location erc7201:fluent.storage.ERC20GatewayStorage
     struct ERC20GatewayStorage {
         address tokenFactory;
@@ -185,12 +180,8 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         ERC20GatewayStorage storage $ = _getERC20GatewayStorage();
         bytes memory deployArgs = IGenericTokenFactory($.tokenFactory).getDeployArgs(name, symbol, decimals);
 
-        bytes memory keyData;
-        if (IGenericTokenFactory($.tokenFactory).beacon() != address(0)) {
-            keyData = abi.encode(address(this), originToken);
-        } else {
-            keyData = abi.encode(originToken);
-        }
+        // Same keyData encoding as {ERC20TokenFactory} / {UniversalTokenFactory}: (gateway, originToken).
+        bytes memory keyData = abi.encode(address(this), originToken);
 
         // If it's a beacon proxy -> the deployArgs is empty
         address peggedToken = IGenericTokenFactory($.tokenFactory).deployToken(keyData, deployArgs);
@@ -234,14 +225,12 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         string memory symbol,
         uint8 decimals
     ) internal view returns (address) {
+        bytes memory keyData = abi.encode(address(this), token);
         bytes memory deployArgs;
-        bytes memory keyData;
         if (IGenericTokenFactory(getTokenFactory()).beacon() != address(0)) {
-            keyData = abi.encode(address(this), token);
             deployArgs = "";
         } else {
             deployArgs = IGenericTokenFactory(getTokenFactory()).getDeployArgs(name, symbol, decimals);
-            keyData = abi.encode(token);
         }
         return IGenericTokenFactory(getTokenFactory()).computePeggedTokenAddress(keyData, deployArgs);
     }
@@ -277,6 +266,7 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         return
             _computeUniversalTokenAddress(
                 $.otherSideFactory,
+                getOtherSideGateway(),
                 originToken,
                 name,
                 symbol,
@@ -295,9 +285,10 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         return address(uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), factory, salt, bytecodeHash)))));
     }
 
-    /// @dev CREATE2 address math for UniversalTokenFactory without external calls.
+    /// @dev CREATE2 address math for UniversalTokenFactory without external calls (salt matches {ERC20TokenFactory}).
     function _computeUniversalTokenAddress(
         address factory,
+        address gateway,
         address originToken,
         string memory name,
         string memory symbol,
@@ -307,7 +298,7 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         address pauser
     ) internal pure returns (address) {
         bytes memory deploymentData = _universalTokenDeploymentData(name, symbol, decimals, initialSupply, minter, pauser);
-        bytes32 salt = keccak256(abi.encodePacked(BRIDGE_TOKEN_PREFIX, originToken));
+        bytes32 salt = keccak256(abi.encodePacked(gateway, originToken));
         bytes32 initCodeHash = keccak256(deploymentData);
         bytes32 hash = keccak256(abi.encodePacked(bytes1(0xff), factory, salt, initCodeHash));
         return address(uint160(uint256(hash)));
