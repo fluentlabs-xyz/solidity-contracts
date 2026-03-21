@@ -349,42 +349,13 @@ contract BaseFlowTest is Test {
         // are extracted from the L2 SentMessage event above.
 
         // -------- rollup: accept + finalize batch so receiveMessageWithProof passes --------
-        // We create a single-block batch whose withdrawalRoot commits directly to `l1MessageHash`.
-        bytes32 l2WithdrawalBlockHash = keccak256("l2-withdrawal-block");
-        L2BlockHeader memory header = L2BlockHeader({
-            previousBlockHash: GENESIS_HASH,
-            blockHash: l2WithdrawalBlockHash,
-            withdrawalRoot: l1MessageHash,
-            depositRoot: ZERO_BYTES_HASH,
-            depositCount: 0
-        });
-        L2BlockHeader[] memory headers = new L2BlockHeader[](1);
-        headers[0] = header;
-
-        uint256 batchIndex = l1Rollup.nextBatchIndex();
-        _logBatchStatus("step4/before acceptNextBatch", batchIndex);
-        vm.prank(relayer);
-        l1Rollup.acceptNextBatch(headers, 1);
-        _logBatchStatus("step4/after acceptNextBatch", batchIndex);
-
-        _logBatchStatus("step4/before submitBlobs", batchIndex);
-        bytes32[] memory blobHashes = new bytes32[](1);
-        blobHashes[0] = keccak256(abi.encode("native-flow-blob", batchIndex));
-        vm.blobhashes(blobHashes);
-        vm.prank(relayer);
-        l1Rollup.submitBlobs(batchIndex, 1);
-        _logBatchStatus("step4/after submitBlobs", batchIndex);
-
-        _logBatchStatus("step4/before preconfirmBatch", batchIndex);
-        vm.prank(relayer);
-        l1Rollup.preconfirmBatch(address(l1NitroVerifier), batchIndex, DUMMY_SIGNATURE);
-        _logBatchStatus("step4/after preconfirmBatch", batchIndex);
-
-        vm.roll(block.number + FINALIZATION_DELAY + 2);
-        _logBatchStatus("step4/before finalizeBatches", batchIndex);
-        l1Rollup.finalizeBatches(batchIndex);
-        assertTrue(l1Rollup.isBatchFinalized(batchIndex));
-        _logBatchStatus("step4/after finalizeBatches", batchIndex);
+        uint256 batchIndex;
+        L2BlockHeader memory header;
+        (batchIndex, header) = _finalizeL1SingleBlockBatch(
+            l1MessageHash,
+            keccak256("l2-withdrawal-block"),
+            "native-flow-blob"
+        );
 
         // -------- execute withdrawal via proof path --------
         ReceiveMessageWithProofArgs memory callArgs;
@@ -489,31 +460,13 @@ contract BaseFlowTest is Test {
         _logL1State("rollback/step3/before finalize batch");
         _selectL1();
 
-        uint256 batchIndex = l1Rollup.nextBatchIndex();
-        bytes32 l2WithdrawalBlockHash = keccak256("l2-rollback-withdrawal-block");
-        L2BlockHeader memory header = L2BlockHeader({
-            previousBlockHash: GENESIS_HASH,
-            blockHash: l2WithdrawalBlockHash,
-            withdrawalRoot: l2FailedMessageHash,
-            depositRoot: ZERO_BYTES_HASH,
-            depositCount: 0
-        });
-
-        L2BlockHeader[] memory headers = new L2BlockHeader[](1);
-        headers[0] = header;
-
-        vm.prank(relayer);
-        l1Rollup.acceptNextBatch(headers, 1);
-        bytes32[] memory blobHashesRb = new bytes32[](1);
-        blobHashesRb[0] = keccak256(abi.encode("native-rollback-blob", batchIndex));
-        vm.blobhashes(blobHashesRb);
-        vm.prank(relayer);
-        l1Rollup.submitBlobs(batchIndex, 1);
-        vm.prank(relayer);
-        l1Rollup.preconfirmBatch(address(l1NitroVerifier), batchIndex, DUMMY_SIGNATURE);
-        vm.roll(block.number + FINALIZATION_DELAY + 2);
-        l1Rollup.finalizeBatches(batchIndex);
-        assertTrue(l1Rollup.isBatchFinalized(batchIndex));
+        uint256 batchIndex;
+        L2BlockHeader memory header;
+        (batchIndex, header) = _finalizeL1SingleBlockBatch(
+            l2FailedMessageHash,
+            keccak256("l2-rollback-withdrawal-block"),
+            "native-rollback-blob"
+        );
 
         // ============ Step 4: Relayer executes rollback on L1 ============
         uint256 l1GatewayBalBefore = address(l1Gateway).balance;
@@ -594,35 +547,13 @@ contract BaseFlowTest is Test {
         }
 
         // -------- Step 3: Create + finalize Rollup batch on L1 --------
-        _selectL1();
-        uint256 batchIndex = l1Rollup.nextBatchIndex();
-
-        bytes32 l2WithdrawalBlockHash = keccak256("l2-native-withdrawal-block");
-        L2BlockHeader memory header = L2BlockHeader({
-            previousBlockHash: GENESIS_HASH,
-            blockHash: l2WithdrawalBlockHash,
-            withdrawalRoot: l1MessageHash,
-            depositRoot: ZERO_BYTES_HASH,
-            depositCount: 0
-        });
-
-        {
-            L2BlockHeader[] memory headers = new L2BlockHeader[](1);
-            headers[0] = header;
-
-            vm.prank(relayer);
-            l1Rollup.acceptNextBatch(headers, 1);
-            bytes32[] memory blobHashesPr = new bytes32[](1);
-            blobHashesPr[0] = keccak256(abi.encode("native-proof-blob", batchIndex));
-            vm.blobhashes(blobHashesPr);
-            vm.prank(relayer);
-            l1Rollup.submitBlobs(batchIndex, 1);
-            vm.prank(relayer);
-            l1Rollup.preconfirmBatch(address(l1NitroVerifier), batchIndex, DUMMY_SIGNATURE);
-            vm.roll(block.number + FINALIZATION_DELAY + 2);
-            l1Rollup.finalizeBatches(batchIndex);
-            assertTrue(l1Rollup.isBatchFinalized(batchIndex));
-        }
+        uint256 batchIndex;
+        L2BlockHeader memory header;
+        (batchIndex, header) = _finalizeL1SingleBlockBatch(
+            l1MessageHash,
+            keccak256("l2-native-withdrawal-block"),
+            "native-proof-blob"
+        );
 
         // -------- Step 4: Execute unlock via proof path --------
         ReceiveMessageWithProofArgs memory callArgs;
@@ -642,6 +573,37 @@ contract BaseFlowTest is Test {
         assertEq(uint256(l1Bridge.getReceivedMessage(l1MessageHash)), uint256(IFluentBridge.MessageStatus.Success));
         assertEq(l1Recipient.balance - l1RecipientBalBefore, 1 ether, "L1 recipient didn't get ETH");
         assertEq(address(l1Bridge).balance, 0, "L1 bridge should have forwarded all value");
+    }
+
+    /// @dev Accept one L2 block header on L1 rollup, submit one blob, preconfirm, and finalize (used by native flow tests).
+    function _finalizeL1SingleBlockBatch(
+        bytes32 withdrawalRoot,
+        bytes32 l2BlockHash,
+        string memory blobLabel
+    ) internal returns (uint256 batchIndex, L2BlockHeader memory header) {
+        _selectL1();
+        batchIndex = l1Rollup.nextBatchIndex();
+        header = L2BlockHeader({
+            previousBlockHash: GENESIS_HASH,
+            blockHash: l2BlockHash,
+            withdrawalRoot: withdrawalRoot,
+            depositRoot: ZERO_BYTES_HASH,
+            depositCount: 0
+        });
+        L2BlockHeader[] memory headers = new L2BlockHeader[](1);
+        headers[0] = header;
+        vm.prank(relayer);
+        l1Rollup.acceptNextBatch(headers, 1);
+        bytes32[] memory blobHashes = new bytes32[](1);
+        blobHashes[0] = keccak256(abi.encode(blobLabel, batchIndex));
+        vm.blobhashes(blobHashes);
+        vm.prank(relayer);
+        l1Rollup.submitBlobs(batchIndex, 1);
+        vm.prank(relayer);
+        l1Rollup.preconfirmBatch(address(l1NitroVerifier), batchIndex, DUMMY_SIGNATURE);
+        vm.roll(block.number + FINALIZATION_DELAY + 2);
+        l1Rollup.finalizeBatches(batchIndex);
+        assertTrue(l1Rollup.isBatchFinalized(batchIndex));
     }
 
     struct ReceiveMessageWithProofArgs {
