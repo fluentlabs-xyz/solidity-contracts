@@ -12,27 +12,25 @@ import {MockNitroVerifier} from "../mocks/MockNitroVerifier.sol";
 contract AdminTest is RollupAssertions {
     function _defaultInitConfig(address admin_, address sequencer_) internal returns (InitConfiguration memory cfg) {
         MockSp1Verifier sp1 = new MockSp1Verifier();
-        cfg = InitConfiguration({
-            admin: admin_,
-            emergency: admin_,
-            sequencer: sequencer_,
-            challenger: challenger,
-            prover: prover,
-            preconfirmationRole: preconfirmer,
-            sp1Verifier: address(sp1),
-            nitroVerifier: address(0),
-            bridge: bridgeAddr,
-            programVKey: PROGRAM_VKEY,
-            genesisHash: GENESIS_HASH,
-            challengeDepositAmount: CHALLENGE_DEPOSIT,
-            challengeWindow: CHALLENGE_WINDOW,
-            finalizationDelay: FINALIZATION_DELAY,
-            acceptDepositDeadline: 1000,
-            incentiveFee: 0.1 ether,
-            submitBlobsWindow: SUBMIT_BLOBS_WINDOW,
-            preconfirmWindow: PRECONFIRM_WINDOW,
-            maxForceRevertBatchSize: MAX_FORCE_REVERT_BATCH_SIZE
-        });
+        cfg.admin = admin_;
+        cfg.emergency = admin_;
+        cfg.sequencer = sequencer_;
+        cfg.challenger = challenger;
+        cfg.prover = prover;
+        cfg.preconfirmationRole = preconfirmer;
+        cfg.sp1Verifier = address(sp1);
+        cfg.nitroVerifier = address(0);
+        cfg.bridge = bridgeAddr;
+        cfg.programVKey = PROGRAM_VKEY;
+        cfg.genesisHash = GENESIS_HASH;
+        cfg.challengeDepositAmount = CHALLENGE_DEPOSIT;
+        cfg.challengeWindow = CHALLENGE_WINDOW;
+        cfg.finalizationDelay = FINALIZATION_DELAY;
+        cfg.acceptDepositDeadline = 1000;
+        cfg.incentiveFee = 0.1 ether;
+        cfg.submitBlobsWindow = SUBMIT_BLOBS_WINDOW;
+        cfg.preconfirmWindow = PRECONFIRM_WINDOW;
+        cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
     }
 
     function _makeAcceptedBatch(uint256 expectedBlobsCount) internal returns (uint256 batchIndex) {
@@ -42,27 +40,26 @@ contract AdminTest is RollupAssertions {
 
     function test_emergencyRole_defaultsToAdmin() public {
         MockSp1Verifier sp1 = new MockSp1Verifier();
-        InitConfiguration memory cfg = InitConfiguration({
-            admin: admin,
-            emergency: address(0),
-            sequencer: sequencer,
-            challenger: challenger,
-            prover: prover,
-            preconfirmationRole: preconfirmer,
-            sp1Verifier: address(sp1),
-            nitroVerifier: address(0),
-            bridge: bridgeAddr,
-            programVKey: PROGRAM_VKEY,
-            genesisHash: GENESIS_HASH,
-            challengeDepositAmount: CHALLENGE_DEPOSIT,
-            challengeWindow: CHALLENGE_WINDOW,
-            finalizationDelay: FINALIZATION_DELAY,
-            acceptDepositDeadline: 1000,
-            incentiveFee: 0.1 ether,
-            submitBlobsWindow: SUBMIT_BLOBS_WINDOW,
-            preconfirmWindow: PRECONFIRM_WINDOW,
-            maxForceRevertBatchSize: MAX_FORCE_REVERT_BATCH_SIZE
-        });
+        InitConfiguration memory cfg;
+        cfg.admin = admin;
+        cfg.emergency = address(0);
+        cfg.sequencer = sequencer;
+        cfg.challenger = challenger;
+        cfg.prover = prover;
+        cfg.preconfirmationRole = preconfirmer;
+        cfg.sp1Verifier = address(sp1);
+        cfg.nitroVerifier = address(0);
+        cfg.bridge = bridgeAddr;
+        cfg.programVKey = PROGRAM_VKEY;
+        cfg.genesisHash = GENESIS_HASH;
+        cfg.challengeDepositAmount = CHALLENGE_DEPOSIT;
+        cfg.challengeWindow = CHALLENGE_WINDOW;
+        cfg.finalizationDelay = FINALIZATION_DELAY;
+        cfg.acceptDepositDeadline = 1000;
+        cfg.incentiveFee = 0.1 ether;
+        cfg.submitBlobsWindow = SUBMIT_BLOBS_WINDOW;
+        cfg.preconfirmWindow = PRECONFIRM_WINDOW;
+        cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
         Rollup impl = new Rollup();
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
         Rollup r = Rollup(address(proxy));
@@ -126,27 +123,26 @@ contract AdminTest is RollupAssertions {
 
     function test_RevertIf_initialize_challengeWindowExceedsFinalizationDelay() public {
         MockSp1Verifier sp1 = new MockSp1Verifier();
-        InitConfiguration memory cfg = InitConfiguration({
-            admin: admin,
-            emergency: admin,
-            sequencer: sequencer,
-            challenger: challenger,
-            prover: prover,
-            preconfirmationRole: preconfirmer,
-            sp1Verifier: address(sp1),
-            nitroVerifier: address(0),
-            bridge: bridgeAddr,
-            programVKey: PROGRAM_VKEY,
-            genesisHash: GENESIS_HASH,
-            challengeDepositAmount: CHALLENGE_DEPOSIT,
-            challengeWindow: 300,
-            finalizationDelay: 200,
-            acceptDepositDeadline: 1000,
-            incentiveFee: 0.1 ether,
-            submitBlobsWindow: SUBMIT_BLOBS_WINDOW,
-            preconfirmWindow: PRECONFIRM_WINDOW,
-            maxForceRevertBatchSize: MAX_FORCE_REVERT_BATCH_SIZE
-        });
+        InitConfiguration memory cfg;
+        cfg.admin = admin;
+        cfg.emergency = admin;
+        cfg.sequencer = sequencer;
+        cfg.challenger = challenger;
+        cfg.prover = prover;
+        cfg.preconfirmationRole = preconfirmer;
+        cfg.sp1Verifier = address(sp1);
+        cfg.nitroVerifier = address(0);
+        cfg.bridge = bridgeAddr;
+        cfg.programVKey = PROGRAM_VKEY;
+        cfg.genesisHash = GENESIS_HASH;
+        cfg.challengeDepositAmount = CHALLENGE_DEPOSIT;
+        cfg.challengeWindow = 300;
+        cfg.finalizationDelay = 200;
+        cfg.acceptDepositDeadline = 1000;
+        cfg.incentiveFee = 0.1 ether;
+        cfg.submitBlobsWindow = SUBMIT_BLOBS_WINDOW;
+        cfg.preconfirmWindow = PRECONFIRM_WINDOW;
+        cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
         Rollup impl = new Rollup();
         vm.expectRevert(
             abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "challengeWindow must be less than finalizationDelay")
@@ -156,27 +152,26 @@ contract AdminTest is RollupAssertions {
 
     function test_RevertIf_initialize_preconfirmWindowLessThanSubmitBlobsWindow() public {
         MockSp1Verifier sp1 = new MockSp1Verifier();
-        InitConfiguration memory cfg = InitConfiguration({
-            admin: admin,
-            emergency: admin,
-            sequencer: sequencer,
-            challenger: challenger,
-            prover: prover,
-            preconfirmationRole: preconfirmer,
-            sp1Verifier: address(sp1),
-            nitroVerifier: address(0),
-            bridge: bridgeAddr,
-            programVKey: PROGRAM_VKEY,
-            genesisHash: GENESIS_HASH,
-            challengeDepositAmount: CHALLENGE_DEPOSIT,
-            challengeWindow: CHALLENGE_WINDOW,
-            finalizationDelay: FINALIZATION_DELAY,
-            acceptDepositDeadline: 1000,
-            incentiveFee: 0.1 ether,
-            submitBlobsWindow: 100,
-            preconfirmWindow: 50,
-            maxForceRevertBatchSize: MAX_FORCE_REVERT_BATCH_SIZE
-        });
+        InitConfiguration memory cfg;
+        cfg.admin = admin;
+        cfg.emergency = admin;
+        cfg.sequencer = sequencer;
+        cfg.challenger = challenger;
+        cfg.prover = prover;
+        cfg.preconfirmationRole = preconfirmer;
+        cfg.sp1Verifier = address(sp1);
+        cfg.nitroVerifier = address(0);
+        cfg.bridge = bridgeAddr;
+        cfg.programVKey = PROGRAM_VKEY;
+        cfg.genesisHash = GENESIS_HASH;
+        cfg.challengeDepositAmount = CHALLENGE_DEPOSIT;
+        cfg.challengeWindow = CHALLENGE_WINDOW;
+        cfg.finalizationDelay = FINALIZATION_DELAY;
+        cfg.acceptDepositDeadline = 1000;
+        cfg.incentiveFee = 0.1 ether;
+        cfg.submitBlobsWindow = 100;
+        cfg.preconfirmWindow = 50;
+        cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
         Rollup impl = new Rollup();
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "preconfirmWindow must exceed submitBlobsWindow"));
         new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));

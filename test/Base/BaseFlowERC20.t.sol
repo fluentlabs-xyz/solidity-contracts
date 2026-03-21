@@ -104,27 +104,26 @@ contract BaseFlowERC20Test is Test {
         l1NitroVerifier = new MockNitroVerifier();
         MockSp1Verifier sp1 = new MockSp1Verifier();
 
-        InitConfiguration memory cfg = InitConfiguration({
-            admin: admin,
-            emergency: admin,
-            sequencer: relayer,
-            challenger: address(0),
-            prover: address(0),
-            preconfirmationRole: relayer,
-            sp1Verifier: address(sp1),
-            nitroVerifier: address(l1NitroVerifier),
-            bridge: address(0xB1), // not used because we set depositRoot == ZERO_BYTES_HASH in the test
-            programVKey: PROGRAM_VKEY,
-            genesisHash: GENESIS_HASH,
-            challengeDepositAmount: 1 ether,
-            challengeWindow: 0,
-            finalizationDelay: FINALIZATION_DELAY,
-            acceptDepositDeadline: 1000,
-            incentiveFee: 0,
-            submitBlobsWindow: 0,
-            preconfirmWindow: 1,
-            maxForceRevertBatchSize: MAX_FORCE_REVERT_BATCH_SIZE
-        });
+        InitConfiguration memory cfg;
+        cfg.admin = admin;
+        cfg.emergency = admin;
+        cfg.sequencer = relayer;
+        cfg.challenger = address(0);
+        cfg.prover = address(0);
+        cfg.preconfirmationRole = relayer;
+        cfg.sp1Verifier = address(sp1);
+        cfg.nitroVerifier = address(l1NitroVerifier);
+        cfg.bridge = address(0xB1); // not used because we set depositRoot == ZERO_BYTES_HASH in the test
+        cfg.programVKey = PROGRAM_VKEY;
+        cfg.genesisHash = GENESIS_HASH;
+        cfg.challengeDepositAmount = 1 ether;
+        cfg.challengeWindow = 0;
+        cfg.finalizationDelay = FINALIZATION_DELAY;
+        cfg.acceptDepositDeadline = 1000;
+        cfg.incentiveFee = 0;
+        cfg.submitBlobsWindow = 0;
+        cfg.preconfirmWindow = 1;
+        cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
 
         Rollup rollupImpl = new Rollup();
         ERC1967Proxy rollupProxy = new ERC1967Proxy(address(rollupImpl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));

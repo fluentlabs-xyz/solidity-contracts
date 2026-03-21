@@ -59,29 +59,31 @@ abstract contract RollupBase is Test, IRollupEvents {
         rollup = _deployRollup(bridgeAddr);
     }
 
-    function _deployRollup(address _bridge) internal returns (Rollup) {
+    function _defaultInitConfig(address _bridge) internal returns (InitConfiguration memory cfg) {
         MockSp1Verifier sp1 = new MockSp1Verifier();
-        InitConfiguration memory cfg = InitConfiguration({
-            admin: admin,
-            emergency: admin,
-            sequencer: sequencer,
-            challenger: challenger,
-            prover: prover,
-            preconfirmationRole: preconfirmer,
-            sp1Verifier: address(sp1),
-            nitroVerifier: address(0),
-            bridge: _bridge,
-            programVKey: PROGRAM_VKEY,
-            genesisHash: GENESIS_HASH,
-            challengeDepositAmount: CHALLENGE_DEPOSIT,
-            challengeWindow: CHALLENGE_WINDOW,
-            finalizationDelay: FINALIZATION_DELAY,
-            acceptDepositDeadline: 1000,
-            incentiveFee: 0.1 ether,
-            submitBlobsWindow: SUBMIT_BLOBS_WINDOW,
-            preconfirmWindow: PRECONFIRM_WINDOW,
-            maxForceRevertBatchSize: MAX_FORCE_REVERT_BATCH_SIZE
-        });
+        cfg.admin = admin;
+        cfg.emergency = admin;
+        cfg.sequencer = sequencer;
+        cfg.challenger = challenger;
+        cfg.prover = prover;
+        cfg.preconfirmationRole = preconfirmer;
+        cfg.sp1Verifier = address(sp1);
+        cfg.nitroVerifier = address(0);
+        cfg.bridge = _bridge;
+        cfg.programVKey = PROGRAM_VKEY;
+        cfg.genesisHash = GENESIS_HASH;
+        cfg.challengeDepositAmount = CHALLENGE_DEPOSIT;
+        cfg.challengeWindow = CHALLENGE_WINDOW;
+        cfg.finalizationDelay = FINALIZATION_DELAY;
+        cfg.acceptDepositDeadline = 1000;
+        cfg.incentiveFee = 0.1 ether;
+        cfg.submitBlobsWindow = SUBMIT_BLOBS_WINDOW;
+        cfg.preconfirmWindow = PRECONFIRM_WINDOW;
+        cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
+    }
+
+    function _deployRollup(address _bridge) internal returns (Rollup) {
+        InitConfiguration memory cfg = _defaultInitConfig(_bridge);
         Rollup impl = new Rollup();
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
         Rollup r = Rollup(address(proxy));

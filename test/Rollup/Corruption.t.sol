@@ -301,27 +301,26 @@ contract CorruptionTest is RollupAssertions {
 
     function _deployRollupWithConfig(uint64 daDeadline, uint64 preconfirmDeadline) private returns (Rollup) {
         MockSp1Verifier sp1 = new MockSp1Verifier();
-        InitConfiguration memory cfg = InitConfiguration({
-            admin: admin,
-            emergency: admin,
-            sequencer: sequencer,
-            challenger: challenger,
-            prover: prover,
-            preconfirmationRole: preconfirmer,
-            sp1Verifier: address(sp1),
-            nitroVerifier: address(0),
-            bridge: bridgeAddr,
-            programVKey: PROGRAM_VKEY,
-            genesisHash: GENESIS_HASH,
-            challengeDepositAmount: CHALLENGE_DEPOSIT,
-            challengeWindow: CHALLENGE_WINDOW,
-            finalizationDelay: FINALIZATION_DELAY,
-            acceptDepositDeadline: 1000,
-            incentiveFee: 0.1 ether,
-            submitBlobsWindow: daDeadline,
-            preconfirmWindow: preconfirmDeadline,
-            maxForceRevertBatchSize: MAX_FORCE_REVERT_BATCH_SIZE
-        });
+        InitConfiguration memory cfg;
+        cfg.admin = admin;
+        cfg.emergency = admin;
+        cfg.sequencer = sequencer;
+        cfg.challenger = challenger;
+        cfg.prover = prover;
+        cfg.preconfirmationRole = preconfirmer;
+        cfg.sp1Verifier = address(sp1);
+        cfg.nitroVerifier = address(0);
+        cfg.bridge = bridgeAddr;
+        cfg.programVKey = PROGRAM_VKEY;
+        cfg.genesisHash = GENESIS_HASH;
+        cfg.challengeDepositAmount = CHALLENGE_DEPOSIT;
+        cfg.challengeWindow = CHALLENGE_WINDOW;
+        cfg.finalizationDelay = FINALIZATION_DELAY;
+        cfg.acceptDepositDeadline = 1000;
+        cfg.incentiveFee = 0.1 ether;
+        cfg.submitBlobsWindow = daDeadline;
+        cfg.preconfirmWindow = preconfirmDeadline;
+        cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
         Rollup impl = new Rollup();
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
         return Rollup(address(proxy));
