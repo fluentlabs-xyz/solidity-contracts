@@ -9,13 +9,16 @@ contract ForceRevertTest is RollupBase {
     // ============ Cleanup ============
 
     function test_forceRevert_cleansUpBlobHashes() public {
-        uint256 batch1 = _acceptBatch(GENESIS_HASH, 0);
-        _submitBlobs(batch1, 0);
+        uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
+        bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);
+        uint256 batch2 = _acceptBatch(lastHash, 0);
+        _submitBlobs(batch2, 0);
 
+        // forceRevertBatch(batch1) keeps batch1, reverts batch2
         vm.prank(admin);
         rollup.forceRevertBatch(batch1);
 
-        assertEq(rollup.batchBlobHashes(batch1).length, 0, "blobHashes should be empty after revert");
+        assertEq(rollup.batchBlobHashes(batch2).length, 0, "blobHashes should be empty after revert");
     }
 
     function test_forceRevert_cleansUpLastBlockHash() public {
@@ -28,12 +31,12 @@ contract ForceRevertTest is RollupBase {
         vm.prank(sequencer);
         rollup.acceptNextBatch(batch2Headers, 1);
 
-        // verify batch2 stored the correct last block hash before revert
         bytes32 expectedBatch2LastHash = batch2Headers[batch2Headers.length - 1].blockHash;
         assertEq(rollup.lastBlockHashInBatch(batch2), expectedBatch2LastHash, "batch2 lastBlockHash should match last header blockHash");
 
+        // Revert batch2: keep batch1, remove batch2
         vm.prank(admin);
-        rollup.forceRevertBatch(batch2);
+        rollup.forceRevertBatch(batch1);
 
         // batch2's hash cleared
         assertEq(rollup.lastBlockHashInBatch(batch2), bytes32(0), "batch2 lastBlockHash should be zero after revert");
@@ -60,8 +63,9 @@ contract ForceRevertTest is RollupBase {
         bytes32 commitment = _computeCommitment(batch2Commits[0]);
         assertTrue(rollup.isBlockProven(commitment), "should be proven before revert");
 
+        // Revert batch2: keep batch1
         vm.prank(admin);
-        rollup.forceRevertBatch(batch2);
+        rollup.forceRevertBatch(batch1);
 
         assertFalse(rollup.isBlockProven(commitment), "proven flag should be cleared after revert");
     }
@@ -81,10 +85,11 @@ contract ForceRevertTest is RollupBase {
 
         assertEq(rollup.nextBatchIndex(), batch3 + 1);
 
+        // Revert batch2 and batch3: keep batch1
         vm.prank(admin);
-        rollup.forceRevertBatch(batch2);
+        rollup.forceRevertBatch(batch1);
 
-        assertEq(rollup.nextBatchIndex(), batch2);
+        assertEq(rollup.nextBatchIndex(), batch1 + 1);
         assertEq(rollup.getBatch(batch2).batchRoot, bytes32(0), "batch2 should be deleted");
         assertEq(rollup.getBatch(batch3).batchRoot, bytes32(0), "batch3 should be deleted");
         assertEq(rollup.lastBlockHashInBatch(batch2), bytes32(0), "batch2 lastBlockHash should be cleared");
@@ -101,8 +106,9 @@ contract ForceRevertTest is RollupBase {
 
         uint256 batch2 = _acceptBatch(batch1LastHash, 0);
 
+        // Revert batch2: keep batch1
         vm.prank(admin);
-        rollup.forceRevertBatch(batch2);
+        rollup.forceRevertBatch(batch1);
 
         uint256 batch2Again = _acceptBatch(batch1LastHash, 0);
         assertEq(batch2Again, batch2, "re-submitted batch should have same index");
@@ -126,8 +132,9 @@ contract ForceRevertTest is RollupBase {
         uint256 fee = rollup.incentiveFee();
         vm.deal(admin, fee);
         vm.prank(admin);
-        rollup.forceRevertBatch{value: fee}(batch2);
+        rollup.forceRevertBatch{value: fee}(batch1);
 
+        // Re-submit the same batch
         vm.prank(sequencer);
         rollup.acceptNextBatch(batch2Commits, 1);
         _submitBlobs(batch2, 0);
@@ -161,13 +168,16 @@ contract ForceRevertTest is RollupBase {
         bytes32 lastHash3 = rollup.lastBlockHashInBatch(batch3);
         uint256 batch4 = _acceptBatch(lastHash3, 0);
 
+        // Trying to revert from batch1 (which would include finalized batch2) should fail
+        // The loop goes from lastAccepted down to toBatchIndex+1, hitting finalized batch3 first
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.BatchAlreadyFinalized.selector, batch2));
-        rollup.forceRevertBatch(batch2);
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.BatchAlreadyFinalized.selector, batch4 - 1));
+        rollup.forceRevertBatch(batch1);
 
+        // Reverting only batch4 (keep batch3) should succeed
         vm.prank(admin);
-        rollup.forceRevertBatch(batch4);
-        assertEq(rollup.nextBatchIndex(), batch4, "nextBatchIndex should be reset");
+        rollup.forceRevertBatch(batch3);
+        assertEq(rollup.nextBatchIndex(), batch3 + 1, "nextBatchIndex should be reset");
     }
 
     // ============ Corruption ============
@@ -186,18 +196,23 @@ contract ForceRevertTest is RollupBase {
     }
 
     function test_corruptedRecoveryViaForceRevert() public {
-        uint256 batch1 = _acceptBatch(GENESIS_HASH, 0);
+        // Finalize batch1 first so we have a valid toBatchIndex > 0
+        uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
+        bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);
+
+        uint256 batch2 = _acceptBatch(lastHash, 0);
 
         vm.roll(block.number + SUBMIT_BLOBS_WINDOW + 1);
         _assertRollupCorrupted();
 
+        // Revert batch2: keep batch1
         vm.prank(admin);
         rollup.forceRevertBatch(batch1);
 
         _assertRollupHealthy();
 
-        uint256 batch1Again = _acceptBatch(GENESIS_HASH, 0);
-        assertEq(batch1Again, batch1, "should reuse reverted batch index");
+        uint256 batch2Again = _acceptBatch(lastHash, 0);
+        assertEq(batch2Again, batch2, "should reuse reverted batch index");
     }
 
     function test_preconfirmDeadlineCorruption() public {
@@ -291,7 +306,7 @@ contract ForceRevertTest is RollupBase {
         uint256 fee = rollup.incentiveFee();
         vm.deal(admin, fee);
         vm.prank(admin);
-        rollup.forceRevertBatch{value: fee}(batch2);
+        rollup.forceRevertBatch{value: fee}(batch1);
 
         _assertChallengerWithdrawable(challenger, CHALLENGE_DEPOSIT + fee);
     }
@@ -331,7 +346,7 @@ contract ForceRevertTest is RollupBase {
         uint256 fee = rollup.incentiveFee();
         vm.deal(admin, fee * 2);
         vm.prank(admin);
-        rollup.forceRevertBatch{value: fee * 2}(batch2);
+        rollup.forceRevertBatch{value: fee * 2}(batch1);
 
         assertEq(rollup.claimableChallengerReward(challenger), CHALLENGE_DEPOSIT + fee, "challenger reward mismatch");
         assertEq(rollup.claimableChallengerReward(challenger2), CHALLENGE_DEPOSIT + fee, "challenger2 reward mismatch");
@@ -355,6 +370,6 @@ contract ForceRevertTest is RollupBase {
         vm.deal(admin, insufficient);
         vm.prank(admin);
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.NotEnoughValueIncentiveFee.selector, insufficient, fee));
-        rollup.forceRevertBatch{value: insufficient}(batch2);
+        rollup.forceRevertBatch{value: insufficient}(batch1);
     }
 }

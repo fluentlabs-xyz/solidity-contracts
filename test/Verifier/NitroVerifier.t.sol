@@ -5,15 +5,15 @@ import {Test} from "forge-std/Test.sol";
 
 import {INitroVerifier} from "contracts/interfaces/INitroVerifier.sol";
 import {NitroVerifier} from "contracts/verifier/NitroVerifier.sol";
-import {VerifierMock} from "../mocks/VerifierMock.sol";
+import {MockSp1Verifier} from "../mocks/MockSp1Verifier.sol";
 
 contract NitroVerifierTest is Test {
     address internal admin = makeAddr("admin");
     NitroVerifier internal verifier;
-    VerifierMock internal attestationVerifier;
+    MockSp1Verifier internal attestationVerifier;
 
     function setUp() public {
-        attestationVerifier = new VerifierMock();
+        attestationVerifier = new MockSp1Verifier();
         verifier = new NitroVerifier(address(attestationVerifier), admin);
     }
 

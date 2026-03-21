@@ -666,9 +666,11 @@ interface IRollupEmergency {
     function unpause() external;
 
     /**
-     * @notice Force-revert all non-finalized batches from a given index onward.
+     * @notice Force-revert all non-finalized batches above `toBatchIndex`.
      * @dev Only callable by EMERGENCY_ROLE. Refunds challenger deposits with incentive fee.
-     * @param toBatchIndex The batch index to revert from (inclusive).
+     *      Sets `_nextBatchIndex` to `toBatchIndex + 1`, effectively discarding all
+     *      batches in the range `(toBatchIndex, lastAcceptedBatchIndex]`.
+     * @param toBatchIndex The last batch to keep. All batches above this index are reverted.
      */
     function forceRevertBatch(uint256 toBatchIndex) external payable;
 }

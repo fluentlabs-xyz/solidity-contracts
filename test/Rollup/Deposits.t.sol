@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {MockNitroVerifier} from "./mocks/MockNitroVerifier.sol";
-import {L2BlockHeader} from "../../contracts/interfaces/IRollupTypes.sol";
-import {BatchStatus} from "../../contracts/interfaces/IRollupTypes.sol";
+import {MockNitroVerifier} from "../mocks/MockNitroVerifier.sol";
+import {MockDepositBridge} from "../mocks/MockDepositBridge.sol";
+import {L2BlockHeader, BatchStatus} from "../../contracts/interfaces/IRollupTypes.sol";
 
 import {RollupBase} from "./Base.t.sol";
 
@@ -20,10 +20,13 @@ contract DepositsTest is RollupBase {
     bytes32 internal _depositRoot;
     uint256 internal _depositCount = 3;
 
-    MockL1DepositsBridge internal depositsBridge;
+    MockDepositBridge internal depositsBridge;
 
     function setUp() public override {
-        depositsBridge = new MockL1DepositsBridge(_depositIds);
+        depositsBridge = new MockDepositBridge();
+        for (uint256 i = 0; i < 3; i++) {
+            depositsBridge.enqueue(_depositIds[i], block.number);
+        }
         bridgeAddr = address(depositsBridge);
         nitroVerifier = new MockNitroVerifier();
         rollup = _deployRollup(bridgeAddr);
@@ -49,26 +52,3 @@ contract DepositsTest is RollupBase {
         assertEq(depositsBridge.poppedCount(), _depositCount, "not all deposits were popped");
     }
 }
-
-contract MockL1DepositsBridge {
-    bytes32[3] internal _ids;
-    uint256 internal _idx;
-
-    constructor(bytes32[3] memory ids) {
-        _ids = ids;
-        _idx = 0;
-    }
-
-    // Called by Rollup._checkDeposits.
-    function popSentMessage() external returns (bytes32, uint256) {
-        require(_idx < _ids.length, "deposits queue empty");
-        bytes32 id = _ids[_idx];
-        _idx++;
-        return (id, block.number);
-    }
-
-    function poppedCount() external view returns (uint256) {
-        return _idx;
-    }
-}
-

@@ -283,7 +283,7 @@ contract ChallengeTest is RollupBase {
         uint256 fee = rollup.incentiveFee();
         vm.deal(admin, fee);
         vm.prank(admin);
-        rollup.forceRevertBatch{value: fee}(batchIndex);
+        rollup.forceRevertBatch{value: fee}(batch1);
 
         assertEq(rollup.challengeQueue().length, 0);
     }
@@ -316,7 +316,7 @@ contract ChallengeTest is RollupBase {
         uint256 fee = rollup.incentiveFee();
         vm.deal(admin, fee);
         vm.prank(admin);
-        rollup.forceRevertBatch{value: fee}(batchIndex);
+        rollup.forceRevertBatch{value: fee}(batch1);
 
         _assertChallengerWithdrawable(challenger, CHALLENGE_DEPOSIT + fee);
 
