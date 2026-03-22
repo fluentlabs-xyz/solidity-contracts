@@ -42,7 +42,9 @@ contract CrossChainExecFlaky {
  * @dev Requires `L1_RPC_URL` and `L2_RPC_URL` (two Anvil instances with different `--chain-id`).
  */
 contract BridgeCrossChainExecutionTest is BaseFlowNativeTest {
-    function _decodeFirstSentMessage(Vm.Log[] memory logs)
+    function _decodeFirstSentMessage(
+        Vm.Log[] memory logs
+    )
         internal
         view
         returns (
@@ -65,8 +67,10 @@ contract BridgeCrossChainExecutionTest is BaseFlowNativeTest {
             sentTo = address(uint160(uint256(entry.topics[2])));
 
             bytes32 _mh;
-            (sentValue, sentChainId, sentBlockNumber, sentNonce, _mh, sentData) =
-                abi.decode(entry.data, (uint256, uint256, uint256, uint256, bytes32, bytes));
+            (sentValue, sentChainId, sentBlockNumber, sentNonce, _mh, sentData) = abi.decode(
+                entry.data,
+                (uint256, uint256, uint256, uint256, bytes32, bytes)
+            );
             return (sentFrom, sentTo, sentValue, sentChainId, sentBlockNumber, sentNonce, sentData);
         }
         revert("SentMessage not found in logs");
@@ -139,8 +143,9 @@ contract BridgeCrossChainExecutionTest is BaseFlowNativeTest {
 
         _selectL2();
         vm.deal(relayer, locked);
+        vm.deal(address(l2Bridge), locked);
         vm.prank(relayer);
-        l2Bridge.receiveMessage{value: locked}(sentFrom, sentTo, sentValue, sentChainId, sentBlockNumber, sentNonce, sentData);
+        l2Bridge.receiveMessage(sentFrom, sentTo, sentValue, sentChainId, sentBlockNumber, sentNonce, sentData);
 
         assertEq(uint256(l2Bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Success));
         assertEq(target.pings(), 1);
