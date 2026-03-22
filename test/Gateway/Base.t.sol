@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
-import {L1BlockOracle} from "../../contracts/oracle/L1BlockOracle.sol";
+import {L1BlockOracle} from "../../contracts/oracles/L1BlockOracle.sol";
 import {ERC20Gateway} from "../../contracts/gateways/ERC20Gateway.sol";
 import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol";
 import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";

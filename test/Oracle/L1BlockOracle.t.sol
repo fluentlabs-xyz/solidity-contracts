@@ -4,8 +4,8 @@ pragma solidity 0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
-import {IL1BlockOracle} from "../../contracts/interfaces/IL1BlockOracle.sol";
-import {L1BlockOracle} from "../../contracts/oracle/L1BlockOracle.sol";
+import {IL1BlockOracle} from "../../contracts/interfaces/oracles/IL1BlockOracle.sol";
+import {L1BlockOracle} from "../../contracts/oracles/L1BlockOracle.sol";
 
 contract L1BlockOracleTest is Test {
     address internal owner;

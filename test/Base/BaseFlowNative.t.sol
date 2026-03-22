@@ -9,7 +9,7 @@ import {L1FluentBridge} from "../../contracts/bridge/L1/L1FluentBridge.sol";
 import {L2FluentBridge} from "../../contracts/bridge/L2/L2FluentBridge.sol";
 import {FluentBridgeStorageLayout} from "../../contracts/bridge/FluentBridgeStorageLayout.sol";
 
-import {L1BlockOracle} from "../../contracts/oracle/L1BlockOracle.sol";
+import {L1BlockOracle} from "../../contracts/oracles/L1BlockOracle.sol";
 import {NativeGateway} from "../../contracts/gateways/NativeGateway.sol";
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
 
