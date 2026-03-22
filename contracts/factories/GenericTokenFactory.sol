@@ -118,7 +118,7 @@ abstract contract GenericTokenFactory is Initializable, UUPSUpgradeable, Ownable
     }
 
     /// @inheritdoc IGenericTokenFactory
-    function computePeggedTokenAddress(bytes calldata keyData, bytes calldata deployArgs) external view virtual override returns (address) {
+    function computeTokenAddress(bytes calldata keyData, bytes calldata deployArgs) external view virtual override returns (address) {
         return _computeTokenAddress(keyData, deployArgs);
     }
 

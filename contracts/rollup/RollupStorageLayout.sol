@@ -64,21 +64,6 @@ contract RollupStorageLayout is
      */
     uint32 public constant DEFAULT_GAS_LEFT = 1_000_000;
 
-    /**
-     * @dev Maximum number of L1 deposits per block.
-     */
-    uint256 public constant MAX_DEPOSITS_PER_BLOCK = 256;
-
-    /**
-     * @dev Maximum number of L2 block headers per batch.
-     */
-    uint256 public constant MAX_BLOCKS_PER_BATCH = 1024;
-
-    /**
-     * @dev Maximum number of blobs per batch.
-     */
-    uint32 public constant MAX_BLOBS_PER_BATCH = 128;
-
     /// @dev keccak256 of empty bytes — used to detect zero-message roots.
     bytes32 public constant ZERO_BYTES_HASH = 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
 

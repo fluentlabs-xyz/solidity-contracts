@@ -51,25 +51,17 @@ abstract contract FluentBridge is FluentBridgeStorageLayout {
         uint256 messageNonce = _takeNextNonce();
         bytes32 messageHash = keccak256(_encodeMessage(from, to, value, block.chainid, block.number, messageNonce, message));
 
-        _afterSendMessage(from, to, value, block.chainid, block.number, messageNonce, message);
+        _afterSendMessage(messageHash);
 
         emit SentMessage(from, to, value, block.chainid, block.number, messageNonce, messageHash, message);
     }
 
     /// @dev Virtual function that can be overridden by child contracts: L1FluentBridge and L2FluentBridge
-    function _afterSendMessage(
-        address _from,
-        address _to,
-        uint256 _value,
-        uint256 _chainId,
-        uint256 _blockNumber,
-        uint256 _messageNonce,
-        bytes calldata _message
-    ) internal virtual {}
+    function _afterSendMessage(bytes32 messageHash) internal virtual {}
 
     /**
-     * @notice If it's L2 -> we mint EHH internally, it's supposed to be on the bridge
-        on L1 -> we don't mint EHH, it's supposed to be on the bridge -> we unlock it
+     * @notice If it's L2 -> we mint ETH internally, it's supposed to be on the bridge
+        on L1 -> we don't mint ETH, it's supposed to be on the bridge -> we unlock it
      */
     function receiveMessage(
         address from,
@@ -80,13 +72,10 @@ abstract contract FluentBridge is FluentBridgeStorageLayout {
         uint256 messageNonce,
         bytes calldata message
     ) external payable onlyRole(RELAYER_ROLE) nonReentrant whenNotPaused {
-        // if it's L2 -> we mint EHH internally, it's supposed to be on the bridge
-        // on L1 -> we don't mint EHH, it's supposed to be on the bridge -> we unlock it
         require(messageNonce == _takeNextReceivedNonce(), MessageReceivedOutOfOrder());
         bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, blockNumber, messageNonce, message));
         require(getReceivedMessage(messageHash) == IFluentBridge.MessageStatus.None, MessageAlreadyReceived());
 
-        // Preserve old behavior: ForbiddenSelfCall() is checked before _beforeReceiveMessage() can return false.
         require(to != address(this), ForbiddenSelfCall());
         if (!_beforeReceiveMessage(from, to, value, chainId, blockNumber, messageNonce, message)) return;
 

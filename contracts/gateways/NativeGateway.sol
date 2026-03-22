@@ -44,26 +44,27 @@ contract NativeGateway is GatewayBase, INativeGateway {
     }
 
     /// @inheritdoc INativeGateway
-    function sendNativeTokens(address _to, uint256 _amount) external payable nonReentrant {
-        require(_to != address(0), InvalidRecipient());
-        require(msg.value == _amount, InvalidNativeAmount());
+    function sendNativeTokens(address to) external payable nonReentrant {
+        uint256 amount = msg.value;
+        require(to != address(0), InvalidRecipient());
+        require(amount > 0, InvalidNativeAmount());
 
-        FluentBridge(getBridgeContract()).sendMessage{value: _amount}(
+        FluentBridge(getBridgeContract()).sendMessage{value: amount}(
             getOtherSideGateway(),
-            abi.encodeCall(NativeGateway.receiveNativeTokens, (msg.sender, _to, _amount))
+            abi.encodeCall(NativeGateway.receiveNativeTokens, (msg.sender, to, amount))
         );
     }
 
     /// @inheritdoc INativeGateway
-    function receiveNativeTokens(address _from, address _to, uint256 _amount) external payable onlyFluentBridge nonReentrant {
+    function receiveNativeTokens(address from, address to, uint256 amount) external payable onlyFluentBridge nonReentrant {
         require(FluentBridge(msg.sender).getNativeSender() == getOtherSideGateway(), MessageFromWrongGateway());
-        require(msg.value == _amount, InvalidNativeAmount());
-        require(_to != address(0), InvalidRecipient());
+        require(msg.value == amount, InvalidNativeAmount());
+        require(to != address(0), InvalidRecipient());
 
-        (bool success, ) = payable(_to).call{gas: getGasLimit(), value: _amount}("");
+        (bool success, ) = payable(to).call{gas: getGasLimit(), value: amount}("");
         require(success, NativeTransferFailed());
 
-        emit ReceivedTokens(_from, _to, _amount);
+        emit ReceivedTokens(from, to, amount);
     }
 
     /// @inheritdoc INativeGateway

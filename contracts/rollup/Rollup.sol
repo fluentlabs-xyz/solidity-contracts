@@ -144,9 +144,6 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
 
         uint256 batchSize = blockHeaders.length;
         require(batchSize > 0, NoLeavesProvided());
-        // TODO(chillhacker): decide on the max batch size
-        require(batchSize <= MAX_BLOCKS_PER_BATCH, BatchSizeTooLarge(batchSize));
-        require(expectedBlobsCount <= MAX_BLOBS_PER_BATCH, BlobCountTooLarge(expectedBlobsCount));
         require(
             blockHeaders[0].previousBlockHash == $._lastBlockHashInBatch[batchIndex - 1],
             WrongPreviousBlockHash($._lastBlockHashInBatch[batchIndex - 1], blockHeaders[0].previousBlockHash)
@@ -156,19 +153,15 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
 
         // Phase 1: validate header chain and deposit metadata only.
         for (uint256 i = 0; i < batchSize; ++i) {
-            if (i < batchSize - 1) {
-                require(gasleft() >= gasLeft, InsufficientGas());
-                require(
-                    blockHeaders[i].blockHash == blockHeaders[i + 1].previousBlockHash,
-                    InvalidBlockSequence(i, blockHeaders[i].blockHash, blockHeaders[i + 1].previousBlockHash)
-                );
-            }
+            require(gasleft() >= gasLeft, InsufficientGas());
+            require(
+                blockHeaders[i].blockHash == blockHeaders[i + 1].previousBlockHash,
+                InvalidBlockSequence(i, blockHeaders[i].blockHash, blockHeaders[i + 1].previousBlockHash)
+            );
+        }
 
-            if (blockHeaders[i].depositRoot == ZERO_BYTES_HASH) {
-                require(blockHeaders[i].depositCount == 0, InvalidDepositRootWithNonZeroCount(blockHeaders[i].depositCount));
-            } else {
-                require(blockHeaders[i].depositCount <= MAX_DEPOSITS_PER_BLOCK, DepositCountTooLarge(blockHeaders[i].depositCount));
-            }
+        if (blockHeaders[batchSize - 1].depositRoot == ZERO_BYTES_HASH) {
+            require(blockHeaders[batchSize - 1].depositCount == 0, InvalidDepositRootWithNonZeroCount(blockHeaders[batchSize - 1].depositCount));
         }
 
         bytes32 batchRoot = _calculateBatchRoot(blockHeaders);
@@ -199,9 +192,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         BatchRecord storage batch = $._batches[batchIndex];
         bytes32[] storage blobHashes = $._batchBlobHashes[batchIndex];
 
-        // TODO(chillhacker): decide on the max blob count
         require(numBlobs > 0, ZeroValueNotAllowed("numBlobs"));
-        require(numBlobs <= MAX_BLOBS_PER_BATCH, BlobCountTooLarge(numBlobs));
         require(blobHashes.length + numBlobs <= batch.expectedBlobs, InvalidBlobCount(batch.expectedBlobs, blobHashes.length + numBlobs));
         require(batch.status == BatchStatus.HeadersSubmitted, InvalidBatchStatus(batchIndex, uint8(batch.status)));
 
@@ -214,6 +205,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
 
         for (uint256 i = 0; i < numBlobs; ++i) {
             bytes32 blobHash = _getBlobHash(i);
+            // we check whether we're still reading the blobs
             require(blobHash != bytes32(0), ZeroValueNotAllowed("blobHash"));
             blobHashes.push(blobHash);
         }
@@ -259,7 +251,6 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         require(!_rollupCorrupted(), RollupCorrupted());
         BatchRecord storage batch = $._batches[batchIndex];
 
-        // TODO(chillhacker): why?
         require(batch.status == BatchStatus.Preconfirmed, InvalidBatchStatus(batchIndex, uint8(batch.status)));
         require(msg.value == $._challengeDepositAmount, IncorrectChallengeDeposit($._challengeDepositAmount, msg.value));
         require(block.number < uint256(batch.acceptedAtBlock) + $._challengeWindow, ChallengeTooLate(batchIndex));
@@ -267,6 +258,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         bytes32 commitment = _computeCommitment(blockHeader);
         require(MerkleTree.verifyMerkleProof(batch.batchRoot, commitment, blockProof.nonce, blockProof.proof), InvalidBlockProof());
         require(!$._provenBlocks[commitment], BlockAlreadyProven(commitment));
+        // batchIndex is greater 0 anytime
         require($._challenges[commitment].batchIndex == 0, BlockAlreadyChallenged(commitment));
 
         batch.status = BatchStatus.Challenged;
@@ -310,6 +302,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         delete $._challenges[commitment];
         _removeChallengeFromQueue(commitment);
 
+        // TODO: remove
         _maybeReturnBatchToPreconfirmed(batchIndex);
         emit ChallengeResolved(batchIndex, commitment, _msgSender());
     }

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-interface IGatewayErrors {
+interface IGatewayBaseErrors {
     /**
      * @dev Thrown when the caller is not the configured FluentBridge contract.
      * @dev selector: 0xacba36a5
@@ -31,7 +31,7 @@ interface IGatewayErrors {
     error InvalidRecipient();
 }
 
-interface IGatewayEvents {
+interface IGatewayBaseEvents {
     /**
      * @notice Emitted when tokens are received.
      */
@@ -40,20 +40,20 @@ interface IGatewayEvents {
     /**
      * @notice Emitted when the token mapping is updated.
      */
-    event UpdateTokenMapping(address indexed _peggedToken, address indexed _oldOriginToken, address indexed _newOriginToken);
+    event UpdateTokenMapping(address indexed peggedToken, address indexed oldOriginToken, address indexed newOriginToken);
 
     /**
-     * @notice Emitted when the other side is updated.
+     * @notice Emitted when the other side gateway, token implementation, factory, and beacon are updated.
      */
     event OtherSideUpdated(
-        address indexed _oldOtherSide,
-        address indexed _newOtherSide,
-        address indexed _oldImplementation,
-        address _newImplementation,
-        address _oldFactory,
-        address _newFactory,
-        address _oldBeacon,
-        address _newBeacon
+        address indexed oldOtherSide,
+        address indexed newOtherSide,
+        address indexed oldImplementation,
+        address newImplementation,
+        address oldFactory,
+        address newFactory,
+        address oldBeacon,
+        address newBeacon
     );
 
     /**
@@ -87,7 +87,7 @@ interface IGatewayEvents {
     event OtherSideChainIdUpdated(uint256 indexed prevValue, uint256 indexed newValue);
 }
 
-interface IGateway is IGatewayErrors, IGatewayEvents {
+interface IGatewayBase is IGatewayBaseErrors, IGatewayBaseEvents {
     /**
      * @notice Returns the address of the bridge contract.
      * @return The address of the bridge contract.

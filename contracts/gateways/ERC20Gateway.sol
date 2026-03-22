@@ -44,11 +44,12 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
 
     /// @custom:storage-location erc7201:fluent.storage.ERC20GatewayStorage
     struct ERC20GatewayStorage {
-        address tokenFactory;
-        address otherSideTokenImplementation;
-        address otherSideFactory;
-        address otherSideBeacon;
-        mapping(address => address) tokenMapping;
+        bool _isOtherSideUniversal;
+        address _tokenFactory;
+        address _otherSideTokenImplementation;
+        address _otherSideFactory;
+        address _otherSideBeacon;
+        mapping(address => address) _tokenMapping;
         uint256[50] __gap;
     }
 
@@ -95,6 +96,7 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
 
     /// @notice Used on L1 to send origin tokens to the other side.
     function _sendOriginTokens(address token, address sender, address from, address to, uint256 amount) internal returns (bytes memory) {
+        // TODO(chillhacker): should we allow to send origin tokens to L1?
         require(
             getOtherSideGateway() != address(0) && getOtherSideFactory() != address(0),
             ZeroAddressNotAllowed("getOtherSideGateway or getOtherSideFactory")
@@ -104,7 +106,7 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
             ZeroAddressNotAllowed("getOtherSideChainId or getOtherSideBeacon")
         );
 
-        if (from != address(this)) IERC20(token).safeTransferFrom(from, address(this), amount);
+        IERC20(token).safeTransferFrom(from, address(this), amount);
 
         string memory symbol = ERC20(token).symbol();
         string memory name = ERC20(token).name();
@@ -128,6 +130,7 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
 
     // ============ Receive Tokens ============
 
+    /// TODO: should we allow to transfer any token? Especially, from L2 -> L1? Because, we pay for token deployment.
     /// @inheritdoc IERC20Gateway
     function receivePeggedTokens(
         address originToken,
@@ -146,7 +149,7 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         if (peggedToken.code.length == 0) {
             address newPeggedToken = _deployPeggedToken(tokenMetadata, originToken);
             require(newPeggedToken == peggedToken, WrongPeggedToken());
-            _getERC20GatewayStorage().tokenMapping[peggedToken] = originToken;
+            _getERC20GatewayStorage()._tokenMapping[peggedToken] = originToken;
         } else {
             require(getTokenMapping(peggedToken) == originToken, TokenMappingCheckFailed());
         }
@@ -162,6 +165,7 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         require(originToken != address(0), OriginTokenZero());
         require(to != address(0), InvalidRecipient());
 
+        // origin tokens are locked on the gateway, so we can transfer them to the recipient
         IERC20(originToken).safeTransfer(to, amount);
 
         emit ReceivedTokens(from, to, amount);
@@ -178,13 +182,13 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
     function _deployPeggedToken(bytes memory tokenMetadata, address originToken) internal returns (address) {
         (string memory symbol, string memory name, uint8 decimals) = abi.decode(tokenMetadata, (string, string, uint8));
         ERC20GatewayStorage storage $ = _getERC20GatewayStorage();
-        bytes memory deployArgs = IGenericTokenFactory($.tokenFactory).getDeployArgs(name, symbol, decimals);
+        bytes memory deployArgs = IGenericTokenFactory($._tokenFactory).getDeployArgs(name, symbol, decimals);
 
         // Same keyData encoding as {ERC20TokenFactory} / {UniversalTokenFactory}: (gateway, originToken).
         bytes memory keyData = abi.encode(address(this), originToken);
 
         // If it's a beacon proxy -> the deployArgs is empty
-        address peggedToken = IGenericTokenFactory($.tokenFactory).deployToken(keyData, deployArgs);
+        address peggedToken = IGenericTokenFactory($._tokenFactory).deployToken(keyData, deployArgs);
         if (deployArgs.length == 0) ERC20PeggedToken(peggedToken).initialize(name, symbol, decimals, address(this), originToken);
 
         return peggedToken;
@@ -194,45 +198,29 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
 
     /// @inheritdoc IERC20Gateway
     function getTokenFactory() public view returns (address) {
-        return _getERC20GatewayStorage().tokenFactory;
+        return _getERC20GatewayStorage()._tokenFactory;
     }
 
     function getOtherSideTokenImplementation() public view returns (address) {
-        return _getERC20GatewayStorage().otherSideTokenImplementation;
+        return _getERC20GatewayStorage()._otherSideTokenImplementation;
     }
 
     function getOtherSideFactory() public view returns (address) {
-        return _getERC20GatewayStorage().otherSideFactory;
+        return _getERC20GatewayStorage()._otherSideFactory;
     }
 
     function getOtherSideBeacon() public view returns (address) {
-        return _getERC20GatewayStorage().otherSideBeacon;
+        return _getERC20GatewayStorage()._otherSideBeacon;
     }
 
     /// @inheritdoc IERC20Gateway
     function getTokenMapping(address key) public view returns (address) {
-        return _getERC20GatewayStorage().tokenMapping[key];
+        return _getERC20GatewayStorage()._tokenMapping[key];
     }
 
     /// @inheritdoc IERC20Gateway
     function computePeggedTokenAddress(address token) external view returns (address) {
-        return _computePeggedTokenAddress(token, ERC20(token).name(), ERC20(token).symbol(), ERC20(token).decimals());
-    }
-
-    function _computePeggedTokenAddress(
-        address token,
-        string memory name,
-        string memory symbol,
-        uint8 decimals
-    ) internal view returns (address) {
-        bytes memory keyData = abi.encode(address(this), token);
-        bytes memory deployArgs;
-        if (IGenericTokenFactory(getTokenFactory()).beacon() != address(0)) {
-            deployArgs = "";
-        } else {
-            deployArgs = IGenericTokenFactory(getTokenFactory()).getDeployArgs(name, symbol, decimals);
-        }
-        return IGenericTokenFactory(getTokenFactory()).computePeggedTokenAddress(keyData, deployArgs);
+        return _computeTokenAddress(token, ERC20(token).name(), ERC20(token).symbol(), ERC20(token).decimals());
     }
 
     /// @inheritdoc IERC20Gateway
@@ -246,44 +234,7 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
             );
     }
 
-    /// @dev Computes the remote (other-chain) pegged token address from stored config only.
-    ///      CRITICAL: Do not call the destination factory (otherSideFactory) from send paths. It is a
-    ///      destination-chain address; a local call would hit the same address on this chain (wrong or no code).
-    ///      For Universal flows, getDeployArgs() on the remote would also derive minter/pauser from the
-    ///      source gateway. We use only local CREATE2 math: Beacon path = _computeBeaconProxyAddress (pure);
-    ///      Universal path = _computeUniversalTokenAddress (pure) with remote gateway as minter/pauser.
-    function _computeOtherSidePeggedTokenAddress(
-        address originToken,
-        string memory name,
-        string memory symbol,
-        uint8 decimals
-    ) internal view returns (address) {
-        ERC20GatewayStorage storage $ = _getERC20GatewayStorage();
-        if (getOtherSideBeacon() != address(0)) {
-            return _computeBeaconProxyAddress($.otherSideFactory, $.otherSideBeacon, getOtherSideGateway(), originToken);
-        }
-        // Universal (otherSideChainId != 0): minter/pauser must be the remote gateway so L2 deployment matches.
-        return
-            _computeUniversalTokenAddress(
-                $.otherSideFactory,
-                getOtherSideGateway(),
-                originToken,
-                name,
-                symbol,
-                decimals,
-                0,
-                getOtherSideGateway(),
-                getOtherSideGateway()
-            );
-    }
-
-    /// @dev CREATE2 address for a BeaconProxy deployed by the remote factory (same formula as ERC20TokenFactory).
-    function _computeBeaconProxyAddress(address factory, address beacon, address gateway, address originToken) internal pure returns (address) {
-        bytes memory bytecode = abi.encodePacked(type(BeaconProxy).creationCode, abi.encode(beacon, ""));
-        bytes32 salt = keccak256(abi.encodePacked(gateway, originToken));
-        bytes32 bytecodeHash = keccak256(bytecode);
-        return address(uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), factory, salt, bytecodeHash)))));
-    }
+    // ========== Universal Token Factory ==========
 
     /// @dev CREATE2 address math for UniversalTokenFactory without external calls (salt matches {ERC20TokenFactory}).
     function _computeUniversalTokenAddress(
@@ -315,6 +266,57 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         return abi.encodePacked(UNIVERSAL_TOKEN_MAGIC_BYTES, abi.encode(name, symbol, decimals, initialSupply, minter, pauser));
     }
 
+    function _computeTokenAddress(address token, string memory name, string memory symbol, uint8 decimals) internal view returns (address) {
+        bytes memory keyData = abi.encode(address(this), token);
+        bytes memory deployArgs;
+        if (IGenericTokenFactory(getTokenFactory()).beacon() != address(0)) {
+            deployArgs = "";
+        } else {
+            deployArgs = IGenericTokenFactory(getTokenFactory()).getDeployArgs(name, symbol, decimals);
+        }
+        return IGenericTokenFactory(getTokenFactory()).computeTokenAddress(keyData, deployArgs);
+    }
+
+    /// @dev Computes the remote (other-chain) pegged token address from stored config only.
+    function _computeOtherSidePeggedTokenAddress(
+        address originToken,
+        string memory name,
+        string memory symbol,
+        uint8 decimals
+    ) internal view returns (address) {
+        address otherSideGateway = getOtherSideGateway();
+        if (_getERC20GatewayStorage()._isOtherSideUniversal) {
+            return
+                _computeUniversalTokenAddress(
+                    getOtherSideFactory(), //  deployer
+                    otherSideGateway, // salt
+                    originToken, // salt
+                    name, // name
+                    symbol, // symbol
+                    decimals, // decimals
+                    0, // initialSupply
+                    otherSideGateway, // minter
+                    otherSideGateway // pauser
+                );
+        }
+        return _computeBeaconProxyAddress(getOtherSideFactory(), getOtherSideBeacon(), otherSideGateway, originToken);
+    }
+
+    /**
+     * @notice Computes the remote (other-chain) pegged token address from stored config only.
+     * @param factory The address of the factory: L1 or L2 factory address
+     * @param beacon The address of the beacon: L1 or L2 BeaconProxy address
+     * @param gateway The address of the gateway: L1 or L2 gateway address
+     * @param originToken The address of the origin token: L1 or L2 origin token address
+     * @return The address of the pegged token: L1 or L2 PeggedToken address
+     */
+    function _computeBeaconProxyAddress(address factory, address beacon, address gateway, address originToken) internal pure returns (address) {
+        bytes memory bytecode = abi.encodePacked(type(BeaconProxy).creationCode, abi.encode(beacon, ""));
+        bytes32 salt = keccak256(abi.encodePacked(gateway, originToken));
+        bytes32 bytecodeHash = keccak256(bytecode);
+        return address(uint160(uint256(keccak256(abi.encodePacked(bytes1(0xff), factory, salt, bytecodeHash)))));
+    }
+
     // ============ Admin functions ============
 
     /**
@@ -328,8 +330,8 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
     function _setTokenFactory(address tokenFactory) internal {
         require(tokenFactory != address(0), ZeroAddressNotAllowed("tokenFactory"));
         ERC20GatewayStorage storage $ = _getERC20GatewayStorage();
-        emit TokenFactoryUpdated($.tokenFactory, tokenFactory);
-        $.tokenFactory = tokenFactory;
+        emit TokenFactoryUpdated($._tokenFactory, tokenFactory);
+        $._tokenFactory = tokenFactory;
     }
 
     /**
@@ -343,40 +345,48 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
     function _setOtherSideTokenImplementation(address otherSideTokenImplementation) internal {
         require(otherSideTokenImplementation != address(0), ZeroAddressNotAllowed("otherSideTokenImplementation"));
         ERC20GatewayStorage storage $ = _getERC20GatewayStorage();
-        emit OtherSideTokenImplementationUpdated($.otherSideTokenImplementation, otherSideTokenImplementation);
-        $.otherSideTokenImplementation = otherSideTokenImplementation;
+        emit OtherSideTokenImplementationUpdated($._otherSideTokenImplementation, otherSideTokenImplementation);
+        $._otherSideTokenImplementation = otherSideTokenImplementation;
     }
 
     /**
      * @notice Sets remote gateway/factory configuration used for cross-chain token routing.
-     * @param otherSide The address of the other side gateway.
+     * @param isOtherSideUniversal Whether the other side is a Universal-token destination chain.
+     * @param otherSideGateway The address of the other side gateway.
+     * @param otherSideChainId The chain id of the other side.
      * @dev High-trust admin action; should be controlled by multisig governance.
      * @param otherSideTokenImplementation The address of the other side token implementation.
      * @param otherSideFactory The address of the other side factory.
      * @param otherSideBeacon The address of the other side beacon.
      */
     function setOtherSide(
-        address otherSide,
+        bool isOtherSideUniversal,
+        address otherSideGateway,
+        uint256 otherSideChainId,
         address otherSideTokenImplementation,
         address otherSideFactory,
         address otherSideBeacon
     ) external onlyOwner {
-        _setOtherSide(otherSide, otherSideTokenImplementation, otherSideFactory, otherSideBeacon);
+        _setOtherSide(isOtherSideUniversal, otherSideGateway, otherSideChainId, otherSideTokenImplementation, otherSideFactory, otherSideBeacon);
     }
 
-    function _setOtherSide(address otherSide, address otherSideTokenImplementation, address otherSideFactory, address otherSideBeacon) internal {
+    function _setOtherSide(
+        bool isOtherSideUniversal,
+        address otherSideGateway,
+        uint256 otherSideChainId,
+        address otherSideTokenImplementation,
+        address otherSideFactory,
+        address otherSideBeacon
+    ) internal {
         require(
-            otherSide != address(0) &&
-                otherSideTokenImplementation != address(0) &&
-                otherSideFactory != address(0) &&
-                otherSideBeacon != address(0),
-            ZeroAddressNotAllowed("otherSide or otherSideTokenImplementation or otherSideFactory or otherSideBeacon")
+            otherSideGateway != address(0) && otherSideTokenImplementation != address(0) && otherSideFactory != address(0),
+            ZeroAddressNotAllowed("otherSideGateway or otherSideTokenImplementation or otherSideFactory")
         );
 
         ERC20GatewayStorage storage $ = _getERC20GatewayStorage();
         emit OtherSideUpdated(
             getOtherSideGateway(),
-            otherSide,
+            otherSideGateway,
             getOtherSideTokenImplementation(),
             otherSideTokenImplementation,
             getOtherSideFactory(),
@@ -384,47 +394,11 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
             getOtherSideBeacon(),
             otherSideBeacon
         );
-        _setOtherSideGateway(otherSide);
-        $.otherSideTokenImplementation = otherSideTokenImplementation;
-        $.otherSideFactory = otherSideFactory;
-        $.otherSideBeacon = otherSideBeacon;
-        _setOtherSideChainId(0);
-    }
-
-    /**
-     * @notice Sets remote gateway/factory configuration for a Universal-token destination chain.
-     * @param otherSide The remote gateway address.
-     * @param otherSideTokenImplementation The remote token implementation/runtime identifier.
-     * @param otherSideFactory The remote UniversalTokenFactory proxy address.
-     * @param otherSideChainId The remote chain id used for Universal CREATE2 salt derivation.
-     */
-    function setOtherSideL2(
-        address otherSide,
-        address otherSideTokenImplementation,
-        address otherSideFactory,
-        uint256 otherSideChainId
-    ) external onlyOwner {
-        require(
-            otherSide != address(0) && otherSideTokenImplementation != address(0) && otherSideFactory != address(0) && otherSideChainId != 0,
-            ZeroAddressNotAllowed("setOtherSideL2 parameters")
-        );
-
-        ERC20GatewayStorage storage $ = _getERC20GatewayStorage();
-        emit OtherSideUpdated(
-            getOtherSideGateway(),
-            otherSide,
-            $.otherSideTokenImplementation,
-            otherSideTokenImplementation,
-            $.otherSideFactory,
-            otherSideFactory,
-            $.otherSideBeacon,
-            address(0)
-        );
-
-        _setOtherSideGateway(otherSide);
-        $.otherSideTokenImplementation = otherSideTokenImplementation;
-        $.otherSideFactory = otherSideFactory;
-        $.otherSideBeacon = address(0);
+        $._isOtherSideUniversal = isOtherSideUniversal;
+        _setOtherSideGateway(otherSideGateway);
+        $._otherSideTokenImplementation = otherSideTokenImplementation;
+        $._otherSideFactory = otherSideFactory;
+        $._otherSideBeacon = otherSideBeacon;
         _setOtherSideChainId(otherSideChainId);
     }
 }

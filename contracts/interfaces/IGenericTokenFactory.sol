@@ -47,6 +47,12 @@ interface IGenericTokenFactoryErrors {
      * @dev selector: TODO
      */
     error OnlyPaymentGatewayOrOwner();
+
+    /**
+     * @dev Thrown when the value is zero.
+     * @dev selector: TODO
+     */
+    error ZeroValueNotAllowed(string field);
 }
 
 interface IGenericTokenFactoryEvents {
@@ -99,12 +105,12 @@ interface IGenericTokenFactory is IGenericTokenFactoryErrors, IGenericTokenFacto
     function getDeployArgs(string memory tokenName, string memory tokenSymbol, uint8 decimals) external view returns (bytes memory);
 
     /**
-     * @notice Computes the address of a bridged/pegged token
+     * @notice Computes the address of a token
      * @param keyData Factory-specific key (abi.encode(gateway, originToken) for ERC20 and Universal factories)
      * @param deployArgs Optional deployment params (empty for ERC20; for Universal: name, symbol, decimals, initialSupply, minter, pauser)
      * @return Predicted token address
      */
-    function computePeggedTokenAddress(bytes calldata keyData, bytes calldata deployArgs) external view returns (address);
+    function computeTokenAddress(bytes calldata keyData, bytes calldata deployArgs) external view returns (address);
 
     /**
      * @notice Computes the address of a bridged/pegged token for the other side.

@@ -26,16 +26,16 @@ contract ERC20TokenFactory is GenericTokenFactory {
 
     /**
      * @notice Initializes the upgradeable factory (replaces constructor when used behind a proxy).
-     * @param _initialOwner Owner of the factory (e.g. gateway or deployer).
-     * @param _implementation Initial token implementation for the beacon.
+     * @param initialOwner Owner of the factory (e.g. gateway or deployer).
+     * @param implementation Initial token implementation for the beacon.
      */
-    function initialize(address _initialOwner, address _implementation) external initializer {
-        __GenericTokenFactory_init(_initialOwner);
-        require(_implementation != address(0), ZeroAddressNotAllowed("Implementation"));
+    function initialize(address initialOwner, address implementation) external initializer {
+        __GenericTokenFactory_init(initialOwner);
+        require(implementation != address(0), ZeroAddressNotAllowed("Implementation"));
         /// @dev this is a dedicated beacon for ERC20 tokens deployment, so we don't need to use this contract as a beacon
-        address _beacon = address(new UpgradeableBeacon(_implementation, address(this)));
+        address beacon = address(new UpgradeableBeacon(implementation, address(this)));
 
-        _setBeacon(_beacon);
+        _setBeacon(beacon);
     }
 
     // ========== Deploy functions ==========
@@ -75,18 +75,18 @@ contract ERC20TokenFactory is GenericTokenFactory {
         return bytes("");
     }
 
-    /// @dev Single implementation for both this chain and other chain (same salt + beacon proxy).
+    /// @dev Compute the token address deployed via this factory
     /// @inheritdoc GenericTokenFactory
     function _computeTokenAddress(bytes calldata keyData, bytes calldata) internal view override returns (address) {
-        (address _gateway, address _originToken) = _decodeKeyData(keyData);
-        bytes32 _salt = _calculateSalt(_gateway, _originToken);
+        (address gateway, address originToken) = _decodeKeyData(keyData);
+        bytes32 salt = _calculateSalt(gateway, originToken);
         bytes memory bytecode = _beaconProxyBytecode(beacon());
-        return Create2.computeAddress(_salt, keccak256(bytecode));
+        return Create2.computeAddress(salt, keccak256(bytecode));
     }
 
     // ========== Internal functions ==========
 
-    function _decodeKeyData(bytes calldata keyData) internal pure returns (address _gateway, address _originToken) {
+    function _decodeKeyData(bytes calldata keyData) internal pure returns (address gateway, address originToken) {
         return abi.decode(keyData, (address, address));
     }
 }

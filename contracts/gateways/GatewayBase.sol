@@ -6,7 +6,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
-import {IGateway} from "../interfaces/gateways/IGateway.sol";
+import {IGatewayBase} from "../interfaces/gateways/IGatewayBase.sol";
 
 /**
  * @title GatewayBase
@@ -22,7 +22,7 @@ import {IGateway} from "../interfaces/gateways/IGateway.sol";
  * @dev `onlyFluentBridge` enforces that receive entrypoints are callable only by the configured local
  *      `FluentBridge` instance.
  */
-abstract contract GatewayBase is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuardUpgradeable, IGateway {
+abstract contract GatewayBase is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuardUpgradeable, IGatewayBase {
     /// @custom:storage-location erc7201:fluent.storage.GatewayBaseStorage
     struct GatewayBaseStorage {
         address _bridgeContract;
@@ -57,6 +57,7 @@ abstract contract GatewayBase is Initializable, UUPSUpgradeable, Ownable2StepUpg
         // ============ Storage ============
         _setBridgeContract(bridgeContract);
     }
+
     // ============ Public getters ============
 
     function getBridgeContract() public view returns (address) {
@@ -73,7 +74,7 @@ abstract contract GatewayBase is Initializable, UUPSUpgradeable, Ownable2StepUpg
 
     // ============ Admin functions ============
 
-    /// @inheritdoc IGateway
+    /// @inheritdoc IGatewayBase
     function setBridgeContract(address newBridgeContract) external onlyOwner {
         _setBridgeContract(newBridgeContract);
     }
@@ -85,7 +86,7 @@ abstract contract GatewayBase is Initializable, UUPSUpgradeable, Ownable2StepUpg
         $._bridgeContract = newBridgeContract;
     }
 
-    /// @inheritdoc IGateway
+    /// @inheritdoc IGatewayBase
     function setOtherSideGateway(address newOtherSideGateway) external onlyOwner {
         _setOtherSideGateway(newOtherSideGateway);
     }
@@ -97,7 +98,7 @@ abstract contract GatewayBase is Initializable, UUPSUpgradeable, Ownable2StepUpg
         $._otherSideGateway = newOtherSideGateway;
     }
 
-    /// @inheritdoc IGateway
+    /// @inheritdoc IGatewayBase
     function setOtherSideChainId(uint256 newOtherSideChainId) external onlyOwner {
         require(newOtherSideChainId != 0, ZeroValueNotAllowed("newOtherSideChainId"));
         _setOtherSideChainId(newOtherSideChainId);

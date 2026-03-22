@@ -131,27 +131,32 @@ interface IFluentBridge is IFluentBridgeErrors, IFluentBridgeEvents {
      * @return The next outbound message nonce.
      */
     function getNonce() external view returns (uint256);
+
     /**
      * @notice Next expected inbound received message nonce (L2 receiveMessage ordering).
      * @return The next expected inbound received message nonce.
      */
     function getReceivedNonce() external view returns (uint256);
+
     /**
      * @notice During receive execution, the address that sent the message on the other chain; otherwise address(0).
      * @return The address that sent the message on the other chain.
      */
     function getNativeSender() external view returns (address);
+
     /**
      * @notice Address of the bridge contract on the other chain.
      * @return The address of the bridge contract on the other chain.
      */
     function getOtherBridge() external view returns (address);
+
     /**
      * @notice Status of a received message by its hash (None, Failed, Success).
      * @param key The hash of the received message.
      * @return The status of the received message.
      */
     function getReceivedMessage(bytes32 key) external view returns (MessageStatus);
+
     /**
      * @notice Returns the size of the sent message queue (L1; 0 on L2 when rollup is not set).
      * @return The size of the sent message queue.
@@ -166,8 +171,11 @@ interface IFluentBridge is IFluentBridgeErrors, IFluentBridgeEvents {
      * @param message Calldata payload to deliver.
      */
     function sendMessage(address to, bytes calldata message) external payable;
+
     /**
      * @notice Receives and executes a message sent by the bridge authority (L2 only; trusted relayer path).
+     * @dev This function is used to receive and execute a message sent by the bridge authority (L2 only; trusted relayer path).
+     *
      * @param from Sender on the other chain.
      * @param to Destination on this chain.
      * @param value Value to forward.
@@ -185,8 +193,11 @@ interface IFluentBridge is IFluentBridgeErrors, IFluentBridgeEvents {
         uint256 nonce,
         bytes calldata message
     ) external payable;
+
     /**
      * @notice Retries execution of a previously failed message (same params as original receive).
+     * @dev This function is used to retry execution of a previously failed message from anyone.
+     *
      * @param from Sender on the other chain.
      * @param to Destination on this chain.
      * @param value Value to forward.

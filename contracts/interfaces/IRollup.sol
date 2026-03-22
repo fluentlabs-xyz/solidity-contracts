@@ -502,6 +502,10 @@ interface IRollupWrite {
 
     /**
      * @notice Submit blob hashes for DA verification of an accepted batch.
+     *
+     * @dev The function might be called multiple times to submit multiple blobs for a single batch.
+     * @param batchIndex The index of the batch to submit blobs for.
+     * @param numBlobs The number of blobs to submit determined by the caller(authority).
      */
     function submitBlobs(uint256 batchIndex, uint256 numBlobs) external;
 

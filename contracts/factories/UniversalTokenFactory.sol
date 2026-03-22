@@ -51,6 +51,9 @@ contract UniversalTokenFactory is GenericTokenFactory {
         require(gateway != address(0), ZeroAddressNotAllowed("gateway"));
         require(originToken_ != address(0), InvalidOriginToken());
         require(bridgedTokens(originToken_) == address(0), TokenAlreadyDeployed());
+        require(bytes(name).length > 0, ZeroValueNotAllowed("name"));
+        require(bytes(symbol).length > 0, ZeroValueNotAllowed("symbol"));
+        require(decimals > 0, ZeroValueNotAllowed("decimals"));
 
         bytes memory deploymentData = _deploymentData(name, symbol, decimals, initialSupply, minter, pauser);
         bytes32 salt = _calculateSalt(gateway, originToken_);
@@ -71,39 +74,17 @@ contract UniversalTokenFactory is GenericTokenFactory {
         return abi.encode(tokenName, tokenSymbol, decimals, 0, deployer, deployer);
     }
 
-    /**
-     * @notice Computes the pegged token address for a Universal token deployed by a factory.
-     * @param keyData Encoded as abi.encode(gateway, originToken)
-     * @param deployArgs Encoded as abi.encode(name, symbol, decimals, initialSupply, minter, pauser)
-     * @param factory The UniversalTokenFactory address that will perform the CREATE2 deployment
-     * @return predicted The predicted token address
-     */
-    function computeTokenAddress(bytes calldata keyData, bytes calldata deployArgs, address factory) external pure returns (address predicted) {
-        (address gateway, address originToken) = abi.decode(keyData, (address, address));
-        (string memory name, string memory symbol, uint8 decimals, uint256 initialSupply, address minter, address pauser) = abi.decode(
-            deployArgs,
-            (string, string, uint8, uint256, address, address)
-        );
-
-        bytes memory deploymentData = _deploymentData(name, symbol, decimals, initialSupply, minter, pauser);
-        bytes32 salt = _calculateSalt(gateway, originToken);
-        bytes32 initCodeHash = keccak256(deploymentData);
-        bytes32 hash = keccak256(abi.encodePacked(bytes1(0xff), factory, salt, initCodeHash));
-        return address(uint160(uint256(hash)));
-    }
-
-    /// @inheritdoc GenericTokenFactory
+    /// @dev Compute the token address deployed via this factory(address(this) is the deployer)
     function _computeTokenAddress(bytes calldata keyData, bytes calldata deployArgs) internal view override returns (address) {
         (address gateway, address originToken) = _decodeKeyData(keyData);
         (string memory name, string memory symbol, uint8 decimals, uint256 initialSupply, address minter, address pauser) = _decodeDeployArgs(
             deployArgs
         );
-
-        bytes memory deploymentData = _deploymentData(name, symbol, decimals, initialSupply, minter, pauser);
-        bytes32 salt = _calculateSalt(gateway, originToken);
-        bytes32 initCodeHash = keccak256(deploymentData);
-        bytes32 hash = keccak256(abi.encodePacked(bytes1(0xff), address(this), salt, initCodeHash));
-        return address(uint160(uint256(hash)));
+        return
+            Create2.computeAddress(
+                _calculateSalt(gateway, originToken),
+                keccak256(_deploymentData(name, symbol, decimals, initialSupply, minter, pauser))
+            );
     }
 
     function _decodeKeyData(bytes calldata keyData) internal pure returns (address gateway, address originToken) {

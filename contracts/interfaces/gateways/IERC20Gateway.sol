@@ -35,52 +35,52 @@ interface IERC20Gateway is IERC20GatewayErrors {
      *         message triggers `receivePeggedTokens` on L2, minting/unlocking pegged tokens for `_to`.
      *      2) L2 -> L1 (withdraw): caller sends the L2 pegged token; gateway burns pegged tokens and bridge
      *         message triggers `receiveOriginTokens` on L1, releasing origin tokens for `_to`.
-     * @param _token Token being bridged from the current chain (origin on deposit path, pegged on withdraw path).
-     * @param _to Recipient address on the destination chain.
-     * @param _amount Amount of tokens to bridge.
+     * @param token Token being bridged from the current chain (origin on deposit path, pegged on withdraw path).
+     * @param to Recipient address on the destination chain.
+     * @param amount Amount of tokens to bridge.
      */
-    function sendTokens(address _token, address _to, uint256 _amount) external;
+    function sendTokens(address token, address to, uint256 amount) external;
 
     /**
      * @notice Receives tokens from the other side. Used on L1 to receive origin tokens from the other side.
-     * @param _originToken The address of the origin token.
-     * @param _from The address of the sender on the other side.
-     * @param _to The address of the recipient on the local side.
-     * @param _amount The amount of tokens to receive.
+     * @param originToken The address of the origin token.
+     * @param from The address of the sender on the other side.
+     * @param to The address of the recipient on the local side.
+     * @param amount The amount of tokens to receive.
      */
-    function receiveOriginTokens(address _originToken, address _from, address _to, uint256 _amount) external;
+    function receiveOriginTokens(address originToken, address from, address to, uint256 amount) external;
 
     /**
      * @notice Receives pegged tokens from the other side. Used on L2 to receive pegged tokens from the other side.
-     * @param _originToken The address of the origin token.
-     * @param _peggedToken The address of the pegged token.
-     * @param _from The address of the sender on the other side.
-     * @param _to The address of the recipient on the local side.
-     * @param _amount The amount of tokens to receive.
-     * @param _tokenMetadata The metadata of the token (symbol, name, decimals)
+     * @param originToken The address of the origin token.
+     * @param token The address of the token.
+     * @param from The address of the sender on the other side.
+     * @param to The address of the recipient on the local side.
+     * @param amount The amount of tokens to receive.
+     * @param tokenMetadata The metadata of the token (symbol, name, decimals)
      */
     function receivePeggedTokens(
-        address _originToken,
-        address _peggedToken,
-        address _from,
-        address _to,
-        uint256 _amount,
-        bytes calldata _tokenMetadata
+        address originToken,
+        address token,
+        address from,
+        address to,
+        uint256 amount,
+        bytes calldata tokenMetadata
     ) external;
 
     /**
      * @notice Computes the address of a pegged token for a given token for the other side.
-     * @param _token The address of the token to compute the pegged token address for.
+     * @param token The address of the token to compute the pegged token address for.
      * @return The address of the pegged token.
      */
-    function computeOtherSidePeggedTokenAddress(address _token) external view returns (address);
+    function computeOtherSidePeggedTokenAddress(address token) external view returns (address);
 
     /**
-     * @notice Computes the local pegged token address for a given origin token.
-     * @param _originToken The origin token address used for local CREATE2 prediction.
-     * @return The address of the pegged token.
+     * @notice Computes the local token address for a given origin token.
+     * @param originToken The origin token address used for local CREATE2 prediction.
+     * @return The address of the token.
      */
-    function computePeggedTokenAddress(address _originToken) external view returns (address);
+    function computeTokenAddress(address originToken) external view returns (address);
 
     /**
      * @notice Returns the token mapping for a given key.

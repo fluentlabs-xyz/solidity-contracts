@@ -26,23 +26,22 @@ interface INativeGatewayErrors {
 interface INativeGateway is INativeGatewayErrors {
     /**
      * @notice Sends native tokens to the other side.
-     * @param _to The address of the recipient on the other side.
-     * @param _amount The amount of native tokens to send.
+     * @param to The address of the recipient on the other side.
      */
-    function sendNativeTokens(address _to, uint256 _amount) external payable;
+    function sendNativeTokens(address to) external payable;
 
     /**
      * @notice Receives native tokens from the other side.
-     * @param _from The address of the sender on the other side.
-     * @param _to The address of the recipient on the local side.
-     * @param _amount The amount of native tokens to receive.
+     * @param from The address of the sender on the other side.
+     * @param to The address of the recipient on the local side.
+     * @param amount The amount of native tokens to receive.
      */
-    function receiveNativeTokens(address _from, address _to, uint256 _amount) external payable;
+    function receiveNativeTokens(address from, address to, uint256 amount) external payable;
 
     /**
      * @notice Rescues native tokens from the gateway.
      * @param to The address to send the native tokens to.
-     * @param amount The amount of native tokens to send.
+     * @param amount The amount of native tokens to rescue.
      */
     function rescueNative(address payable to, uint256 amount) external;
 
