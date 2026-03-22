@@ -594,7 +594,7 @@ contract RollupStorageLayout is
      * @dev Returns a storage pointer to the ERC-7201 namespaced rollup storage slot.
      */
     function _getRollupStorage() internal pure returns (RollupStorage storage $) {
-        assembly {
+        assembly ("memory-safe") {
             $.slot := ROLLUP_STORAGE_LOCATION
         }
     }

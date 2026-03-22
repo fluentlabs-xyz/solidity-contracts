@@ -246,7 +246,7 @@ contract FluentBridgeStorageLayout is
 
     /// @dev returns the storage pointer for the FluentBridgeStorage struct.
     function _getFluentBridgeStorage() internal pure returns (FluentBridgeStorage storage $) {
-        assembly {
+        assembly ("memory-safe") {
             $.slot := FLUENT_BRIDGE_STORAGE_LOCATION
         }
     }

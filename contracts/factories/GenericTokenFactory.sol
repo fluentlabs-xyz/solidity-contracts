@@ -43,7 +43,7 @@ abstract contract GenericTokenFactory is Initializable, UUPSUpgradeable, Ownable
     bytes32 private constant GENERIC_TOKEN_FACTORY_STORAGE_LOCATION = 0x2e7141bc12ac0a34646003e28ce36e2b4a5ec6dcb16986fae278c46570192200;
     /// @dev returns the storage pointer for the GenericTokenFactoryStorage struct.
     function _getGenericTokenFactoryStorage() internal pure returns (GenericTokenFactoryStorage storage $) {
-        assembly {
+        assembly ("memory-safe") {
             $.slot := GENERIC_TOKEN_FACTORY_STORAGE_LOCATION
         }
     }

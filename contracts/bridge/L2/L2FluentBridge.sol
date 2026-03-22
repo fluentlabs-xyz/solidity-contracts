@@ -32,7 +32,7 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
     }
 
     function _getL2FluentBridgeStorage() private pure returns (L2FluentBridgeStorage storage $) {
-        assembly {
+        assembly ("memory-safe") {
             $.slot := L2_FLUENT_BRIDGE_STORAGE_LOCATION
         }
     }

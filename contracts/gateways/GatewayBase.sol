@@ -36,7 +36,7 @@ abstract contract GatewayBase is Initializable, UUPSUpgradeable, Ownable2StepUpg
 
     /// @dev returns the storage pointer for the GatewayBaseStorage struct.
     function _getGatewayBaseStorage() internal pure returns (GatewayBaseStorage storage $) {
-        assembly {
+        assembly ("memory-safe") {
             $.slot := GATEWAY_BASE_STORAGE_LOCATION
         }
     }

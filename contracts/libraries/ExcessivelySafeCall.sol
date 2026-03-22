@@ -31,7 +31,7 @@ library ExcessivelySafeCall {
         // by assembly calling "handle" function
         // we call via assembly to avoid memcopying a very large returndata
         // returned by a malicious contract
-        assembly {
+        assembly ("memory-safe") {
             _success := call(
                 gasLimit, // gas
                 _target, // recipient

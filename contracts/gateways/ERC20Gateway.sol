@@ -57,7 +57,7 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
     bytes32 private constant ERC20_GATEWAY_STORAGE_LOCATION = 0xe252cab26214ab2f0e4d4e6f063d78ba24b618cf5f8fd25d1b9aef671b7f9100;
 
     function _getERC20GatewayStorage() private pure returns (ERC20GatewayStorage storage $) {
-        assembly {
+        assembly ("memory-safe") {
             $.slot := ERC20_GATEWAY_STORAGE_LOCATION
         }
     }

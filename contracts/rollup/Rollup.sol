@@ -539,7 +539,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
             bytes32 hash = keccak256(
                 abi.encodePacked(headers[i].previousBlockHash, headers[i].blockHash, headers[i].withdrawalRoot, headers[i].depositRoot)
             );
-            assembly {
+            assembly ("memory-safe") {
                 mstore(add(add(leafs, 32), mul(i, 32)), hash)
             }
         }
@@ -550,7 +550,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
      * @dev Returns the blob hash for the given index using the BLOBHASH opcode.
      */
     function _getBlobHash(uint256 index) private view returns (bytes32 blobHash) {
-        assembly {
+        assembly ("memory-safe") {
             blobHash := blobhash(index)
         }
     }

@@ -24,22 +24,22 @@ library MerkleTree {
             bytes32 left;
             bytes32 right;
             for (uint256 i = 0; i < count / 2; i++) {
-                assembly {
+                assembly ("memory-safe") {
                     left := mload(add(add(_leafs, 32), mul(mul(i, 2), 32)))
                     right := mload(add(add(_leafs, 32), mul(add(mul(i, 2), 1), 32)))
                 }
                 hash = _efficientHash(left, right);
-                assembly {
+                assembly ("memory-safe") {
                     mstore(add(add(_leafs, 32), mul(i, 32)), hash)
                 }
             }
 
             if (count % 2 == 1 && count > 1) {
-                assembly {
+                assembly ("memory-safe") {
                     left := mload(add(add(_leafs, 32), mul(sub(count, 1), 32)))
                 }
                 hash = _efficientHash(left, left);
-                assembly {
+                assembly ("memory-safe") {
                     mstore(add(add(_leafs, 32), mul(div(sub(count, 1), 2), 32)), hash)
                 }
                 count += 1;
@@ -49,7 +49,7 @@ library MerkleTree {
         }
 
         bytes32 root;
-        assembly {
+        assembly ("memory-safe") {
             root := mload(add(_leafs, 32))
         }
         return root;
@@ -65,7 +65,7 @@ library MerkleTree {
 
         for (uint256 i = 0; i < _length; i++) {
             bytes32 item;
-            assembly {
+            assembly ("memory-safe") {
                 item := mload(add(add(_proof, 32), mul(i, 32)))
             }
             if (_nonce % 2 == 0) {
@@ -79,7 +79,7 @@ library MerkleTree {
     }
 
     function _efficientHash(bytes32 a, bytes32 b) private pure returns (bytes32 value) {
-        assembly {
+        assembly ("memory-safe") {
             mstore(0x00, a)
             mstore(0x20, b)
             value := keccak256(0x00, 0x40)

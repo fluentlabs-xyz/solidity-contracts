@@ -4,7 +4,7 @@ pragma solidity ^0.8.30;
 contract ContractFactory {
     constructor(bytes memory code) payable {
         uint256 size = code.length;
-        assembly {
+        assembly ("memory-safe") {
             return(add(code, 0x020), size)
         }
     }
@@ -22,7 +22,7 @@ library BlobHashGetter {
     function getBlobHash(address getter, uint256 idx) internal view returns (bytes32) {
         bool success;
         bytes32 blobHash;
-        assembly {
+        assembly ("memory-safe") {
             mstore(0x0, idx)
 
             success := staticcall(gas(), getter, 0x0, 0x20, 0x0, 0x20)
