@@ -44,7 +44,7 @@ abstract contract FluentBridge is FluentBridgeStorageLayout {
      *         `L2FluentBridge.initialize(bytes,uint256,address,address,uint256,uint256,address)`.
      */
 
-    function sendMessage(address to, bytes calldata message) external payable whenNotPaused {
+    function sendMessage(address to, bytes calldata message) external payable whenNotPaused nonReentrant {
         require(to != address(this) && to != getOtherBridge(), InvalidDestinationAddress());
         require(msg.value >= getSentMessageFee(), InsufficientFee());
 
