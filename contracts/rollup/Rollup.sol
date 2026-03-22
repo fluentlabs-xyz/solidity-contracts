@@ -302,17 +302,11 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         delete $._challenges[commitment];
         _removeChallengeFromQueue(commitment);
 
-        // TODO: remove
-        _maybeReturnBatchToPreconfirmed(batchIndex);
-        emit ChallengeResolved(batchIndex, commitment, _msgSender());
-    }
-
-    /// @dev When every challenged commitment in the batch has a corresponding proof, status returns to Preconfirmed.
-    function _maybeReturnBatchToPreconfirmed(uint256 batchIndex) private {
-        RollupStorage storage $ = _getRollupStorage();
+        // When every challenged commitment in the batch has a corresponding proof, status returns to Preconfirmed.
         if ($._batchChallengedBlocks[batchIndex].length == $._batchProvenBlocks[batchIndex].length) {
             $._batches[batchIndex].status = BatchStatus.Preconfirmed;
         }
+        emit ChallengeResolved(batchIndex, commitment, _msgSender());
     }
 
     // ============ Anyone ============
