@@ -19,6 +19,7 @@ import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
 import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {InitConfiguration, L2BlockHeader} from "../../contracts/interfaces/IRollupTypes.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
+import {WithdrawalMerkle} from "../helpers/WithdrawalMerkle.sol";
 import {MockNitroVerifier} from "../mocks/MockNitroVerifier.sol";
 import {MockSp1Verifier} from "../mocks/MockSp1Verifier.sol";
 
@@ -253,8 +254,10 @@ contract BaseFlowERC20Test is Test {
         revert("SentMessage log not found");
     }
 
-    function _finalizeSingleBlockBatch(bytes32 withdrawalRoot) internal returns (uint256 batchIndex, L2BlockHeader memory header) {
+    /// @param withdrawalLeaves Real message hashes for this L2 block (from `SentMessage` / rollback), in tree order.
+    function _finalizeSingleBlockBatch(bytes32[] memory withdrawalLeaves) internal returns (uint256 batchIndex, L2BlockHeader memory header) {
         _selectL1();
+        bytes32 withdrawalRoot = WithdrawalMerkle.withdrawalRoot(withdrawalLeaves);
         batchIndex = l1Rollup.nextBatchIndex();
         header = L2BlockHeader({
             previousBlockHash: GENESIS_HASH,
@@ -277,6 +280,37 @@ contract BaseFlowERC20Test is Test {
         vm.roll(block.number + FINALIZATION_DELAY + 2);
         l1Rollup.finalizeBatches(batchIndex);
         require(l1Rollup.isBatchFinalized(batchIndex), "batch not finalized");
+    }
+
+    /// @dev Finalize with `withdrawalRoot` from the real L2→L1 message hash only, then `receiveMessageWithProof`.
+    function _receiveErc20WithProof(
+        bytes32 messageHash,
+        address from2,
+        address to2,
+        uint256 value2,
+        uint256 chainId2,
+        uint256 blockNumber2,
+        uint256 nonce2,
+        bytes memory data2,
+        address caller
+    ) internal {
+        bytes32[] memory wl = WithdrawalMerkle.leavesSingleton(messageHash);
+        (uint256 batchIndex, L2BlockHeader memory header) = _finalizeSingleBlockBatch(wl);
+        _selectL1();
+        vm.prank(caller);
+        l1Bridge.receiveMessageWithProof(
+            batchIndex,
+            header,
+            from2,
+            payable(to2),
+            value2,
+            chainId2,
+            blockNumber2,
+            nonce2,
+            data2,
+            WithdrawalMerkle.proofForLeaf(wl, 0),
+            MerkleTree.MerkleProof({nonce: 0, proof: ""})
+        );
     }
 
     function test_sendTokens_roundtripL1ToL2AndBack() public {
@@ -415,8 +449,9 @@ contract BaseFlowERC20Test is Test {
         assertEq(uint256(l2Bridge.getReceivedMessage(failedHash)), uint256(IFluentBridge.MessageStatus.Failed), "not failed on L2");
 
         // L1: finalize proof batch and call rollbackMessageWithProof.
-        (uint256 batchIndex, L2BlockHeader memory header) = _finalizeSingleBlockBatch(failedHash);
-        MerkleTree.MerkleProof memory withdrawalProof = MerkleTree.MerkleProof({nonce: 0, proof: ""});
+        bytes32[] memory withdrawalLeaves = WithdrawalMerkle.leavesSingleton(failedHash);
+        (uint256 batchIndex, L2BlockHeader memory header) = _finalizeSingleBlockBatch(withdrawalLeaves);
+        MerkleTree.MerkleProof memory withdrawalProof = WithdrawalMerkle.proofForLeaf(withdrawalLeaves, 0);
         MerkleTree.MerkleProof memory blockProof = MerkleTree.MerkleProof({nonce: 0, proof: ""});
         vm.prank(relayer);
         l1Bridge.rollbackMessageWithProof(batchIndex, header, from, to, value, l2ChainId, srcBlock, nonce, data, withdrawalProof, blockProof);
@@ -443,6 +478,7 @@ contract BaseFlowERC20Test is Test {
 
     function test_RevertIf_receiveOriginTokens_zeroRecipient() public {
         _selectL1();
+        vm.mockCall(address(l1Bridge), abi.encodeCall(IFluentBridge.getNativeSender, ()), abi.encode(address(l2Gateway)));
         vm.expectRevert(IGatewayBaseErrors.InvalidRecipient.selector);
         vm.prank(address(l1Bridge));
         l1Gateway.receiveOriginTokens(address(originToken), l1Sender, address(0), 1 ether);

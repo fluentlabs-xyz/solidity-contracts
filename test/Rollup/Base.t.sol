@@ -43,6 +43,14 @@ abstract contract RollupBase is Test, IRollupEvents {
     /// @dev Mirrors RollupStorageLayout.ZERO_BYTES_HASH — keccak256 of empty bytes.
     bytes32 internal constant ZERO_BYTES_HASH = 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
 
+    /// @dev Stand-in leaves and Merkle root (two leaves: L2→L1 withdrawal + L1→L2 rollback), matching
+    ///      `MerkleTree.calculateMerkleRoot(abi.encodePacked(leftLeaf, rightLeaf))` for a two-leaf tree.
+    bytes32 internal constant EXAMPLE_L2_TO_L1_WITHDRAWAL_LEAF = keccak256("rollup-test-l2-to-l1-withdrawal-leaf");
+    bytes32 internal constant EXAMPLE_L1_TO_L2_ROLLBACK_LEAF = keccak256("rollup-test-l1-to-l2-rollback-leaf");
+    bytes32 internal constant EXAMPLE_WITHDRAWAL_ROOT = keccak256(
+        abi.encodePacked(EXAMPLE_L2_TO_L1_WITHDRAWAL_LEAF, EXAMPLE_L1_TO_L2_ROLLBACK_LEAF)
+    );
+
     uint256 internal constant BATCH_SIZE = 4;
     uint256 internal constant CHALLENGE_DEPOSIT = 1 ether;
     uint256 internal constant SUBMIT_BLOBS_WINDOW = 50;
@@ -106,7 +114,7 @@ abstract contract RollupActions is RollupBase {
             batch[i] = L2BlockHeader({
                 previousBlockHash: prev,
                 blockHash: blockHash,
-                withdrawalRoot: ZERO_BYTES_HASH,
+                withdrawalRoot: EXAMPLE_WITHDRAWAL_ROOT,
                 depositRoot: ZERO_BYTES_HASH,
                 depositCount: 0
             });

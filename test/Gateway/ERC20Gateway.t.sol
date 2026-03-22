@@ -289,8 +289,8 @@ contract ERC20GatewayTest is GatewayBase {
         gateway.setOtherSideChainId(0);
     }
 
-    function test_computePeggedTokenAddress_matchesInternalPrediction() public view {
-        address predicted = gateway.computePeggedTokenAddress(address(originToken));
-        assertEq(predicted, _predictedPegged());
+    function test_computeTokenAddress_matchesPredictedHelper() public view {
+        address predicted = gateway.computeTokenAddress(address(originToken));
+        assertEq(predicted, _predictedPegged(), "computeTokenAddress mismatch vs helper");
     }
 }

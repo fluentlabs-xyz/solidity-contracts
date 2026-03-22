@@ -17,6 +17,7 @@ import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol
 import {InitConfiguration, L2BlockHeader} from "../../contracts/interfaces/IRollupTypes.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 
+import {WithdrawalMerkle} from "../helpers/WithdrawalMerkle.sol";
 import {MockNitroVerifier} from "../mocks/MockNitroVerifier.sol";
 import {MockSp1Verifier} from "../mocks/MockSp1Verifier.sol";
 
@@ -195,6 +196,34 @@ contract BaseFlowNativeTest is Test {
         return keccak256(abi.encode(from, to, value, chainId, blockNumber, nonce, message));
     }
 
+    /// @dev Finalize batch with `withdrawalRoot` built only from the real L2→L1 `SentMessage` hash, then proof-receive.
+    function _finalizeReceiveNativeWithProof(
+        bytes32 l1MessageHash,
+        bytes memory l2ToL1Message,
+        uint256 l2ChainIdForProof,
+        uint256 l2BlockNumberForProof,
+        uint256 l1ReceiveNonce,
+        bytes32 l2BlockHash,
+        string memory blobLabel,
+        address proofCaller
+    ) internal {
+        bytes32[] memory wl = WithdrawalMerkle.leavesSingleton(l1MessageHash);
+        (uint256 batchIndex, L2BlockHeader memory header) = _finalizeL1SingleBlockBatch(wl, l2BlockHash, blobLabel);
+        ReceiveMessageWithProofArgs memory callArgs;
+        callArgs.batchIndex = batchIndex;
+        callArgs.header = header;
+        callArgs.l2Gateway = address(l2Gateway);
+        callArgs.l1Gateway = payable(address(l1Gateway));
+        callArgs.value = 1 ether;
+        callArgs.l2ChainId = l2ChainIdForProof;
+        callArgs.l2BlockNumber = l2BlockNumberForProof;
+        callArgs.l1ReceiveNonce = l1ReceiveNonce;
+        callArgs.message = l2ToL1Message;
+        callArgs.withdrawalProof = WithdrawalMerkle.proofForLeaf(wl, 0);
+        callArgs.blockProof = MerkleTree.MerkleProof({nonce: 0, proof: ""});
+        _receiveMessageWithProofNative(l1Bridge, proofCaller, callArgs);
+    }
+
     function test_sendNativeTokens_roundtripL1ToL2AndBack() public {
         // ============ Step 1: L1 sender sends native to L2 recipient ============
         _selectL1();
@@ -294,28 +323,16 @@ contract BaseFlowNativeTest is Test {
         uint256 l1PreRecipientBal = l1Recipient.balance;
         assertEq(address(l1Bridge).balance, 1 ether, "L1 bridge should have funds to unlock");
 
-        // l2ChainIdForProof / l2BlockNumberForProof / l1ReceiveNonce / l1MessageHash
-        // are extracted from the L2 SentMessage event above.
-
-        // -------- rollup: accept + finalize batch so receiveMessageWithProof passes --------
-        uint256 batchIndex;
-        L2BlockHeader memory header;
-        (batchIndex, header) = _finalizeL1SingleBlockBatch(l1MessageHash, keccak256("l2-withdrawal-block"), "native-flow-blob");
-
-        // -------- execute withdrawal via proof path --------
-        ReceiveMessageWithProofArgs memory callArgs;
-        callArgs.batchIndex = batchIndex;
-        callArgs.header = header;
-        callArgs.l2Gateway = address(l2Gateway);
-        callArgs.l1Gateway = payable(address(l1Gateway));
-        callArgs.value = 1 ether;
-        callArgs.l2ChainId = l2ChainIdForProof;
-        callArgs.l2BlockNumber = l2BlockNumberForProof;
-        callArgs.l1ReceiveNonce = l1ReceiveNonce;
-        callArgs.message = l2ToL1Message;
-        callArgs.withdrawalProof = MerkleTree.MerkleProof({nonce: 0, proof: ""});
-        callArgs.blockProof = MerkleTree.MerkleProof({nonce: 0, proof: ""});
-        _receiveMessageWithProofNative(l1Bridge, relayer, callArgs);
+        _finalizeReceiveNativeWithProof(
+            l1MessageHash,
+            l2ToL1Message,
+            l2ChainIdForProof,
+            l2BlockNumberForProof,
+            l1ReceiveNonce,
+            keccak256("l2-withdrawal-block"),
+            "native-flow-blob",
+            relayer
+        );
 
         assertEq(uint256(l1Bridge.getReceivedMessage(l1MessageHash)), uint256(IFluentBridge.MessageStatus.Success));
         assertEq(l1Recipient.balance - l1PreRecipientBal, 1 ether, "L1 recipient didn't get ETH back");
@@ -398,10 +415,10 @@ contract BaseFlowNativeTest is Test {
         // ============ Step 3: Finalize rollup batch on L1 containing the rollback withdrawalRoot ============
         _selectL1();
 
-        uint256 batchIndex;
-        L2BlockHeader memory header;
-        (batchIndex, header) = _finalizeL1SingleBlockBatch(
-            l2FailedMessageHash,
+        bytes32[] memory withdrawalLeaves = WithdrawalMerkle.leavesSingleton(l2FailedMessageHash);
+
+        (uint256 batchIndex, L2BlockHeader memory header) = _finalizeL1SingleBlockBatch(
+            withdrawalLeaves,
             keccak256("l2-rollback-withdrawal-block"),
             "native-rollback-blob"
         );
@@ -420,7 +437,7 @@ contract BaseFlowNativeTest is Test {
         rollbackArgs.blockNumber = sentBlockNumber;
         rollbackArgs.messageNonce = sentNonce;
         rollbackArgs.message = sentData;
-        rollbackArgs.withdrawalProof = MerkleTree.MerkleProof({nonce: 0, proof: ""});
+        rollbackArgs.withdrawalProof = WithdrawalMerkle.proofForLeaf(withdrawalLeaves, 0);
         rollbackArgs.blockProof = MerkleTree.MerkleProof({nonce: 0, proof: ""});
         _rollbackMessageWithProofNative(l1Bridge, relayer, rollbackArgs);
 
@@ -483,25 +500,17 @@ contract BaseFlowNativeTest is Test {
             assertTrue(found, "SentMessage log not found for L2->L1 send");
         }
 
-        // -------- Step 3: Create + finalize Rollup batch on L1 --------
-        uint256 batchIndex;
-        L2BlockHeader memory header;
-        (batchIndex, header) = _finalizeL1SingleBlockBatch(l1MessageHash, keccak256("l2-native-withdrawal-block"), "native-proof-blob");
-
-        // -------- Step 4: Execute unlock via proof path --------
-        ReceiveMessageWithProofArgs memory callArgs;
-        callArgs.batchIndex = batchIndex;
-        callArgs.header = header;
-        callArgs.l2Gateway = address(l2Gateway);
-        callArgs.l1Gateway = payable(address(l1Gateway));
-        callArgs.value = 1 ether;
-        callArgs.l2ChainId = l2ChainIdForProof;
-        callArgs.l2BlockNumber = l2BlockNumberForProof;
-        callArgs.l1ReceiveNonce = l1ReceiveNonce;
-        callArgs.message = l2ToL1Message;
-        callArgs.withdrawalProof = MerkleTree.MerkleProof({nonce: 0, proof: ""});
-        callArgs.blockProof = MerkleTree.MerkleProof({nonce: 0, proof: ""});
-        _receiveMessageWithProofNative(l1Bridge, relayer, callArgs);
+        // -------- Step 3–4: Finalize + execute unlock via proof path --------
+        _finalizeReceiveNativeWithProof(
+            l1MessageHash,
+            l2ToL1Message,
+            l2ChainIdForProof,
+            l2BlockNumberForProof,
+            l1ReceiveNonce,
+            keccak256("l2-native-withdrawal-block"),
+            "native-proof-blob",
+            relayer
+        );
 
         assertEq(uint256(l1Bridge.getReceivedMessage(l1MessageHash)), uint256(IFluentBridge.MessageStatus.Success));
         assertEq(l1Recipient.balance - l1RecipientBalBefore, 1 ether, "L1 recipient didn't get ETH");
@@ -509,12 +518,15 @@ contract BaseFlowNativeTest is Test {
     }
 
     /// @dev Accept one L2 block header on L1 rollup, submit one blob, preconfirm, and finalize (used by native flow tests).
+    /// @param withdrawalLeaves Message hashes included in this L2 block's withdrawal tree (L2→L1 `SentMessage` and
+    ///        L1→L2 timeout `RollbackMessage` hashes, ordered for the test).
     function _finalizeL1SingleBlockBatch(
-        bytes32 withdrawalRoot,
+        bytes32[] memory withdrawalLeaves,
         bytes32 l2BlockHash,
         string memory blobLabel
     ) internal returns (uint256 batchIndex, L2BlockHeader memory header) {
         _selectL1();
+        bytes32 withdrawalRoot = WithdrawalMerkle.withdrawalRoot(withdrawalLeaves);
         batchIndex = l1Rollup.nextBatchIndex();
         header = L2BlockHeader({
             previousBlockHash: GENESIS_HASH,

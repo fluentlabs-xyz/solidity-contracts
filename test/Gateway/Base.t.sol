@@ -120,6 +120,6 @@ abstract contract GatewayBase is Test {
     }
 
     function _predictedPegged() internal view returns (address) {
-        return gateway.computePeggedTokenAddress(address(originToken));
+        return gateway.computeTokenAddress(address(originToken));
     }
 }
