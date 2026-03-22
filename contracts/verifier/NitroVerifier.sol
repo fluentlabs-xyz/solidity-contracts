@@ -4,6 +4,7 @@ pragma solidity ^0.8.30;
 import {ISP1Verifier} from "contracts/interfaces/ISP1Verifier.sol";
 import {INitroVerifier} from "contracts/interfaces/INitroVerifier.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 /**
  * @title NitroVerifier
@@ -165,21 +166,12 @@ contract NitroVerifier is AccessControl, INitroVerifier {
     // ============ Internal ============
 
     /**
-     * @dev Recovers the signer from (payload, signature) and reverts if the
-     *      recovered address is not in {verifiedPubkeys}.
+     * @dev Recovers the signer from (payload, signature) via {ECDSA.recover}
+     *      and reverts if the recovered address is not in {verifiedPubkeys}.
      *      Signature layout: r (32 bytes) || s (32 bytes) || v (1 byte).
      */
     function _assertSignerAttested(bytes32 payload, bytes calldata signature) internal view returns (address) {
-        bytes32 r;
-        bytes32 s;
-        uint8 v;
-        assembly {
-            r := calldataload(signature.offset)
-            s := calldataload(add(signature.offset, 32))
-            v := byte(0, calldataload(add(signature.offset, 64)))
-        }
-        address verifier = ecrecover(payload, v, r, s);
-        require(verifier != address(0), InvalidSignature());
+        address verifier = ECDSA.recover(payload, signature);
         require(verifiedPubkeys[verifier], SignerNotAttested());
 
         return verifier;

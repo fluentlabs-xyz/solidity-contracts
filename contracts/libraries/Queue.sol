@@ -2,6 +2,9 @@
 pragma solidity ^0.8.30;
 
 library Queue {
+    /// @notice Operation attempted on an empty queue.
+    error QueueEmpty();
+
     struct QueueItem {
         bytes32 value;
         uint256 blockNumber;
@@ -24,7 +27,7 @@ library Queue {
     }
 
     function dequeue(QueueStorage storage self) internal returns (QueueItem memory) {
-        require(!isEmpty(self), "Queue is empty");
+        require(!isEmpty(self), QueueEmpty());
         QueueItem memory item = self.data[self.front];
         delete self.data[self.front];
         self.front++;
@@ -32,7 +35,7 @@ library Queue {
     }
 
     function peek(QueueStorage storage self) internal view returns (QueueItem memory) {
-        require(!isEmpty(self), "Queue is empty");
+        require(!isEmpty(self), QueueEmpty());
         return self.data[self.front];
     }
 

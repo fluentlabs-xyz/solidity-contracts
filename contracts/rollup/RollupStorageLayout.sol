@@ -103,11 +103,10 @@ contract RollupStorageLayout is
          */
         uint64 _finalizationDelay;
         /**
-         * @dev Number of L1 blocks a prover has to resolve a challenge after it is opened.
-         *      A challenge may only be submitted if `block.number + challengeWindow <= acceptedAtBlock
-         *      + finalizationDelay`, ensuring the prover always has the full window to respond and
-         *      finalization is never delayed beyond `acceptedAtBlock + finalizationDelay + challengeWindow`.
-         *      Must be strictly less than `finalizationDelay`.
+         * @dev Batch-wide challenge window measured from acceptance: all challenges for a batch
+         *      must be submitted AND resolved before `acceptedAtBlock + _challengeWindow`.
+         *      The deadline is shared — a late challenge leaves the prover less time to respond.
+         *      Must be strictly less than {_finalizationDelay}.
          */
         uint64 _challengeWindow;
         /**

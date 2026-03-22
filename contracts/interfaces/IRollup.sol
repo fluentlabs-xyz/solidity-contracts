@@ -150,8 +150,8 @@ interface IRollupErrors {
     error InvalidBatchIndex(uint256 providedBatchIndex, uint256 currentBatchIndex);
 
     /**
-     * @notice Challenge submitted too late — insufficient time remains within the
-     *         finalization window for the prover to respond within `challengeWindow`.
+     * @notice Challenge submitted after the batch-wide challenge window has closed.
+     * @dev Fires when `block.number >= acceptedAtBlock + challengeWindow`.
      */
     error ChallengeTooLate(uint256 batchIndex);
 
@@ -358,7 +358,8 @@ interface IRollupConfig {
     function finalizationDelay() external view returns (uint256);
 
     /**
-     * @notice Number of L1 blocks a challenger has to submit a challenge.
+     * @notice Batch-wide challenge window in L1 blocks, measured from acceptance.
+     *         Both challenge submission and resolution must occur before the deadline.
      */
     function challengeWindow() external view returns (uint256);
 

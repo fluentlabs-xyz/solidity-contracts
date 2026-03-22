@@ -6,6 +6,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {L1FluentBridge} from "../../contracts/bridge/L1/L1FluentBridge.sol";
 import {FluentBridgeStorageLayout} from "../../contracts/bridge/FluentBridgeStorageLayout.sol";
 import {IL1FluentBridge} from "../../contracts/interfaces/bridge/IL1FluentBridge.sol";
+import {Queue} from "../../contracts/libraries/Queue.sol";
 import {MockRollup} from "../mocks/MockRollup.sol";
 import {BridgeBase} from "./Base.t.sol";
 
@@ -43,7 +44,7 @@ contract L1FluentBridgeTest is BridgeBase {
 
     function test_RevertIf_popSentMessage_queueEmpty() public {
         vm.prank(address(rollup));
-        vm.expectRevert("Queue is empty");
+        vm.expectRevert(Queue.QueueEmpty.selector);
         l1Bridge.popSentMessage();
     }
 

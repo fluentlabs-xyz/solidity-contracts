@@ -97,7 +97,7 @@ struct InitConfiguration {
     // ─── Parameters ───
     /// @dev ETH deposit required to open a challenge
     uint256 challengeDepositAmount;
-    /// @dev L1 blocks a prover has to resolve a challenge
+    /// @dev Batch-wide challenge window in L1 blocks from acceptance; shared deadline for submission and resolution
     uint256 challengeWindow;
     /// @dev Minimum L1 blocks after acceptance before finalization
     uint256 finalizationDelay;

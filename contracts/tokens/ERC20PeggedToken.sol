@@ -10,6 +10,9 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 contract ERC20PeggedToken is Initializable, ERC20Upgradeable, OwnableUpgradeable, PausableUpgradeable, ERC165Upgradeable {
+    /// @notice Token transfer attempted while paused.
+    error TokenPaused();
+
     // we store symbol and name as strings
     string internal _symbol;
     string internal _name;
@@ -85,7 +88,7 @@ contract ERC20PeggedToken is Initializable, ERC20Upgradeable, OwnableUpgradeable
     /// @dev Enforce pause semantics for all balance updates (transfer / mint / burn).
     function _update(address from, address to, uint256 value) internal virtual override {
         if (paused()) {
-            revert("Pausable: paused");
+            revert TokenPaused();
         }
         super._update(from, to, value);
     }

@@ -117,7 +117,7 @@ contract FluentBridgeStorageLayout is
      * @dev Initializes bridge storage from ABI-encoded {InitConfiguration}.
      *      Called once from {FluentBridge.initialize} via the UUPS proxy.
      */
-    function __FluentBridgeStorage_init(bytes memory data) internal {
+    function __FluentBridgeStorage_init(bytes memory data) internal onlyInitializing {
         __ReentrancyGuard_init();
         __AccessControl_init();
         __Pausable_init();

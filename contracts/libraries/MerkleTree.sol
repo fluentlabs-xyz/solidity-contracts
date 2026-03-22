@@ -5,6 +5,9 @@ library MerkleTree {
     /// @notice Merkle tree construction requires at least one leaf.
     error NoLeavesProvided();
 
+    /// @notice Proof length is not a multiple of 32 bytes.
+    error InvalidProof();
+
     /// @notice Structure containing Merkle proof details.
     struct MerkleProof {
         uint256 nonce;
@@ -57,7 +60,7 @@ library MerkleTree {
         pure
         returns (bool)
     {
-        require(_proof.length % 32 == 0, "Invalid proof");
+        require(_proof.length % 32 == 0, InvalidProof());
         uint256 _length = _proof.length / 32;
 
         for (uint256 i = 0; i < _length; i++) {
