@@ -7,7 +7,7 @@ import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Own
 
 import {NativeGateway} from "../../contracts/gateways/NativeGateway.sol";
 import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
-import {IGatewayErrors, IGatewayEvents} from "../../contracts/interfaces/gateways/IGateway.sol";
+import {IGatewayBaseErrors, IGatewayBaseEvents} from "../../contracts/interfaces/gateways/IGatewayBase.sol";
 import {INativeGatewayErrors} from "../../contracts/interfaces/gateways/INativeGateway.sol";
 import {GatewayBase} from "./Base.t.sol";
 import {RejectEther} from "../Bridge/Base.t.sol";
@@ -42,7 +42,7 @@ contract NativeGatewayTest is GatewayBase {
         vm.deal(user, amount);
 
         vm.prank(user);
-        nativeGateway.sendNativeTokens{value: amount}(recipient, amount);
+        nativeGateway.sendNativeTokens{value: amount}(recipient);
 
         assertEq(address(bridge).balance, amount);
     }
@@ -52,16 +52,16 @@ contract NativeGatewayTest is GatewayBase {
         vm.deal(user, amount);
 
         vm.prank(user);
-        vm.expectRevert(IGatewayErrors.InvalidRecipient.selector);
-        nativeGateway.sendNativeTokens{value: amount}(address(0), amount);
+        vm.expectRevert(IGatewayBaseErrors.InvalidRecipient.selector);
+        nativeGateway.sendNativeTokens{value: amount}(address(0));
     }
 
-    function test_sendNativeTokens_revertsForInvalidAmount() public {
+    function test_sendNativeTokens_revertsForZeroAmount() public {
         vm.deal(user, 1 ether);
 
         vm.prank(user);
         vm.expectRevert(INativeGatewayErrors.InvalidNativeAmount.selector);
-        nativeGateway.sendNativeTokens{value: 1 ether}(recipient, 2 ether);
+        nativeGateway.sendNativeTokens{value: 0}(recipient);
     }
 
     function test_sendNativeTokens_withoutOtherSideGateway_sendsToZeroAddress() public {
@@ -72,7 +72,7 @@ contract NativeGatewayTest is GatewayBase {
         vm.deal(user, amount);
 
         vm.prank(user);
-        localGateway.sendNativeTokens{value: amount}(recipient, amount);
+        localGateway.sendNativeTokens{value: amount}(recipient);
 
         // Current behavior: no explicit otherSide check in NativeGateway, so bridge accepts message.
         assertEq(address(bridge).balance, amount);
@@ -161,13 +161,13 @@ contract NativeGatewayTest is GatewayBase {
     function test_receiveNativeTokens_directCall_revertsOnlyFluentBridge() public {
         vm.deal(user, 1 ether);
         vm.prank(user);
-        vm.expectRevert(IGatewayErrors.OnlyFluentBridge.selector);
+        vm.expectRevert(IGatewayBaseErrors.OnlyFluentBridge.selector);
         nativeGateway.receiveNativeTokens{value: 1 ether}(user, recipient, 1 ether);
     }
 
     function test_setGasLimit_updatesValue() public {
         vm.expectEmit(false, false, false, true, address(nativeGateway));
-        emit IGatewayEvents.GasLimitUpdated(nativeGateway.getGasLimit(), 123_456);
+        emit IGatewayBaseEvents.GasLimitUpdated(nativeGateway.getGasLimit(), 123_456);
         vm.prank(admin);
         nativeGateway.setGasLimit(123_456);
         assertEq(nativeGateway.getGasLimit(), 123_456);
@@ -198,7 +198,7 @@ contract NativeGatewayTest is GatewayBase {
 
     function test_rescueNative_revertsForZeroRecipient() public {
         vm.prank(admin);
-        vm.expectRevert(IGatewayErrors.InvalidRecipient.selector);
+        vm.expectRevert(IGatewayBaseErrors.InvalidRecipient.selector);
         nativeGateway.rescueNative(payable(address(0)), 1);
     }
 
@@ -206,7 +206,7 @@ contract NativeGatewayTest is GatewayBase {
         address newBridge = makeAddr("newBridge");
 
         vm.expectEmit(false, false, false, true, address(nativeGateway));
-        emit IGatewayEvents.BridgeContractUpdated(address(bridge), newBridge);
+        emit IGatewayBaseEvents.BridgeContractUpdated(address(bridge), newBridge);
         vm.prank(admin);
         nativeGateway.setBridgeContract(newBridge);
 
@@ -221,7 +221,7 @@ contract NativeGatewayTest is GatewayBase {
         vm.deal(address(bridge), amount);
 
         vm.expectEmit(true, true, false, true, address(nativeGateway));
-        emit IGatewayEvents.ReceivedTokens(user, recipient, amount);
+        emit IGatewayBaseEvents.ReceivedTokens(user, recipient, amount);
 
         vm.prank(relayer);
         bridge.receiveMessage(remoteGateway, address(nativeGateway), amount, sourceChainId, sourceBlock, nonce, message);
@@ -267,7 +267,7 @@ contract NativeGatewayTest is GatewayBase {
         vm.deal(user, 1 ether);
         vm.prank(user);
         vm.expectRevert(bytes4(keccak256("EnforcedPause()")));
-        nativeGateway.sendNativeTokens{value: 1 ether}(recipient, 1 ether);
+        nativeGateway.sendNativeTokens{value: 1 ether}(recipient);
 
         bytes memory message = abi.encodeCall(NativeGateway.receiveNativeTokens, (user, recipient, 1 ether));
         uint256 nonce = bridge.getReceivedNonce();

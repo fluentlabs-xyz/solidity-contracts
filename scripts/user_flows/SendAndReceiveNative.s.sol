@@ -101,21 +101,20 @@ contract SendAndReceiveNative is Script {
     }
 
     function _sendL1(string memory rpc, string memory pk, address gateway, address recipient, uint256 amount) internal returns (string memory) {
-        string[] memory cmd = new string[](14);
+        string[] memory cmd = new string[](13);
         cmd[0] = "cast";
         cmd[1] = "send";
         cmd[2] = vm.toString(gateway);
-        cmd[3] = "sendNativeTokens(address,uint256)";
+        cmd[3] = "sendNativeTokens(address)";
         cmd[4] = vm.toString(recipient);
-        cmd[5] = vm.toString(amount);
-        cmd[6] = "--value";
-        cmd[7] = vm.toString(amount);
-        cmd[8] = "--rpc-url";
-        cmd[9] = rpc;
-        cmd[10] = "--private-key";
-        cmd[11] = pk;
-        cmd[12] = "--legacy";
-        cmd[13] = "--json";
+        cmd[5] = "--value";
+        cmd[6] = vm.toString(amount);
+        cmd[7] = "--rpc-url";
+        cmd[8] = rpc;
+        cmd[9] = "--private-key";
+        cmd[10] = pk;
+        cmd[11] = "--legacy";
+        cmd[12] = "--json";
         return string(vm.ffi(cmd));
     }
 

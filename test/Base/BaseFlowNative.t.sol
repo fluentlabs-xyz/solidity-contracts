@@ -206,7 +206,7 @@ contract BaseFlowNativeTest is Test {
         bytes memory l1ToL2Message = abi.encodeCall(NativeGateway.receiveNativeTokens, (l1Sender, l2Recipient, 1 ether));
 
         vm.prank(l1Sender);
-        l1Gateway.sendNativeTokens{value: 1 ether}(l2Recipient, 1 ether);
+        l1Gateway.sendNativeTokens{value: 1 ether}(l2Recipient);
 
         assertEq(address(l1Bridge).balance, 1 ether, "L1 bridge should lock funds");
         assertEq(address(l2Bridge).balance, 0, "L2 bridge should start empty");
@@ -250,7 +250,7 @@ contract BaseFlowNativeTest is Test {
         assertEq(l2Bridge.getNonce(), l2OutboundNonce, "sanity");
         vm.recordLogs();
         vm.prank(l2Recipient);
-        l2Gateway.sendNativeTokens{value: 1 ether}(l1Recipient, 1 ether);
+        l2Gateway.sendNativeTokens{value: 1 ether}(l1Recipient);
 
         assertEq(address(l2Bridge).balance, 1 ether, "L2 bridge should lock on return send");
 
@@ -332,7 +332,7 @@ contract BaseFlowNativeTest is Test {
 
         vm.recordLogs();
         vm.prank(l1Sender);
-        l1Gateway.sendNativeTokens{value: 1 ether}(l2Recipient, 1 ether);
+        l1Gateway.sendNativeTokens{value: 1 ether}(l2Recipient);
 
         assertEq(address(l1Bridge).balance, 1 ether, "L1 bridge should lock funds");
 
@@ -450,7 +450,7 @@ contract BaseFlowNativeTest is Test {
         vm.recordLogs();
         vm.deal(l2Recipient, 1 ether);
         vm.prank(l2Recipient);
-        l2Gateway.sendNativeTokens{value: 1 ether}(l1Recipient, 1 ether);
+        l2Gateway.sendNativeTokens{value: 1 ether}(l1Recipient);
         assertEq(address(l2Bridge).balance, 1 ether, "L2 bridge should lock value");
 
         // Decode SentMessage(from, to, value, chainId, blockNumber, nonce, messageHash, data)

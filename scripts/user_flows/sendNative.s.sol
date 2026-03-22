@@ -21,7 +21,7 @@ contract SendNative is Script {
         NativeGateway gateway = NativeGateway(payable(gatewayAddress));
 
         vm.startBroadcast();
-        gateway.sendNativeTokens{value: amountWei}(recipient, amountWei);
+        gateway.sendNativeTokens{value: amountWei}(recipient);
         vm.stopBroadcast();
     }
 }

@@ -10,7 +10,6 @@ import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/acce
 import {IRollupEvents, IRollupErrors, IRollupRead, IRollupConfig, IRollupAdmin} from "../interfaces/IRollup.sol";
 import {BatchStatus, BatchRecord, ChallengeRecord, L2BlockHeader, InitConfiguration} from "../interfaces/IRollupTypes.sol";
 import {Heap} from "../libraries/Heap.sol";
-import {MerkleTree} from "../libraries/MerkleTree.sol";
 
 /**
  * @title RollupStorageLayout

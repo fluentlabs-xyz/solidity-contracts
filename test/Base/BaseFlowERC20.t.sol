@@ -5,7 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
-import {IGatewayErrors} from "../../contracts/interfaces/gateways/IGateway.sol";
+import {IGatewayBaseErrors} from "../../contracts/interfaces/gateways/IGatewayBase.sol";
 
 import {L1FluentBridge} from "../../contracts/bridge/L1/L1FluentBridge.sol";
 import {L2FluentBridge} from "../../contracts/bridge/L2/L2FluentBridge.sol";
@@ -203,11 +203,11 @@ contract BaseFlowERC20Test is Test {
     function _linkCrossChain() internal {
         _selectL1();
         l1Bridge.setOtherBridge(address(l2Bridge));
-        l1Gateway.setOtherSide(address(l2Gateway), address(peggedImplL2), address(l2Factory), l2FactoryBeacon);
+        l1Gateway.setOtherSide(false, address(l2Gateway), l2ChainId, address(peggedImplL2), address(l2Factory), l2FactoryBeacon);
 
         _selectL2();
         l2Bridge.setOtherBridge(address(l1Bridge));
-        l2Gateway.setOtherSide(address(l1Gateway), address(peggedImplL1), address(l1Factory), l1FactoryBeacon);
+        l2Gateway.setOtherSide(false, address(l1Gateway), l1ChainId, address(peggedImplL1), address(l1Factory), l1FactoryBeacon);
     }
 
     function _messageHash(
@@ -436,14 +436,14 @@ contract BaseFlowERC20Test is Test {
 
         vm.prank(l1Sender);
         originToken.approve(address(unconfiguredGateway), 1 ether);
-        vm.expectRevert(abi.encodeWithSelector(IGatewayErrors.ZeroAddressNotAllowed.selector, "getOtherSideGateway"));
+        vm.expectRevert(abi.encodeWithSelector(IGatewayBaseErrors.ZeroAddressNotAllowed.selector, "getOtherSideGateway"));
         vm.prank(l1Sender);
         unconfiguredGateway.sendTokens(address(originToken), l2Recipient, 1 ether);
     }
 
     function test_RevertIf_receiveOriginTokens_zeroRecipient() public {
         _selectL1();
-        vm.expectRevert(IGatewayErrors.InvalidRecipient.selector);
+        vm.expectRevert(IGatewayBaseErrors.InvalidRecipient.selector);
         vm.prank(address(l1Bridge));
         l1Gateway.receiveOriginTokens(address(originToken), l1Sender, address(0), 1 ether);
     }

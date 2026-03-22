@@ -81,7 +81,7 @@ abstract contract GatewayBase is Test {
 
         address beacon = factory.beacon();
         vm.prank(admin);
-        gateway.setOtherSide(remoteGateway, address(peggedImplementation), address(factory), beacon);
+        gateway.setOtherSide(false, remoteGateway, sourceChainId, address(peggedImplementation), address(factory), beacon);
 
         originToken = new MockERC20Token("Mock Token", "MOCK", 1_000_000 ether, user);
     }

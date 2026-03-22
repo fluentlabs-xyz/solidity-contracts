@@ -219,11 +219,6 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
     }
 
     /// @inheritdoc IERC20Gateway
-    function computePeggedTokenAddress(address token) external view returns (address) {
-        return _computeTokenAddress(token, ERC20(token).name(), ERC20(token).symbol(), ERC20(token).decimals());
-    }
-
-    /// @inheritdoc IERC20Gateway
     function computeOtherSidePeggedTokenAddress(address originToken) external view returns (address) {
         return
             _computeOtherSidePeggedTokenAddress(
@@ -232,6 +227,11 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
                 ERC20(originToken).symbol(),
                 ERC20(originToken).decimals()
             );
+    }
+
+    /// @inheritdoc IERC20Gateway
+    function computeTokenAddress(address originToken) external view returns (address) {
+        return _computeTokenAddress(originToken, ERC20(originToken).name(), ERC20(originToken).symbol(), ERC20(originToken).decimals());
     }
 
     // ========== Universal Token Factory ==========

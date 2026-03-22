@@ -6,7 +6,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {ERC20Gateway} from "../../contracts/gateways/ERC20Gateway.sol";
 import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol";
 import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
-import {IGatewayErrors, IGatewayEvents} from "../../contracts/interfaces/gateways/IGateway.sol";
+import {IGatewayBaseErrors, IGatewayBaseEvents} from "../../contracts/interfaces/gateways/IGatewayBase.sol";
 import {IERC20GatewayErrors} from "../../contracts/interfaces/gateways/IERC20Gateway.sol";
 import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
 import {MockERC20Token} from "../../test/mocks/MockERC20.sol";
@@ -74,7 +74,7 @@ contract ERC20GatewayTest is GatewayBase {
 
     function test_sendTokens_revertsForZeroRecipient() public {
         vm.prank(user);
-        vm.expectRevert(IGatewayErrors.InvalidRecipient.selector);
+        vm.expectRevert(IGatewayBaseErrors.InvalidRecipient.selector);
         gateway.sendTokens(address(originToken), address(0), 1 ether);
     }
 
@@ -83,7 +83,7 @@ contract ERC20GatewayTest is GatewayBase {
         bytes memory tokenMetadata = abi.encode("MOCK", "Mock Token", uint8(18));
 
         vm.prank(user);
-        vm.expectRevert(IGatewayErrors.OnlyFluentBridge.selector);
+        vm.expectRevert(IGatewayBaseErrors.OnlyFluentBridge.selector);
         gateway.receivePeggedTokens(address(originToken), predictedPegged, user, recipient, 1 ether, tokenMetadata);
     }
 
@@ -155,12 +155,12 @@ contract ERC20GatewayTest is GatewayBase {
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
     }
 
-    function test_setOtherSideL2_setsAllFields() public {
+    function test_setOtherSide_universal_setsAllFields() public {
         address remoteFactory = makeAddr("remote-universal-factory");
         address remoteImplementation = makeAddr("remote-implementation");
 
         vm.prank(admin);
-        gateway.setOtherSideL2(remoteGateway, remoteImplementation, remoteFactory, sourceChainId);
+        gateway.setOtherSide(true, remoteGateway, sourceChainId, remoteImplementation, remoteFactory, address(0));
 
         assertEq(gateway.getOtherSideBeacon(), address(0));
         assertEq(gateway.getOtherSideChainId(), sourceChainId);
@@ -173,16 +173,20 @@ contract ERC20GatewayTest is GatewayBase {
         address remoteImplementation = makeAddr("remote-implementation");
 
         vm.prank(admin);
-        gateway.setOtherSideL2(remoteGateway, remoteImplementation, remoteFactory, sourceChainId);
+        gateway.setOtherSide(true, remoteGateway, sourceChainId, remoteImplementation, remoteFactory, address(0));
 
         address computed = gateway.computeOtherSidePeggedTokenAddress(address(originToken));
         assertTrue(computed != address(0));
     }
 
-    function test_setOtherSideL2_revertsOnZeroChainId() public {
+    function test_setOtherSide_revertsOnZeroRemoteGateway() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IGatewayErrors.ZeroAddressNotAllowed.selector, "setOtherSideL2 parameters"));
-        gateway.setOtherSideL2(remoteGateway, makeAddr("impl"), makeAddr("factory"), 0);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IGatewayBaseErrors.ZeroAddressNotAllowed.selector, "otherSideGateway or otherSideTokenImplementation or otherSideFactory"
+            )
+        );
+        gateway.setOtherSide(true, address(0), sourceChainId, makeAddr("impl"), makeAddr("factory"), address(0));
     }
 
     /// @dev Success path for `receiveOriginTokens`: gateway must hold the origin ERC20 before transfer out.
@@ -205,7 +209,7 @@ contract ERC20GatewayTest is GatewayBase {
         address remoteImplementation = makeAddr("remote-implementation");
 
         vm.prank(admin);
-        gateway.setOtherSideL2(remoteGateway, remoteImplementation, remoteFactory, sourceChainId);
+        gateway.setOtherSide(true, remoteGateway, sourceChainId, remoteImplementation, remoteFactory, address(0));
 
         uint256 amount = 2 ether;
         vm.prank(user);
@@ -230,7 +234,7 @@ contract ERC20GatewayTest is GatewayBase {
         vm.prank(user);
         originToken.approve(address(gw), 1 ether);
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(IGatewayErrors.ZeroAddressNotAllowed.selector, "getOtherSideGateway"));
+        vm.expectRevert(abi.encodeWithSelector(IGatewayBaseErrors.ZeroAddressNotAllowed.selector, "getOtherSideGateway"));
         gw.sendTokens(address(originToken), recipient, 1 ether);
     }
 
@@ -243,7 +247,7 @@ contract ERC20GatewayTest is GatewayBase {
         address newFactory = address(newFactoryProxy);
 
         vm.expectEmit(true, true, false, false, address(gateway));
-        emit IGatewayEvents.TokenFactoryUpdated(address(factory), newFactory);
+        emit IGatewayBaseEvents.TokenFactoryUpdated(address(factory), newFactory);
         vm.prank(admin);
         gateway.setTokenFactory(newFactory);
         assertEq(gateway.getTokenFactory(), newFactory);
@@ -251,7 +255,7 @@ contract ERC20GatewayTest is GatewayBase {
 
     function test_setTokenFactory_revertsOnZero() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IGatewayErrors.ZeroAddressNotAllowed.selector, "tokenFactory"));
+        vm.expectRevert(abi.encodeWithSelector(IGatewayBaseErrors.ZeroAddressNotAllowed.selector, "tokenFactory"));
         gateway.setTokenFactory(address(0));
     }
 
@@ -259,7 +263,7 @@ contract ERC20GatewayTest is GatewayBase {
         address newImpl = makeAddr("fresh-pegged-impl");
 
         vm.expectEmit(true, true, false, false, address(gateway));
-        emit IGatewayEvents.OtherSideTokenImplementationUpdated(address(peggedImplementation), newImpl);
+        emit IGatewayBaseEvents.OtherSideTokenImplementationUpdated(address(peggedImplementation), newImpl);
         vm.prank(admin);
         gateway.setOtherSideTokenImplementation(newImpl);
         assertEq(gateway.getOtherSideTokenImplementation(), newImpl);
@@ -267,13 +271,13 @@ contract ERC20GatewayTest is GatewayBase {
 
     function test_setOtherSideTokenImplementation_revertsOnZero() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IGatewayErrors.ZeroAddressNotAllowed.selector, "otherSideTokenImplementation"));
+        vm.expectRevert(abi.encodeWithSelector(IGatewayBaseErrors.ZeroAddressNotAllowed.selector, "otherSideTokenImplementation"));
         gateway.setOtherSideTokenImplementation(address(0));
     }
 
     function test_setOtherSideChainId_updatesAndEmits() public {
         vm.expectEmit(false, false, false, true, address(gateway));
-        emit IGatewayEvents.OtherSideChainIdUpdated(0, 4242);
+        emit IGatewayBaseEvents.OtherSideChainIdUpdated(0, 4242);
         vm.prank(admin);
         gateway.setOtherSideChainId(4242);
         assertEq(gateway.getOtherSideChainId(), 4242);
@@ -281,7 +285,7 @@ contract ERC20GatewayTest is GatewayBase {
 
     function test_setOtherSideChainId_revertsOnZero() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IGatewayErrors.ZeroValueNotAllowed.selector, "newOtherSideChainId"));
+        vm.expectRevert(abi.encodeWithSelector(IGatewayBaseErrors.ZeroValueNotAllowed.selector, "newOtherSideChainId"));
         gateway.setOtherSideChainId(0);
     }
 

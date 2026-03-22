@@ -151,8 +151,8 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
 
         uint256 gasLeft = $._gasLeft;
 
-        // Phase 1: validate header chain and deposit metadata only.
-        for (uint256 i = 0; i < batchSize; ++i) {
+        // Phase 1: validate header chain and deposit metadata only (adjacent pairs; single-block batches skip).
+        for (uint256 i = 0; i < batchSize - 1; ++i) {
             require(gasleft() >= gasLeft, InsufficientGas());
             require(
                 blockHeaders[i].blockHash == blockHeaders[i + 1].previousBlockHash,
