@@ -3,7 +3,7 @@ pragma solidity 0.8.30;
 
 import {FluentBridge} from "../FluentBridge.sol";
 
-import {IFluentBridge} from "../../interfaces/bridge/IFluentBridge.sol";
+import {IFluentBridge, IFluentBridgeRead} from "../../interfaces/bridge/IFluentBridge.sol";
 import {IL1BlockOracle} from "../../interfaces/oracles/IL1BlockOracle.sol";
 import {IL2FluentBridge} from "../../interfaces/bridge/IL2FluentBridge.sol";
 import {IL1GasOracle} from "../../interfaces/oracles/IL1GasOracle.sol";
@@ -14,13 +14,13 @@ import {IL1GasOracle} from "../../interfaces/oracles/IL1GasOracle.sol";
  * @dev L2 bridge contract lives on Fluent chain.
  */
 contract L2FluentBridge is FluentBridge, IL2FluentBridge {
-    // TODO: recalculate this
     /// @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.L2FluentBridgeStorage")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 internal constant L2_FLUENT_BRIDGE_STORAGE_LOCATION = 0x48432b5738e38939c89691519357184232440d69c0560714148646564b437700;
+    bytes32 internal constant L2_FLUENT_BRIDGE_STORAGE_LOCATION = 0x87bc3410b506da535d5d599e04bd2f08b89897a5d89e1855acbd7567af23bd00;
 
     struct GasPriceConfig {
         uint256 _overheadGasPrice;
         uint256 _scalarGasPrice;
+        uint256 _l1GasLimit;
     }
 
     struct L2FluentBridgeStorage {
@@ -49,6 +49,7 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
         address l1GasPriceOracle,
         uint256 overheadGasPrice,
         uint256 scalarGasPrice,
+        uint256 l1GasLimit,
         address feeTreasury
     ) external initializer {
         __FluentBridgeStorage_init(data);
@@ -56,19 +57,25 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
         _setReceiveMessageDeadline(receiveMessageDeadline);
         _setL1BlockOracle(l1BlockOracle);
         _setL1GasPriceOracle(l1GasPriceOracle);
-        _setGasPriceConfig(overheadGasPrice, scalarGasPrice);
+        _setGasPriceConfig(overheadGasPrice, scalarGasPrice, l1GasLimit);
         _setFeeTreasury(feeTreasury);
     }
 
-    function _afterSendMessage(bytes32 /* messageHash */) internal override {
-        uint256 messageFee = calculateGasCost();
-        require(msg.value >= messageFee, InsufficientMsgValue());
-        if (messageFee > 0) {
+    /// @inheritdoc FluentBridge
+    function _chargeSendFee() internal override returns (uint256) {
+        uint256 fee = getSentMessageFee();
+        if (fee > 0) {
             address treasury = getFeeTreasury();
             require(treasury != address(0), ZeroAddressNotAllowed("feeTreasury"));
-            (bool success, ) = treasury.call{value: messageFee}("");
+            (bool success, ) = treasury.call{value: fee}("");
             require(success, FailedToDeductFee());
         }
+        return fee;
+    }
+
+    /// @inheritdoc IFluentBridgeRead
+    function getSentMessageFee() public view override returns (uint256) {
+        return getL1GasLimit() * _calculateGasCost();
     }
 
     /// L1 -> L2 rollback
@@ -112,10 +119,15 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
         return _getL2FluentBridgeStorage()._gasPriceConfig;
     }
 
-    function calculateGasCost() public view returns (uint256) {
+    function getL1GasLimit() public view returns (uint256) {
+        return getGasPriceConfig()._l1GasLimit;
+    }
+
+    function _calculateGasCost() internal view returns (uint256) {
         GasPriceConfig memory gasPriceConfig = getGasPriceConfig();
         uint256 l1GasPrice = IL1GasOracle(getL1GasPriceOracle()).getL1GasPrice();
-        return gasPriceConfig._scalarGasPrice * (l1GasPrice * getExecuteGasLimit()) + gasPriceConfig._overheadGasPrice;
+        // we are using 1e18 as denominator to allow for fractional scalarGasPrice, e.g. 1.5x = 1500000000000000000
+        return ((l1GasPrice * gasPriceConfig._scalarGasPrice)) / 1e18 + gasPriceConfig._overheadGasPrice;
     }
 
     /**
@@ -142,15 +154,16 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
         _getL2FluentBridgeStorage()._l1GasPriceOracle = l1GasPriceOracle;
     }
 
-    function setGasPriceConfig(uint256 overheadGasPrice, uint256 scalarGasPrice) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        _setGasPriceConfig(overheadGasPrice, scalarGasPrice);
+    function setGasPriceConfig(uint256 overheadGasPrice, uint256 scalarGasPrice, uint256 l1GasLimit) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setGasPriceConfig(overheadGasPrice, scalarGasPrice, l1GasLimit);
     }
 
-    function _setGasPriceConfig(uint256 overheadGasPrice, uint256 scalarGasPrice) internal {
+    function _setGasPriceConfig(uint256 overheadGasPrice, uint256 scalarGasPrice, uint256 l1GasLimit) internal {
         GasPriceConfig storage $ = _getL2FluentBridgeStorage()._gasPriceConfig;
         emit GasPriceConfigUpdated($._overheadGasPrice, overheadGasPrice, $._scalarGasPrice, scalarGasPrice);
         $._overheadGasPrice = overheadGasPrice;
         $._scalarGasPrice = scalarGasPrice;
+        $._l1GasLimit = l1GasLimit;
     }
 
     function setReceiveMessageDeadline(uint256 receiveMessageDeadline) external onlyRole(DEFAULT_ADMIN_ROLE) {

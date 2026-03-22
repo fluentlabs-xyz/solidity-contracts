@@ -170,6 +170,11 @@ contract FluentBridgeStorageLayout is
         return _getFluentBridgeStorage()._feeTreasury;
     }
 
+    /// @inheritdoc IFluentBridgeRead
+    function getSentMessageFee() public view virtual returns (uint256) {
+        return 0;
+    }
+
     // ============ IFluentBridgeAdmin ============
 
     function setFeeTreasury(address newFeeTreasury) external onlyRole(DEFAULT_ADMIN_ROLE) {

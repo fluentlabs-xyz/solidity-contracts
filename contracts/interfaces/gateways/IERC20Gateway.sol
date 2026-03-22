@@ -39,7 +39,7 @@ interface IERC20Gateway is IERC20GatewayErrors {
      * @param to Recipient address on the destination chain.
      * @param amount Amount of tokens to bridge.
      */
-    function sendTokens(address token, address to, uint256 amount) external;
+    function sendTokens(address token, address to, uint256 amount) external payable;
 
     /**
      * @notice Receives tokens from the other side. Used on L1 to receive origin tokens from the other side.

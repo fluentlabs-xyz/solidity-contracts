@@ -77,7 +77,7 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
     // ============ Send Tokens ============
 
     /// @inheritdoc IERC20Gateway
-    function sendTokens(address token, address to, uint256 amount) external nonReentrant {
+    function sendTokens(address token, address to, uint256 amount) external payable nonReentrant {
         require(getOtherSideGateway() != address(0), ZeroAddressNotAllowed("getOtherSideGateway"));
         require(to != address(0), InvalidRecipient());
 
@@ -91,7 +91,7 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
             message = _sendPeggedTokens(token, sender, sender, to, amount);
         }
 
-        FluentBridge(getBridgeContract()).sendMessage(getOtherSideGateway(), message);
+        FluentBridge(getBridgeContract()).sendMessage{value: msg.value}(getOtherSideGateway(), message);
     }
 
     /// @notice Used on L1 to send origin tokens to the other side.

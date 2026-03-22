@@ -55,7 +55,7 @@ abstract contract GatewayBase is Test {
             address(impl),
             abi.encodeCall(
                 L2FluentBridge.initialize,
-                (abi.encode(params), deadline, address(oracle), address(gasOracle), 0, 0, makeAddr("feeTreasury"))
+                (abi.encode(params), deadline, address(oracle), address(gasOracle), 0, 0, 0, makeAddr("feeTreasury"))
             )
         );
         bridge = IFluentBridge(payable(address(proxy)));
@@ -113,13 +113,13 @@ abstract contract GatewayBase is Test {
         sourceBlock = nextSourceBlock++;
         messageHash = _bridgeMessageHash(from, to, value, sourceChainId, sourceBlock, nonce, message);
 
-        vm.deal(relayer, value);
+        vm.deal(address(bridge), address(bridge).balance + value);
         vm.prank(relayer);
-        bridge.receiveMessage{value: value}(from, to, value, sourceChainId, sourceBlock, nonce, message);
+        bridge.receiveMessage(from, to, value, sourceChainId, sourceBlock, nonce, message);
     }
 
     function _retryFailedMessage(address from, address to, uint256 value, uint256 blockNumber, uint256 nonce, bytes memory message) internal {
-        vm.deal(relayer, value);
+        vm.deal(address(bridge), address(bridge).balance + value);
         vm.prank(relayer);
         bridge.receiveFailedMessage{value: value}(from, to, value, sourceChainId, blockNumber, nonce, message);
     }

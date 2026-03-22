@@ -45,11 +45,13 @@ contract NativeGateway is GatewayBase, INativeGateway {
 
     /// @inheritdoc INativeGateway
     function sendNativeTokens(address to) external payable nonReentrant {
-        uint256 amount = msg.value;
         require(to != address(0), InvalidRecipient());
-        require(amount > 0, InvalidNativeAmount());
 
-        FluentBridge(getBridgeContract()).sendMessage{value: amount}(
+        uint256 fee = FluentBridge(getBridgeContract()).getSentMessageFee();
+        require(msg.value > fee, InvalidNativeAmount());
+        uint256 amount = msg.value - fee;
+
+        FluentBridge(getBridgeContract()).sendMessage{value: msg.value}(
             getOtherSideGateway(),
             abi.encodeCall(NativeGateway.receiveNativeTokens, (msg.sender, to, amount))
         );

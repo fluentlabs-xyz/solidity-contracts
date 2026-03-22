@@ -46,6 +46,10 @@ interface IFluentBridgeRead {
      * @notice Treasury receiving fees charged on L2 outbound messages (zero when unused).
      */
     function getFeeTreasury() external view returns (address);
+    /**
+     * @notice Fee charged on the next outbound message (0 when no fee applies).
+     */
+    function getSentMessageFee() external view returns (uint256);
 }
 
 /**
@@ -85,6 +89,11 @@ interface IFluentBridgeErrors {
      * @notice Zero value supplied for a required configuration field.
      */
     error ZeroValueNotAllowed(string field);
+
+    /**
+     * @notice Insufficient `msg.value` to cover the outbound message fee.
+     */
+    error InsufficientFee();
 }
 
 interface IFluentBridgeEvents {

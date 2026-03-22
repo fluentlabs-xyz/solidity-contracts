@@ -42,6 +42,13 @@ interface IL2FluentBridge {
      */
     event ReceiveMessageDeadlineUpdated(uint256 indexed prevValue, uint256 indexed newValue);
 
+    /**
+     * @notice Emitted when the L1 gas limit is updated.
+     * @param prevValue The previous L1 gas limit.
+     * @param newValue The new L1 gas limit.
+     */
+    event L1GasLimitUpdated(uint256 indexed prevValue, uint256 indexed newValue);
+
     // ========== Functions ==========
 
     /**

@@ -185,7 +185,7 @@ contract BaseFlowERC20Test is Test {
             address(bridgeImpl),
             abi.encodeCall(
                 L2FluentBridge.initialize,
-                (abi.encode(params), RECEIVE_DEADLINE, address(l2BlockOracle), address(l2GasOracle), 0, 0, makeAddr("feeTreasury"))
+                (abi.encode(params), RECEIVE_DEADLINE, address(l2BlockOracle), address(l2GasOracle), 0, 0, 0, makeAddr("feeTreasury"))
             )
         );
         l2Bridge = L2FluentBridge(payable(address(bridgeProxy)));

@@ -66,7 +66,7 @@ abstract contract BridgeBase is Test {
             address(l2Impl),
             abi.encodeCall(
                 L2FluentBridge.initialize,
-                (abi.encode(cfg), 100, address(l1BlockOracle), address(l1GasOracle), 0, 0, makeAddr("feeTreasury"))
+                (abi.encode(cfg), 100, address(l1BlockOracle), address(l1GasOracle), 0, 0, 0, makeAddr("feeTreasury"))
             )
         );
         l2Bridge = L2FluentBridge(payable(address(l2Proxy)));

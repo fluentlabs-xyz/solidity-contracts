@@ -74,6 +74,7 @@ abstract contract DeployLib is Script {
             address(0),
             uint256(0),
             uint256(0),
+            uint256(0),
             address(0),
             rollup
         );
@@ -90,6 +91,7 @@ abstract contract DeployLib is Script {
         address l1GasOracle,
         uint256 l2GasOverhead,
         uint256 l2GasScalar,
+        uint256 l1GasLimit,
         address feeTreasury,
         address rollup
     ) internal returns (address bridgeProxy, address bridgeImpl) {
@@ -119,7 +121,7 @@ abstract contract DeployLib is Script {
             bridgeImpl = address(impl);
             bytes memory initializerData = abi.encodeCall(
                 L2FluentBridge.initialize,
-                (initData, receiveMessageDeadline, l1BlockOracle, gasOracleAddr, l2GasOverhead, l2GasScalar, treasury)
+                (initData, receiveMessageDeadline, l1BlockOracle, gasOracleAddr, l2GasOverhead, l2GasScalar, l1GasLimit, treasury)
             );
             bridgeProxy = UnsafeUpgrades.deployUUPSProxy(bridgeImpl, initializerData);
         }
