@@ -289,6 +289,24 @@ contract ERC20GatewayTest is GatewayBase {
         gateway.setOtherSideChainId(0);
     }
 
+    function test_receivePeggedTokens_withZeroRecipient_marksFailed() public {
+        address predictedPegged = _predictedPegged();
+        bytes memory tokenMetadata = abi.encode("MOCK", "Mock Token", uint8(18));
+        bytes memory message = abi.encodeCall(
+            ERC20Gateway.receivePeggedTokens,
+            (address(originToken), predictedPegged, user, address(0), 1 ether, tokenMetadata)
+        );
+
+        (bytes32 messageHash, , ) = _relayMessage(remoteGateway, address(gateway), 0, message);
+        assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
+    }
+
+    function test_RevertIf_setBridgeContract_zeroAddress() public {
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(IGatewayBaseErrors.ZeroAddressNotAllowed.selector, "newBridgeContract"));
+        gateway.setBridgeContract(address(0));
+    }
+
     function test_computeTokenAddress_matchesPredictedHelper() public view {
         address predicted = gateway.computeTokenAddress(address(gateway), address(originToken));
         assertEq(predicted, _predictedPegged(), "computeTokenAddress mismatch vs helper");

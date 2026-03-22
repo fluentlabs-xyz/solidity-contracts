@@ -269,6 +269,30 @@ contract ForceRevertTest is RollupAssertions {
         assertEq(rollup.claimableChallengerReward(challenger2), CHALLENGE_DEPOSIT + fee, "challenger2 reward mismatch");
     }
 
+    function test_RevertIf_forceRevertBatch_zeroBatchIndex() public {
+        _acceptBatch(GENESIS_HASH, 0);
+
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, bytes32(uint256(0))));
+        rollup.forceRevertBatch(0);
+    }
+
+    function test_RevertIf_forceRevertBatch_invalidBatchIndex() public {
+        // Accept MAX_FORCE_REVERT_BATCH_SIZE + 2 batches so reverting from batch 1
+        // exceeds the max revert batch size
+        bytes32 lastHash = GENESIS_HASH;
+        for (uint256 i = 0; i < MAX_FORCE_REVERT_BATCH_SIZE + 2; i++) {
+            _acceptBatch(lastHash, 0);
+            lastHash = rollup.lastBlockHashInBatch(rollup.nextBatchIndex() - 1);
+        }
+
+        uint256 lastAccepted = rollup.nextBatchIndex() - 1;
+
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidBatchIndex.selector, uint256(1), lastAccepted));
+        rollup.forceRevertBatch(1);
+    }
+
     function test_RevertIf_forceRevertBatch_insufficientIncentiveFee() public {
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
         bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);

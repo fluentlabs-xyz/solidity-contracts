@@ -10,6 +10,7 @@ import {L2BlockHeader, BatchStatus, BatchRecord, ChallengeRecord} from "../../co
 import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
+import {EthRejecter} from "../mocks/EthRejecter.sol";
 
 contract ChallengeTest is RollupAssertions {
     function _preconfirmedBatchWithHeaders(bytes32 parentHash) internal returns (uint256 batchIndex, L2BlockHeader[] memory headers) {
@@ -355,6 +356,118 @@ contract ChallengeTest is RollupAssertions {
     function test_RevertIf_withdrawProofReward_nothingToWithdraw() public {
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.NothingToWithdraw.selector));
         vm.prank(prover);
+        rollup.withdrawProofReward();
+    }
+
+    // ============ Additional revert tests ============
+
+    function test_RevertIf_resolveChallenge_rollupCorrupted() public {
+        uint256 batch1 = _acceptBatch(GENESIS_HASH, 0);
+        bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);
+        (uint256 batchIndex, L2BlockHeader[] memory headers) = _preconfirmedBatchWithHeaders(lastHash);
+        MerkleTree.MerkleProof memory proof = _buildMerkleProof(headers, 0);
+        _challengeBlock(batchIndex, headers[0], proof);
+
+        bytes32 commitment = _computeCommitment(headers[0]);
+        uint256 deadline = rollup.getChallenge(commitment).deadline;
+
+        // Advance past the challenge deadline to corrupt the rollup
+        vm.roll(deadline + 1);
+        _assertRollupCorrupted();
+
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.RollupCorrupted.selector));
+        _resolveChallenge(batchIndex, headers[0], proof);
+    }
+
+    function test_RevertIf_resolveChallenge_resolutionTooLate() public {
+        uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
+        bytes32 lastHash1 = rollup.lastBlockHashInBatch(batch1);
+
+        // batch2 stays Preconfirmed — acts as the first non-finalized batch so
+        // _rollupCorrupted() sees Preconfirmed (no corruption check for that status).
+        uint256 batch2 = _acceptBatch(lastHash1, 0);
+        _submitBlobs(batch2, 0);
+        _preconfirmBatch(batch2);
+
+        bytes32 lastHash2 = rollup.lastBlockHashInBatch(batch2);
+        (uint256 batchIndex, L2BlockHeader[] memory headers) = _preconfirmedBatchWithHeaders(lastHash2);
+        MerkleTree.MerkleProof memory proof = _buildMerkleProof(headers, 0);
+        _challengeBlock(batchIndex, headers[0], proof);
+
+        bytes32 commitment = _computeCommitment(headers[0]);
+        uint256 deadline = rollup.getChallenge(commitment).deadline;
+
+        // Advance past the per-challenge deadline; batch2 is Preconfirmed so
+        // the corruption check does not inspect the challenge queue.
+        vm.roll(deadline + 1);
+        _assertRollupHealthy();
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IRollupErrors.ChallengeResolutionTooLate.selector, batchIndex, deadline, block.number)
+        );
+        _resolveChallenge(batchIndex, headers[0], proof);
+    }
+
+    function test_RevertIf_withdrawChallengerReward_ethTransferFailed() public {
+        EthRejecter rejecter = new EthRejecter();
+        address rejecterAddr = address(rejecter);
+
+        // Grant challenger role to the rejecter
+        bytes32 challengerRole = rollup.CHALLENGER_ROLE();
+        vm.prank(admin);
+        rollup.grantRole(challengerRole, rejecterAddr);
+
+        uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
+        bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);
+        L2BlockHeader[] memory headers = _makeBatch(lastHash);
+        uint256 batchIndex = rollup.nextBatchIndex();
+        vm.prank(sequencer);
+        rollup.acceptNextBatch(headers, 1);
+        _submitBlobs(batchIndex, 0);
+        _preconfirmBatch(batchIndex);
+
+        MerkleTree.MerkleProof memory proof0 = _buildMerkleProof(headers, 0);
+        vm.deal(rejecterAddr, CHALLENGE_DEPOSIT);
+        vm.prank(rejecterAddr);
+        rollup.challengeBlock{value: CHALLENGE_DEPOSIT}(batchIndex, headers[0], proof0);
+
+        // Force revert to credit the rejecter's challenger reward
+        uint256 fee = rollup.incentiveFee();
+        vm.deal(admin, fee);
+        vm.prank(admin);
+        rollup.forceRevertBatch{value: fee}(batch1);
+
+        uint256 expectedReward = CHALLENGE_DEPOSIT + fee;
+        assertEq(rollup.claimableChallengerReward(rejecterAddr), expectedReward);
+
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.EthTransferFailed.selector, rejecterAddr, expectedReward));
+        vm.prank(rejecterAddr);
+        rollup.withdrawChallengerReward();
+    }
+
+    function test_RevertIf_withdrawProofReward_ethTransferFailed() public {
+        EthRejecter rejecter = new EthRejecter();
+        address rejecterAddr = address(rejecter);
+
+        // Grant prover role to the rejecter
+        bytes32 proverRole = rollup.PROVER_ROLE();
+        vm.prank(admin);
+        rollup.grantRole(proverRole, rejecterAddr);
+
+        uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
+        bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);
+        (uint256 batchIndex, L2BlockHeader[] memory headers) = _preconfirmedBatchWithHeaders(lastHash);
+        MerkleTree.MerkleProof memory proof = _buildMerkleProof(headers, 0);
+        _challengeBlock(batchIndex, headers[0], proof);
+
+        // Resolve challenge as the rejecter (acting as prover)
+        vm.prank(rejecterAddr);
+        rollup.resolveChallenge(batchIndex, headers[0], proof, address(nitroVerifier), DUMMY_SIGNATURE, "");
+
+        assertEq(rollup.claimableProofReward(rejecterAddr), CHALLENGE_DEPOSIT);
+
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.EthTransferFailed.selector, rejecterAddr, CHALLENGE_DEPOSIT));
+        vm.prank(rejecterAddr);
         rollup.withdrawProofReward();
     }
 }

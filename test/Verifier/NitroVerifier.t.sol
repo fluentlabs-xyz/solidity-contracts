@@ -68,6 +68,45 @@ contract NitroVerifierTest is Test {
         assertEq(signer_, signer);
     }
 
+    function test_verifyBatch_requiresAttestedSigner() public {
+        uint256 signerKey = 0xA11CE;
+        address signer = vm.addr(signerKey);
+
+        verifier.verifyAttestation(signer, hex"1234");
+
+        bytes32 batchRoot = keccak256("batch");
+        bytes32[] memory blobHashes = new bytes32[](2);
+        blobHashes[0] = keccak256("blob0");
+        blobHashes[1] = keccak256("blob1");
+
+        bytes32 digest = sha256(abi.encode(batchRoot, blobHashes));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        address recovered = verifier.verifyBatch(batchRoot, blobHashes, signature);
+        assertEq(recovered, signer, "recovered signer mismatch");
+    }
+
+    function test_RevertIf_verifyBatch_invalidSignatureLength() public {
+        vm.expectRevert(INitroVerifier.InvalidSignatureLength.selector);
+        verifier.verifyBatch(keccak256("batch"), new bytes32[](0), hex"0102");
+    }
+
+    function test_RevertIf_verifyBatch_signerNotAttested() public {
+        uint256 signerKey = 0xA11CE;
+
+        bytes32 batchRoot = keccak256("batch");
+        bytes32[] memory blobHashes = new bytes32[](1);
+        blobHashes[0] = keccak256("blob0");
+
+        bytes32 digest = sha256(abi.encode(batchRoot, blobHashes));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+
+        vm.expectRevert(INitroVerifier.SignerNotAttested.selector);
+        verifier.verifyBatch(batchRoot, blobHashes, signature);
+    }
+
     function test_RevertIf_verifyAttestation_pubkeyAlreadyVerified() public {
         address pubkey = makeAddr("pubkey");
         verifier.verifyAttestation(pubkey, hex"1234");

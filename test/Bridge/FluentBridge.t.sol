@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
-import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
+import {IFluentBridge, IFluentBridgeErrors} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {GatewayBase} from "../Gateway/Base.t.sol";
 import {NoopReceiver, RevertingReceiver} from "./Base.t.sol";
 
@@ -50,5 +50,30 @@ contract FluentBridgeTest is GatewayBase {
         uint256 balanceBefore = recipient.balance;
         _relayMessage(remoteBridge, recipient, amount, "");
         assertEq(recipient.balance - balanceBefore, amount);
+    }
+
+    function test_RevertIf_sendMessage_toSelf() public {
+        vm.expectRevert(IFluentBridgeErrors.InvalidDestinationAddress.selector);
+        bridge.sendMessage(address(bridge), "");
+    }
+
+    function test_RevertIf_sendMessage_toOtherBridge() public {
+        address otherBridge = bridge.getOtherBridge();
+        vm.expectRevert(IFluentBridgeErrors.InvalidDestinationAddress.selector);
+        bridge.sendMessage(otherBridge, "");
+    }
+
+    function test_RevertIf_receiveFailedMessage_statusNotFailed() public {
+        uint256 nonce = bridge.getReceivedNonce();
+        vm.expectRevert(IFluentBridgeErrors.MessageNotFailed.selector);
+        bridge.receiveFailedMessage(remoteBridge, recipient, 0, sourceChainId, 1, nonce, "");
+    }
+
+    function test_RevertIf_receiveMessage_selfCall() public {
+        uint256 nonce = bridge.getReceivedNonce();
+        vm.deal(address(bridge), 1 ether);
+        vm.prank(relayer);
+        vm.expectRevert(IFluentBridgeErrors.ForbiddenSelfCall.selector);
+        bridge.receiveMessage(remoteBridge, address(bridge), 0, sourceChainId, 1, nonce, "");
     }
 }

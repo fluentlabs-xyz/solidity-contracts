@@ -348,4 +348,93 @@ contract AdminTest is RollupAssertions {
         vm.prank(sequencer);
         rollup.acceptNextBatch(batch, 0);
     }
+
+    // ============ Additional admin revert tests ============
+
+    function test_RevertIf_setSp1Verifier_notAContract() public {
+        address eoa = makeAddr("eoa");
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.NotAContract.selector, "sp1Verifier"));
+        rollup.setSp1Verifier(eoa);
+    }
+
+    function test_RevertIf_enableNitroVerifier_notAContract() public {
+        address eoa = makeAddr("eoa");
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.NotAContract.selector, "nitroVerifier"));
+        rollup.enableNitroVerifier(eoa);
+    }
+
+    function test_RevertIf_disableNitroVerifier_zeroAddress() public {
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroAddressNotAllowed.selector, bytes32("verifier")));
+        rollup.disableNitroVerifier(address(0));
+    }
+
+    function test_RevertIf_setSubmitBlobsWindow_exceedsPreconfirm() public {
+        // preconfirmWindow is 100, so setting submitBlobsWindow >= 100 should fail
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "submitBlobsWindow >= preconfirmWindow"));
+        rollup.setSubmitBlobsWindow(uint64(PRECONFIRM_WINDOW));
+    }
+
+    function test_RevertIf_setPreconfirmWindow_belowSubmitBlobs() public {
+        // submitBlobsWindow is 50, so setting preconfirmWindow <= 50 should fail
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "preconfirmWindow <= submitBlobsWindow"));
+        rollup.setPreconfirmWindow(uint64(SUBMIT_BLOBS_WINDOW));
+    }
+
+    function test_RevertIf_setChallengeWindow_exceedsFinalization() public {
+        // finalizationDelay is 200, so setting challengeWindow >= 200 should fail
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "challengeWindow >= finalizationDelay"));
+        rollup.setChallengeWindow(uint64(FINALIZATION_DELAY));
+    }
+
+    function test_RevertIf_setFinalizationDelay_belowChallenge() public {
+        // challengeWindow is 150, so setting finalizationDelay <= 150 should fail
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "finalizationDelay <= challengeWindow"));
+        rollup.setFinalizationDelay(uint64(CHALLENGE_WINDOW));
+    }
+
+    function test_RevertIf_setChallengeDepositAmount_zero() public {
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, bytes32("challengeDepositAmount")));
+        rollup.setChallengeDepositAmount(0);
+    }
+
+    function test_RevertIf_setAcceptDepositDeadline_zero() public {
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, bytes32("acceptDepositDeadline")));
+        rollup.setAcceptDepositDeadline(0);
+    }
+
+    function test_RevertIf_initialize_zeroGenesisHash() public {
+        InitConfiguration memory cfg = _defaultInitConfig(admin, sequencer);
+        cfg.genesisHash = bytes32(0);
+        Rollup impl = new Rollup();
+
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, bytes32("genesisHash")));
+        new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
+    }
+
+    function test_RevertIf_initialize_zeroMaxForceRevertBatchSize() public {
+        InitConfiguration memory cfg = _defaultInitConfig(admin, sequencer);
+        cfg.maxForceRevertBatchSize = 0;
+        Rollup impl = new Rollup();
+
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, bytes32("maxForceRevertBatchSize")));
+        new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
+    }
+
+    function test_RevertIf_initialize_submitBlobsWindowRange() public {
+        InitConfiguration memory cfg = _defaultInitConfig(admin, sequencer);
+        cfg.submitBlobsWindow = uint256(type(uint64).max) + 1;
+        Rollup impl = new Rollup();
+
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "submitBlobsWindow out of range"));
+        new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
+    }
 }

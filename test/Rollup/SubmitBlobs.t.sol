@@ -99,6 +99,21 @@ contract SubmitBlobsTest is RollupAssertions {
         rollup.submitBlobs(batchIndex, 0);
     }
 
+    function test_RevertIf_submitBlobs_wrongBatchStatus() public {
+        uint256 batchIndex = _acceptBatch(GENESIS_HASH, 1);
+        _submitBlobs(batchIndex, 1);
+        assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Accepted));
+
+        // All blobs are already submitted, so submitting more hits InvalidBlobCount
+        // before the status check. Verify the contract protects against double-submission.
+        bytes32[] memory h = new bytes32[](1);
+        h[0] = keccak256("extra-blob");
+        vm.blobhashes(h);
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidBlobCount.selector, uint32(1), uint256(2)));
+        vm.prank(sequencer);
+        rollup.submitBlobs(batchIndex, 1);
+    }
+
     function test_RevertIf_submitBlobs_zeroBlobHash() public {
         uint256 batchIndex = _acceptBatch(GENESIS_HASH, 1);
 

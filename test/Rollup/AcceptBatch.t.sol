@@ -147,6 +147,41 @@ contract AcceptBatchTest is RollupAssertions {
         rollup.acceptNextBatch(batch, 1);
     }
 
+    function test_RevertIf_acceptNextBatch_wrongPreviousBlockHash() public {
+        L2BlockHeader[] memory batch = _makeBatch(keccak256("not-genesis"));
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IRollupErrors.WrongPreviousBlockHash.selector, GENESIS_HASH, keccak256("not-genesis"))
+        );
+        vm.prank(sequencer);
+        rollup.acceptNextBatch(batch, 1);
+    }
+
+    function test_RevertIf_acceptNextBatch_invalidBlockSequence() public {
+        L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
+        batch[1].previousBlockHash = keccak256("bad-link");
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IRollupErrors.InvalidBlockSequence.selector,
+                0,
+                batch[0].blockHash,
+                keccak256("bad-link")
+            )
+        );
+        vm.prank(sequencer);
+        rollup.acceptNextBatch(batch, 1);
+    }
+
+    function test_RevertIf_acceptNextBatch_invalidDepositRootWithNonZeroCount() public {
+        L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
+        batch[batch.length - 1].depositCount = 3;
+
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidDepositRootWithNonZeroCount.selector, uint256(3)));
+        vm.prank(sequencer);
+        rollup.acceptNextBatch(batch, 1);
+    }
+
     function test_RevertIf_acceptNextBatch_paused() public {
         vm.prank(admin);
         rollup.pause();

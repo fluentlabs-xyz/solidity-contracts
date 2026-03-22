@@ -259,6 +259,24 @@ contract NativeGatewayTest is GatewayBase {
         assertEq(address(nativeGateway).balance - beforeBal, 0.25 ether);
     }
 
+    function test_RevertIf_setBridgeContract_zeroAddress() public {
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(IGatewayBaseErrors.ZeroAddressNotAllowed.selector, "newBridgeContract"));
+        nativeGateway.setBridgeContract(address(0));
+    }
+
+    function test_RevertIf_setOtherSideGateway_zeroAddress() public {
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(IGatewayBaseErrors.ZeroAddressNotAllowed.selector, "newOtherSideGateway"));
+        nativeGateway.setOtherSideGateway(address(0));
+    }
+
+    function test_RevertIf_setOtherSideChainId_zero() public {
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(IGatewayBaseErrors.ZeroValueNotAllowed.selector, "newOtherSideChainId"));
+        nativeGateway.setOtherSideChainId(0);
+    }
+
     function test_bridgePause_blocksSendAndReceive() public {
         vm.prank(admin);
         (bool pauseOk, ) = address(bridge).call(abi.encodeWithSignature("pause()"));

@@ -226,6 +226,48 @@ contract FinalizeBatchesTest is RollupAssertions {
         rollup.finalizeWithProofs(batchIndex, wrongHeaders);
     }
 
+    function test_finalizeBatches_skipsAlreadyFinalizedBatch() public {
+        uint256 batch1 = _acceptBatch(GENESIS_HASH, 0);
+        _submitBlobs(batch1, 0);
+        _preconfirmBatch(batch1);
+        vm.roll(block.number + FINALIZATION_DELAY + 1);
+
+        uint256 finalized1 = rollup.finalizeBatches(batch1);
+        assertEq(finalized1, 1);
+        assertTrue(rollup.isBatchFinalized(batch1));
+
+        // Second call returns 0 — already finalized, no-op
+        uint256 finalized2 = rollup.finalizeBatches(batch1);
+        assertEq(finalized2, 0);
+        assertTrue(rollup.isBatchFinalized(batch1));
+    }
+
+    function test_RevertIf_preconfirmBatch_rollupCorrupted() public {
+        uint256 batch1 = _acceptBatch(GENESIS_HASH, 0);
+        bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);
+        uint256 batch2 = _acceptBatch(lastHash, 0);
+        _submitBlobs(batch2, 0);
+
+        // Let batch1's submitBlobsWindow expire to corrupt the rollup
+        vm.roll(block.number + SUBMIT_BLOBS_WINDOW + 1);
+        _assertRollupCorrupted();
+
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.RollupCorrupted.selector));
+        vm.prank(preconfirmer);
+        rollup.preconfirmBatch(address(nitroVerifier), batch2, DUMMY_SIGNATURE);
+    }
+
+    function test_RevertIf_preconfirmBatch_wrongBatchStatus() public {
+        uint256 batch1 = _acceptBatch(GENESIS_HASH, 0);
+
+        // batch1 is in HeadersSubmitted status (blobs not submitted)
+        vm.expectRevert(
+            abi.encodeWithSelector(IRollupErrors.InvalidBatchStatus.selector, batch1, uint8(BatchStatus.HeadersSubmitted))
+        );
+        vm.prank(preconfirmer);
+        rollup.preconfirmBatch(address(nitroVerifier), batch1, DUMMY_SIGNATURE);
+    }
+
     function test_RevertIf_finalizeWithProofs_blockNotProven() public {
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
         bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);

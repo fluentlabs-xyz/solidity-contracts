@@ -7,7 +7,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 
 import {L2FluentBridge} from "../../contracts/bridge/L2/L2FluentBridge.sol";
 import {FluentBridgeStorageLayout} from "../../contracts/bridge/FluentBridgeStorageLayout.sol";
-import {IFluentBridge, IFluentBridgeEvents} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
+import {IFluentBridge, IFluentBridgeEvents, IFluentBridgeErrors} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {IL2FluentBridge} from "../../contracts/interfaces/bridge/IL2FluentBridge.sol";
 import {L1BlockOracle} from "../../contracts/oracles/L1BlockOracle.sol";
 import {L1GasOracle} from "../../contracts/oracles/L1GasOracle.sol";
@@ -357,5 +357,79 @@ contract ReceiveMessageNoFeeTest is L2BridgeFeeBase {
 
         assertEq(feeTreasury.balance, treasuryBefore, "treasury should not receive anything on inbound");
         assertEq(recipient.balance, amount, "recipient should receive full amount");
+    }
+}
+
+// ============ L2 Branch Coverage Tests ============
+
+contract RejectEther {
+    receive() external payable {
+        revert("reject-eth");
+    }
+}
+
+contract L2FluentBridgeTest is L2BridgeFeeBase {
+    /// @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.FluentBridgeStorage")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 internal constant FLUENT_BRIDGE_STORAGE_LOCATION = 0xe2e0b7768cb35928615964d328c094191301065845ac8cd8ffc433ff2eae9300;
+
+    function test_RevertIf_chargeSendFee_zeroFeeTreasury() public {
+        // Directly zero out the _feeTreasury storage slot (slot offset 6 in the struct)
+        bytes32 treasurySlot = bytes32(uint256(FLUENT_BRIDGE_STORAGE_LOCATION) + 6);
+        vm.store(address(bridge), treasurySlot, bytes32(0));
+        assertEq(bridge.getFeeTreasury(), address(0), "treasury should be zero");
+
+        uint256 fee = bridge.getSentMessageFee();
+        assertGt(fee, 0, "fee must be nonzero to trigger the branch");
+
+        vm.deal(user, fee + 1 ether);
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(IFluentBridgeErrors.ZeroAddressNotAllowed.selector, "feeTreasury"));
+        bridge.sendMessage{value: fee + 1 ether}(recipient, "");
+    }
+
+    function test_RevertIf_chargeSendFee_treasuryRejectsEth() public {
+        RejectEther rejector = new RejectEther();
+        vm.prank(admin);
+        bridge.setFeeTreasury(address(rejector));
+
+        uint256 fee = bridge.getSentMessageFee();
+        assertGt(fee, 0, "fee must be nonzero to trigger the branch");
+
+        vm.deal(user, fee + 1 ether);
+        vm.prank(user);
+        vm.expectRevert(IL2FluentBridge.FailedToDeductFee.selector);
+        bridge.sendMessage{value: fee + 1 ether}(recipient, "");
+    }
+
+    function test_RevertIf_beforeReceiveMessage_zeroBlockNumber() public {
+        address otherBridge = makeAddr("otherBridge");
+        vm.deal(address(bridge), 1 ether);
+        vm.prank(relayer);
+        vm.expectRevert(abi.encodeWithSelector(IFluentBridgeErrors.ZeroValueNotAllowed.selector, "blockNumber"));
+        bridge.receiveMessage(otherBridge, recipient, 0, block.chainid + 1, 0, 0, "");
+    }
+
+    function test_RevertIf_setL1GasPriceOracle_zeroAddress() public {
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(IFluentBridgeErrors.ZeroAddressNotAllowed.selector, "l1GasPriceOracle"));
+        bridge.setL1GasPriceOracle(address(0));
+    }
+
+    function test_RevertIf_setReceiveMessageDeadline_zero() public {
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(IFluentBridgeErrors.InvalidWindowConfig.selector, "receiveMessageDeadline must be greater than 0"));
+        bridge.setReceiveMessageDeadline(0);
+    }
+
+    function test_setL1BlockOracle_allowsZeroWhenDeadlineDisabled() public {
+        // _setReceiveMessageDeadline requires > 0, so we bypass via vm.store
+        // L2FluentBridgeStorage._receiveMessageDeadline is at slot offset 0 in the L2 storage
+        bytes32 l2StorageSlot = 0x87bc3410b506da535d5d599e04bd2f08b89897a5d89e1855acbd7567af23bd00;
+        vm.store(address(bridge), l2StorageSlot, bytes32(0));
+        assertEq(bridge.getReceiveMessageDeadline(), 0, "deadline should be zero");
+
+        vm.prank(admin);
+        bridge.setL1BlockOracle(address(0));
+        assertEq(bridge.getL1BlockOracle(), address(0), "oracle should be zero");
     }
 }

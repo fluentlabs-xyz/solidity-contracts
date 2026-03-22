@@ -129,4 +129,41 @@ contract BridgeAdminTest is BridgeBase {
         l1Bridge.unpause();
         assertFalse(l1Bridge.paused());
     }
+
+    function test_RevertIf_setFeeTreasury_zeroAddress() public {
+        vm.expectRevert(abi.encodeWithSelector(IFluentBridgeErrors.ZeroAddressNotAllowed.selector, "newFeeTreasury"));
+        vm.prank(admin);
+        l2Bridge.setFeeTreasury(address(0));
+    }
+
+    function test_RevertIf_setRelayerRole_zeroAddress() public {
+        vm.expectRevert(abi.encodeWithSelector(IFluentBridgeErrors.ZeroAddressNotAllowed.selector, "relayer"));
+        vm.prank(admin);
+        l1Bridge.setRelayerRole(address(0));
+    }
+
+    function test_removeRelayerRole_revokesRole() public {
+        assertTrue(l1Bridge.hasRole(l1Bridge.RELAYER_ROLE(), relayer));
+        vm.prank(admin);
+        l1Bridge.removeRelayerRole(relayer);
+        assertFalse(l1Bridge.hasRole(l1Bridge.RELAYER_ROLE(), relayer));
+    }
+
+    function test_RevertIf_setFeeTreasury_callerNotAdmin() public {
+        vm.expectRevert(abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, stranger, l2Bridge.DEFAULT_ADMIN_ROLE()));
+        vm.prank(stranger);
+        l2Bridge.setFeeTreasury(makeAddr("newTreasury"));
+    }
+
+    function test_RevertIf_setRelayerRole_callerNotAdmin() public {
+        vm.expectRevert(abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, stranger, l1Bridge.DEFAULT_ADMIN_ROLE()));
+        vm.prank(stranger);
+        l1Bridge.setRelayerRole(makeAddr("newRelayer"));
+    }
+
+    function test_RevertIf_removeRelayerRole_callerNotAdmin() public {
+        vm.expectRevert(abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, stranger, l1Bridge.DEFAULT_ADMIN_ROLE()));
+        vm.prank(stranger);
+        l1Bridge.removeRelayerRole(relayer);
+    }
 }
