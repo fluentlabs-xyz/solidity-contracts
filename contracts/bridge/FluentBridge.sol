@@ -40,7 +40,8 @@ import {FluentBridgeStorageLayout} from "./FluentBridgeStorageLayout.sol";
 abstract contract FluentBridge is FluentBridgeStorageLayout {
     /**
      * @notice Initialization happens in chain-specific implementations:
-     *         `L1FluentBridge.initialize(bytes,address)` and `L2FluentBridge.initialize(bytes,uint256,address)`.
+     *         `L1FluentBridge.initialize(bytes,address)` and
+     *         `L2FluentBridge.initialize(bytes,uint256,address,address,uint256,uint256,address)`.
      */
 
     function sendMessage(address to, bytes calldata message) external payable whenNotPaused {

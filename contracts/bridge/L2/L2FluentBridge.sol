@@ -42,18 +42,33 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
         _disableInitializers();
     }
 
-    function initialize(bytes calldata data, uint256 receiveMessageDeadline, address l1BlockOracle) external initializer {
+    function initialize(
+        bytes calldata data,
+        uint256 receiveMessageDeadline,
+        address l1BlockOracle,
+        address l1GasPriceOracle,
+        uint256 overheadGasPrice,
+        uint256 scalarGasPrice,
+        address feeTreasury
+    ) external initializer {
         __FluentBridgeStorage_init(data);
 
         _setReceiveMessageDeadline(receiveMessageDeadline);
         _setL1BlockOracle(l1BlockOracle);
+        _setL1GasPriceOracle(l1GasPriceOracle);
+        _setGasPriceConfig(overheadGasPrice, scalarGasPrice);
+        _setFeeTreasury(feeTreasury);
     }
 
     function _afterSendMessage(bytes32 /* messageHash */) internal override {
         uint256 messageFee = calculateGasCost();
         require(msg.value >= messageFee, InsufficientMsgValue());
-        (bool _success, ) = getFeeTreasury().call{value: messageFee}("");
-        require(_success, FailedToDeductFee());
+        if (messageFee > 0) {
+            address treasury = getFeeTreasury();
+            require(treasury != address(0), ZeroAddressNotAllowed("feeTreasury"));
+            (bool success, ) = treasury.call{value: messageFee}("");
+            require(success, FailedToDeductFee());
+        }
     }
 
     /// L1 -> L2 rollback
@@ -115,6 +130,27 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
         if (getReceiveMessageDeadline() != 0) require(l1BlockOracle != address(0), ZeroAddressNotAllowed("l1BlockOracle"));
         emit L1BlockOracleUpdated(getL1BlockOracle(), l1BlockOracle);
         _getL2FluentBridgeStorage()._l1BlockOracle = l1BlockOracle;
+    }
+
+    function setL1GasPriceOracle(address l1GasPriceOracle) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setL1GasPriceOracle(l1GasPriceOracle);
+    }
+
+    function _setL1GasPriceOracle(address l1GasPriceOracle) internal {
+        require(l1GasPriceOracle != address(0), ZeroAddressNotAllowed("l1GasPriceOracle"));
+        emit L1GasPriceOracleUpdated(getL1GasPriceOracle(), l1GasPriceOracle);
+        _getL2FluentBridgeStorage()._l1GasPriceOracle = l1GasPriceOracle;
+    }
+
+    function setGasPriceConfig(uint256 overheadGasPrice, uint256 scalarGasPrice) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setGasPriceConfig(overheadGasPrice, scalarGasPrice);
+    }
+
+    function _setGasPriceConfig(uint256 overheadGasPrice, uint256 scalarGasPrice) internal {
+        GasPriceConfig storage $ = _getL2FluentBridgeStorage()._gasPriceConfig;
+        emit GasPriceConfigUpdated($._overheadGasPrice, overheadGasPrice, $._scalarGasPrice, scalarGasPrice);
+        $._overheadGasPrice = overheadGasPrice;
+        $._scalarGasPrice = scalarGasPrice;
     }
 
     function setReceiveMessageDeadline(uint256 receiveMessageDeadline) external onlyRole(DEFAULT_ADMIN_ROLE) {

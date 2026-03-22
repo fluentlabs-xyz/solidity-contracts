@@ -49,7 +49,7 @@ contract BridgeGatewayHandler is Test {
         uint256 amount = bound(uint256(rawAmount), 1, 100 ether);
         address recipient = to == address(0) ? address(0xBEEF) : to;
 
-        address predictedPegged = gateway.computeTokenAddress(address(originToken));
+        address predictedPegged = gateway.computeTokenAddress(address(gateway), address(originToken));
         bytes memory tokenMetadata = abi.encode("MOCK", "Mock Token", uint8(18));
         bytes memory message = abi.encodeCall(
             ERC20Gateway.receivePeggedTokens,

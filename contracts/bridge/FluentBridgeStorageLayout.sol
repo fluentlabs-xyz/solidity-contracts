@@ -172,6 +172,16 @@ contract FluentBridgeStorageLayout is
 
     // ============ IFluentBridgeAdmin ============
 
+    function setFeeTreasury(address newFeeTreasury) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setFeeTreasury(newFeeTreasury);
+    }
+
+    function _setFeeTreasury(address newFeeTreasury) internal {
+        require(newFeeTreasury != address(0), ZeroAddressNotAllowed("newFeeTreasury"));
+        emit FeeTreasuryUpdated(getFeeTreasury(), newFeeTreasury);
+        _getFluentBridgeStorage()._feeTreasury = newFeeTreasury;
+    }
+
     function setOtherBridge(address newOtherBridge) external onlyRole(DEFAULT_ADMIN_ROLE) {
         _setOtherBridge(newOtherBridge);
     }

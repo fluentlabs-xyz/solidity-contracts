@@ -10,13 +10,9 @@ import {IGenericTokenFactory} from "../interfaces/IGenericTokenFactory.sol";
  * @title UniversalTokenFactory
  * @author Fluent Labs
  * @notice Deploys Universal (precompile) pegged tokens via CREATE2 using UniversalTokenSDK; used for L2 bridge representation of L1 tokens.
- * @dev Only callable by PaymentGateway or owner. keyData = abi.encode(gateway, originToken) (same encoding as {ERC20TokenFactory}).
+ * @dev Only callable by PaymentGateway or owner. Same external API as {ERC20TokenFactory}: deployToken(gateway, originToken, deployArgs).
  *      deployArgs = abi.encode(name, symbol, decimals, initialSupply, minter, pauser). Salt = keccak256(abi.encodePacked(gateway, originToken)).
  *      No beacon; each deployment is immutable init code from UniversalTokenSDK.createDeploymentData.
- * @notice Workflows:
- * 1. First receive of an origin token on this chain: gateway calls deployToken(keyData, deployArgs); factory deploys via Create2 with SDK deployment data and salt.
- * 2. getDeployArgs(name, symbol, decimals): returns abi.encode(name, symbol, decimals, 0, msg.sender, msg.sender) (zero initial supply, deployer as minter/pauser).
- * 3. Address prediction: computePeggedTokenAddress / computeOtherSidePeggedTokenAddress use the same keyData + deployArgs as deploy.
  */
 contract UniversalTokenFactory is GenericTokenFactory {
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -30,8 +26,12 @@ contract UniversalTokenFactory is GenericTokenFactory {
     }
 
     /// @inheritdoc IGenericTokenFactory
-    function deployToken(bytes calldata keyData, bytes calldata deployArgs) external override onlyPaymentGateway returns (address) {
-        (address tokenAddress, address originToken) = _deployToken(keyData, deployArgs);
+    function deployToken(
+        address gateway,
+        address originToken,
+        bytes calldata deployArgs
+    ) external override onlyPaymentGateway returns (address) {
+        address tokenAddress = _deployToken(gateway, originToken, deployArgs);
         _afterDeployToken(tokenAddress, originToken);
 
         emit TokenDeployed(originToken, tokenAddress);
@@ -39,26 +39,22 @@ contract UniversalTokenFactory is GenericTokenFactory {
         return tokenAddress;
     }
 
-    function _deployToken(
-        bytes calldata keyData,
-        bytes calldata deployArgs
-    ) internal override returns (address tokenAddress, address originToken) {
-        (address gateway, address originToken_) = _decodeKeyData(keyData);
+    function _deployToken(address gateway, address originToken, bytes calldata deployArgs) internal override returns (address) {
         (string memory name, string memory symbol, uint8 decimals, uint256 initialSupply, address minter, address pauser) = _decodeDeployArgs(
             deployArgs
         );
 
         require(gateway != address(0), ZeroAddressNotAllowed("gateway"));
-        require(originToken_ != address(0), InvalidOriginToken());
-        require(bridgedTokens(originToken_) == address(0), TokenAlreadyDeployed());
+        require(originToken != address(0), InvalidOriginToken());
+        require(bridgedTokens(originToken) == address(0), TokenAlreadyDeployed());
         require(bytes(name).length > 0, ZeroValueNotAllowed("name"));
         require(bytes(symbol).length > 0, ZeroValueNotAllowed("symbol"));
         require(decimals > 0, ZeroValueNotAllowed("decimals"));
 
         bytes memory deploymentData = _deploymentData(name, symbol, decimals, initialSupply, minter, pauser);
-        bytes32 salt = _calculateSalt(gateway, originToken_);
+        bytes32 salt = _calculateSalt(gateway, originToken);
 
-        return (Create2.deploy(0, salt, deploymentData), originToken_);
+        return Create2.deploy(0, salt, deploymentData);
     }
 
     /**
@@ -67,16 +63,18 @@ contract UniversalTokenFactory is GenericTokenFactory {
      * @param tokenSymbol The symbol of the token
      * @param decimals The decimals of the token
      * @dev The initial supply is 0 and the deployer is the sender.
-     * @return Deployment arguments
      */
     function getDeployArgs(string memory tokenName, string memory tokenSymbol, uint8 decimals) external view override returns (bytes memory) {
         address deployer = _msgSender();
         return abi.encode(tokenName, tokenSymbol, decimals, 0, deployer, deployer);
     }
 
-    /// @dev Compute the token address deployed via this factory(address(this) is the deployer)
-    function _computeTokenAddress(bytes calldata keyData, bytes calldata deployArgs) internal view override returns (address) {
-        (address gateway, address originToken) = _decodeKeyData(keyData);
+    /// @inheritdoc GenericTokenFactory
+    function _computeTokenAddress(
+        address gateway,
+        address originToken,
+        bytes calldata deployArgs
+    ) internal view override returns (address) {
         (string memory name, string memory symbol, uint8 decimals, uint256 initialSupply, address minter, address pauser) = _decodeDeployArgs(
             deployArgs
         );
@@ -85,10 +83,6 @@ contract UniversalTokenFactory is GenericTokenFactory {
                 _calculateSalt(gateway, originToken),
                 keccak256(_deploymentData(name, symbol, decimals, initialSupply, minter, pauser))
             );
-    }
-
-    function _decodeKeyData(bytes calldata keyData) internal pure returns (address gateway, address originToken) {
-        return abi.decode(keyData, (address, address));
     }
 
     function _decodeDeployArgs(

@@ -66,13 +66,13 @@ abstract contract GenericTokenFactory is Initializable, UUPSUpgradeable, Ownable
     // ========== Public write functions ==========
 
     /// @inheritdoc IGenericTokenFactory
-    function deployToken(bytes calldata keyData, bytes calldata deployArgs) external virtual override returns (address);
+    function deployToken(address gateway, address originToken, bytes calldata deployArgs) external virtual override returns (address);
 
-    function _deployToken(bytes calldata keyData, bytes calldata deployArgs) internal virtual returns (address, address);
+    function _deployToken(address gateway, address originToken, bytes calldata deployArgs) internal virtual returns (address);
 
-    function _afterDeployToken(address _tokenAddress, address _originToken) internal virtual {
-        _setBridgedToken(_originToken, _tokenAddress);
-        _setTokenInfo(_tokenAddress, TokenInfo({originToken: _originToken, chainId: block.chainid, deployed: true}));
+    function _afterDeployToken(address tokenAddress, address originToken) internal virtual {
+        _setBridgedToken(originToken, tokenAddress);
+        _setTokenInfo(tokenAddress, TokenInfo({originToken: originToken, chainId: block.chainid, deployed: true}));
     }
 
     // ========== Public view functions ==========
@@ -81,8 +81,6 @@ abstract contract GenericTokenFactory is Initializable, UUPSUpgradeable, Ownable
     function paymentGateway() public view virtual returns (address) {
         return _getGenericTokenFactoryStorage().PaymentGateway;
     }
-
-    /// @inheritdoc IGenericTokenFactory
 
     // ========== Beacon functions ==========
 
@@ -118,20 +116,25 @@ abstract contract GenericTokenFactory is Initializable, UUPSUpgradeable, Ownable
     }
 
     /// @inheritdoc IGenericTokenFactory
-    function computeTokenAddress(bytes calldata keyData, bytes calldata deployArgs) external view virtual override returns (address) {
-        return _computeTokenAddress(keyData, deployArgs);
+    function computeTokenAddress(
+        address gateway,
+        address originToken,
+        bytes calldata deployArgs
+    ) external view virtual override returns (address) {
+        return _computeTokenAddress(gateway, originToken, deployArgs);
     }
 
     /// @inheritdoc IGenericTokenFactory
     function computeOtherSidePeggedTokenAddress(
-        bytes calldata keyData,
+        address gateway,
+        address originToken,
         bytes calldata deployArgs
     ) external view virtual override returns (address) {
-        return _computeTokenAddress(keyData, deployArgs);
+        return _computeTokenAddress(gateway, originToken, deployArgs);
     }
 
     /// @dev Subclasses implement: decode keyData/deployArgs and return predicted token address.
-    function _computeTokenAddress(bytes calldata keyData, bytes calldata deployArgs) internal view virtual returns (address);
+    function _computeTokenAddress(address gateway, address originToken, bytes calldata deployArgs) internal view virtual returns (address);
 
     // ======== Storage functions ========
 

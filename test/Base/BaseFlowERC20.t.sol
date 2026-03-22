@@ -14,6 +14,7 @@ import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol
 import {ERC20Gateway} from "../../contracts/gateways/ERC20Gateway.sol";
 import {MockERC20Token} from "../../test/mocks/MockERC20.sol";
 import {L1BlockOracle} from "../../contracts/oracles/L1BlockOracle.sol";
+import {L1GasOracle} from "../../contracts/oracles/L1GasOracle.sol";
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
 import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
 import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
@@ -51,6 +52,7 @@ contract BaseFlowERC20Test is Test {
     Rollup internal l1Rollup;
     MockNitroVerifier internal l1NitroVerifier;
     L1BlockOracle internal l2BlockOracle;
+    L1GasOracle internal l2GasOracle;
 
     ERC20Gateway internal l1Gateway;
     ERC20Gateway internal l2Gateway;
@@ -168,6 +170,7 @@ contract BaseFlowERC20Test is Test {
         _selectL2();
 
         l2BlockOracle = new L1BlockOracle(address(this));
+        l2GasOracle = new L1GasOracle(relayer);
 
         FluentBridgeStorageLayout.InitConfiguration memory params = FluentBridgeStorageLayout.InitConfiguration({
             adminRole: admin,
@@ -180,7 +183,10 @@ contract BaseFlowERC20Test is Test {
         L2FluentBridge bridgeImpl = new L2FluentBridge();
         ERC1967Proxy bridgeProxy = new ERC1967Proxy(
             address(bridgeImpl),
-            abi.encodeCall(L2FluentBridge.initialize, (abi.encode(params), RECEIVE_DEADLINE, address(l2BlockOracle)))
+            abi.encodeCall(
+                L2FluentBridge.initialize,
+                (abi.encode(params), RECEIVE_DEADLINE, address(l2BlockOracle), address(l2GasOracle), 0, 0, makeAddr("feeTreasury"))
+            )
         );
         l2Bridge = L2FluentBridge(payable(address(bridgeProxy)));
         l2Bridge.setExecuteGasLimit(2_000_000);
@@ -334,7 +340,7 @@ contract BaseFlowERC20Test is Test {
             bytes memory data1
         ) = _decodeBridgeSentMessage(vm.getRecordedLogs(), address(l1Bridge));
         assertEq(value1, 0);
-        address peggedOnL2 = l1Gateway.computeOtherSidePeggedTokenAddress(address(originToken));
+        address peggedOnL2 = l1Gateway.computeOtherSidePeggedTokenAddress(address(l2Gateway), address(originToken));
 
         _selectL2();
 
@@ -386,7 +392,7 @@ contract BaseFlowERC20Test is Test {
             ,
             bytes memory data1
         ) = _decodeBridgeSentMessage(vm.getRecordedLogs(), address(l1Bridge));
-        address peggedOnL2 = l1Gateway.computeOtherSidePeggedTokenAddress(address(originToken));
+        address peggedOnL2 = l1Gateway.computeOtherSidePeggedTokenAddress(address(l2Gateway), address(originToken));
 
         _selectL2();
         vm.prank(relayer);

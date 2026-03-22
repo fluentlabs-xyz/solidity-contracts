@@ -175,7 +175,7 @@ contract ERC20GatewayTest is GatewayBase {
         vm.prank(admin);
         gateway.setOtherSide(true, remoteGateway, sourceChainId, remoteImplementation, remoteFactory, address(0));
 
-        address computed = gateway.computeOtherSidePeggedTokenAddress(address(originToken));
+        address computed = gateway.computeOtherSidePeggedTokenAddress(remoteGateway, address(originToken));
         assertTrue(computed != address(0));
     }
 
@@ -290,7 +290,7 @@ contract ERC20GatewayTest is GatewayBase {
     }
 
     function test_computeTokenAddress_matchesPredictedHelper() public view {
-        address predicted = gateway.computeTokenAddress(address(originToken));
+        address predicted = gateway.computeTokenAddress(address(gateway), address(originToken));
         assertEq(predicted, _predictedPegged(), "computeTokenAddress mismatch vs helper");
     }
 }
