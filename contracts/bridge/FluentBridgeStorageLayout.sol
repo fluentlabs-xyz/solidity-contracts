@@ -20,7 +20,6 @@ import {
     IFluentBridgeRead,
     IFluentBridgeAdmin
 } from "../interfaces/bridge/IFluentBridge.sol";
-import {IL1BlockOracle} from "../interfaces/IL1BlockOracle.sol";
 
 /**
  * @title FluentBridgeStorageLayout
@@ -87,6 +86,10 @@ contract FluentBridgeStorageLayout is
          * @notice Status of a received message by its hash (None, Failed, Success).
          */
         mapping(bytes32 => IFluentBridge.MessageStatus) _receivedMessage;
+        /**
+         * @notice Treasury address for refunding gas costs.
+         */
+        address _feeTreasury;
         /**
          * @notice Gap for future storage.
          */
@@ -161,6 +164,10 @@ contract FluentBridgeStorageLayout is
 
     function getExecuteGasLimit() public view returns (uint256) {
         return _getFluentBridgeStorage()._executeGasLimit;
+    }
+
+    function getFeeTreasury() public view returns (address) {
+        return _getFluentBridgeStorage()._feeTreasury;
     }
 
     // ============ IFluentBridgeAdmin ============
