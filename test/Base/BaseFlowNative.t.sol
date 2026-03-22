@@ -9,7 +9,8 @@ import {L1FluentBridge} from "../../contracts/bridge/L1/L1FluentBridge.sol";
 import {L2FluentBridge} from "../../contracts/bridge/L2/L2FluentBridge.sol";
 import {FluentBridgeStorageLayout} from "../../contracts/bridge/FluentBridgeStorageLayout.sol";
 
-import {L1BlockOracle} from "../../contracts/oracle/L1BlockOracle.sol";
+import {L1BlockOracle} from "../../contracts/oracles/L1BlockOracle.sol";
+import {L1GasOracle} from "../../contracts/oracles/L1GasOracle.sol";
 import {NativeGateway} from "../../contracts/gateways/NativeGateway.sol";
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
 
@@ -54,6 +55,7 @@ contract BaseFlowNativeTest is Test {
     L2FluentBridge internal l2Bridge;
     NativeGateway internal l2Gateway;
     L1BlockOracle internal l2BlockOracle;
+    L1GasOracle internal l2GasOracle;
 
     function setUp() public {
         admin = address(this);
@@ -150,6 +152,7 @@ contract BaseFlowNativeTest is Test {
         // Oracle is used for L2 deadline/rollback checks. We keep it at the default (0),
         // so our test messages will not trip the "deadline exceeded" branch.
         l2BlockOracle = new L1BlockOracle(address(this));
+        l2GasOracle = new L1GasOracle(relayer);
 
         FluentBridgeStorageLayout.InitConfiguration memory params = FluentBridgeStorageLayout.InitConfiguration({
             adminRole: admin,
@@ -162,7 +165,10 @@ contract BaseFlowNativeTest is Test {
         L2FluentBridge bridgeImpl = new L2FluentBridge();
         ERC1967Proxy bridgeProxy = new ERC1967Proxy(
             address(bridgeImpl),
-            abi.encodeCall(L2FluentBridge.initialize, (abi.encode(params), RECEIVE_DEADLINE, address(l2BlockOracle)))
+            abi.encodeCall(
+                L2FluentBridge.initialize,
+                (abi.encode(params), RECEIVE_DEADLINE, address(l2BlockOracle), address(l2GasOracle), 0, 0, 0, makeAddr("feeTreasury"))
+            )
         );
         l2Bridge = L2FluentBridge(payable(address(bridgeProxy)));
 

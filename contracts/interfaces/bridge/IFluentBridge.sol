@@ -10,6 +10,11 @@ import {L2BlockHeader} from "../../interfaces/IRollupTypes.sol";
  */
 interface IFluentBridgeAdmin {
     /**
+     * @notice Update the address that receives outbound message fees (L2 `sendMessage` fee path).
+     * @param newFeeTreasury The new treasury address (may be zero on L1 when unused).
+     */
+    function setFeeTreasury(address newFeeTreasury) external;
+    /**
      * @notice Update the address of the bridge contract on the other chain.
      * @param newOtherBridge The address of the bridge contract on the other chain.
      */
@@ -37,6 +42,14 @@ interface IFluentBridgeRead {
      * @return The address of the bridge contract on the other chain.
      */
     function getOtherBridge() external view returns (address);
+    /**
+     * @notice Treasury receiving fees charged on L2 outbound messages (zero when unused).
+     */
+    function getFeeTreasury() external view returns (address);
+    /**
+     * @notice Fee charged on the next outbound message (0 when no fee applies).
+     */
+    function getSentMessageFee() external view returns (uint256);
 }
 
 /**
@@ -76,6 +89,11 @@ interface IFluentBridgeErrors {
      * @notice Zero value supplied for a required configuration field.
      */
     error ZeroValueNotAllowed(string field);
+
+    /**
+     * @notice Insufficient `msg.value` to cover the outbound message fee.
+     */
+    error InsufficientFee();
 }
 
 interface IFluentBridgeEvents {
@@ -114,6 +132,10 @@ interface IFluentBridgeEvents {
      * @notice Emitted when the gas limit for message execution is updated.
      */
     event ExecuteGasLimitUpdated(uint256 indexed prevValue, uint256 indexed newValue);
+    /**
+     * @notice Emitted when the fee treasury address is updated.
+     */
+    event FeeTreasuryUpdated(address indexed prevValue, address indexed newValue);
 }
 
 interface IFluentBridge is IFluentBridgeErrors, IFluentBridgeEvents {

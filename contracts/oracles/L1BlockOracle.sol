@@ -2,7 +2,7 @@
 pragma solidity 0.8.30;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {IL1BlockOracle} from "../interfaces/IL1BlockOracle.sol";
+import {IL1BlockOracle} from "../interfaces/oracles/IL1BlockOracle.sol";
 
 /**
  * @title L1BlockOracle

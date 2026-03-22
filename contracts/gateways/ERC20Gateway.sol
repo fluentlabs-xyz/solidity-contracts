@@ -77,7 +77,7 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
     // ============ Send Tokens ============
 
     /// @inheritdoc IERC20Gateway
-    function sendTokens(address token, address to, uint256 amount) external nonReentrant {
+    function sendTokens(address token, address to, uint256 amount) external payable nonReentrant {
         require(getOtherSideGateway() != address(0), ZeroAddressNotAllowed("getOtherSideGateway"));
         require(to != address(0), InvalidRecipient());
 
@@ -91,7 +91,7 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
             message = _sendPeggedTokens(token, sender, sender, to, amount);
         }
 
-        FluentBridge(getBridgeContract()).sendMessage(getOtherSideGateway(), message);
+        FluentBridge(getBridgeContract()).sendMessage{value: msg.value}(getOtherSideGateway(), message);
     }
 
     /// @notice Used on L1 to send origin tokens to the other side.
@@ -113,7 +113,7 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         uint8 decimals = ERC20(token).decimals();
         bytes memory rawTokenMetadata = abi.encode(symbol, name, decimals);
 
-        address peggedTokenOnOtherSide = _computeOtherSidePeggedTokenAddress(token, name, symbol, decimals);
+        address peggedTokenOnOtherSide = _computeOtherSidePeggedTokenAddressWithGateway(getOtherSideGateway(), token, name, symbol, decimals);
 
         return abi.encodeCall(IERC20Gateway.receivePeggedTokens, (token, peggedTokenOnOtherSide, sender, to, amount, rawTokenMetadata));
     }
@@ -184,11 +184,8 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         ERC20GatewayStorage storage $ = _getERC20GatewayStorage();
         bytes memory deployArgs = IGenericTokenFactory($._tokenFactory).getDeployArgs(name, symbol, decimals);
 
-        // Same keyData encoding as {ERC20TokenFactory} / {UniversalTokenFactory}: (gateway, originToken).
-        bytes memory keyData = abi.encode(address(this), originToken);
-
         // If it's a beacon proxy -> the deployArgs is empty
-        address peggedToken = IGenericTokenFactory($._tokenFactory).deployToken(keyData, deployArgs);
+        address peggedToken = IGenericTokenFactory($._tokenFactory).deployToken(address(this), originToken, deployArgs);
         if (deployArgs.length == 0) ERC20PeggedToken(peggedToken).initialize(name, symbol, decimals, address(this), originToken);
 
         return peggedToken;
@@ -219,9 +216,10 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
     }
 
     /// @inheritdoc IERC20Gateway
-    function computeOtherSidePeggedTokenAddress(address originToken) external view returns (address) {
+    function computeOtherSidePeggedTokenAddress(address gateway, address originToken) external view returns (address) {
         return
-            _computeOtherSidePeggedTokenAddress(
+            _computeOtherSidePeggedTokenAddressWithGateway(
+                gateway,
                 originToken,
                 ERC20(originToken).name(),
                 ERC20(originToken).symbol(),
@@ -230,8 +228,15 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
     }
 
     /// @inheritdoc IERC20Gateway
-    function computeTokenAddress(address originToken) external view returns (address) {
-        return _computeTokenAddress(originToken, ERC20(originToken).name(), ERC20(originToken).symbol(), ERC20(originToken).decimals());
+    function computeTokenAddress(address gateway, address originToken) external view returns (address) {
+        return
+            _computeTokenAddressWithGateway(
+                gateway,
+                originToken,
+                ERC20(originToken).name(),
+                ERC20(originToken).symbol(),
+                ERC20(originToken).decimals()
+            );
     }
 
     // ========== Universal Token Factory ==========
@@ -267,36 +272,54 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
     }
 
     function _computeTokenAddress(address token, string memory name, string memory symbol, uint8 decimals) internal view returns (address) {
-        bytes memory keyData = abi.encode(address(this), token);
+        return _computeTokenAddressWithGateway(address(this), token, name, symbol, decimals);
+    }
+
+    function _computeTokenAddressWithGateway(
+        address gateway,
+        address token,
+        string memory name,
+        string memory symbol,
+        uint8 decimals
+    ) internal view returns (address) {
         bytes memory deployArgs;
         if (IGenericTokenFactory(getTokenFactory()).beacon() != address(0)) {
             deployArgs = "";
         } else {
             deployArgs = IGenericTokenFactory(getTokenFactory()).getDeployArgs(name, symbol, decimals);
         }
-        return IGenericTokenFactory(getTokenFactory()).computeTokenAddress(keyData, deployArgs);
+        return IGenericTokenFactory(getTokenFactory()).computeTokenAddress(gateway, token, deployArgs);
     }
 
-    /// @dev Computes the remote (other-chain) pegged token address from stored config only.
+    /// @dev Computes the remote (other-chain) pegged token address; uses `otherSideGateway` in CREATE2 salt.
     function _computeOtherSidePeggedTokenAddress(
         address originToken,
         string memory name,
         string memory symbol,
         uint8 decimals
     ) internal view returns (address) {
-        address otherSideGateway = getOtherSideGateway();
+        return _computeOtherSidePeggedTokenAddressWithGateway(getOtherSideGateway(), originToken, name, symbol, decimals);
+    }
+
+    function _computeOtherSidePeggedTokenAddressWithGateway(
+        address otherSideGateway,
+        address originToken,
+        string memory name,
+        string memory symbol,
+        uint8 decimals
+    ) internal view returns (address) {
         if (_getERC20GatewayStorage()._isOtherSideUniversal) {
             return
                 _computeUniversalTokenAddress(
-                    getOtherSideFactory(), //  deployer
-                    otherSideGateway, // salt
-                    originToken, // salt
-                    name, // name
-                    symbol, // symbol
-                    decimals, // decimals
-                    0, // initialSupply
-                    otherSideGateway, // minter
-                    otherSideGateway // pauser
+                    getOtherSideFactory(),
+                    otherSideGateway,
+                    originToken,
+                    name,
+                    symbol,
+                    decimals,
+                    0,
+                    otherSideGateway,
+                    otherSideGateway
                 );
         }
         return _computeBeaconProxyAddress(getOtherSideFactory(), getOtherSideBeacon(), otherSideGateway, originToken);

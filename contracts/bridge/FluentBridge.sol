@@ -40,20 +40,30 @@ import {FluentBridgeStorageLayout} from "./FluentBridgeStorageLayout.sol";
 abstract contract FluentBridge is FluentBridgeStorageLayout {
     /**
      * @notice Initialization happens in chain-specific implementations:
-     *         `L1FluentBridge.initialize(bytes,address)` and `L2FluentBridge.initialize(bytes,uint256,address)`.
+     *         `L1FluentBridge.initialize(bytes,address)` and
+     *         `L2FluentBridge.initialize(bytes,uint256,address,address,uint256,uint256,address)`.
      */
 
     function sendMessage(address to, bytes calldata message) external payable whenNotPaused {
         require(to != address(this) && to != getOtherBridge(), InvalidDestinationAddress());
+        require(msg.value >= getSentMessageFee(), InsufficientFee());
 
         address from = msg.sender;
-        uint256 value = msg.value;
+        uint256 value = msg.value - _chargeSendFee();
         uint256 messageNonce = _takeNextNonce();
         bytes32 messageHash = keccak256(_encodeMessage(from, to, value, block.chainid, block.number, messageNonce, message));
 
         _afterSendMessage(messageHash);
 
         emit SentMessage(from, to, value, block.chainid, block.number, messageNonce, messageHash, message);
+    }
+
+    /**
+     * @dev Hook for L2 to charge a message fee before the cross-chain value is encoded.
+     *      Returns the fee amount deducted from `msg.value`. Base returns 0 (L1 has no fee).
+     */
+    function _chargeSendFee() internal virtual returns (uint256) {
+        return 0;
     }
 
     /// @dev Virtual function that can be overridden by child contracts: L1FluentBridge and L2FluentBridge
@@ -71,7 +81,7 @@ abstract contract FluentBridge is FluentBridgeStorageLayout {
         uint256 blockNumber,
         uint256 messageNonce,
         bytes calldata message
-    ) external payable onlyRole(RELAYER_ROLE) nonReentrant whenNotPaused {
+    ) external onlyRole(RELAYER_ROLE) nonReentrant whenNotPaused {
         require(messageNonce == _takeNextReceivedNonce(), MessageReceivedOutOfOrder());
         bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, blockNumber, messageNonce, message));
         require(getReceivedMessage(messageHash) == IFluentBridge.MessageStatus.None, MessageAlreadyReceived());

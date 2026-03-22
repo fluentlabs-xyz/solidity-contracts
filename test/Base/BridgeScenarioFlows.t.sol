@@ -281,7 +281,7 @@ contract BridgeScenarioERC20Test is BaseFlowERC20Test {
             ,
             bytes memory data1
         ) = _decodeBridgeSentMessage(vm.getRecordedLogs(), address(l1Bridge));
-        address peggedOnL2 = l1Gateway.computeOtherSidePeggedTokenAddress(address(originToken));
+        address peggedOnL2 = l1Gateway.computeOtherSidePeggedTokenAddress(address(l2Gateway), address(originToken));
 
         _selectL2();
         vm.prank(relayer);

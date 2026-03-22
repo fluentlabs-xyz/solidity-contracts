@@ -89,11 +89,12 @@ interface IGenericTokenFactoryEvents {
 interface IGenericTokenFactory is IGenericTokenFactoryErrors, IGenericTokenFactoryEvents {
     /**
      * @notice Deploys a bridged/pegged token
-     * @param keyData Factory-specific key (same encoding as computeTokenAddress)
+     * @param gateway The gateway address
+     * @param originToken The origin token address
      * @param deployArgs Optional deployment params (empty for ERC20; for Universal: name, symbol, decimals, initialSupply, minter, pauser)
      * @return Address of the deployed token
      */
-    function deployToken(bytes calldata keyData, bytes calldata deployArgs) external returns (address);
+    function deployToken(address gateway, address originToken, bytes calldata deployArgs) external returns (address);
 
     /**
      * @notice Returns the deployment arguments for a token
@@ -106,19 +107,21 @@ interface IGenericTokenFactory is IGenericTokenFactoryErrors, IGenericTokenFacto
 
     /**
      * @notice Computes the address of a token
-     * @param keyData Factory-specific key (abi.encode(gateway, originToken) for ERC20 and Universal factories)
+     * @param gateway The gateway address
+     * @param originToken The origin token address
      * @param deployArgs Optional deployment params (empty for ERC20; for Universal: name, symbol, decimals, initialSupply, minter, pauser)
      * @return Predicted token address
      */
-    function computeTokenAddress(bytes calldata keyData, bytes calldata deployArgs) external view returns (address);
+    function computeTokenAddress(address gateway, address originToken, bytes calldata deployArgs) external view returns (address);
 
     /**
      * @notice Computes the address of a bridged/pegged token for the other side.
-     * @param keyData Factory-specific key (abi.encode(gateway, originToken) for ERC20 and Universal factories)
+     * @param gateway The gateway address
+     * @param originToken The origin token address
      * @param deployArgs Optional deployment params (empty for ERC20; for Universal: name, symbol, decimals, initialSupply, minter, pauser)
      * @return Predicted token address
      */
-    function computeOtherSidePeggedTokenAddress(bytes calldata keyData, bytes calldata deployArgs) external view returns (address);
+    function computeOtherSidePeggedTokenAddress(address gateway, address originToken, bytes calldata deployArgs) external view returns (address);
 
     /**
      * @notice Returns the beacon address

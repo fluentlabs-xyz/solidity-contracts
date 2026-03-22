@@ -39,7 +39,7 @@ interface IERC20Gateway is IERC20GatewayErrors {
      * @param to Recipient address on the destination chain.
      * @param amount Amount of tokens to bridge.
      */
-    function sendTokens(address token, address to, uint256 amount) external;
+    function sendTokens(address token, address to, uint256 amount) external payable;
 
     /**
      * @notice Receives tokens from the other side. Used on L1 to receive origin tokens from the other side.
@@ -70,17 +70,18 @@ interface IERC20Gateway is IERC20GatewayErrors {
 
     /**
      * @notice Computes the address of a pegged token for a given token for the other side.
-     * @param token The address of the token to compute the pegged token address for.
+     * @param gateway The address of the gateway to compute the pegged token address for.
+     * @param originToken The address of the origin token to compute the pegged token address for.
      * @return The address of the pegged token.
      */
-    function computeOtherSidePeggedTokenAddress(address token) external view returns (address);
+    function computeOtherSidePeggedTokenAddress(address gateway, address originToken) external view returns (address);
 
     /**
      * @notice Computes the local token address for a given origin token.
      * @param originToken The origin token address used for local CREATE2 prediction.
      * @return The address of the token.
      */
-    function computeTokenAddress(address originToken) external view returns (address);
+    function computeTokenAddress(address gateway, address originToken) external view returns (address);
 
     /**
      * @notice Returns the token mapping for a given key.

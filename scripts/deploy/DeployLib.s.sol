@@ -10,6 +10,7 @@ import {FluentBridge} from "../../contracts/bridge/FluentBridge.sol";
 import {L1FluentBridge} from "../../contracts/bridge/L1/L1FluentBridge.sol";
 import {L2FluentBridge} from "../../contracts/bridge/L2/L2FluentBridge.sol";
 import {FluentBridgeStorageLayout} from "../../contracts/bridge/FluentBridgeStorageLayout.sol";
+import {L1GasOracle} from "../../contracts/oracles/L1GasOracle.sol";
 import {ERC20Gateway} from "../../contracts/gateways/ERC20Gateway.sol";
 import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol";
 import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
@@ -52,6 +53,8 @@ abstract contract DeployLib is Script {
     }
 
     /// @dev Deploys FluentBridge via UUPS proxy. Caller must be in broadcast. Returns (proxy, impl).
+    ///      For L2 (`receiveMessageDeadline != 0`), if `l1GasOracle == address(0)` a new {L1GasOracle} is deployed
+    ///      with `relayerRole` as submitter; if `feeTreasury == address(0)` it defaults to `adminRole`.
     function _deployFluentBridge(
         address adminRole,
         address pauserRole,
@@ -61,8 +64,37 @@ abstract contract DeployLib is Script {
         address l1BlockOracle,
         address rollup
     ) internal returns (address bridgeProxy, address bridgeImpl) {
-        // NOTE: This repo uses chain-specific bridge implementations (L1FluentBridge / L2FluentBridge).
-        // We deploy the appropriate implementation based on whether a receive deadline is configured.
+        return _deployFluentBridge(
+            adminRole,
+            pauserRole,
+            relayerRole,
+            receiveMessageDeadline,
+            otherBridgePlaceholder,
+            l1BlockOracle,
+            address(0),
+            uint256(0),
+            uint256(0),
+            uint256(0),
+            address(0),
+            rollup
+        );
+    }
+
+    /// @dev Full L2 init: `l1GasOracle`, `l2GasOverhead`, `l2GasScalar`, `feeTreasury` (use zeros to mirror the 7-arg overload defaults).
+    function _deployFluentBridge(
+        address adminRole,
+        address pauserRole,
+        address relayerRole,
+        uint256 receiveMessageDeadline,
+        address otherBridgePlaceholder,
+        address l1BlockOracle,
+        address l1GasOracle,
+        uint256 l2GasOverhead,
+        uint256 l2GasScalar,
+        uint256 l1GasLimit,
+        address feeTreasury,
+        address rollup
+    ) internal returns (address bridgeProxy, address bridgeImpl) {
         FluentBridgeStorageLayout.InitConfiguration memory params = FluentBridgeStorageLayout.InitConfiguration({
             adminRole: adminRole,
             pauserRole: pauserRole,
@@ -80,9 +112,17 @@ abstract contract DeployLib is Script {
             bridgeProxy = UnsafeUpgrades.deployUUPSProxy(bridgeImpl, initializerData);
         } else {
             require(l1BlockOracle != address(0), "L1_BLOCK_ORACLE required when RECEIVE_MSG_DEADLINE != 0");
+            address gasOracleAddr = l1GasOracle;
+            if (gasOracleAddr == address(0)) {
+                gasOracleAddr = address(new L1GasOracle(relayerRole));
+            }
+            address treasury = feeTreasury == address(0) ? adminRole : feeTreasury;
             L2FluentBridge impl = new L2FluentBridge();
             bridgeImpl = address(impl);
-            bytes memory initializerData = abi.encodeCall(L2FluentBridge.initialize, (initData, receiveMessageDeadline, l1BlockOracle));
+            bytes memory initializerData = abi.encodeCall(
+                L2FluentBridge.initialize,
+                (initData, receiveMessageDeadline, l1BlockOracle, gasOracleAddr, l2GasOverhead, l2GasScalar, l1GasLimit, treasury)
+            );
             bridgeProxy = UnsafeUpgrades.deployUUPSProxy(bridgeImpl, initializerData);
         }
     }

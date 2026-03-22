@@ -18,7 +18,7 @@ The Rollup contract implements an Optimistic Rollup system with dual verificatio
 - `contracts/factories/*.sol`: deterministic pegged-token deployment and beacon management.
 - `contracts/tokens/*.sol`: bridged token implementations.
 - `contracts/rollup/*.sol`: batch submission, preconfirmation, challenge resolution, finalization, and corruption handling.
-- `contracts/verifier/*.sol` and `contracts/oracle/L1BlockOracle.sol`: verifier and oracle trust anchors.
+- `contracts/verifier/*.sol` and `contracts/oracles/L1BlockOracle.sol`: verifier and oracle trust anchors.
 
 ## Security Docs
 

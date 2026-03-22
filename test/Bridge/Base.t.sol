@@ -7,6 +7,8 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {L1FluentBridge} from "../../contracts/bridge/L1/L1FluentBridge.sol";
 import {L2FluentBridge} from "../../contracts/bridge/L2/L2FluentBridge.sol";
 import {FluentBridgeStorageLayout} from "../../contracts/bridge/FluentBridgeStorageLayout.sol";
+import {L1BlockOracle} from "../../contracts/oracles/L1BlockOracle.sol";
+import {L1GasOracle} from "../../contracts/oracles/L1GasOracle.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 import {L2BlockHeader} from "../../contracts/interfaces/IRollupTypes.sol";
 
@@ -54,10 +56,18 @@ abstract contract BridgeBase is Test {
         );
         l1Bridge = L1FluentBridge(payable(address(l1Proxy)));
 
+        L1BlockOracle l1BlockOracle = new L1BlockOracle(relayer);
+        L1GasOracle l1GasOracle = new L1GasOracle(relayer);
+        vm.prank(relayer);
+        l1BlockOracle.updateL1BlockNumber(1);
+
         L2FluentBridge l2Impl = new L2FluentBridge();
         ERC1967Proxy l2Proxy = new ERC1967Proxy(
             address(l2Impl),
-            abi.encodeCall(L2FluentBridge.initialize, (abi.encode(cfg), 100, makeAddr("l1BlockOracleA")))
+            abi.encodeCall(
+                L2FluentBridge.initialize,
+                (abi.encode(cfg), 100, address(l1BlockOracle), address(l1GasOracle), 0, 0, 0, makeAddr("feeTreasury"))
+            )
         );
         l2Bridge = L2FluentBridge(payable(address(l2Proxy)));
     }

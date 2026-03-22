@@ -5,7 +5,8 @@ import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
-import {L1BlockOracle} from "../../contracts/oracle/L1BlockOracle.sol";
+import {L1BlockOracle} from "../../contracts/oracles/L1BlockOracle.sol";
+import {L1GasOracle} from "../../contracts/oracles/L1GasOracle.sol";
 import {ERC20Gateway} from "../../contracts/gateways/ERC20Gateway.sol";
 import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol";
 import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
@@ -37,6 +38,7 @@ abstract contract GatewayBase is Test {
 
     function _deployBridge(uint256 receiveMessageDeadline) internal {
         oracle = new L1BlockOracle(admin);
+        L1GasOracle gasOracle = new L1GasOracle(relayer);
 
         L2FluentBridge impl = new L2FluentBridge();
         FluentBridgeStorageLayout.InitConfiguration memory params = FluentBridgeStorageLayout.InitConfiguration({
@@ -51,7 +53,10 @@ abstract contract GatewayBase is Test {
         uint256 deadline = receiveMessageDeadline == 0 ? 1 : receiveMessageDeadline;
         ERC1967Proxy proxy = new ERC1967Proxy(
             address(impl),
-            abi.encodeCall(L2FluentBridge.initialize, (abi.encode(params), deadline, address(oracle)))
+            abi.encodeCall(
+                L2FluentBridge.initialize,
+                (abi.encode(params), deadline, address(oracle), address(gasOracle), 0, 0, 0, makeAddr("feeTreasury"))
+            )
         );
         bridge = IFluentBridge(payable(address(proxy)));
         vm.prank(admin);
@@ -108,18 +113,18 @@ abstract contract GatewayBase is Test {
         sourceBlock = nextSourceBlock++;
         messageHash = _bridgeMessageHash(from, to, value, sourceChainId, sourceBlock, nonce, message);
 
-        vm.deal(relayer, value);
+        vm.deal(address(bridge), address(bridge).balance + value);
         vm.prank(relayer);
-        bridge.receiveMessage{value: value}(from, to, value, sourceChainId, sourceBlock, nonce, message);
+        bridge.receiveMessage(from, to, value, sourceChainId, sourceBlock, nonce, message);
     }
 
     function _retryFailedMessage(address from, address to, uint256 value, uint256 blockNumber, uint256 nonce, bytes memory message) internal {
-        vm.deal(relayer, value);
+        vm.deal(address(bridge), address(bridge).balance + value);
         vm.prank(relayer);
         bridge.receiveFailedMessage{value: value}(from, to, value, sourceChainId, blockNumber, nonce, message);
     }
 
     function _predictedPegged() internal view returns (address) {
-        return gateway.computeTokenAddress(address(originToken));
+        return gateway.computeTokenAddress(address(gateway), address(originToken));
     }
 }

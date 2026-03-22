@@ -20,7 +20,6 @@ import {
     IFluentBridgeRead,
     IFluentBridgeAdmin
 } from "../interfaces/bridge/IFluentBridge.sol";
-import {IL1BlockOracle} from "../interfaces/IL1BlockOracle.sol";
 
 /**
  * @title FluentBridgeStorageLayout
@@ -87,6 +86,10 @@ contract FluentBridgeStorageLayout is
          * @notice Status of a received message by its hash (None, Failed, Success).
          */
         mapping(bytes32 => IFluentBridge.MessageStatus) _receivedMessage;
+        /**
+         * @notice Treasury address for refunding gas costs.
+         */
+        address _feeTreasury;
         /**
          * @notice Gap for future storage.
          */
@@ -163,7 +166,26 @@ contract FluentBridgeStorageLayout is
         return _getFluentBridgeStorage()._executeGasLimit;
     }
 
+    function getFeeTreasury() public view returns (address) {
+        return _getFluentBridgeStorage()._feeTreasury;
+    }
+
+    /// @inheritdoc IFluentBridgeRead
+    function getSentMessageFee() public view virtual returns (uint256) {
+        return 0;
+    }
+
     // ============ IFluentBridgeAdmin ============
+
+    function setFeeTreasury(address newFeeTreasury) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setFeeTreasury(newFeeTreasury);
+    }
+
+    function _setFeeTreasury(address newFeeTreasury) internal {
+        require(newFeeTreasury != address(0), ZeroAddressNotAllowed("newFeeTreasury"));
+        emit FeeTreasuryUpdated(getFeeTreasury(), newFeeTreasury);
+        _getFluentBridgeStorage()._feeTreasury = newFeeTreasury;
+    }
 
     function setOtherBridge(address newOtherBridge) external onlyRole(DEFAULT_ADMIN_ROLE) {
         _setOtherBridge(newOtherBridge);
