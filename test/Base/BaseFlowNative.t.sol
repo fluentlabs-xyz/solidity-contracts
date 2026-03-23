@@ -323,7 +323,6 @@ contract BaseFlowNativeTest is Test {
             assertTrue(found, "SentMessage log not found for L2->L1 return");
         }
 
-
         // ============ Step 4: Relayer executes return on L1 ============
         _selectL1();
         uint256 l1PreRecipientBal = l1Recipient.balance;
@@ -398,7 +397,6 @@ contract BaseFlowNativeTest is Test {
         assertEq(sentFrom, address(l1Gateway), "unexpected sentFrom");
         assertEq(sentTo, address(l2Gateway), "unexpected sentTo");
 
-
         // ============ Step 2: Relayer tries receiveMessage on L2, but deadline expires ============
         _selectL2();
 
@@ -450,7 +448,6 @@ contract BaseFlowNativeTest is Test {
         assertEq(uint256(l1Bridge.getRollbackMessage(l2FailedMessageHash)), uint256(IFluentBridge.MessageStatus.Success));
         assertEq(address(l1Bridge).balance, 0, "L1 bridge should refund locked value");
         assertEq(address(l1Gateway).balance - l1GatewayBalBefore, 1 ether, "L1 gateway should receive refund");
-
     }
 
     function test_receiveMessageWithProof_l2ToL1NativeTransfer() public {

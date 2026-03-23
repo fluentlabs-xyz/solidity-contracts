@@ -15,6 +15,7 @@ import {ERC20Gateway} from "../../contracts/gateways/ERC20Gateway.sol";
 import {MockERC20Token} from "../../test/mocks/MockERC20.sol";
 import {L1BlockOracle} from "../../contracts/oracles/L1BlockOracle.sol";
 import {L1GasOracle} from "../../contracts/oracles/L1GasOracle.sol";
+import {IFluentBridgeEvents} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
 import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
 import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
@@ -51,8 +52,8 @@ contract BaseFlowERC20Test is Test {
     L2FluentBridge internal l2Bridge;
     Rollup internal l1Rollup;
     MockNitroVerifier internal l1NitroVerifier;
-    L1BlockOracle internal l2BlockOracle;
-    L1GasOracle internal l2GasOracle;
+    L1BlockOracle internal l1BlockOracle;
+    L1GasOracle internal l1GasOracle;
 
     ERC20Gateway internal l1Gateway;
     ERC20Gateway internal l2Gateway;
@@ -169,8 +170,8 @@ contract BaseFlowERC20Test is Test {
     function _deployOnL2() internal {
         _selectL2();
 
-        l2BlockOracle = new L1BlockOracle(address(this));
-        l2GasOracle = new L1GasOracle(relayer);
+        l1BlockOracle = new L1BlockOracle(address(this));
+        l1GasOracle = new L1GasOracle(relayer);
 
         FluentBridgeStorageLayout.InitConfiguration memory params = FluentBridgeStorageLayout.InitConfiguration({
             adminRole: admin,
@@ -185,7 +186,7 @@ contract BaseFlowERC20Test is Test {
             address(bridgeImpl),
             abi.encodeCall(
                 L2FluentBridge.initialize,
-                (abi.encode(params), RECEIVE_DEADLINE, address(l2BlockOracle), address(l2GasOracle), 0, 0, 0, makeAddr("feeTreasury"))
+                (abi.encode(params), RECEIVE_DEADLINE, address(l1BlockOracle), address(l1GasOracle), 0, 0, 0, makeAddr("feeTreasury"))
             )
         );
         l2Bridge = L2FluentBridge(payable(address(bridgeProxy)));
@@ -319,6 +320,7 @@ contract BaseFlowERC20Test is Test {
         );
     }
 
+    /// @notice HappyPath: origin token is sent from L1 to L2 and back to L1.
     function test_sendTokens_roundtripL1ToL2AndBack() public {
         // L1 -> L2: lock origin, mint pegged.
         _selectL1();
@@ -374,6 +376,8 @@ contract BaseFlowERC20Test is Test {
         assertEq(originToken.balanceOf(l1Recipient) - before, AMOUNT / 2, "origin not unlocked");
     }
 
+    /// @notice HappyPath: first receive fails due to lack of funds on L1 gateway,
+    ///         then retry unlocks after pop up the gateway balance.
     function test_receiveFailedMessage_retryUnlocksAfterRefund() public {
         // Prepare pegged on L2 by bridging L1->L2.
         _selectL1();
@@ -448,8 +452,11 @@ contract BaseFlowERC20Test is Test {
 
         // L2: force deadline expiry and relay with L2 chain id to generate rollback hash.
         _selectL2();
-        l2BlockOracle.updateL1BlockNumber(srcBlock + RECEIVE_DEADLINE + 1);
+        l1BlockOracle.updateL1BlockNumber(srcBlock + RECEIVE_DEADLINE + 1);
         bytes32 failedHash = _messageHash(from, to, value, l2ChainId, srcBlock, nonce, data);
+        // expect RollbackMessage event
+        vm.expectEmit(true, true, true, true);
+        emit IFluentBridgeEvents.RollbackMessage(failedHash, block.number);
         vm.prank(relayer);
         l2Bridge.receiveMessage(from, to, value, l2ChainId, srcBlock, nonce, data);
         assertEq(uint256(l2Bridge.getReceivedMessage(failedHash)), uint256(IFluentBridge.MessageStatus.Failed), "not failed on L2");
