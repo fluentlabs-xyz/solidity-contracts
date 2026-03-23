@@ -296,16 +296,15 @@ contract BaseFlowNativeTest is BaseDeployNative {
         // Make L2 treat the message as timed-out (eligible for rollback).
         l2BlockOracle.updateL1BlockNumber(sentBlockNumber + RECEIVE_DEADLINE + 1);
 
-        // We pass L2 chainid as the `chainId` field in the hashed message, because
-        // L1FluentBridge.rollbackMessageWithProof forbids calling when `chainId == block.chainid` on L1.
-        uint256 l2ChainIdForMessage = l2ChainId;
+        // Pass L1 chainId — the message was originally sent from L1, so the rollback
+        // on L1 requires chainId == block.chainid (proving "this chain sent it").
         uint256 l2ReceiveNonce = l2Bridge.getReceivedNonce();
         assertEq(l2ReceiveNonce, sentNonce, "nonce mismatch");
 
-        bytes32 l2FailedMessageHash = _messageHash(sentFrom, sentTo, sentValue, l2ChainIdForMessage, sentBlockNumber, sentNonce, sentData);
+        bytes32 l2FailedMessageHash = _messageHash(sentFrom, sentTo, sentValue, l1ChainId, sentBlockNumber, sentNonce, sentData);
 
         vm.prank(relayer);
-        l2Bridge.receiveMessage(sentFrom, sentTo, sentValue, l2ChainIdForMessage, sentBlockNumber, sentNonce, sentData);
+        l2Bridge.receiveMessage(sentFrom, sentTo, sentValue, l1ChainId, sentBlockNumber, sentNonce, sentData);
 
         assertEq(uint256(l2Bridge.getReceivedMessage(l2FailedMessageHash)), uint256(IFluentBridge.MessageStatus.Failed));
 
@@ -330,7 +329,7 @@ contract BaseFlowNativeTest is BaseDeployNative {
         rollbackArgs.from = sentFrom;
         rollbackArgs.to = payable(sentTo);
         rollbackArgs.value = sentValue;
-        rollbackArgs.l2ChainId = l2ChainId;
+        rollbackArgs.chainId = l1ChainId;
         rollbackArgs.blockNumber = sentBlockNumber;
         rollbackArgs.messageNonce = sentNonce;
         rollbackArgs.message = sentData;
@@ -484,7 +483,7 @@ contract BaseFlowNativeTest is BaseDeployNative {
         address from;
         address payable to;
         uint256 value;
-        uint256 l2ChainId;
+        uint256 chainId;
         uint256 blockNumber;
         uint256 messageNonce;
         bytes message;
@@ -500,7 +499,7 @@ contract BaseFlowNativeTest is BaseDeployNative {
             args.from,
             args.to,
             args.value,
-            args.l2ChainId,
+            args.chainId,
             args.blockNumber,
             args.messageNonce,
             args.message,

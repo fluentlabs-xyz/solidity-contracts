@@ -74,11 +74,10 @@ contract BridgeScenarioNativeTest is BaseFlowNativeTest {
         _selectL2();
         l2BlockOracle.updateL1BlockNumber(sentBlockNumber + RECEIVE_DEADLINE + 1);
 
-        uint256 l2ChainIdForMessage = l2ChainId;
-        bytes32 l2FailedMessageHash = _messageHash(sentFrom, sentTo, sentValue, l2ChainIdForMessage, sentBlockNumber, sentNonce, sentData);
+        bytes32 l2FailedMessageHash = _messageHash(sentFrom, sentTo, sentValue, l1ChainId, sentBlockNumber, sentNonce, sentData);
 
         vm.prank(relayer);
-        l2Bridge.receiveMessage(sentFrom, sentTo, sentValue, l2ChainIdForMessage, sentBlockNumber, sentNonce, sentData);
+        l2Bridge.receiveMessage(sentFrom, sentTo, sentValue, l1ChainId, sentBlockNumber, sentNonce, sentData);
 
         assertEq(
             uint256(l2Bridge.getReceivedMessage(l2FailedMessageHash)),
@@ -124,7 +123,7 @@ contract BridgeScenarioNativeTest is BaseFlowNativeTest {
             sentFrom,
             sentTo,
             sentValue,
-            l2ChainId,
+            l1ChainId,
             sentBlockNumber,
             sentNonce,
             sentData,

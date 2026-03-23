@@ -370,15 +370,15 @@ contract BaseFlowERC20Test is BaseDeployERC20 {
             bytes memory data
         ) = _decodeBridgeSentMessage(vm.getRecordedLogs(), address(l1Bridge));
 
-        // L2: force deadline expiry and relay with L2 chain id to generate rollback hash.
+        // L2: force deadline expiry and relay with L1 chain id (the originating chain).
         _selectL2();
         l1BlockOracle.updateL1BlockNumber(srcBlock + RECEIVE_DEADLINE + 1);
-        bytes32 failedHash = _messageHash(from, to, value, l2ChainId, srcBlock, nonce, data);
+        bytes32 failedHash = _messageHash(from, to, value, l1ChainId, srcBlock, nonce, data);
         // expect RollbackMessage event
         vm.expectEmit(true, true, true, true);
         emit IFluentBridgeEvents.RollbackMessage(failedHash, block.number);
         vm.prank(relayer);
-        l2Bridge.receiveMessage(from, to, value, l2ChainId, srcBlock, nonce, data);
+        l2Bridge.receiveMessage(from, to, value, l1ChainId, srcBlock, nonce, data);
         assertEq(uint256(l2Bridge.getReceivedMessage(failedHash)), uint256(IFluentBridge.MessageStatus.Failed), "not failed on L2");
 
         // L1: finalize proof batch and call rollbackMessageWithProof.
@@ -388,7 +388,7 @@ contract BaseFlowERC20Test is BaseDeployERC20 {
         MerkleTree.MerkleProof memory withdrawalProof = WithdrawalMerkle.proofForLeaf(withdrawalLeaves, 0);
         MerkleTree.MerkleProof memory blockProof = MerkleTree.MerkleProof({nonce: 0, proof: ""});
         vm.prank(relayer);
-        l1Bridge.rollbackMessageWithProof(batchIndex, header, from, to, value, l2ChainId, srcBlock, nonce, data, withdrawalProof, blockProof);
+        l1Bridge.rollbackMessageWithProof(batchIndex, header, from, to, value, l1ChainId, srcBlock, nonce, data, withdrawalProof, blockProof);
         assertEq(uint256(l1Bridge.getRollbackMessage(failedHash)), uint256(IFluentBridge.MessageStatus.Failed), "rollback status mismatch");
         // ERC20 flow keeps tokens locked in gateway; rollback only marks bridge-level rollback status.
         assertEq(originToken.balanceOf(address(l1Gateway)), AMOUNT, "locked origin balance changed");
