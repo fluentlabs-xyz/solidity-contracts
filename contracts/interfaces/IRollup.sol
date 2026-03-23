@@ -694,6 +694,11 @@ interface IRollupAdmin {
      * @notice Set the ETH reward paid to challengers who successfully challenged a batch.
      */
     function setIncentiveFee(uint256 newIncentiveFee) external;
+
+    /**
+     * @notice Set the maximum force revert batch size.
+     */
+    function setMaxForceRevertBatchSize(uint32 newMaxForceRevertBatchSize) external;
 }
 
 /**

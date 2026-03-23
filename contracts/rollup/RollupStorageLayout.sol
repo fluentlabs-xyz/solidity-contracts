@@ -642,6 +642,7 @@ contract RollupStorageLayout is
         $._incentiveFee = newIncentiveFee;
     }
 
+    /// @inheritdoc IRollupAdmin
     function setMaxForceRevertBatchSize(uint32 newMaxForceRevertBatchSize) external onlyRole(DEFAULT_ADMIN_ROLE) {
         _setMaxForceRevertBatchSize(newMaxForceRevertBatchSize);
     }
