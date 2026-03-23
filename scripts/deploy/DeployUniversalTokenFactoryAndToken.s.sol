@@ -41,6 +41,8 @@ contract DeployUniversalTokenFactoryAndToken is Script {
 
         string memory outputPath = vm.envOr("OUTPUT_PATH", string(""));
 
+        // casting to 'uint8' is safe because we validate the bounds above.
+        // forge-lint: disable-next-line(unsafe-typecast)
         deployed = _deployAll(initialOwner, gatewayAddr, originToken, name, symbol, uint8(decimals), initialSupply, minter, pauser);
 
         emit UniversalTokenFactoryAndTokenDeployed(deployed.factoryImpl, deployed.factory, deployed.token);

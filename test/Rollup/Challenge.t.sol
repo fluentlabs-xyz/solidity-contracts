@@ -6,7 +6,7 @@ pragma solidity 0.8.30;
 // Multi-challenge partial resolution is therefore not testable.
 
 import {RollupAssertions} from "./Base.t.sol";
-import {L2BlockHeader, BatchStatus, BatchRecord, ChallengeRecord} from "../../contracts/interfaces/IRollupTypes.sol";
+import {L2BlockHeader, BatchStatus, ChallengeRecord} from "../../contracts/interfaces/IRollupTypes.sol";
 import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";

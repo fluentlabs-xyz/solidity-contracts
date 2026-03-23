@@ -54,6 +54,8 @@ contract ERC20PeggedTokenTest is Test {
 
         vm.prank(alice);
         vm.expectRevert(ERC20PeggedToken.TokenPaused.selector);
+        // The revert reason is asserted via `vm.expectRevert`, so the return value is irrelevant here.
+        // forge-lint: disable-next-line(erc20-unchecked-transfer)
         token.transfer(bob, 50e18);
     }
 
@@ -63,7 +65,7 @@ contract ERC20PeggedTokenTest is Test {
         token.unpause();
 
         vm.prank(alice);
-        token.transfer(bob, 50e18);
+        require(token.transfer(bob, 50e18), "transfer failed");
         assertEq(token.balanceOf(bob), 50e18, "bob balance");
     }
 

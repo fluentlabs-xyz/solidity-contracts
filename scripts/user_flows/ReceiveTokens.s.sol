@@ -60,14 +60,18 @@ contract ReceiveTokens is Script {
     }
 
     function _fromHexChar(uint8 c) internal pure returns (uint8) {
-        if (c >= uint8(bytes1("0")) && c <= uint8(bytes1("9"))) {
-            return c - uint8(bytes1("0"));
+        // ASCII ranges for hex digits
+        if (c >= 48 && c <= 57) {
+            // '0'..'9'
+            return c - 48;
         }
-        if (c >= uint8(bytes1("a")) && c <= uint8(bytes1("f"))) {
-            return 10 + c - uint8(bytes1("a"));
+        if (c >= 97 && c <= 102) {
+            // 'a'..'f'
+            return 10 + c - 97;
         }
-        if (c >= uint8(bytes1("A")) && c <= uint8(bytes1("F"))) {
-            return 10 + c - uint8(bytes1("A"));
+        if (c >= 65 && c <= 70) {
+            // 'A'..'F'
+            return 10 + c - 65;
         }
         revert("invalid hex char");
     }

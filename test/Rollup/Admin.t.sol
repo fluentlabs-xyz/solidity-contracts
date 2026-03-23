@@ -375,6 +375,7 @@ contract AdminTest is RollupAssertions {
         // preconfirmWindow is 100, so setting submitBlobsWindow >= 100 should fail
         vm.prank(admin);
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "submitBlobsWindow >= preconfirmWindow"));
+        // forge-lint: disable-next-line(unsafe-typecast)
         rollup.setSubmitBlobsWindow(uint64(PRECONFIRM_WINDOW));
     }
 
@@ -382,6 +383,7 @@ contract AdminTest is RollupAssertions {
         // submitBlobsWindow is 50, so setting preconfirmWindow <= 50 should fail
         vm.prank(admin);
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "preconfirmWindow <= submitBlobsWindow"));
+        // forge-lint: disable-next-line(unsafe-typecast)
         rollup.setPreconfirmWindow(uint64(SUBMIT_BLOBS_WINDOW));
     }
 
@@ -389,6 +391,7 @@ contract AdminTest is RollupAssertions {
         // finalizationDelay is 200, so setting challengeWindow >= 200 should fail
         vm.prank(admin);
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "challengeWindow >= finalizationDelay"));
+        // forge-lint: disable-next-line(unsafe-typecast)
         rollup.setChallengeWindow(uint64(FINALIZATION_DELAY));
     }
 
@@ -396,6 +399,7 @@ contract AdminTest is RollupAssertions {
         // challengeWindow is 150, so setting finalizationDelay <= 150 should fail
         vm.prank(admin);
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "finalizationDelay <= challengeWindow"));
+        // forge-lint: disable-next-line(unsafe-typecast)
         rollup.setFinalizationDelay(uint64(CHALLENGE_WINDOW));
     }
 

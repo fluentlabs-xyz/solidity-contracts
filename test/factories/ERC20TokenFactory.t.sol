@@ -8,7 +8,7 @@ import {UpgradeableBeacon} from "@openzeppelin/contracts/proxy/beacon/Upgradeabl
 import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol";
 import {GenericTokenFactory} from "../../contracts/factories/GenericTokenFactory.sol";
 import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
-import {IGenericTokenFactory, IGenericTokenFactoryErrors, IGenericTokenFactoryEvents} from "../../contracts/interfaces/IGenericTokenFactory.sol";
+import {IGenericTokenFactoryErrors, IGenericTokenFactoryEvents} from "../../contracts/interfaces/IGenericTokenFactory.sol";
 
 contract ERC20TokenFactoryTest is Test {
     ERC20TokenFactory internal factory;

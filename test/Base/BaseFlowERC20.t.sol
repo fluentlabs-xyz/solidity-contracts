@@ -336,14 +336,14 @@ contract BaseFlowERC20Test is BaseDeployERC20 {
         // Drain locked origin so first receiveOriginTokens attempt fails.
         _selectL1();
         vm.prank(address(l1Gateway));
-        originToken.transfer(makeAddr("sink"), AMOUNT);
+        require(originToken.transfer(makeAddr("sink"), AMOUNT), "originToken transfer to sink failed");
 
         _receiveErc20WithProof(hash2, deposits, from2, to2, value2, chainId2, blockNumber2, nonce2, data2, relayer);
         assertEq(uint256(l1Bridge.getReceivedMessage(hash2)), uint256(IFluentBridge.MessageStatus.Failed), "message should fail first");
 
         // Re-fund gateway and retry through receiveFailedMessage.
         vm.prank(l1Sender);
-        originToken.transfer(address(l1Gateway), backAmount);
+        require(originToken.transfer(address(l1Gateway), backAmount), "originToken transfer back failed");
         uint256 before = originToken.balanceOf(l1Recipient);
         vm.prank(relayer);
         l1Bridge.receiveFailedMessage(from2, to2, value2, chainId2, blockNumber2, nonce2, data2);

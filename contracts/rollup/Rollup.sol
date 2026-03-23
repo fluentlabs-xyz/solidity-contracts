@@ -114,6 +114,9 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         // Caller must send enough ETH to cover all incentive fees owed to challengers
         require(msg.value >= totalIncentiveFees, NotEnoughValueIncentiveFee(msg.value, totalIncentiveFees));
         // Reset the batch counter so the next batch starts right after the revert target
+        require(toBatchIndex + 1 <= type(uint96).max, NextBatchIndexOverflow());
+        // casting to 'uint96' is safe because we validate the bounds above.
+        // forge-lint: disable-next-line(unsafe-typecast)
         $._nextBatchIndex = uint96(toBatchIndex + 1);
 
         // Notify off-chain indexers that all batches after toBatchIndex have been rolled back
@@ -223,6 +226,9 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         // Record the L1 block number — all timing windows are measured from this anchor
         batch.acceptedAtBlock = uint64(block.number);
         // Store expected blob count so submitBlobs can validate completeness
+        require(expectedBlobsCount <= type(uint32).max, ExpectedBlobsCountOverflow(expectedBlobsCount));
+        // casting to 'uint32' is safe because we validate the bounds above.
+        // forge-lint: disable-next-line(unsafe-typecast)
         batch.expectedBlobs = uint32(expectedBlobsCount);
         // Initial status: blobs have not been submitted yet
         batch.status = BatchStatus.HeadersSubmitted;
@@ -230,6 +236,8 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         $._lastBlockHashInBatch[batchIndex] = blockHeaders[batchSize - 1].blockHash;
         // Overflow protection: _nextBatchIndex is uint96, ensure increment stays in range
         require(batchIndex + 1 <= type(uint96).max, NextBatchIndexOverflow());
+        // casting to 'uint96' is safe because we validate the bounds above.
+        // forge-lint: disable-next-line(unsafe-typecast)
         $._nextBatchIndex = uint96(batchIndex + 1);
 
         // Phase 2 (CEI): external bridge calls happen after all state writes above.
@@ -459,6 +467,9 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         // State transition: Preconfirmed → Finalized
         batch.status = BatchStatus.Finalized;
         // Advance the finalization watermark — used by finalizeBatches and sequential ordering
+        require(batchIndex <= type(uint64).max, InvalidBatchIndex(batchIndex, uint256($._lastFinalizedBatchIndex) + 1));
+        // casting to 'uint64' is safe because we validate the bounds above.
+        // forge-lint: disable-next-line(unsafe-typecast)
         $._lastFinalizedBatchIndex = uint64(batchIndex);
         emit BatchFinalized(batchIndex);
     }
@@ -558,6 +569,9 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         // State transition: Preconfirmed → Finalized (irreversible)
         batch.status = BatchStatus.Finalized;
         // Advance the finalization watermark so the next batch becomes eligible
+        if (batchIndex > type(uint64).max) return false;
+        // casting to 'uint64' is safe because we guard the bounds above.
+        // forge-lint: disable-next-line(unsafe-typecast)
         $._lastFinalizedBatchIndex = uint64(batchIndex);
         emit BatchFinalized(batchIndex);
         return true;

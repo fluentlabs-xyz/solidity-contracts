@@ -7,7 +7,6 @@ import {ERC20Gateway} from "../../contracts/gateways/ERC20Gateway.sol";
 import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol";
 import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {IGatewayBaseErrors, IGatewayBaseEvents} from "../../contracts/interfaces/gateways/IGatewayBase.sol";
-import {IERC20GatewayErrors} from "../../contracts/interfaces/gateways/IERC20Gateway.sol";
 import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
 import {MockERC20Token} from "../../test/mocks/MockERC20.sol";
 import {GatewayBase} from "./Base.t.sol";
@@ -194,7 +193,7 @@ contract ERC20GatewayTest is GatewayBase {
     function test_receiveOriginTokens_viaBridge_releasesEscrowedOrigin() public {
         uint256 amount = 3 ether;
         vm.prank(user);
-        originToken.transfer(address(gateway), amount);
+        require(originToken.transfer(address(gateway), amount), "originToken transfer failed");
 
         bytes memory message = abi.encodeCall(ERC20Gateway.receiveOriginTokens, (address(originToken), user, recipient, amount));
         (bytes32 messageHash, , ) = _relayMessage(remoteGateway, address(gateway), 0, message);
