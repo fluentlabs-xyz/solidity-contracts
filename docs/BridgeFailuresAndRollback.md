@@ -138,13 +138,11 @@ sequenceDiagram
 
 **Behavior:**
 
-- Re-runs **`_beforeReceiveMessage`** (on L2, deadline can still block execution — if it returns `false` again, see code path: it sets Failed again? Actually if already Failed, getReceivedMessage is Failed not None - wait, receiveFailedMessage requires Failed. _beforeReceiveMessage on second call - if deadline still exceeded, it would set _receivedMessage to Failed again (already Failed) and emit again? Let me read L2 _beforeReceiveMessage again.
-
-Actually when status is already Failed, receiveFailedMessage doesn't check None first for the hash in _beforeReceiveMessage - it goes to _beforeReceiveMessage. If deadline exceeded, it sets messageHash to Failed (already Failed), emits RollbackMessage and ReceivedMessage again, returns false - then receiveFailedMessage returns early without calling _receiveMessage!
-
-So receiveFailedMessage when _beforeReceiveMessage returns false: it returns without updating status in _receiveMessage - but _beforeReceiveMessage would have written Failed again and emitted. Good.
-
-If deadline no longer exceeded, _beforeReceiveMessage returns true, _receiveMessage runs with gasleft(), can flip to Success or Failed.
+- `receiveFailedMessage` calls **`_beforeReceiveMessage`** first.
+- On L2, **`_beforeReceiveMessage`** performs the deadline check (`l1BlockNumber - blockNumber >= receiveMessageDeadline`).
+- If the deadline is exceeded, **`_beforeReceiveMessage`** writes **`_receivedMessage[messageHash] = Failed`**, emits **`RollbackMessage`** and **`ReceivedMessage(messageHash, false, "")`**, and returns `false`.
+- When `_beforeReceiveMessage` returns `false`, **`receiveFailedMessage` returns early** and does not call **`_receiveMessage`**.
+- If `_beforeReceiveMessage` returns `true` (deadline not exceeded), `receiveFailedMessage` calls **`_receiveMessage(gasleft(), ...)`**, which executes the target and sets the final message status to **`Success`** or **`Failed`** in **`_receivedMessage`**.
 
 **Value:** Caller must supply **`msg.value == value`** when retrying a message that carries native value (same as relayer receive).
 
