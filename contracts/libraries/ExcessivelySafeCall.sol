@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.30;
 
 /**
@@ -7,50 +7,50 @@ pragma solidity ^0.8.30;
  * @dev This library provides functions to make external calls with a maximum return data size limit.
  */
 library ExcessivelySafeCall {
+    /// @dev Maximum bytes copied from returndata to prevent return-bomb attacks.
     uint256 private constant _MAX_RETURN_SIZE = 1024;
 
     /**
      * @notice Makes an external call with a maximum return data size limit.
-     * @param _target The address to call.
-     * @param _value The amount of ETH to send with the call.
-     * @param _calldata The calldata to send.
+     * @param target The address to call.
+     * @param value The amount of ETH to send with the call.
+     * @param data The calldata to send.
+     * @param gasLimit The maximum gas to forward to the external call.
      * @return success Whether the call was successful.
      * @return returnData The return data, truncated to _MAX_RETURN_SIZE if necessary.
      */
     function excessivelySafeCall(
-        address _target,
-        uint256 _value,
-        bytes memory _calldata,
+        address target,
+        uint256 value,
+        bytes memory data,
         uint256 gasLimit
     ) internal returns (bool success, bytes memory returnData) {
         // set up for assembly call
-        uint256 _toCopy;
-        bool _success;
-        bytes memory _returnData = new bytes(_MAX_RETURN_SIZE);
-        // dispatch message to recipient
-        // by assembly calling "handle" function
+        uint256 toCopy;
+        bool callSuccess;
+        bytes memory result = new bytes(_MAX_RETURN_SIZE);
         // we call via assembly to avoid memcopying a very large returndata
         // returned by a malicious contract
-        assembly {
-            _success := call(
+        assembly ("memory-safe") {
+            callSuccess := call(
                 gasLimit, // gas
-                _target, // recipient
-                _value, // ether value
-                add(_calldata, 0x20), // inloc
-                mload(_calldata), // inlen
-                0, // outloc
-                0 // outlen
+                target, // recipient
+                value, // ether value
+                add(data, 0x20), // inloc: skip 32-byte length prefix of bytes array
+                mload(data), // inlen: first word of bytes array is its length
+                0, // outloc: do not auto-copy returndata (return-bomb protection)
+                0 // outlen: do not auto-copy returndata (return-bomb protection)
             )
-            // limit our copy to 256 bytes
-            _toCopy := returndatasize()
-            if gt(_toCopy, _MAX_RETURN_SIZE) {
-                _toCopy := _MAX_RETURN_SIZE
+            // limit our copy to _MAX_RETURN_SIZE bytes
+            toCopy := returndatasize()
+            if gt(toCopy, _MAX_RETURN_SIZE) {
+                toCopy := _MAX_RETURN_SIZE
             }
-            // Store the length of the copied bytes
-            mstore(_returnData, _toCopy)
-            // copy the bytes from returndata[0:_toCopy]
-            returndatacopy(add(_returnData, 0x20), 0, _toCopy)
+            // store the length of the copied bytes
+            mstore(result, toCopy)
+            // copy the bytes from returndata[0:toCopy]
+            returndatacopy(add(result, 0x20), 0, toCopy)
         }
-        return (_success, _returnData);
+        return (callSuccess, result);
     }
 }

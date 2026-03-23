@@ -1,10 +1,9 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
 import {Script} from "forge-std/Script.sol";
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
 import {InitConfiguration} from "../../contracts/interfaces/IRollupTypes.sol";
-import {SP1Verifier} from "../../contracts/verifier/SP1VerifierGroth16.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 /// @notice Deployment script for the Rollup contract behind an ERC1967 proxy (UUPS upgradeable).
@@ -38,6 +37,10 @@ contract DeployRollup is Script {
         params.preconfirmationRole = vm.envOr("ROLLUP_PRECONFIRMATION_ROLE", address(0));
         params.nitroVerifier = vm.envOr("ROLLUP_NITRO_VERIFIER", address(0));
 
+        /// @dev We are using existing SP1 Verifier - https://docs.succinct.xyz/docs/sp1/verification/contract-addresses
+        /// https://sepolia.etherscan.io/address/0x397A5f7f3dBd538f23DE225B51f532c34448dA9B
+        params.sp1Verifier = vm.envOr("SP1_VERIFIER", address(0x397A5f7f3dBd538f23DE225B51f532c34448dA9B));
+
         // ─── Infrastructure ───
         params.bridge = vm.envAddress("ROLLUP_BRIDGE");
         params.programVKey = bytes32(vm.envOr("ROLLUP_PROGRAM_VKEY", uint256(0)));
@@ -68,9 +71,6 @@ contract DeployRollup is Script {
 
         vm.startBroadcast();
 
-        SP1Verifier sp1Verifier = new SP1Verifier();
-        params.sp1Verifier = address(sp1Verifier);
-
         Rollup rollupImpl = new Rollup();
         bytes memory initData = abi.encodeCall(Rollup.initialize, (abi.encode(params)));
         ERC1967Proxy rollupProxyContract = new ERC1967Proxy(address(rollupImpl), initData);
@@ -82,7 +82,7 @@ contract DeployRollup is Script {
 
         if (bytes(outputPath).length != 0) {
             string memory json = vm.serializeAddress("rollup_deployment", "rollup_impl", address(rollupImpl));
-            json = vm.serializeAddress("rollup_deployment", "rollup_sp1_verifier", address(sp1Verifier));
+            json = vm.serializeAddress("rollup_deployment", "rollup_sp1_verifier", address(params.sp1Verifier));
             json = vm.serializeAddress("rollup_deployment", "rollup", rollupProxy);
             vm.writeJson(json, outputPath);
         }

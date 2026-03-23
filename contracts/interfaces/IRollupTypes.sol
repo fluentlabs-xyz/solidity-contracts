@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.30;
 
 /**
@@ -43,7 +43,7 @@ struct L2BlockHeader {
 struct BatchRecord {
     /// @dev Merkle root of L2 block headers for this batch.
     bytes32 batchRoot;
-    /// @dev L1 block number when the batch was accepted via acceptNextBatch.
+    /// @dev L1 block number recorded when {IRollupWrite-acceptNextBatch} is called (status becomes HeadersSubmitted).
     uint64 acceptedAtBlock;
     /// @dev Number of blobs the sequencer committed to at acceptance time.
     uint32 expectedBlobs;
@@ -97,7 +97,7 @@ struct InitConfiguration {
     // ─── Parameters ───
     /// @dev ETH deposit required to open a challenge
     uint256 challengeDepositAmount;
-    /// @dev L1 blocks a prover has to resolve a challenge
+    /// @dev Batch-wide challenge window in L1 blocks from acceptance; shared deadline for submission and resolution
     uint256 challengeWindow;
     /// @dev Minimum L1 blocks after acceptance before finalization
     uint256 finalizationDelay;
@@ -109,4 +109,6 @@ struct InitConfiguration {
     uint256 submitBlobsWindow;
     /// @dev Max L1 blocks after acceptance for preconfirmation; 0 = disabled
     uint256 preconfirmWindow;
+    /// @dev Max batch size to revert at once
+    uint256 maxForceRevertBatchSize;
 }

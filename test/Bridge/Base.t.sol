@@ -1,17 +1,16 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
-import {L1BlockOracle} from "../../contracts/oracle/L1BlockOracle.sol";
-import {ERC20Gateway} from "../../contracts/gateways/ERC20Gateway.sol";
-import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol";
-import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
-import {MockERC20Token} from "../../contracts/mocks/MockERC20.sol";
+import {L1FluentBridge} from "../../contracts/bridge/L1/L1FluentBridge.sol";
 import {L2FluentBridge} from "../../contracts/bridge/L2/L2FluentBridge.sol";
 import {FluentBridgeStorageLayout} from "../../contracts/bridge/FluentBridgeStorageLayout.sol";
+import {L1BlockOracle} from "../../contracts/oracles/L1BlockOracle.sol";
+import {L1GasOracle} from "../../contracts/oracles/L1GasOracle.sol";
+import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
+import {L2BlockHeader} from "../../contracts/interfaces/IRollupTypes.sol";
 
 contract NoopReceiver {
     uint256 public calls;
@@ -33,113 +32,57 @@ contract RejectEther {
     }
 }
 
-abstract contract BridgeGatewayBase is Test {
+abstract contract BridgeBase is Test {
     address internal admin = makeAddr("admin");
+    address internal pauser = makeAddr("pauser");
     address internal relayer = makeAddr("relayer");
-    address internal user = makeAddr("user");
-    address internal recipient = makeAddr("recipient");
-    address internal remoteBridge = makeAddr("remoteBridge");
-    address internal remoteGateway = makeAddr("remoteGateway");
+    address internal stranger = makeAddr("stranger");
 
-    uint256 internal sourceChainId;
-    uint256 internal nextSourceBlock = 1;
-
-    IFluentBridge internal bridge;
-    L1BlockOracle internal oracle;
-    ERC20TokenFactory internal factory;
-    ERC20Gateway internal gateway;
-    ERC20PeggedToken internal peggedImplementation;
-    MockERC20Token internal originToken;
+    L1FluentBridge internal l1Bridge;
+    L2FluentBridge internal l2Bridge;
 
     function setUp() public virtual {
-        sourceChainId = block.chainid + 1;
-    }
-
-    function _deployBridge(uint256 receiveMessageDeadline) internal {
-        oracle = new L1BlockOracle(admin);
-
-        L2FluentBridge impl = new L2FluentBridge();
-        FluentBridgeStorageLayout.InitConfiguration memory params = FluentBridgeStorageLayout.InitConfiguration({
+        FluentBridgeStorageLayout.InitConfiguration memory cfg = FluentBridgeStorageLayout.InitConfiguration({
             adminRole: admin,
-            pauserRole: admin,
+            pauserRole: pauser,
             relayerRole: relayer,
-            otherBridge: remoteBridge
+            otherBridge: makeAddr("otherBridge")
         });
 
-        // Gateway tests rely on the trusted relayer path (receiveMessage),
-        // which exists on L2 bridge and needs a deadline + oracle config.
-        uint256 deadline = receiveMessageDeadline == 0 ? 1 : receiveMessageDeadline;
-        ERC1967Proxy proxy = new ERC1967Proxy(
-            address(impl),
-            abi.encodeCall(L2FluentBridge.initialize, (abi.encode(params), deadline, address(oracle)))
+        L1FluentBridge l1Impl = new L1FluentBridge();
+        ERC1967Proxy l1Proxy = new ERC1967Proxy(
+            address(l1Impl),
+            abi.encodeCall(L1FluentBridge.initialize, (abi.encode(cfg), makeAddr("rollupA")))
         );
-        bridge = IFluentBridge(payable(address(proxy)));
-        vm.prank(admin);
-        (bool ok, ) = address(bridge).call(abi.encodeWithSignature("setExecuteGasLimit(uint256)", 2_000_000));
-        require(ok, "setExecuteGasLimit failed");
-    }
+        l1Bridge = L1FluentBridge(payable(address(l1Proxy)));
 
-    function _deployGatewayStack() internal {
-        peggedImplementation = new ERC20PeggedToken();
-
-        ERC20TokenFactory factoryImpl = new ERC20TokenFactory();
-        ERC1967Proxy factoryProxy = new ERC1967Proxy(
-            address(factoryImpl),
-            abi.encodeCall(ERC20TokenFactory.initialize, (admin, address(peggedImplementation)))
-        );
-        factory = ERC20TokenFactory(address(factoryProxy));
-
-        ERC20Gateway gatewayImpl = new ERC20Gateway();
-        ERC1967Proxy gatewayProxy = new ERC1967Proxy(
-            address(gatewayImpl),
-            abi.encodeCall(ERC20Gateway.initialize, (admin, address(bridge), address(factory)))
-        );
-        gateway = ERC20Gateway(payable(address(gatewayProxy)));
-
-        vm.prank(admin);
-        factory.setPaymentGateway(address(gateway));
-
-        address beacon = factory.beacon();
-        vm.prank(admin);
-        gateway.setOtherSide(remoteGateway, address(peggedImplementation), address(factory), beacon);
-
-        originToken = new MockERC20Token("Mock Token", "MOCK", 1_000_000 ether, user);
-    }
-
-    function _bridgeMessageHash(
-        address from,
-        address to,
-        uint256 value,
-        uint256 chainId,
-        uint256 blockNumber,
-        uint256 nonce,
-        bytes memory message
-    ) internal pure returns (bytes32) {
-        return keccak256(abi.encode(from, to, value, chainId, blockNumber, nonce, message));
-    }
-
-    function _relayMessage(
-        address from,
-        address to,
-        uint256 value,
-        bytes memory message
-    ) internal returns (bytes32 messageHash, uint256 nonce, uint256 sourceBlock) {
-        nonce = bridge.getReceivedNonce();
-        sourceBlock = nextSourceBlock++;
-        messageHash = _bridgeMessageHash(from, to, value, sourceChainId, sourceBlock, nonce, message);
-
-        vm.deal(relayer, value);
+        L1BlockOracle l1BlockOracle = new L1BlockOracle(relayer);
+        L1GasOracle l1GasOracle = new L1GasOracle(relayer);
         vm.prank(relayer);
-        bridge.receiveMessage{value: value}(from, to, value, sourceChainId, sourceBlock, nonce, message);
+        l1BlockOracle.updateL1BlockNumber(1);
+
+        L2FluentBridge l2Impl = new L2FluentBridge();
+        ERC1967Proxy l2Proxy = new ERC1967Proxy(
+            address(l2Impl),
+            abi.encodeCall(
+                L2FluentBridge.initialize,
+                (abi.encode(cfg), 100, address(l1BlockOracle), address(l1GasOracle), 0, 0, 0, makeAddr("feeTreasury"))
+            )
+        );
+        l2Bridge = L2FluentBridge(payable(address(l2Proxy)));
     }
 
-    function _retryFailedMessage(address from, address to, uint256 value, uint256 blockNumber, uint256 nonce, bytes memory message) internal {
-        vm.deal(relayer, value);
-        vm.prank(relayer);
-        bridge.receiveFailedMessage{value: value}(from, to, value, sourceChainId, blockNumber, nonce, message);
+    function _dummyHeader() internal pure returns (L2BlockHeader memory header) {
+        header = L2BlockHeader({
+            previousBlockHash: bytes32(uint256(1)),
+            blockHash: bytes32(uint256(2)),
+            withdrawalRoot: bytes32(uint256(3)),
+            depositRoot: bytes32(uint256(4)),
+            depositCount: 0
+        });
     }
 
-    function _predictedPegged() internal view returns (address) {
-        return gateway.computePeggedTokenAddress(address(originToken));
+    function _dummyProof() internal pure returns (MerkleTree.MerkleProof memory proof) {
+        proof = MerkleTree.MerkleProof({nonce: 0, proof: ""});
     }
 }

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
 import {Script} from "forge-std/Script.sol";
@@ -41,6 +41,8 @@ contract DeployUniversalTokenFactoryAndToken is Script {
 
         string memory outputPath = vm.envOr("OUTPUT_PATH", string(""));
 
+        // casting to 'uint8' is safe because we validate the bounds above.
+        // forge-lint: disable-next-line(unsafe-typecast)
         deployed = _deployAll(initialOwner, gatewayAddr, originToken, name, symbol, uint8(decimals), initialSupply, minter, pauser);
 
         emit UniversalTokenFactoryAndTokenDeployed(deployed.factoryImpl, deployed.factory, deployed.token);
@@ -72,12 +74,9 @@ contract DeployUniversalTokenFactoryAndToken is Script {
 
         UniversalTokenFactory factory = UniversalTokenFactory(address(factoryProxyContract));
 
-        // Build keyData and deployArgs for deployToken() (must match ERC20Gateway: abi.encode(gateway, originToken))
-        bytes memory keyData = abi.encode(gatewayAddr, originToken);
-        bytes memory deployArgs =
-            abi.encode(name, symbol, decimals, initialSupply, minter, pauser);
+        bytes memory deployArgs = abi.encode(name, symbol, decimals, initialSupply, minter, pauser);
 
-        address token = factory.deployToken(keyData, deployArgs);
+        address token = factory.deployToken(gatewayAddr, originToken, deployArgs);
 
         vm.stopBroadcast();
 
@@ -91,4 +90,3 @@ contract DeployUniversalTokenFactoryAndToken is Script {
         vm.writeJson(json, outputPath);
     }
 }
-

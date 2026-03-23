@@ -1,8 +1,8 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
 import {Script} from "forge-std/Script.sol";
-import {MockERC20Token} from "../../contracts/mocks/MockERC20.sol";
+import {MockERC20Token} from "../../test/mocks/MockERC20.sol";
 
 contract DeployMockERC20Token is Script {
     event MockERC20TokenDeployed(address indexed token, string name, string symbol, uint256 initialSupply, address recipient);

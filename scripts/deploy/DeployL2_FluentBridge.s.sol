@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
 import {DeployLib} from "./DeployLib.s.sol";
@@ -14,6 +14,8 @@ import {DeployLib} from "./DeployLib.s.sol";
  * - OTHER_BRIDGE_PLACEHOLDER (address, optional; default 0x1)
  * - RECEIVE_MSG_DEADLINE (uint256, required, non-zero)
  * - L1_BLOCK_ORACLE (address, required)
+ * - L1 gas price oracle: {DeployLib} auto-deploys {L1GasOracle} (submitter = RELAYER_ROLE) and wires it into {L2FluentBridge}.
+ *   For custom gas scalar/overhead/treasury, call the 11-argument {DeployLib._deployFluentBridge} from a dedicated script.
  * - OUTPUT_PATH (string, optional; default empty)
  * - ALLOW_UNSAFE_UPGRADES=true (required)
  */
@@ -52,4 +54,3 @@ contract DeployL2FluentBridge is DeployLib {
         }
     }
 }
-

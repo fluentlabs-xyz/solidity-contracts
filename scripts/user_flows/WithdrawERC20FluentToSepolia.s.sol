@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
 import {Script} from "forge-std/Script.sol";
@@ -22,7 +22,7 @@ contract WithdrawERC20FluentToSepolia is Script {
         require(amount > 0, "AMOUNT must be > 0");
 
         ERC20Gateway gateway = ERC20Gateway(payable(gatewayAddress));
-        address peggedToken = gateway.computePeggedTokenAddress(originToken);
+        address peggedToken = gateway.computeTokenAddress(gatewayAddress, originToken);
         require(peggedToken.code.length > 0, "pegged token is not deployed");
 
         vm.startBroadcast();

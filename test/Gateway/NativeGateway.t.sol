@@ -1,15 +1,18 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+
 import {NativeGateway} from "../../contracts/gateways/NativeGateway.sol";
 import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
-import {IGatewayErrors, IGatewayEvents} from "../../contracts/interfaces/gateways/IGateway.sol";
+import {IGatewayBaseErrors, IGatewayBaseEvents} from "../../contracts/interfaces/gateways/IGatewayBase.sol";
 import {INativeGatewayErrors} from "../../contracts/interfaces/gateways/INativeGateway.sol";
-import {BridgeGatewayBase, RejectEther} from "../Bridge/Base.t.sol";
+import {GatewayBase} from "./Base.t.sol";
+import {RejectEther} from "../Bridge/Base.t.sol";
 
-contract NativeGatewayTest is BridgeGatewayBase {
+contract NativeGatewayTest is GatewayBase {
     NativeGateway internal nativeGateway;
 
     function setUp() public override {
@@ -27,11 +30,10 @@ contract NativeGatewayTest is BridgeGatewayBase {
         nativeGateway.setOtherSideGateway(remoteGateway);
     }
 
-    function test_initialize_setsDefaults() public {
+    function test_initialize_setsDefaults() public view {
         assertEq(nativeGateway.owner(), admin);
         assertEq(nativeGateway.getBridgeContract(), address(bridge));
         assertEq(nativeGateway.getOtherSideGateway(), remoteGateway);
-        assertEq(nativeGateway.getGasLimit(), nativeGateway.DEFAULT_GAS_LIMIT());
     }
 
     function test_sendNativeTokens_locksNativeInBridge() public {
@@ -39,7 +41,7 @@ contract NativeGatewayTest is BridgeGatewayBase {
         vm.deal(user, amount);
 
         vm.prank(user);
-        nativeGateway.sendNativeTokens{value: amount}(recipient, amount);
+        nativeGateway.sendNativeTokens{value: amount}(recipient);
 
         assertEq(address(bridge).balance, amount);
     }
@@ -49,16 +51,16 @@ contract NativeGatewayTest is BridgeGatewayBase {
         vm.deal(user, amount);
 
         vm.prank(user);
-        vm.expectRevert(IGatewayErrors.InvalidRecipient.selector);
-        nativeGateway.sendNativeTokens{value: amount}(address(0), amount);
+        vm.expectRevert(IGatewayBaseErrors.InvalidRecipient.selector);
+        nativeGateway.sendNativeTokens{value: amount}(address(0));
     }
 
-    function test_sendNativeTokens_revertsForInvalidAmount() public {
+    function test_sendNativeTokens_revertsForZeroAmount() public {
         vm.deal(user, 1 ether);
 
         vm.prank(user);
         vm.expectRevert(INativeGatewayErrors.InvalidNativeAmount.selector);
-        nativeGateway.sendNativeTokens{value: 1 ether}(recipient, 2 ether);
+        nativeGateway.sendNativeTokens{value: 0}(recipient);
     }
 
     function test_sendNativeTokens_withoutOtherSideGateway_sendsToZeroAddress() public {
@@ -69,7 +71,7 @@ contract NativeGatewayTest is BridgeGatewayBase {
         vm.deal(user, amount);
 
         vm.prank(user);
-        localGateway.sendNativeTokens{value: amount}(recipient, amount);
+        localGateway.sendNativeTokens{value: amount}(recipient);
 
         // Current behavior: no explicit otherSide check in NativeGateway, so bridge accepts message.
         assertEq(address(bridge).balance, amount);
@@ -158,28 +160,8 @@ contract NativeGatewayTest is BridgeGatewayBase {
     function test_receiveNativeTokens_directCall_revertsOnlyFluentBridge() public {
         vm.deal(user, 1 ether);
         vm.prank(user);
-        vm.expectRevert(IGatewayErrors.OnlyFluentBridge.selector);
+        vm.expectRevert(IGatewayBaseErrors.OnlyFluentBridge.selector);
         nativeGateway.receiveNativeTokens{value: 1 ether}(user, recipient, 1 ether);
-    }
-
-    function test_setGasLimit_updatesValue() public {
-        vm.expectEmit(false, false, false, true, address(nativeGateway));
-        emit IGatewayEvents.GasLimitUpdated(nativeGateway.getGasLimit(), 123_456);
-        vm.prank(admin);
-        nativeGateway.setGasLimit(123_456);
-        assertEq(nativeGateway.getGasLimit(), 123_456);
-    }
-
-    function test_setGasLimit_revertsForZero() public {
-        vm.prank(admin);
-        vm.expectRevert(INativeGatewayErrors.InvalidGasLimit.selector);
-        nativeGateway.setGasLimit(0);
-    }
-
-    function test_setGasLimit_revertsForNonOwner() public {
-        vm.prank(user);
-        vm.expectRevert();
-        nativeGateway.setGasLimit(100_000);
     }
 
     function test_rescueNative_transfersBalance() public {
@@ -195,7 +177,7 @@ contract NativeGatewayTest is BridgeGatewayBase {
 
     function test_rescueNative_revertsForZeroRecipient() public {
         vm.prank(admin);
-        vm.expectRevert(IGatewayErrors.InvalidRecipient.selector);
+        vm.expectRevert(IGatewayBaseErrors.InvalidRecipient.selector);
         nativeGateway.rescueNative(payable(address(0)), 1);
     }
 
@@ -203,7 +185,7 @@ contract NativeGatewayTest is BridgeGatewayBase {
         address newBridge = makeAddr("newBridge");
 
         vm.expectEmit(false, false, false, true, address(nativeGateway));
-        emit IGatewayEvents.BridgeContractUpdated(address(bridge), newBridge);
+        emit IGatewayBaseEvents.BridgeContractUpdated(address(bridge), newBridge);
         vm.prank(admin);
         nativeGateway.setBridgeContract(newBridge);
 
@@ -218,7 +200,7 @@ contract NativeGatewayTest is BridgeGatewayBase {
         vm.deal(address(bridge), amount);
 
         vm.expectEmit(true, true, false, true, address(nativeGateway));
-        emit IGatewayEvents.ReceivedTokens(user, recipient, amount);
+        emit IGatewayBaseEvents.ReceivedTokens(user, recipient, amount);
 
         vm.prank(relayer);
         bridge.receiveMessage(remoteGateway, address(nativeGateway), amount, sourceChainId, sourceBlock, nonce, message);
@@ -235,13 +217,14 @@ contract NativeGatewayTest is BridgeGatewayBase {
         nativeGateway.acceptOwnership();
         assertEq(nativeGateway.owner(), newOwner);
 
+        // Previous owner can no longer perform admin actions
         vm.prank(admin);
-        vm.expectRevert();
-        nativeGateway.setGasLimit(1);
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, admin));
+        nativeGateway.rescueNative(payable(recipient), 0);
 
+        // New owner can perform admin actions
         vm.prank(newOwner);
-        nativeGateway.setGasLimit(33333);
-        assertEq(nativeGateway.getGasLimit(), 33333);
+        nativeGateway.rescueNative(payable(recipient), 0);
     }
 
     /// @dev Covers `receive()` — native ETH can be sent to the gateway (e.g. accidental transfers / rescues).
@@ -256,6 +239,24 @@ contract NativeGatewayTest is BridgeGatewayBase {
         assertEq(address(nativeGateway).balance - beforeBal, 0.25 ether);
     }
 
+    function test_RevertIf_setBridgeContract_zeroAddress() public {
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(IGatewayBaseErrors.ZeroAddressNotAllowed.selector, "newBridgeContract"));
+        nativeGateway.setBridgeContract(address(0));
+    }
+
+    function test_RevertIf_setOtherSideGateway_zeroAddress() public {
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(IGatewayBaseErrors.ZeroAddressNotAllowed.selector, "newOtherSideGateway"));
+        nativeGateway.setOtherSideGateway(address(0));
+    }
+
+    function test_RevertIf_setOtherSideChainId_zero() public {
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(IGatewayBaseErrors.ZeroValueNotAllowed.selector, "newOtherSideChainId"));
+        nativeGateway.setOtherSideChainId(0);
+    }
+
     function test_bridgePause_blocksSendAndReceive() public {
         vm.prank(admin);
         (bool pauseOk, ) = address(bridge).call(abi.encodeWithSignature("pause()"));
@@ -264,7 +265,7 @@ contract NativeGatewayTest is BridgeGatewayBase {
         vm.deal(user, 1 ether);
         vm.prank(user);
         vm.expectRevert(bytes4(keccak256("EnforcedPause()")));
-        nativeGateway.sendNativeTokens{value: 1 ether}(recipient, 1 ether);
+        nativeGateway.sendNativeTokens{value: 1 ether}(recipient);
 
         bytes memory message = abi.encodeCall(NativeGateway.receiveNativeTokens, (user, recipient, 1 ether));
         uint256 nonce = bridge.getReceivedNonce();

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
 import {Script} from "forge-std/Script.sol";
@@ -21,7 +21,7 @@ contract SendNative is Script {
         NativeGateway gateway = NativeGateway(payable(gatewayAddress));
 
         vm.startBroadcast();
-        gateway.sendNativeTokens{value: amountWei}(recipient, amountWei);
+        gateway.sendNativeTokens{value: amountWei}(recipient);
         vm.stopBroadcast();
     }
 }

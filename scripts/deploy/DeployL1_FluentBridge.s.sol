@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
 import {DeployLib} from "./DeployLib.s.sol";
@@ -31,15 +31,7 @@ contract DeployL1FluentBridge is DeployLib {
 
         vm.startBroadcast();
         address bridgeImpl;
-        (bridgeProxy, bridgeImpl) = _deployFluentBridge(
-            adminRole,
-            pauserRole,
-            relayerRole,
-            0,
-            otherBridgePlaceholder,
-            l1BlockOracle,
-            rollup
-        );
+        (bridgeProxy, bridgeImpl) = _deployFluentBridge(adminRole, pauserRole, relayerRole, 0, otherBridgePlaceholder, l1BlockOracle, rollup);
         vm.stopBroadcast();
 
         if (bytes(outputPath).length != 0) {
@@ -49,4 +41,3 @@ contract DeployL1FluentBridge is DeployLib {
         }
     }
 }
-

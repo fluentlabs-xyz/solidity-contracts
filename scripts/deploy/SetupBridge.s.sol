@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
 import {Script, stdJson, console2} from "forge-std/Script.sol";
@@ -73,23 +73,27 @@ contract SetupBridge is Script {
         // Configure source gateway for destination side
         if (dst.factoryBeacon == ZERO) {
             // Universal destination (Fluent): use universal runtime as token impl.
-            _castSend(
+            _castSend6(
                 src.rpcUrl,
                 privateKey,
                 src.gateway,
-                "setOtherSideUniversal(address,address,address,uint256)",
+                "setOtherSide(bool,address,uint256,address,address,address)",
+                "true",
                 vm.toString(dst.gateway),
+                vm.toString(dst.chainId),
                 vm.toString(_nonZero(dst.peggedImpl, UNIVERSAL_RUNTIME)),
                 vm.toString(dst.factory),
-                vm.toString(dst.chainId)
+                vm.toString(ZERO)
             );
         } else {
-            _castSend(
+            _castSend6(
                 src.rpcUrl,
                 privateKey,
                 src.gateway,
-                "setOtherSide(address,address,address,address)",
+                "setOtherSide(bool,address,uint256,address,address,address)",
+                "false",
                 vm.toString(dst.gateway),
+                vm.toString(dst.chainId),
                 vm.toString(dst.peggedImpl),
                 vm.toString(dst.factory),
                 vm.toString(dst.factoryBeacon)
@@ -97,15 +101,17 @@ contract SetupBridge is Script {
         }
 
         // Configure destination gateway for source side
-        _castSend(
+        _castSend6(
             dst.rpcUrl,
             privateKey,
             dst.gateway,
-            "setOtherSide(address,address,address,address)",
+            "setOtherSide(bool,address,uint256,address,address,address)",
+            src.factoryBeacon == ZERO ? "true" : "false",
             vm.toString(src.gateway),
-            vm.toString(src.peggedImpl),
+            vm.toString(src.chainId),
+            vm.toString(_nonZero(src.peggedImpl, UNIVERSAL_RUNTIME)),
             vm.toString(src.factory),
-            vm.toString(src.factoryBeacon)
+            vm.toString(src.factoryBeacon == ZERO ? ZERO : src.factoryBeacon)
         );
 
         console2.log("Bridges and gateways linked successfully.");
@@ -114,7 +120,7 @@ contract SetupBridge is Script {
     function _loadChainConfig(string memory jsonPath, string memory chainName, bool sourceSide) internal view returns (ChainConfig memory c) {
         string memory json = vm.readFile(jsonPath);
         c.rpcUrl = _readRpcUrl(json, chainName);
-        c.chainId = sourceSide ? 0 : _readChainId(json, chainName);
+        c.chainId = _readChainId(json, chainName);
         c.bridge = _readAddressFlexible(json, "bridge");
         c.factory = _readAddressFlexible(json, "factory");
         c.gateway = _readAddressFlexible(json, "gateway");
@@ -124,6 +130,7 @@ contract SetupBridge is Script {
 
     function _validateSource(ChainConfig memory c) internal pure {
         require(bytes(c.rpcUrl).length != 0, "source rpcUrl missing");
+        require(c.chainId != 0, "source chainId missing");
         require(c.bridge != ZERO, "source bridge missing");
         require(c.factory != ZERO, "source factory missing");
         require(c.gateway != ZERO, "source gateway missing");
@@ -221,6 +228,37 @@ contract SetupBridge is Script {
         cmd[10] = "--private-key";
         cmd[11] = pk;
         cmd[12] = "--legacy";
+        vm.ffi(cmd);
+    }
+
+    function _castSend6(
+        string memory rpc,
+        string memory pk,
+        address to,
+        string memory sig,
+        string memory a1,
+        string memory a2,
+        string memory a3,
+        string memory a4,
+        string memory a5,
+        string memory a6
+    ) internal {
+        string[] memory cmd = new string[](15);
+        cmd[0] = "cast";
+        cmd[1] = "send";
+        cmd[2] = vm.toString(to);
+        cmd[3] = sig;
+        cmd[4] = a1;
+        cmd[5] = a2;
+        cmd[6] = a3;
+        cmd[7] = a4;
+        cmd[8] = a5;
+        cmd[9] = a6;
+        cmd[10] = "--rpc-url";
+        cmd[11] = rpc;
+        cmd[12] = "--private-key";
+        cmd[13] = pk;
+        cmd[14] = "--legacy";
         vm.ffi(cmd);
     }
 }

@@ -1,16 +1,18 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
-import {IRollupEvents, IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
+import {IRollupEvents} from "../../contracts/interfaces/IRollup.sol";
 import {L2BlockHeader, BatchStatus, BatchRecord, InitConfiguration} from "../../contracts/interfaces/IRollupTypes.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 
-import {MockNitroVerifier} from "./mocks/MockNitroVerifier.sol";
-import {MockSp1Verifier} from "./mocks/MockSp1Verifier.sol";
+import {MockNitroVerifier} from "../mocks/MockNitroVerifier.sol";
+import {MockSp1Verifier} from "../mocks/MockSp1Verifier.sol";
+
+// ============ Layer 1: Actors, Constants, Deploy ============
 
 abstract contract RollupBase is Test, IRollupEvents {
     // ============ Actors ============
@@ -41,12 +43,20 @@ abstract contract RollupBase is Test, IRollupEvents {
     /// @dev Mirrors RollupStorageLayout.ZERO_BYTES_HASH — keccak256 of empty bytes.
     bytes32 internal constant ZERO_BYTES_HASH = 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
 
+    /// @dev Stand-in leaves and Merkle root (two leaves: L2→L1 withdrawal + L1→L2 rollback), matching
+    ///      `MerkleTree.calculateMerkleRoot(abi.encodePacked(leftLeaf, rightLeaf))` for a two-leaf tree.
+    bytes32 internal constant EXAMPLE_L2_TO_L1_WITHDRAWAL_LEAF = keccak256("rollup-test-l2-to-l1-withdrawal-leaf");
+    bytes32 internal constant EXAMPLE_L1_TO_L2_ROLLBACK_LEAF = keccak256("rollup-test-l1-to-l2-rollback-leaf");
+    bytes32 internal constant EXAMPLE_WITHDRAWAL_ROOT =
+        keccak256(abi.encodePacked(EXAMPLE_L2_TO_L1_WITHDRAWAL_LEAF, EXAMPLE_L1_TO_L2_ROLLBACK_LEAF));
+
     uint256 internal constant BATCH_SIZE = 4;
     uint256 internal constant CHALLENGE_DEPOSIT = 1 ether;
     uint256 internal constant SUBMIT_BLOBS_WINDOW = 50;
     uint256 internal constant PRECONFIRM_WINDOW = 100;
     uint256 internal constant FINALIZATION_DELAY = 200;
     uint256 internal constant CHALLENGE_WINDOW = 150;
+    uint256 internal constant MAX_FORCE_REVERT_BATCH_SIZE = 10;
 
     // ============ Setup ============
 
@@ -56,28 +66,31 @@ abstract contract RollupBase is Test, IRollupEvents {
         rollup = _deployRollup(bridgeAddr);
     }
 
-    function _deployRollup(address _bridge) internal returns (Rollup) {
+    function _defaultInitConfig(address _bridge) internal returns (InitConfiguration memory cfg) {
         MockSp1Verifier sp1 = new MockSp1Verifier();
-        InitConfiguration memory cfg = InitConfiguration({
-            admin: admin,
-            emergency: admin,
-            sequencer: sequencer,
-            challenger: challenger,
-            prover: prover,
-            preconfirmationRole: preconfirmer,
-            sp1Verifier: address(sp1),
-            nitroVerifier: address(0),
-            bridge: _bridge,
-            programVKey: PROGRAM_VKEY,
-            genesisHash: GENESIS_HASH,
-            challengeDepositAmount: CHALLENGE_DEPOSIT,
-            challengeWindow: CHALLENGE_WINDOW,
-            finalizationDelay: FINALIZATION_DELAY,
-            acceptDepositDeadline: 1000,
-            incentiveFee: 0.1 ether,
-            submitBlobsWindow: SUBMIT_BLOBS_WINDOW,
-            preconfirmWindow: PRECONFIRM_WINDOW
-        });
+        cfg.admin = admin;
+        cfg.emergency = admin;
+        cfg.sequencer = sequencer;
+        cfg.challenger = challenger;
+        cfg.prover = prover;
+        cfg.preconfirmationRole = preconfirmer;
+        cfg.sp1Verifier = address(sp1);
+        cfg.nitroVerifier = address(0);
+        cfg.bridge = _bridge;
+        cfg.programVKey = PROGRAM_VKEY;
+        cfg.genesisHash = GENESIS_HASH;
+        cfg.challengeDepositAmount = CHALLENGE_DEPOSIT;
+        cfg.challengeWindow = CHALLENGE_WINDOW;
+        cfg.finalizationDelay = FINALIZATION_DELAY;
+        cfg.acceptDepositDeadline = 1000;
+        cfg.incentiveFee = 0.1 ether;
+        cfg.submitBlobsWindow = SUBMIT_BLOBS_WINDOW;
+        cfg.preconfirmWindow = PRECONFIRM_WINDOW;
+        cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
+    }
+
+    function _deployRollup(address _bridge) internal returns (Rollup) {
+        InitConfiguration memory cfg = _defaultInitConfig(_bridge);
         Rollup impl = new Rollup();
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
         Rollup r = Rollup(address(proxy));
@@ -85,7 +98,11 @@ abstract contract RollupBase is Test, IRollupEvents {
         r.enableNitroVerifier(address(nitroVerifier));
         return r;
     }
+}
 
+// ============ Layer 2: Action Helpers (Lifecycle DSL) ============
+
+abstract contract RollupActions is RollupBase {
     // ============ Batch Construction ============
 
     function _makeBatch(bytes32 parentHash) internal pure returns (L2BlockHeader[] memory batch) {
@@ -96,7 +113,7 @@ abstract contract RollupBase is Test, IRollupEvents {
             batch[i] = L2BlockHeader({
                 previousBlockHash: prev,
                 blockHash: blockHash,
-                withdrawalRoot: ZERO_BYTES_HASH,
+                withdrawalRoot: EXAMPLE_WITHDRAWAL_ROOT,
                 depositRoot: ZERO_BYTES_HASH,
                 depositCount: 0
             });
@@ -107,8 +124,6 @@ abstract contract RollupBase is Test, IRollupEvents {
     // ============ Lifecycle Action Helpers ============
 
     function _normalizedExpectedBlobs(uint256 expectedBlobs) internal pure returns (uint256) {
-        // submitBlobs now requires numBlobs > 0, so tests that used expectedBlobs=0
-        // are normalized to a single blob batch.
         return expectedBlobs == 0 ? 1 : expectedBlobs;
     }
 
@@ -176,49 +191,12 @@ abstract contract RollupBase is Test, IRollupEvents {
 
     function _expectBatchPreconfirmed(uint256 batchIndex) internal {
         vm.expectEmit(true, false, false, false, address(rollup));
-        emit BatchPreconfirmed(batchIndex);
+        emit BatchPreconfirmed(batchIndex, address(1), address(2));
     }
 
     function _expectBatchFinalized(uint256 batchIndex) internal {
         vm.expectEmit(true, false, false, false, address(rollup));
         emit BatchFinalized(batchIndex);
-    }
-
-    // ============ State Assertion Helpers ============
-
-    function _assertBatchRecord(uint256 batchIndex, BatchStatus status, uint256 expBlobs, bytes32 batchRoot) internal view {
-        BatchRecord memory batch = rollup.getBatch(batchIndex);
-        assertEq(uint8(batch.status), uint8(status), "batch status mismatch");
-        assertEq(batch.expectedBlobs, expBlobs, "expectedBlobs mismatch");
-        assertEq(batch.batchRoot, batchRoot, "batchRoot mismatch");
-    }
-
-    function _assertRollupCorrupted() internal view {
-        assertTrue(rollup.isRollupCorrupted(), "expected rollup to be corrupted");
-    }
-
-    function _assertRollupHealthy() internal view {
-        assertFalse(rollup.isRollupCorrupted(), "expected rollup to be healthy");
-    }
-
-    function _assertChallengeExists(bytes32 commitment) internal view {
-        assertTrue(rollup.getChallenge(commitment).challenger != address(0), "challenge should exist");
-    }
-
-    function _assertChallengeResolved(bytes32 commitment) internal view {
-        assertTrue(rollup.isBlockProven(commitment), "commitment should be proven");
-    }
-
-    function _assertChallengerWithdrawable(address _challenger, uint256 expected) internal view {
-        assertEq(rollup.claimableChallengerReward(_challenger), expected);
-    }
-
-    function _assertProverWithdrawable(address _prover, uint256 expected) internal view {
-        assertEq(rollup.claimableProofReward(_prover), expected);
-    }
-
-    function _assertLastFinalizedBatchIndex(uint256 expected) internal view {
-        assertEq(rollup.lastFinalizedBatchIndex(), expected);
     }
 
     // ============ Merkle Helpers ============
@@ -266,5 +244,44 @@ abstract contract RollupBase is Test, IRollupEvents {
 
     function _computeCommitment(L2BlockHeader memory header) internal pure returns (bytes32) {
         return keccak256(abi.encodePacked(header.previousBlockHash, header.blockHash, header.withdrawalRoot, header.depositRoot));
+    }
+}
+
+// ============ Layer 3: Assertion Helpers ============
+
+abstract contract RollupAssertions is RollupActions {
+    function _assertBatchRecord(uint256 batchIndex, BatchStatus status, uint256 expBlobs, bytes32 batchRoot) internal view {
+        BatchRecord memory batch = rollup.getBatch(batchIndex);
+        assertEq(uint8(batch.status), uint8(status), "batch status mismatch");
+        assertEq(batch.expectedBlobs, expBlobs, "expectedBlobs mismatch");
+        assertEq(batch.batchRoot, batchRoot, "batchRoot mismatch");
+    }
+
+    function _assertRollupCorrupted() internal view {
+        assertTrue(rollup.isRollupCorrupted(), "expected rollup to be corrupted");
+    }
+
+    function _assertRollupHealthy() internal view {
+        assertFalse(rollup.isRollupCorrupted(), "expected rollup to be healthy");
+    }
+
+    function _assertChallengeExists(bytes32 commitment) internal view {
+        assertTrue(rollup.getChallenge(commitment).challenger != address(0), "challenge should exist");
+    }
+
+    function _assertChallengeResolved(bytes32 commitment) internal view {
+        assertTrue(rollup.isBlockProven(commitment), "commitment should be proven");
+    }
+
+    function _assertChallengerWithdrawable(address _challenger, uint256 expected) internal view {
+        assertEq(rollup.claimableChallengerReward(_challenger), expected);
+    }
+
+    function _assertProverWithdrawable(address _prover, uint256 expected) internal view {
+        assertEq(rollup.claimableProofReward(_prover), expected);
+    }
+
+    function _assertLastFinalizedBatchIndex(uint256 expected) internal view {
+        assertEq(rollup.lastFinalizedBatchIndex(), expected);
     }
 }

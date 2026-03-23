@@ -1,40 +1,29 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
-import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {L1FluentBridge} from "../../contracts/bridge/L1/L1FluentBridge.sol";
 import {FluentBridgeStorageLayout} from "../../contracts/bridge/FluentBridgeStorageLayout.sol";
+import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
+import {IL1FluentBridge} from "../../contracts/interfaces/bridge/IL1FluentBridge.sol";
+import {IFluentBridgeErrors} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 import {L2BlockHeader} from "../../contracts/interfaces/IRollupTypes.sol";
+import {Queue} from "../../contracts/libraries/Queue.sol";
+import {MockRollup} from "../mocks/MockRollup.sol";
+import {BridgeBase, NoopReceiver} from "./Base.t.sol";
 
-contract RollupMock {
-    bool public finalized;
-
-    function setFinalized(bool value) external {
-        finalized = value;
-    }
-
-    function isBatchFinalized(uint256) external view returns (bool) {
-        return finalized;
-    }
-}
-
-contract L1FluentBridgeTest is Test {
-    address internal admin = makeAddr("admin");
-    address internal pauser = makeAddr("pauser");
-    address internal relayer = makeAddr("relayer");
+contract L1FluentBridgeTest is BridgeBase {
     address internal otherBridge = makeAddr("otherBridge");
     address internal user = makeAddr("user");
     address internal receiver = makeAddr("receiver");
     address internal nonRollup = makeAddr("nonRollup");
 
-    RollupMock internal rollup;
-    L1FluentBridge internal l1Bridge;
+    MockRollup internal rollup;
 
-    function setUp() public {
-        rollup = new RollupMock();
+    function setUp() public override {
+        rollup = new MockRollup();
 
         FluentBridgeStorageLayout.InitConfiguration memory cfg = FluentBridgeStorageLayout.InitConfiguration({
             adminRole: admin,
@@ -48,52 +37,39 @@ contract L1FluentBridgeTest is Test {
         l1Bridge = L1FluentBridge(payable(address(proxy)));
     }
 
-    function _dummyHeader() internal pure returns (L2BlockHeader memory header) {
-        header = L2BlockHeader({
-            previousBlockHash: bytes32(uint256(1)),
-            blockHash: bytes32(uint256(2)),
-            withdrawalRoot: bytes32(uint256(3)),
-            depositRoot: bytes32(uint256(4)),
-            depositCount: 0
-        });
-    }
-
-    function _dummyProof() internal pure returns (MerkleTree.MerkleProof memory proof) {
-        proof = MerkleTree.MerkleProof({nonce: 0, proof: ""});
-    }
-
-    function test_sendMessage_enqueues_and_rollup_can_pop() public {
+    function test_sendMessage_enqueuesMessage() public {
         l1Bridge.sendMessage(receiver, hex"0102");
 
         vm.prank(address(rollup));
         (bytes32 msgHash, ) = l1Bridge.popSentMessage();
 
         assertTrue(msgHash != bytes32(0), "message hash should be queued");
+    }
 
-        // Queue should now be empty.
+    function test_RevertIf_popSentMessage_queueEmpty() public {
         vm.prank(address(rollup));
-        vm.expectRevert();
+        vm.expectRevert(Queue.QueueEmpty.selector);
         l1Bridge.popSentMessage();
     }
 
-    function test_popSentMessage_reverts_for_non_rollup() public {
+    function test_RevertIf_popSentMessage_callerNotRollup() public {
         vm.prank(nonRollup);
-        vm.expectRevert();
+        vm.expectRevert(IL1FluentBridge.OnlyRollup.selector);
         l1Bridge.popSentMessage();
     }
 
-    function test_setRollup_reverts_when_queue_not_empty() public {
+    function test_RevertIf_setRollup_queueNotEmpty() public {
         l1Bridge.sendMessage(receiver, hex"deadbeef");
 
         vm.prank(admin);
-        vm.expectRevert();
+        vm.expectRevert(IL1FluentBridge.QueueNotEmpty.selector);
         l1Bridge.setRollup(makeAddr("nextRollup"));
     }
 
-    function test_receiveMessageWithProof_reverts_when_batch_not_finalized() public {
+    function test_RevertIf_receiveMessageWithProof_batchNotFinalized() public {
         rollup.setFinalized(false);
 
-        vm.expectRevert();
+        vm.expectRevert(IL1FluentBridge.InvalidBlockProof.selector);
         l1Bridge.receiveMessageWithProof(
             7,
             _dummyHeader(),
@@ -109,24 +85,334 @@ contract L1FluentBridgeTest is Test {
         );
     }
 
-    function test_receiveMessageWithProof_reverts_when_source_chain_is_local() public {
+    function test_RevertIf_receiveMessageWithProof_sourceChainIsLocal() public {
         rollup.setFinalized(true);
 
-        vm.expectRevert();
+        vm.expectRevert(IL1FluentBridge.ForbiddenReceiveRollbackMessage.selector);
         l1Bridge.receiveMessageWithProof(1, _dummyHeader(), user, payable(receiver), 0, block.chainid, 1, 0, "", _dummyProof(), _dummyProof());
     }
 
-    function test_rollbackMessageWithProof_reverts_when_batch_not_finalized() public {
+    function test_RevertIf_rollbackMessageWithProof_batchNotFinalized() public {
         rollup.setFinalized(false);
 
-        vm.expectRevert();
+        vm.expectRevert(IL1FluentBridge.InvalidBlockProof.selector);
+        l1Bridge.rollbackMessageWithProof(3, _dummyHeader(), user, receiver, 0, block.chainid, 1, 0, "", _dummyProof(), _dummyProof());
+    }
+
+    function test_RevertIf_rollbackMessageWithProof_sourceChainIsForeign() public {
+        rollup.setFinalized(true);
+
+        vm.expectRevert(IL1FluentBridge.ForbiddenRollbackReceivedMessage.selector);
         l1Bridge.rollbackMessageWithProof(3, _dummyHeader(), user, receiver, 0, block.chainid + 1, 1, 0, "", _dummyProof(), _dummyProof());
     }
 
-    function test_rollbackMessageWithProof_reverts_when_source_chain_is_local() public {
+    // ============ Proof path helpers ============
+
+    struct ProofFixture {
+        address from;
+        address payable to;
+        uint256 value;
+        uint256 chainId;
+        uint256 blockNumber;
+        uint256 messageNonce;
+        bytes message;
+        bytes32 messageHash;
+        L2BlockHeader header;
+        MerkleTree.MerkleProof emptyProof;
+    }
+
+    function _validProofFixture() internal returns (ProofFixture memory f) {
         rollup.setFinalized(true);
 
-        vm.expectRevert();
-        l1Bridge.rollbackMessageWithProof(3, _dummyHeader(), user, receiver, 0, block.chainid, 1, 0, "", _dummyProof(), _dummyProof());
+        f.from = makeAddr("l2sender");
+        f.to = payable(address(new NoopReceiver()));
+        f.value = 0;
+        f.chainId = block.chainid + 1;
+        f.blockNumber = 1;
+        f.messageNonce = 0;
+        f.message = abi.encodeCall(NoopReceiver.handle, ());
+
+        f.messageHash = keccak256(abi.encode(f.from, f.to, f.value, f.chainId, f.blockNumber, f.messageNonce, f.message));
+
+        f.header = L2BlockHeader({
+            previousBlockHash: bytes32(uint256(1)),
+            blockHash: bytes32(uint256(2)),
+            withdrawalRoot: f.messageHash,
+            depositRoot: bytes32(0),
+            depositCount: 0
+        });
+
+        bytes32 commitment = keccak256(
+            abi.encodePacked(f.header.previousBlockHash, f.header.blockHash, f.header.withdrawalRoot, f.header.depositRoot)
+        );
+        rollup.setBatchRoot(1, commitment);
+
+        f.emptyProof = MerkleTree.MerkleProof(0, "");
+    }
+
+    function _executeReceiveWithProof(ProofFixture memory f) internal {
+        l1Bridge.receiveMessageWithProof(
+            1,
+            f.header,
+            f.from,
+            f.to,
+            f.value,
+            f.chainId,
+            f.blockNumber,
+            f.messageNonce,
+            f.message,
+            f.emptyProof,
+            f.emptyProof
+        );
+    }
+
+    // ============ receiveMessageWithProof happy path ============
+
+    function test_receiveMessageWithProof_executesMessageOnValidProof() public {
+        ProofFixture memory f = _validProofFixture();
+        _executeReceiveWithProof(f);
+
+        assertEq(
+            uint8(l1Bridge.getReceivedMessage(f.messageHash)),
+            uint8(IFluentBridge.MessageStatus.Success),
+            "message should be marked as received"
+        );
+    }
+
+    // ============ receiveMessageWithProof revert paths ============
+
+    function test_RevertIf_receiveMessageWithProof_zeroBlockHash() public {
+        rollup.setFinalized(true);
+        L2BlockHeader memory header = L2BlockHeader({
+            previousBlockHash: bytes32(uint256(1)),
+            blockHash: bytes32(0),
+            withdrawalRoot: bytes32(uint256(3)),
+            depositRoot: bytes32(0),
+            depositCount: 0
+        });
+        vm.expectRevert(abi.encodeWithSelector(IFluentBridgeErrors.ZeroValueNotAllowed.selector, "blockHeader.blockHash"));
+        l1Bridge.receiveMessageWithProof(1, header, user, payable(receiver), 0, block.chainid + 1, 1, 0, "", _dummyProof(), _dummyProof());
+    }
+
+    function test_RevertIf_receiveMessageWithProof_zeroWithdrawalRoot() public {
+        rollup.setFinalized(true);
+        L2BlockHeader memory header = L2BlockHeader({
+            previousBlockHash: bytes32(uint256(1)),
+            blockHash: bytes32(uint256(2)),
+            withdrawalRoot: bytes32(0),
+            depositRoot: bytes32(0),
+            depositCount: 0
+        });
+        vm.expectRevert(abi.encodeWithSelector(IFluentBridgeErrors.ZeroValueNotAllowed.selector, "withdrawalRoot"));
+        l1Bridge.receiveMessageWithProof(1, header, user, payable(receiver), 0, block.chainid + 1, 1, 0, "", _dummyProof(), _dummyProof());
+    }
+
+    function test_RevertIf_receiveMessageWithProof_invalidBlockProof() public {
+        rollup.setFinalized(true);
+        rollup.setBatchRoot(1, bytes32(uint256(999)));
+        vm.expectRevert(IL1FluentBridge.InvalidBlockProof.selector);
+        l1Bridge.receiveMessageWithProof(
+            1,
+            _dummyHeader(),
+            user,
+            payable(receiver),
+            0,
+            block.chainid + 1,
+            1,
+            0,
+            "",
+            _dummyProof(),
+            _dummyProof()
+        );
+    }
+
+    function test_RevertIf_receiveMessageWithProof_invalidWithdrawalProof() public {
+        rollup.setFinalized(true);
+        L2BlockHeader memory header = _dummyHeader();
+        bytes32 commitment = keccak256(abi.encodePacked(header.previousBlockHash, header.blockHash, header.withdrawalRoot, header.depositRoot));
+        rollup.setBatchRoot(1, commitment);
+        vm.expectRevert(IL1FluentBridge.InvalidWithdrawalProof.selector);
+        l1Bridge.receiveMessageWithProof(1, header, user, payable(receiver), 0, block.chainid + 1, 1, 0, "", _dummyProof(), _dummyProof());
+    }
+
+    function test_RevertIf_receiveMessageWithProof_messageAlreadyReceived() public {
+        ProofFixture memory f = _validProofFixture();
+        _executeReceiveWithProof(f);
+
+        vm.expectRevert(IFluentBridgeErrors.MessageAlreadyReceived.selector);
+        _executeReceiveWithProof(f);
+    }
+
+    function test_RevertIf_receiveMessageWithProof_selfCall() public {
+        rollup.setFinalized(true);
+
+        address from = makeAddr("l2sender");
+        address payable to = payable(address(l1Bridge));
+        uint256 chainId = block.chainid + 1;
+
+        bytes32 messageHash = keccak256(abi.encode(from, to, uint256(0), chainId, uint256(1), uint256(0), bytes("")));
+
+        L2BlockHeader memory header = L2BlockHeader({
+            previousBlockHash: bytes32(uint256(1)),
+            blockHash: bytes32(uint256(2)),
+            withdrawalRoot: messageHash,
+            depositRoot: bytes32(0),
+            depositCount: 0
+        });
+
+        bytes32 commitment = keccak256(abi.encodePacked(header.previousBlockHash, header.blockHash, header.withdrawalRoot, header.depositRoot));
+        rollup.setBatchRoot(1, commitment);
+
+        MerkleTree.MerkleProof memory emptyProof = MerkleTree.MerkleProof(0, "");
+
+        vm.expectRevert(IFluentBridgeErrors.ForbiddenSelfCall.selector);
+        l1Bridge.receiveMessageWithProof(1, header, from, to, 0, chainId, 1, 0, "", emptyProof, emptyProof);
+    }
+
+    // ============ rollbackMessageWithProof ============
+
+    function test_rollbackMessageWithProof_refundsSender() public {
+        rollup.setFinalized(true);
+
+        address from = makeAddr("l1sender");
+        address to = makeAddr("l2target");
+        uint256 value = 1 ether;
+        uint256 chainId = block.chainid;
+
+        vm.deal(address(l1Bridge), 10 ether);
+
+        bytes32 messageHash = keccak256(abi.encode(from, to, value, chainId, uint256(1), uint256(0), bytes("")));
+
+        L2BlockHeader memory header = L2BlockHeader({
+            previousBlockHash: bytes32(uint256(1)),
+            blockHash: bytes32(uint256(2)),
+            withdrawalRoot: messageHash,
+            depositRoot: bytes32(0),
+            depositCount: 0
+        });
+
+        bytes32 commitment = keccak256(abi.encodePacked(header.previousBlockHash, header.blockHash, header.withdrawalRoot, header.depositRoot));
+        rollup.setBatchRoot(1, commitment);
+
+        MerkleTree.MerkleProof memory emptyProof = MerkleTree.MerkleProof(0, "");
+
+        l1Bridge.rollbackMessageWithProof(1, header, from, to, value, chainId, 1, 0, "", emptyProof, emptyProof);
+
+        assertEq(uint8(l1Bridge.getRollbackMessage(messageHash)), uint8(IFluentBridge.MessageStatus.Success), "rollback should succeed");
+    }
+
+    function test_RevertIf_rollbackMessageWithProof_insufficientBalance() public {
+        rollup.setFinalized(true);
+        vm.expectRevert(abi.encodeWithSelector(IFluentBridgeErrors.InsufficientBridgeBalance.selector, 1 ether));
+        l1Bridge.rollbackMessageWithProof(1, _dummyHeader(), user, receiver, 1 ether, block.chainid, 1, 0, "", _dummyProof(), _dummyProof());
+    }
+
+    function test_RevertIf_rollbackMessageWithProof_rollbackAlreadyDone() public {
+        rollup.setFinalized(true);
+
+        address from = makeAddr("l1sender");
+        address to = makeAddr("l2target");
+        uint256 chainId = block.chainid;
+
+        bytes32 messageHash = keccak256(abi.encode(from, to, uint256(0), chainId, uint256(1), uint256(0), bytes("")));
+
+        L2BlockHeader memory header = L2BlockHeader({
+            previousBlockHash: bytes32(uint256(1)),
+            blockHash: bytes32(uint256(2)),
+            withdrawalRoot: messageHash,
+            depositRoot: bytes32(0),
+            depositCount: 0
+        });
+
+        bytes32 commitment = keccak256(abi.encodePacked(header.previousBlockHash, header.blockHash, header.withdrawalRoot, header.depositRoot));
+        rollup.setBatchRoot(1, commitment);
+
+        MerkleTree.MerkleProof memory emptyProof = MerkleTree.MerkleProof(0, "");
+
+        l1Bridge.rollbackMessageWithProof(1, header, from, to, 0, chainId, 1, 0, "", emptyProof, emptyProof);
+
+        vm.expectRevert(IFluentBridgeErrors.MessageAlreadyReceived.selector);
+        l1Bridge.rollbackMessageWithProof(1, header, from, to, 0, chainId, 1, 0, "", emptyProof, emptyProof);
+    }
+
+    // ============ getRollbackMessage ============
+
+    function test_getRollbackMessage_returnsStoredStatus() public view {
+        assertEq(
+            uint8(l1Bridge.getRollbackMessage(bytes32(uint256(42)))),
+            uint8(IFluentBridge.MessageStatus.None),
+            "default rollback status should be None"
+        );
+    }
+
+    // ============ rollbackMessageWithProof: L1-originated message ============
+
+    /// @dev Verifies that rollbackMessageWithProof accepts messages that originated on
+    ///      THIS chain (L1) — the primary rollback use case.
+    ///
+    ///      Real flow:
+    ///        1. User sends 1 ETH from L1→L2 via sendMessage (chainId = block.chainid = L1)
+    ///        2. On L2, relayer delivers past deadline → RollbackMessage emitted with ORIGINAL messageHash
+    ///        3. Batch finalized on L1
+    ///        4. User calls rollbackMessageWithProof on L1 with original params
+    ///        5. chainId == block.chainid → passes guard → refund executes
+    function test_rollbackMessageWithProof_refundsL1OriginatedDeposit() public {
+        rollup.setFinalized(true);
+
+        // When a user calls sendMessage on L1, the message is encoded with
+        // chainId = block.chainid (the L1 chain ID where sendMessage is called).
+        address depositor = makeAddr("depositor");
+        address l2Target = makeAddr("l2Target");
+        uint256 depositValue = 1 ether;
+        uint256 chainId = block.chainid;
+
+        // Fund the bridge as if the user had called sendMessage{value: 1 ether}
+        vm.deal(address(l1Bridge), 10 ether);
+
+        // Reconstruct the same messageHash that would be produced by sendMessage on L1
+        // and later included in the L2 block's withdrawalRoot after the rollback on L2
+        bytes32 messageHash = keccak256(
+            abi.encode(depositor, l2Target, depositValue, chainId, uint256(1), uint256(0), bytes(""))
+        );
+
+        // The L2 sequencer builds a block whose withdrawalRoot contains the rollback messageHash.
+        // After batch finalization on L1, this proof becomes verifiable.
+        L2BlockHeader memory header = L2BlockHeader({
+            previousBlockHash: bytes32(uint256(1)),
+            blockHash: bytes32(uint256(2)),
+            withdrawalRoot: messageHash,
+            depositRoot: bytes32(0),
+            depositCount: 0
+        });
+
+        bytes32 commitment = keccak256(
+            abi.encodePacked(header.previousBlockHash, header.blockHash, header.withdrawalRoot, header.depositRoot)
+        );
+        rollup.setBatchRoot(1, commitment);
+
+        MerkleTree.MerkleProof memory emptyProof = MerkleTree.MerkleProof(0, "");
+
+        uint256 depositorBalBefore = depositor.balance;
+
+        l1Bridge.rollbackMessageWithProof(
+            1,
+            header,
+            depositor,
+            l2Target,
+            depositValue,
+            chainId, // == block.chainid — the correct value for an L1-originated message
+            1,
+            0,
+            "",
+            emptyProof,
+            emptyProof
+        );
+
+        assertEq(
+            uint8(l1Bridge.getRollbackMessage(messageHash)),
+            uint8(IFluentBridge.MessageStatus.Success),
+            "rollback should succeed"
+        );
+        assertEq(depositor.balance, depositorBalBefore + depositValue, "depositor should receive refund");
     }
 }

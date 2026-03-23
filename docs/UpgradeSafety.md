@@ -3,7 +3,7 @@
 ## Current Upgrade Surfaces
 
 - `FluentBridge.sol`: UUPS proxy, authorized by `DEFAULT_ADMIN_ROLE`.
-- `PaymentGateway.sol`: UUPS proxy, authorized by `owner()`.
+- `ERC20Gateway.sol` and `NativeGateway.sol`: UUPS proxies (via `GatewayBase`), authorized by `owner()`.
 - `GenericTokenFactory.sol` descendants: UUPS proxies, authorized by `owner()`.
 - `ERC20TokenFactory` beacon: owner can upgrade all deployed `ERC20PeggedToken` proxies through `upgradeTo`.
 
@@ -20,7 +20,7 @@
 
 - `scripts/deploy/DeployLib.s.sol`
 - `scripts/upgrade/UpgradeFluentBridge.s.sol`
-- `scripts/upgrade/UpgradePaymentGateway.s.sol`
+- `scripts/upgrade/UpgradeERC20Beacon.s.sol`
 
 These scripts still use unsafe upgrade helpers in some paths. They now require `ALLOW_UNSAFE_UPGRADES=true` to make operator intent explicit, but they should still be treated as high-risk operational tools.
 

@@ -1,14 +1,16 @@
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
-
-import {MerkleTree} from "../../libraries/MerkleTree.sol";
-import {L2BlockHeader} from "../../interfaces/IRollupTypes.sol";
+// SPDX-License-Identifier: Apache-2.0
+pragma solidity ^0.8.30;
 
 /**
  * @title IFluentBridgeAdmin
  * @dev Admin functions for the bridge contract.
  */
 interface IFluentBridgeAdmin {
+    /**
+     * @notice Update the address that receives outbound message fees (L2 `sendMessage` fee path).
+     * @param newFeeTreasury The new treasury address (may be zero on L1 when unused).
+     */
+    function setFeeTreasury(address newFeeTreasury) external;
     /**
      * @notice Update the address of the bridge contract on the other chain.
      * @param newOtherBridge The address of the bridge contract on the other chain.
@@ -26,6 +28,10 @@ interface IFluentBridgeAdmin {
     function setRelayerRole(address newRelayer) external;
 }
 
+/**
+ * @title IFluentBridgeRead
+ * @dev Read-only getters for bridge configuration and state.
+ */
 interface IFluentBridgeRead {
     /**
      * @notice Get the gas limit for message execution.
@@ -37,6 +43,14 @@ interface IFluentBridgeRead {
      * @return The address of the bridge contract on the other chain.
      */
     function getOtherBridge() external view returns (address);
+    /**
+     * @notice Treasury receiving fees charged on L2 outbound messages (zero when unused).
+     */
+    function getFeeTreasury() external view returns (address);
+    /**
+     * @notice Fee charged on the next outbound message (0 when no fee applies).
+     */
+    function getSentMessageFee() external view returns (uint256);
 }
 
 /**
@@ -46,38 +60,61 @@ interface IFluentBridgeRead {
 interface IFluentBridgeErrors {
     /**
      * @notice Invalid window configuration.
+     * @dev selector: 0x14bef653
      */
     error InvalidWindowConfig(string field);
     /**
      * @notice Message hash has already been processed (duplicate receive or rollback).
+     * @dev selector: 0x66a98a4b
      */
     error MessageAlreadyReceived();
     /**
      * @notice Inbound message nonce does not match the expected sequential receivedNonce.
+     * @dev selector: 0x2ae88f59
      */
     error MessageReceivedOutOfOrder();
     /**
      * @notice receiveFailedMessage was called for a hash that is not marked as Failed.
+     * @dev selector: 0xeb8adf0e
      */
     error MessageNotFailed();
     /**
      * @notice Target address is this bridge (self-call) when executing a message or rollback.
+     * @dev selector: 0xef42d941
      */
     error ForbiddenSelfCall();
     /**
      * @notice sendMessage destination is this bridge or the configured otherBridge, which is forbidden.
+     * @dev selector: 0x52098529
      */
     error InvalidDestinationAddress();
     /**
      * @notice Zero address supplied for a required configuration field.
+     * @dev selector: 0x44034241
      */
     error ZeroAddressNotAllowed(string field);
     /**
      * @notice Zero value supplied for a required configuration field.
+     * @dev selector: 0x78bcc63a
      */
     error ZeroValueNotAllowed(string field);
+
+    /**
+     * @notice Insufficient `msg.value` to cover the outbound message fee.
+     * @dev selector: 0x025dbdd4
+     */
+    error InsufficientFee();
+
+    /**
+     * @notice Bridge balance too low to cover the native value required by the message.
+     */
+    error InsufficientBridgeBalance(uint256 required);
 }
 
+/**
+ * @title IFluentBridgeEvents
+ * @dev Events emitted by the bridge contract.
+ */
 interface IFluentBridgeEvents {
     /**
      * @notice Emitted when a message is sent to another chain.
@@ -114,13 +151,26 @@ interface IFluentBridgeEvents {
      * @notice Emitted when the gas limit for message execution is updated.
      */
     event ExecuteGasLimitUpdated(uint256 indexed prevValue, uint256 indexed newValue);
+    /**
+     * @notice Emitted when the fee treasury address is updated.
+     */
+    event FeeTreasuryUpdated(address indexed prevValue, address indexed newValue);
 }
 
+/**
+ * @title IFluentBridge
+ * @dev Core bridge interface: message lifecycle (send, receive, retry), state queries, and status tracking.
+ */
 interface IFluentBridge is IFluentBridgeErrors, IFluentBridgeEvents {
-    /// @notice Enum describing the status of a cross-chain message.
+    /**
+     * @dev Describes the status of a cross-chain message.
+     */
     enum MessageStatus {
+        /// @dev Message has not been received yet.
         None,
+        /// @dev Message execution reverted; eligible for retry via {receiveFailedMessage}.
         Failed,
+        /// @dev Message executed successfully.
         Success
     }
 
@@ -131,32 +181,31 @@ interface IFluentBridge is IFluentBridgeErrors, IFluentBridgeEvents {
      * @return The next outbound message nonce.
      */
     function getNonce() external view returns (uint256);
+
     /**
      * @notice Next expected inbound received message nonce (L2 receiveMessage ordering).
      * @return The next expected inbound received message nonce.
      */
     function getReceivedNonce() external view returns (uint256);
+
     /**
      * @notice During receive execution, the address that sent the message on the other chain; otherwise address(0).
      * @return The address that sent the message on the other chain.
      */
     function getNativeSender() external view returns (address);
+
     /**
      * @notice Address of the bridge contract on the other chain.
      * @return The address of the bridge contract on the other chain.
      */
     function getOtherBridge() external view returns (address);
+
     /**
      * @notice Status of a received message by its hash (None, Failed, Success).
      * @param key The hash of the received message.
      * @return The status of the received message.
      */
     function getReceivedMessage(bytes32 key) external view returns (MessageStatus);
-    /**
-     * @notice Returns the size of the sent message queue (L1; 0 on L2 when rollup is not set).
-     * @return The size of the sent message queue.
-     */
-    function getSentMessageQueueSize() external view returns (uint256);
 
     // ---------- Send / receive ----------
 
@@ -166,8 +215,11 @@ interface IFluentBridge is IFluentBridgeErrors, IFluentBridgeEvents {
      * @param message Calldata payload to deliver.
      */
     function sendMessage(address to, bytes calldata message) external payable;
+
     /**
-     * @notice Receives and executes a message sent by the bridge authority (L2 only; trusted relayer path).
+     * @notice Receives and executes a message sent by the bridge authority (callable on both L1 and L2 by the authorized relayer; trusted relayer path).
+     * @dev Callable on both L1 and L2 by the authorized relayer; trusted relayer path.
+     *
      * @param from Sender on the other chain.
      * @param to Destination on this chain.
      * @param value Value to forward.
@@ -184,9 +236,12 @@ interface IFluentBridge is IFluentBridgeErrors, IFluentBridgeEvents {
         uint256 blockNumber,
         uint256 nonce,
         bytes calldata message
-    ) external payable;
+    ) external;
+
     /**
      * @notice Retries execution of a previously failed message (same params as original receive).
+     * @dev This function is used to retry execution of a previously failed message from anyone.
+     *
      * @param from Sender on the other chain.
      * @param to Destination on this chain.
      * @param value Value to forward.
@@ -203,5 +258,5 @@ interface IFluentBridge is IFluentBridgeErrors, IFluentBridgeEvents {
         uint256 blockNumber,
         uint256 nonce,
         bytes calldata message
-    ) external payable;
+    ) external;
 }
