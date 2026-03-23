@@ -9,6 +9,7 @@ import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol
 import {IGatewayBaseErrors, IGatewayBaseEvents} from "../../contracts/interfaces/gateways/IGatewayBase.sol";
 import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
 import {MockERC20Token} from "../../test/mocks/MockERC20.sol";
+import {MockFeeOnTransferERC20} from "../../test/mocks/MockFeeOnTransferERC20.sol";
 import {GatewayBase} from "./Base.t.sol";
 
 contract ERC20GatewayTest is GatewayBase {
@@ -310,5 +311,36 @@ contract ERC20GatewayTest is GatewayBase {
     function test_computeTokenAddress_matchesPredictedHelper() public view {
         address predicted = gateway.computeTokenAddress(address(gateway), address(originToken));
         assertEq(predicted, _predictedPegged(), "computeTokenAddress mismatch vs helper");
+    }
+
+    // ============ Fee-on-transfer ============
+
+    /// @dev Verifies that the gateway escrows the actual received amount (after fee)
+    ///      and encodes that amount in the bridge message, not the requested amount.
+    function test_sendTokens_originPath_feeOnTransfer_escrewsActualAmount() public {
+        // Deploy a 2% fee-on-transfer token and give 1000 to user
+        uint256 feeBps = 200;
+        MockFeeOnTransferERC20 fotToken = new MockFeeOnTransferERC20("FeeToken", "FOT", 1_000 ether, user, feeBps);
+
+        // Configure the gateway to know about the other side so _sendOriginTokens passes validation
+        // (otherSideGateway and otherSideFactory are already set by _deployGatewayStack)
+
+        uint256 sendAmount = 100 ether;
+        uint256 expectedFee = (sendAmount * feeBps) / 10_000; // 2 ether
+        uint256 expectedReceived = sendAmount - expectedFee; // 98 ether
+
+        vm.prank(user);
+        fotToken.approve(address(gateway), sendAmount);
+
+        // Record gateway balance before
+        uint256 gatewayBalBefore = fotToken.balanceOf(address(gateway));
+
+        // Send tokens through the gateway
+        vm.prank(user);
+        gateway.sendTokens(address(fotToken), recipient, sendAmount);
+
+        // Gateway should hold exactly the post-fee amount
+        uint256 gatewayBalAfter = fotToken.balanceOf(address(gateway));
+        assertEq(gatewayBalAfter - gatewayBalBefore, expectedReceived, "gateway should escrow actual received amount, not requested amount");
     }
 }

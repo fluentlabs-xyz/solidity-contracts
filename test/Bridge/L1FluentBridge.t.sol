@@ -96,14 +96,14 @@ contract L1FluentBridgeTest is BridgeBase {
         rollup.setFinalized(false);
 
         vm.expectRevert(IL1FluentBridge.InvalidBlockProof.selector);
-        l1Bridge.rollbackMessageWithProof(3, _dummyHeader(), user, receiver, 0, block.chainid + 1, 1, 0, "", _dummyProof(), _dummyProof());
+        l1Bridge.rollbackMessageWithProof(3, _dummyHeader(), user, receiver, 0, block.chainid, 1, 0, "", _dummyProof(), _dummyProof());
     }
 
-    function test_RevertIf_rollbackMessageWithProof_sourceChainIsLocal() public {
+    function test_RevertIf_rollbackMessageWithProof_sourceChainIsForeign() public {
         rollup.setFinalized(true);
 
         vm.expectRevert(IL1FluentBridge.ForbiddenRollbackReceivedMessage.selector);
-        l1Bridge.rollbackMessageWithProof(3, _dummyHeader(), user, receiver, 0, block.chainid, 1, 0, "", _dummyProof(), _dummyProof());
+        l1Bridge.rollbackMessageWithProof(3, _dummyHeader(), user, receiver, 0, block.chainid + 1, 1, 0, "", _dummyProof(), _dummyProof());
     }
 
     // ============ Proof path helpers ============
@@ -274,10 +274,10 @@ contract L1FluentBridgeTest is BridgeBase {
     function test_rollbackMessageWithProof_refundsSender() public {
         rollup.setFinalized(true);
 
-        address from = makeAddr("l2sender");
+        address from = makeAddr("l1sender");
         address to = makeAddr("l2target");
         uint256 value = 1 ether;
-        uint256 chainId = block.chainid + 1;
+        uint256 chainId = block.chainid;
 
         vm.deal(address(l1Bridge), 10 ether);
 
@@ -304,15 +304,15 @@ contract L1FluentBridgeTest is BridgeBase {
     function test_RevertIf_rollbackMessageWithProof_insufficientBalance() public {
         rollup.setFinalized(true);
         vm.expectRevert(abi.encodeWithSelector(IL1FluentBridge.InsufficientBridgeBalance.selector, 1 ether));
-        l1Bridge.rollbackMessageWithProof(1, _dummyHeader(), user, receiver, 1 ether, block.chainid + 1, 1, 0, "", _dummyProof(), _dummyProof());
+        l1Bridge.rollbackMessageWithProof(1, _dummyHeader(), user, receiver, 1 ether, block.chainid, 1, 0, "", _dummyProof(), _dummyProof());
     }
 
     function test_RevertIf_rollbackMessageWithProof_rollbackAlreadyDone() public {
         rollup.setFinalized(true);
 
-        address from = makeAddr("l2sender");
+        address from = makeAddr("l1sender");
         address to = makeAddr("l2target");
-        uint256 chainId = block.chainid + 1;
+        uint256 chainId = block.chainid;
 
         bytes32 messageHash = keccak256(abi.encode(from, to, uint256(0), chainId, uint256(1), uint256(0), bytes("")));
 
@@ -343,5 +343,76 @@ contract L1FluentBridgeTest is BridgeBase {
             uint8(IFluentBridge.MessageStatus.None),
             "default rollback status should be None"
         );
+    }
+
+    // ============ rollbackMessageWithProof: L1-originated message ============
+
+    /// @dev Verifies that rollbackMessageWithProof accepts messages that originated on
+    ///      THIS chain (L1) — the primary rollback use case.
+    ///
+    ///      Real flow:
+    ///        1. User sends 1 ETH from L1→L2 via sendMessage (chainId = block.chainid = L1)
+    ///        2. On L2, relayer delivers past deadline → RollbackMessage emitted with ORIGINAL messageHash
+    ///        3. Batch finalized on L1
+    ///        4. User calls rollbackMessageWithProof on L1 with original params
+    ///        5. chainId == block.chainid → passes guard → refund executes
+    function test_rollbackMessageWithProof_refundsL1OriginatedDeposit() public {
+        rollup.setFinalized(true);
+
+        // When a user calls sendMessage on L1, the message is encoded with
+        // chainId = block.chainid (the L1 chain ID where sendMessage is called).
+        address depositor = makeAddr("depositor");
+        address l2Target = makeAddr("l2Target");
+        uint256 depositValue = 1 ether;
+        uint256 chainId = block.chainid;
+
+        // Fund the bridge as if the user had called sendMessage{value: 1 ether}
+        vm.deal(address(l1Bridge), 10 ether);
+
+        // Reconstruct the same messageHash that would be produced by sendMessage on L1
+        // and later included in the L2 block's withdrawalRoot after the rollback on L2
+        bytes32 messageHash = keccak256(
+            abi.encode(depositor, l2Target, depositValue, chainId, uint256(1), uint256(0), bytes(""))
+        );
+
+        // The L2 sequencer builds a block whose withdrawalRoot contains the rollback messageHash.
+        // After batch finalization on L1, this proof becomes verifiable.
+        L2BlockHeader memory header = L2BlockHeader({
+            previousBlockHash: bytes32(uint256(1)),
+            blockHash: bytes32(uint256(2)),
+            withdrawalRoot: messageHash,
+            depositRoot: bytes32(0),
+            depositCount: 0
+        });
+
+        bytes32 commitment = keccak256(
+            abi.encodePacked(header.previousBlockHash, header.blockHash, header.withdrawalRoot, header.depositRoot)
+        );
+        rollup.setBatchRoot(1, commitment);
+
+        MerkleTree.MerkleProof memory emptyProof = MerkleTree.MerkleProof(0, "");
+
+        uint256 depositorBalBefore = depositor.balance;
+
+        l1Bridge.rollbackMessageWithProof(
+            1,
+            header,
+            depositor,
+            l2Target,
+            depositValue,
+            chainId, // == block.chainid — the correct value for an L1-originated message
+            1,
+            0,
+            "",
+            emptyProof,
+            emptyProof
+        );
+
+        assertEq(
+            uint8(l1Bridge.getRollbackMessage(messageHash)),
+            uint8(IFluentBridge.MessageStatus.Success),
+            "rollback should succeed"
+        );
+        assertEq(depositor.balance, depositorBalBefore + depositValue, "depositor should receive refund");
     }
 }

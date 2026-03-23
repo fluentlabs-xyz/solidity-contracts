@@ -31,7 +31,7 @@ contract NitroVerifierTest is Test {
         vm.prank(admin);
         verifier.executeVKeyUpdate();
 
-        assertEq(verifier.PROGRAM_VKEY(), newVKey);
+        assertEq(verifier.getProgramVKey(), newVKey);
         assertEq(verifier.pendingVKey(), bytes32(0));
     }
 

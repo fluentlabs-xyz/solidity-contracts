@@ -25,7 +25,7 @@ interface INitroVerifier {
     error ZeroVKey();
 
     /**
-     * @notice Proposed VKey is identical to the current {PROGRAM_VKEY}.
+     * @notice Proposed VKey is identical to the current {_programVKey}.
      * @dev selector: 0x9342dad9
      */
     error VKeyUnchanged();

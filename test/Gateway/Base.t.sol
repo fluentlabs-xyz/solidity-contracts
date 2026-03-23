@@ -123,7 +123,7 @@ abstract contract GatewayBase is Test {
     function _retryFailedMessage(address from, address to, uint256 value, uint256 blockNumber, uint256 nonce, bytes memory message) internal {
         vm.deal(address(bridge), address(bridge).balance + value);
         vm.prank(relayer);
-        bridge.receiveFailedMessage{value: value}(from, to, value, sourceChainId, blockNumber, nonce, message);
+        bridge.receiveFailedMessage(from, to, value, sourceChainId, blockNumber, nonce, message);
     }
 
     function _predictedPegged() internal view returns (address) {

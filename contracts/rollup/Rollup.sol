@@ -119,6 +119,13 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         // forge-lint: disable-next-line(unsafe-typecast)
         $._nextBatchIndex = uint96(toBatchIndex + 1);
 
+        // Refund any overpayment back to the caller (underflow safe: require on L115 guarantees msg.value >= totalIncentiveFees)
+        uint256 refund = msg.value - totalIncentiveFees;
+        if (refund > 0) {
+            (bool ok,) = msg.sender.call{value: refund}("");
+            require(ok, EthTransferFailed(msg.sender, refund));
+        }
+
         // Notify off-chain indexers that all batches after toBatchIndex have been rolled back
         emit BatchReverted(toBatchIndex);
     }

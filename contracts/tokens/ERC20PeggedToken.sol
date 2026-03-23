@@ -14,8 +14,9 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
  * @author Fluent Labs
  * @dev Pegged ERC20 representation deployed behind a UpgradeableBeacon proxy.
  *      Mint and burn are restricted to the owner (gateway). Supports pause via {PausableUpgradeable}.
- *      Metadata (name, symbol, decimals) is set once during {initialize} and stored locally
- *      rather than using the default ERC20 storage, allowing custom values per pegged token.
+ *      Metadata (name, symbol, decimals) is set once during {initialize} and stored in an
+ *      ERC-7201 namespace, allowing custom values per pegged token while remaining
+ *      upgrade-safe across beacon implementations.
  */
 contract ERC20PeggedToken is Initializable, ERC20Upgradeable, OwnableUpgradeable, PausableUpgradeable, ERC165Upgradeable {
     /// @notice Token transfer attempted while paused.
@@ -23,17 +24,31 @@ contract ERC20PeggedToken is Initializable, ERC20Upgradeable, OwnableUpgradeable
 
     // ============ Storage ============
 
-    /// @dev Locally stored symbol (overrides ERC20Upgradeable).
-    string internal _symbol;
-    /// @dev Locally stored name (overrides ERC20Upgradeable).
-    string internal _name;
+    /// @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.ERC20PeggedTokenStorage")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant ERC20_PEGGED_TOKEN_STORAGE_LOCATION = 0xea5c5135154355712e03dcde35e2b793fa78480f142b96c715f04473f0052300;
 
-    /// @dev Token decimals (overrides ERC20 default of 18).
-    uint8 private _decimals;
-    /// @dev Address of the original token on the source chain.
-    address internal _originAddress;
-    /// @dev Gateway that owns this token (authorized to mint/burn).
-    address internal _gateway;
+    /// @custom:storage-location erc7201:fluent.storage.ERC20PeggedTokenStorage
+    struct ERC20PeggedTokenStorage {
+        /// @dev Locally stored symbol (overrides ERC20Upgradeable).
+        string _symbol;
+        /// @dev Locally stored name (overrides ERC20Upgradeable).
+        string _name;
+        /// @dev Token decimals (overrides ERC20 default of 18).
+        uint8 _decimals;
+        /// @dev Address of the original token on the source chain.
+        address _originAddress;
+        /// @dev Gateway that owns this token (authorized to mint/burn).
+        address _gateway;
+        /// @dev Reserved for future storage fields.
+        uint256[50] __gap;
+    }
+
+    /// @dev Returns the ERC-7201 storage pointer for ERC20PeggedToken state.
+    function _getERC20PeggedTokenStorage() private pure returns (ERC20PeggedTokenStorage storage $) {
+        assembly ("memory-safe") {
+            $.slot := ERC20_PEGGED_TOKEN_STORAGE_LOCATION
+        }
+    }
 
     // ============ Constructor ============
 
@@ -62,24 +77,26 @@ contract ERC20PeggedToken is Initializable, ERC20Upgradeable, OwnableUpgradeable
         __Pausable_init();
         __ERC165_init();
 
+        ERC20PeggedTokenStorage storage $ = _getERC20PeggedTokenStorage();
         // Store metadata locally so each pegged token can have distinct values
         // even though they share the same implementation via the beacon proxy
-        _symbol = symbol_;
-        _name = name_;
+        $._symbol = symbol_;
+        $._name = name_;
         // Track the L1 origin address so the bridge can map back during withdrawals
-        _originAddress = originAddress;
+        $._originAddress = originAddress;
         // Gateway is the only address authorized to mint/burn via onlyOwner
-        _gateway = gateway;
+        $._gateway = gateway;
         // Decimals may differ from the default 18 to match the origin token's precision
-        _decimals = decimals_;
+        $._decimals = decimals_;
     }
 
     // ============ Views ============
 
     /** @notice Returns the gateway address and the origin token address on the source chain. */
     function getOrigin() public view returns (address, address) {
+        ERC20PeggedTokenStorage storage $ = _getERC20PeggedTokenStorage();
         // Returns (gateway, L1 token address) so the bridge can resolve the mapping
-        return (_gateway, _originAddress);
+        return ($._gateway, $._originAddress);
     }
 
     // ============ Mint / Burn ============
@@ -121,19 +138,19 @@ contract ERC20PeggedToken is Initializable, ERC20Upgradeable, OwnableUpgradeable
     /// @inheritdoc ERC20Upgradeable
     function name() public view override returns (string memory) {
         // Return the locally stored name instead of the empty ERC20 default
-        return _name;
+        return _getERC20PeggedTokenStorage()._name;
     }
 
     /// @inheritdoc ERC20Upgradeable
     function symbol() public view override returns (string memory) {
         // Return the locally stored symbol instead of the empty ERC20 default
-        return _symbol;
+        return _getERC20PeggedTokenStorage()._symbol;
     }
 
     /// @inheritdoc ERC20Upgradeable
     function decimals() public view override returns (uint8) {
         // Return the locally stored decimals to match the origin token's precision
-        return _decimals;
+        return _getERC20PeggedTokenStorage()._decimals;
     }
 
     // ============ Hooks ============

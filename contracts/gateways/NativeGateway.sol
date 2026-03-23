@@ -12,7 +12,7 @@ import {INativeGateway} from "../interfaces/gateways/INativeGateway.sol";
  *
  * @notice Gateway for bridging native ETH between chains through `FluentBridge`.
  * @dev UUPS-upgradeable gateway. Bridge routing state is inherited from `GatewayBase` (ERC-7201 namespace),
- *      while this contract stores only `_gasLimit` for outbound native transfer execution.
+ *      while this contract stores `_gasLimit` in its own ERC-7201 namespace.
  * @dev Security model:
  *      - `sendNativeTokens` requires `msg.value == amount`.
  *      - `receiveNativeTokens` is restricted to the configured bridge and verifies the remote gateway sender.
@@ -27,8 +27,27 @@ import {INativeGateway} from "../interfaces/gateways/INativeGateway.sol";
 contract NativeGateway is GatewayBase, INativeGateway {
     uint256 public constant DEFAULT_GAS_LIMIT = 100_000;
 
-    /// @dev Configurable gas limit forwarded when sending native tokens through the bridge.
-    uint256 internal _gasLimit;
+    // ============ Storage ============
+
+    /// @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.NativeGatewayStorage")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant NATIVE_GATEWAY_STORAGE_LOCATION = 0x205a078d4e86411e5dd213d5895e4c81144e7946e4ae8ea5406967287f811300;
+
+    /// @custom:storage-location erc7201:fluent.storage.NativeGatewayStorage
+    struct NativeGatewayStorage {
+        /// @dev Configurable gas limit forwarded when sending native tokens through the bridge.
+        uint256 _gasLimit;
+        /// @dev Reserved for future storage fields.
+        uint256[50] __gap;
+    }
+
+    /// @dev Returns the ERC-7201 storage pointer for NativeGateway state.
+    function _getNativeGatewayStorage() private pure returns (NativeGatewayStorage storage $) {
+        assembly ("memory-safe") {
+            $.slot := NATIVE_GATEWAY_STORAGE_LOCATION
+        }
+    }
+
+    // ============ Constructor ============
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -87,7 +106,7 @@ contract NativeGateway is GatewayBase, INativeGateway {
 
     /// @inheritdoc INativeGateway
     function getGasLimit() public view returns (uint256) {
-        return _gasLimit;
+        return _getNativeGatewayStorage()._gasLimit;
     }
 
     // ============ Admin functions ============
@@ -101,9 +120,10 @@ contract NativeGateway is GatewayBase, INativeGateway {
      * @dev Validates and stores the gas limit. Reverts on zero value.
      */
     function _setGasLimit(uint256 newGasLimit) internal {
+        NativeGatewayStorage storage $ = _getNativeGatewayStorage();
         require(newGasLimit > 0, InvalidGasLimit());
-        emit GasLimitUpdated(_gasLimit, newGasLimit);
-        _gasLimit = newGasLimit;
+        emit GasLimitUpdated($._gasLimit, newGasLimit);
+        $._gasLimit = newGasLimit;
     }
 
     /**

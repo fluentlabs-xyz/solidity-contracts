@@ -101,6 +101,8 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         require(getOtherSideGateway() != address(0), ZeroAddressNotAllowed("getOtherSideGateway"));
         // Prevent accidental burns to the zero address on the destination chain
         require(to != address(0), InvalidRecipient());
+        // Prevent sending zero tokens — disallow no-op messages that still consume bridge fees
+        require(amount > 0, ZeroValueNotAllowed("amount"));
 
         // Cache msg.sender to pass as both the protocol-level sender and the token source
         address sender = msg.sender;
@@ -138,8 +140,12 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         );
 
         // Lock origin tokens in this gateway — they remain escrowed until a future
-        // receiveOriginTokens call releases them back to a withdrawer
+        // receiveOriginTokens call releases them back to a withdrawer.
+        // Balance-before/after pattern handles fee-on-transfer tokens: the bridge
+        // message encodes the actual received amount, not the requested amount.
+        uint256 balBefore = IERC20(token).balanceOf(address(this));
         IERC20(token).safeTransferFrom(from, address(this), amount);
+        uint256 actualAmount = IERC20(token).balanceOf(address(this)) - balBefore;
 
         // Read on-chain token metadata to forward to the destination chain.
         // The remote gateway needs this to deploy a matching pegged token if one doesn't exist yet.
@@ -156,7 +162,7 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
 
         // Encode the cross-chain call: destination gateway will call receivePeggedTokens
         // to mint pegged tokens to the recipient
-        return abi.encodeCall(IERC20Gateway.receivePeggedTokens, (token, peggedTokenOnOtherSide, sender, to, amount, rawTokenMetadata));
+        return abi.encodeCall(IERC20Gateway.receivePeggedTokens, (token, peggedTokenOnOtherSide, sender, to, actualAmount, rawTokenMetadata));
     }
 
     /// @dev Used on L2 to send pegged tokens to the other side.
@@ -196,7 +202,10 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         require(FluentBridge(msg.sender).getNativeSender() == getOtherSideGateway(), MessageFromWrongGateway());
         // Validate inputs to prevent minting against a zero origin or burning tokens to zero address
         require(originToken != address(0), ZeroAddressNotAllowed("originToken"));
+        // The `to` address is the recipient of the minted pegged tokens on this chain, so it must be non-zero to prevent minting to the zero address.
         require(to != address(0), InvalidRecipient());
+        // Prevent minting zero tokens — disallow no-op messages that still consume bridge fees
+        require(amount > 0, ZeroValueNotAllowed("amount"));
 
         // Check whether the pegged token contract already exists on this chain by inspecting
         // code size. length == 0 means no contract deployed at that address yet.
@@ -234,6 +243,8 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         require(originToken != address(0), OriginTokenZero());
         // Prevent releasing tokens to the zero address
         require(to != address(0), InvalidRecipient());
+        // Prevent releasing zero tokens — disallow no-op messages that still consume bridge fees
+        require(amount > 0, ZeroValueNotAllowed("amount"));
 
         // Release escrowed origin tokens to the recipient — these were locked during
         // _sendOriginTokens on this chain when the deposit was made.

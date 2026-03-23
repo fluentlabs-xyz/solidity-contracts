@@ -14,7 +14,7 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
  *      Phase 1 — Attestation: an SP1 ZK proof is submitted via {verifyAttestation},
  *      confirming that a Nitro enclave controls a given pubkey. The SP1 program
  *      verifies the AWS Nitro certificate chain off-chain; the resulting proof is
- *      verified on-chain against {PROGRAM_VKEY}. Attested pubkeys are stored in
+ *      verified on-chain against {_programVKey}. Attested pubkeys are stored in
  *      {verifiedPubkeys}.
  *
  *      Phase 2 — Verification: the attested enclave signs L2 block and batch payloads
@@ -26,7 +26,7 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
  *      {INitroVerifier-AttestationVerified} and
  *      {INitroVerifier-AttestationRevoked} events.
  *
- *      {PROGRAM_VKEY} rotation uses a two-step timelock: {proposeVKeyUpdate} followed
+ *      {_programVKey} rotation uses a two-step timelock: {proposeVKeyUpdate} followed
  *      by {executeVKeyUpdate} after {VKEY_UPDATE_DELAY} seconds.
  */
 contract NitroVerifier is AccessControl, INitroVerifier {
@@ -40,14 +40,14 @@ contract NitroVerifier is AccessControl, INitroVerifier {
     /// @dev SP1 verifier contract used to validate attestation proofs. Immutable — set in constructor.
     address public immutable _attestationVerifier;
 
-    /// @dev Current SP1 program verification key for attestation proofs.
-    bytes32 public PROGRAM_VKEY = 0x00e34107e4c5284bd4ecc4269c650671038c1e85d9dacb931b534e984f607334;
-
     /// @dev VKey queued for rotation; zero if no update is pending.
     bytes32 public pendingVKey;
 
     /// @dev Earliest timestamp at which {executeVKeyUpdate} may be called. Zero if no update is pending.
     uint256 public pendingVKeyValidAt;
+
+    /// @dev Current SP1 program verification key for attestation proofs.
+    bytes32 internal _programVKey = 0x00e34107e4c5284bd4ecc4269c650671038c1e85d9dacb931b534e984f607334;
 
     /// @dev Enclave pubkeys that have passed ZK attestation.
     ///      Enumeration is intentionally off-chain via events — avoids array SSTORE overhead.
@@ -101,7 +101,7 @@ contract NitroVerifier is AccessControl, INitroVerifier {
      */
     function proposeVKeyUpdate(bytes32 newProgramVKey) external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(newProgramVKey != bytes32(0), ZeroVKey());
-        require(newProgramVKey != PROGRAM_VKEY, VKeyUnchanged());
+        require(newProgramVKey != _programVKey, VKeyUnchanged());
         pendingVKey = newProgramVKey;
         uint256 validAt = block.timestamp + VKEY_UPDATE_DELAY;
         pendingVKeyValidAt = validAt;
@@ -115,8 +115,8 @@ contract NitroVerifier is AccessControl, INitroVerifier {
         bytes32 pending = pendingVKey; // 1 SLOAD, used twice below
         require(pending != bytes32(0), NoPendingUpdate());
         require(block.timestamp >= pendingVKeyValidAt, TimelockNotExpired());
-        bytes32 oldVKey = PROGRAM_VKEY;
-        PROGRAM_VKEY = pending;
+        bytes32 oldVKey = _programVKey;
+        _programVKey = pending;
         pendingVKey = bytes32(0);
         pendingVKeyValidAt = 0;
         emit ProgramVKeyUpdated(oldVKey, pending);
@@ -131,6 +131,13 @@ contract NitroVerifier is AccessControl, INitroVerifier {
         emit VKeyUpdateCancelled(pending);
         pendingVKey = bytes32(0);
         pendingVKeyValidAt = 0;
+    }
+
+    /**
+     * @notice Returns the current SP1 program verification key.
+     */
+    function getProgramVKey() external view returns (bytes32) {
+        return _programVKey;
     }
 
     // ============ Admin: Attestation Management ============
@@ -153,14 +160,14 @@ contract NitroVerifier is AccessControl, INitroVerifier {
      *         confirming that `expectedPubkey` is controlled by a valid enclave.
      * @dev The SP1 program verifies the AWS Nitro certificate chain off-chain and
      *      produces a proof with `abi.encode(expectedPubkey)` as the public output,
-     *      verified here against {PROGRAM_VKEY}.
+     *      verified here against {_programVKey}.
      * @param expectedPubkey Enclave-derived address to attest.
      * @param proofBytes     Encoded SP1 proof.
      */
     function verifyAttestation(address expectedPubkey, bytes calldata proofBytes) external {
         require(expectedPubkey != address(0), ZeroAddress());
         require(!verifiedPubkeys[expectedPubkey], PubkeyAlreadyVerified());
-        bytes32 vkey = PROGRAM_VKEY; // 1 SLOAD, passed to external call and event
+        bytes32 vkey = _programVKey; // 1 SLOAD, passed to external call and event
         ISP1Verifier(_attestationVerifier).verifyProof(vkey, abi.encode(expectedPubkey), proofBytes);
         verifiedPubkeys[expectedPubkey] = true;
         emit AttestationVerified(vkey, expectedPubkey);

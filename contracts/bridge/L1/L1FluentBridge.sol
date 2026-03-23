@@ -22,7 +22,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     // ============ Constants ============
 
     /// @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.L1FluentBridgeStorage")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 internal constant L1_FLUENT_BRIDGE_STORAGE_LOCATION = 0x87bc3410b506da535d5d599e04bd2f08b89897a5d89e1855acbd7567af23bd00;
+    bytes32 internal constant L1_FLUENT_BRIDGE_STORAGE_LOCATION = 0xd6d3cd15e5afa78c26fd085a6164155ff3587cb8c325a04216e6557eff29c700;
 
     /// @custom:storage-location erc7201:fluent.storage.L1FluentBridgeStorage
     struct L1FluentBridgeStorage {
@@ -171,7 +171,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         require(Rollup(getRollup()).isBatchFinalized(batchIndex), InvalidBlockProof());
         // Rollback only applies to messages that originated on THIS chain and failed on L2
         // If chainId == block.chainid, the message was sent FROM here, so rollback is valid
-        require(chainId != block.chainid, ForbiddenRollbackReceivedMessage());
+        require(chainId == block.chainid, ForbiddenRollbackReceivedMessage());
         // Verify bridge has enough ETH to refund before spending gas on proof verification
         // This is an early-exit optimization — no point verifying proofs if we cannot pay
         if (value > 0) require(address(this).balance >= value, InsufficientBridgeBalance(value));
@@ -238,16 +238,16 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     function _rollbackMessage(
         uint256 gasLimit,
         address from,
-        address to,
+        address /*to*/,
         uint256 value,
         uint256 /*blockNumber*/,
         uint256 /*messageNonce*/,
         bytes calldata /*message*/,
         bytes32 messageHash
     ) internal {
-        // Prevent the bridge from calling itself, which could corrupt internal state
-        // Self-calls could re-enter storage mutators or drain locked funds
-        require(to != address(this), ForbiddenSelfCall());
+        // Guard against the bridge refunding itself — `from` is set to `msg.sender` in
+        // `sendMessage`, so this can only happen if the bridge itself originated the message
+        require(from != address(this), ForbiddenSelfCall());
 
         // `message` is intentionally not forwarded to `from`.
         // The calldata was encoded for `to` on L2 — `from` is the original sender and was never
