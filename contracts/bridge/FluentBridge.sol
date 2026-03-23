@@ -106,7 +106,7 @@ abstract contract FluentBridge is FluentBridgeStorageLayout {
         uint256 blockNumber,
         uint256 messageNonce,
         bytes calldata message
-    ) external payable nonReentrant whenNotPaused {
+    ) external nonReentrant whenNotPaused {
         bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, blockNumber, messageNonce, message));
         require(getReceivedMessage(messageHash) == IFluentBridge.MessageStatus.Failed, MessageNotFailed());
 

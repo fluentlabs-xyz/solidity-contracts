@@ -231,7 +231,7 @@ interface IFluentBridge is IFluentBridgeErrors, IFluentBridgeEvents {
         uint256 blockNumber,
         uint256 nonce,
         bytes calldata message
-    ) external payable;
+    ) external;
 
     /**
      * @notice Retries execution of a previously failed message (same params as original receive).
@@ -253,5 +253,5 @@ interface IFluentBridge is IFluentBridgeErrors, IFluentBridgeEvents {
         uint256 blockNumber,
         uint256 nonce,
         bytes calldata message
-    ) external payable;
+    ) external;
 }
