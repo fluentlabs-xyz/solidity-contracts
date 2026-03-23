@@ -14,56 +14,67 @@ interface INitroVerifier {
 
     /**
      * @notice Zero address passed where a non-zero address is required.
+     * @dev selector: 0xd92e233d
      */
     error ZeroAddress();
 
     /**
      * @notice Zero bytes32 passed where a non-zero VKey is required.
+     * @dev selector: 0xce403dd2
      */
     error ZeroVKey();
 
     /**
      * @notice Proposed VKey is identical to the current {PROGRAM_VKEY}.
+     * @dev selector: 0x9342dad9
      */
     error VKeyUnchanged();
 
     /**
      * @notice {executeVKeyUpdate} or {cancelVKeyUpdate} called with no pending update.
+     * @dev selector: 0xcd963778
      */
     error NoPendingUpdate();
 
     /**
      * @notice {executeVKeyUpdate} called before the timelock has expired.
+     * @dev selector: 0x621e25c3
      */
     error TimelockNotExpired();
 
     /**
      * @notice {DEFAULT_ADMIN_ROLE} grant failed in constructor.
+     * @dev selector: 0x23266a9d
      */
     error RoleGrantFailed();
 
     /**
      * @notice Pubkey has already been attested via {verifyAttestation}.
+     * @dev selector: 0x1595b31b
      */
     error PubkeyAlreadyVerified();
 
     /**
      * @notice Pubkey has not been attested or has been revoked.
+     * @dev selector: 0x2b257030
      */
     error PubkeyNotVerified();
 
     /**
      * @notice Signature length is not exactly 65 bytes.
+     * @dev selector: 0x4be6321b
      */
     error InvalidSignatureLength();
 
     /**
      * @notice Recovered signer is not in {verifiedPubkeys}.
+     * @dev selector: 0x203fccd1
      */
     error SignerNotAttested();
 
     /**
      * @notice `ecrecover` returned the zero address — malformed signature.
+     * @dev selector: 0x8baa579f
      */
     error InvalidSignature();
 
@@ -99,7 +110,13 @@ interface INitroVerifier {
     /**
      * @notice Verifies a block payload signed by an attested enclave.
      * @dev Does not deduplicate — caller must track `blockHash` to prevent replay.
+     * @param parentHash Hash of the parent block.
+     * @param blockHash Hash of the block being verified.
+     * @param withdrawalHash Merkle root of L2-to-L1 withdrawal messages.
+     * @param depositHash Merkle root of L1-to-L2 deposit messages.
      * @param signature 65-byte ECDSA signature (r || s || v).
+     * @param blobHashes EIP-4844 versioned blob hashes bound to the block.
+     * @return signer Address recovered from the enclave signature.
      */
     function verifyBlock(
         bytes32 parentHash,
@@ -113,7 +130,10 @@ interface INitroVerifier {
     /**
      * @notice Verifies a batch payload signed by an attested enclave.
      * @dev Does not deduplicate — caller must track `batchRoot` to prevent replay.
+     * @param batchRoot Merkle root of L2 block headers in the batch.
+     * @param blobHashes EIP-4844 versioned blob hashes bound to the batch.
      * @param signature 65-byte ECDSA signature (r || s || v).
+     * @return signer Address recovered from the enclave signature.
      */
     function verifyBatch(bytes32 batchRoot, bytes32[] calldata blobHashes, bytes calldata signature) external view returns (address);
 }

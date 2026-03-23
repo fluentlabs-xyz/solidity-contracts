@@ -43,7 +43,7 @@ struct L2BlockHeader {
 struct BatchRecord {
     /// @dev Merkle root of L2 block headers for this batch.
     bytes32 batchRoot;
-    /// @dev L1 block number when the batch was accepted via acceptNextBatch.
+    /// @dev L1 block number recorded when {IRollupWrite-acceptNextBatch} is called (status becomes HeadersSubmitted).
     uint64 acceptedAtBlock;
     /// @dev Number of blobs the sequencer committed to at acceptance time.
     uint32 expectedBlobs;

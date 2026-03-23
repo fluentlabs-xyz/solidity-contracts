@@ -26,7 +26,7 @@ contract L1GasOracleTest is Test {
     }
 
     function test_RevertIf_updateL1GasPrice_callerNotSubmitter() public {
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
+        vm.expectRevert(abi.encodeWithSelector(IL1GasOracle.UnauthorizedSubmitter.selector, user));
         vm.prank(user);
         oracle.updateL1GasPrice(1);
     }

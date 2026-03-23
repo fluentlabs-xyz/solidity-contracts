@@ -55,6 +55,10 @@ contract NitroVerifier is AccessControl, INitroVerifier {
 
     // ============ Constructor ============
 
+    /**
+     * @dev Sets the SP1 attestation verifier and grants DEFAULT_ADMIN_ROLE to the deployer.
+     *      Reverts if `attestationVerifier_` is the zero address.
+     */
     constructor(address attestationVerifier, address admin) {
         if (attestationVerifier == address(0) || admin == address(0)) revert ZeroAddress();
         _attestationVerifier = attestationVerifier;

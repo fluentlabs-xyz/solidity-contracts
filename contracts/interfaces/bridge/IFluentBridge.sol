@@ -31,6 +31,10 @@ interface IFluentBridgeAdmin {
     function setRelayerRole(address newRelayer) external;
 }
 
+/**
+ * @title IFluentBridgeRead
+ * @dev Read-only getters for bridge configuration and state.
+ */
 interface IFluentBridgeRead {
     /**
      * @notice Get the gas limit for message execution.
@@ -59,43 +63,56 @@ interface IFluentBridgeRead {
 interface IFluentBridgeErrors {
     /**
      * @notice Invalid window configuration.
+     * @dev selector: 0x14bef653
      */
     error InvalidWindowConfig(string field);
     /**
      * @notice Message hash has already been processed (duplicate receive or rollback).
+     * @dev selector: 0x66a98a4b
      */
     error MessageAlreadyReceived();
     /**
      * @notice Inbound message nonce does not match the expected sequential receivedNonce.
+     * @dev selector: 0x2ae88f59
      */
     error MessageReceivedOutOfOrder();
     /**
      * @notice receiveFailedMessage was called for a hash that is not marked as Failed.
+     * @dev selector: 0xeb8adf0e
      */
     error MessageNotFailed();
     /**
      * @notice Target address is this bridge (self-call) when executing a message or rollback.
+     * @dev selector: 0xef42d941
      */
     error ForbiddenSelfCall();
     /**
      * @notice sendMessage destination is this bridge or the configured otherBridge, which is forbidden.
+     * @dev selector: 0x52098529
      */
     error InvalidDestinationAddress();
     /**
      * @notice Zero address supplied for a required configuration field.
+     * @dev selector: 0x44034241
      */
     error ZeroAddressNotAllowed(string field);
     /**
      * @notice Zero value supplied for a required configuration field.
+     * @dev selector: 0x78bcc63a
      */
     error ZeroValueNotAllowed(string field);
 
     /**
      * @notice Insufficient `msg.value` to cover the outbound message fee.
+     * @dev selector: 0x025dbdd4
      */
     error InsufficientFee();
 }
 
+/**
+ * @title IFluentBridgeEvents
+ * @dev Events emitted by the bridge contract.
+ */
 interface IFluentBridgeEvents {
     /**
      * @notice Emitted when a message is sent to another chain.
@@ -138,11 +155,18 @@ interface IFluentBridgeEvents {
     event FeeTreasuryUpdated(address indexed prevValue, address indexed newValue);
 }
 
+/**
+ * @title IFluentBridge
+ * @dev Core bridge interface: message lifecycle (send, receive, retry), state queries, and status tracking.
+ */
 interface IFluentBridge is IFluentBridgeErrors, IFluentBridgeEvents {
     /// @notice Enum describing the status of a cross-chain message.
     enum MessageStatus {
+        /// @dev Message has not been received yet.
         None,
+        /// @dev Message execution reverted; eligible for retry via {receiveFailedMessage}.
         Failed,
+        /// @dev Message executed successfully.
         Success
     }
 
@@ -179,12 +203,6 @@ interface IFluentBridge is IFluentBridgeErrors, IFluentBridgeEvents {
      */
     function getReceivedMessage(bytes32 key) external view returns (MessageStatus);
 
-    /**
-     * @notice Returns the size of the sent message queue (L1; 0 on L2 when rollup is not set).
-     * @return The size of the sent message queue.
-     */
-    function getSentMessageQueueSize() external view returns (uint256);
-
     // ---------- Send / receive ----------
 
     /**
@@ -195,8 +213,8 @@ interface IFluentBridge is IFluentBridgeErrors, IFluentBridgeEvents {
     function sendMessage(address to, bytes calldata message) external payable;
 
     /**
-     * @notice Receives and executes a message sent by the bridge authority (L2 only; trusted relayer path).
-     * @dev This function is used to receive and execute a message sent by the bridge authority (L2 only; trusted relayer path).
+     * @notice Receives and executes a message sent by the bridge authority (callable on both L1 and L2 by the authorized relayer; trusted relayer path).
+     * @dev Callable on both L1 and L2 by the authorized relayer; trusted relayer path.
      *
      * @param from Sender on the other chain.
      * @param to Destination on this chain.

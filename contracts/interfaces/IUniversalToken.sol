@@ -1,35 +1,69 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
+/**
+ * @title IUniversalTokenErrorCodes
+ * @dev Custom errors for the universal token precompile.
+ */
 interface IUniversalTokenErrorCodes {
-    /// @notice Error thrown when operation is attempted while paused
+    /**
+     * @notice Error thrown when operation is attempted while paused.
+     * @dev selector: 0xef49dd72
+     */
     error UniversalEnforcedPause();
 
-    /// @notice Error thrown when pause is expected but contract is not paused
+    /**
+     * @notice Error thrown when pause is expected but contract is not paused.
+     * @dev selector: 0x6bd81d52
+     */
     error UniversalExpectedPause();
 
-    /// @notice Error thrown when sender is invalid (zero address)
+    /**
+     * @notice Error thrown when sender is invalid (zero address).
+     * @dev selector: 0x4c14f64c
+     */
     error InvalidSender(address sender);
 
-    /// @notice Error thrown when receiver is invalid (zero address)
+    /**
+     * @notice Error thrown when receiver is invalid (zero address).
+     * @dev selector: 0x9cfea583
+     */
     error InvalidReceiver(address receiver);
 
-    /// @notice Error thrown when balance is insufficient
+    /**
+     * @notice Error thrown when balance is insufficient.
+     * @dev selector: 0xdb42144d
+     */
     error InsufficientBalance(address account, uint256 balance, uint256 required);
 
-    /// @notice Error thrown when allowance is insufficient
+    /**
+     * @notice Error thrown when allowance is insufficient.
+     * @dev selector: 0x91beda24
+     */
     error InsufficientAllowance(address owner, address spender, uint256 allowance, uint256 required);
 
-    /// @notice Error thrown when minting is not enabled
+    /**
+     * @notice Error thrown when minting is not enabled.
+     * @dev selector: 0x12a59152
+     */
     error NotMintable();
 
-    /// @notice Error thrown when caller is not the minter
+    /**
+     * @notice Error thrown when caller is not the minter.
+     * @dev selector: 0x62bcfc3c
+     */
     error MinterMismatch(address caller, address minter);
 
-    /// @notice Error thrown when pausing is not enabled
+    /**
+     * @notice Error thrown when pausing is not enabled.
+     * @dev selector: 0xaff39f66
+     */
     error NotPausable();
 
-    /// @notice Error thrown when caller is not the pauser
+    /**
+     * @notice Error thrown when caller is not the pauser.
+     * @dev selector: 0xadb0d30c
+     */
     error PauserMismatch(address caller, address pauser);
 }
 

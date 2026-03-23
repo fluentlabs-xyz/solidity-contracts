@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
+/**
+ * @title INativeGatewayErrors
+ * @dev Custom errors for the native ETH gateway.
+ */
 interface INativeGatewayErrors {
     /**
      * @notice Thrown when msg.value does not match expected native amount.
@@ -18,11 +22,15 @@ interface INativeGatewayErrors {
      * @notice Thrown when a supplied gas limit is zero or otherwise invalid for gateway execution.
      * @dev Raised by gas-limit validation (e.g. `setGasLimit`) when the configured `_gasLimit` would render
      *      cross-chain native transfers unsafe or non-functional.
-     * @dev selector: TODO
+     * @dev selector: 0x98bdb2e0
      */
     error InvalidGasLimit();
 }
 
+/**
+ * @title INativeGateway
+ * @dev Native ETH bridging: send, receive, rescue, and gas limit configuration.
+ */
 interface INativeGateway is INativeGatewayErrors {
     /**
      * @notice Sends native tokens to the other side.

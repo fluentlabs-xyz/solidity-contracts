@@ -15,6 +15,10 @@ interface ISP1Verifier {
     function verifyProof(bytes32 programVKey, bytes calldata publicValues, bytes calldata proofBytes) external view;
 }
 
+/**
+ * @title ISP1VerifierWithHash
+ * @dev Extended SP1 verifier that exposes a verifier hash for version binding.
+ */
 interface ISP1VerifierWithHash is ISP1Verifier {
     /// @notice Returns the hash of the verifier.
     function VERIFIER_HASH() external pure returns (bytes32);

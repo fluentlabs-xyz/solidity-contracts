@@ -18,11 +18,17 @@ contract L1GasOracle is Ownable, IL1GasOracle {
     /// @dev Hot key address authorized to submit gas price updates.
     address internal _submitter;
 
+    /**
+     * @dev Restricts to the authorized submitter address.
+     */
     modifier onlySubmitter() {
-        require(msg.sender == _submitter, OwnableUnauthorizedAccount(msg.sender));
+        require(msg.sender == _submitter, UnauthorizedSubmitter(msg.sender));
         _;
     }
 
+    /**
+     * @dev Sets the contract owner to `msg.sender` and configures the initial submitter.
+     */
     constructor(address submitter) Ownable(msg.sender) {
         _setSubmitter(submitter);
     }
@@ -31,6 +37,7 @@ contract L1GasOracle is Ownable, IL1GasOracle {
 
     /// @inheritdoc IL1GasOracle
     function updateL1GasPrice(uint256 gasPrice) external override onlySubmitter {
+        // no monotonicity constraint: gas prices can fluctuate in either direction
         _l1GasPrice = gasPrice;
         emit L1GasPriceUpdated(gasPrice);
     }
@@ -39,6 +46,7 @@ contract L1GasOracle is Ownable, IL1GasOracle {
 
     /// @inheritdoc IL1GasOracle
     function setL1GasPrice(uint256 gasPrice) external onlyOwner {
+        // owner bypass allows direct price override for emergency corrections
         _l1GasPrice = gasPrice;
         emit L1GasPriceUpdated(gasPrice);
     }
@@ -48,6 +56,9 @@ contract L1GasOracle is Ownable, IL1GasOracle {
         _setSubmitter(submitter);
     }
 
+    /**
+     * @dev Validates and stores the submitter address. Reverts on zero address.
+     */
     function _setSubmitter(address submitter) internal {
         if (submitter == address(0)) revert ZeroAddressNotAllowed("submitter");
         emit SubmitterUpdated(_submitter, submitter);

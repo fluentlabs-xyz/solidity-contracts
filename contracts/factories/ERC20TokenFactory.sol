@@ -32,7 +32,8 @@ contract ERC20TokenFactory is GenericTokenFactory {
     function initialize(address initialOwner, address implementation) external initializer {
         __GenericTokenFactory_init(initialOwner);
         require(implementation != address(0), ZeroAddressNotAllowed("Implementation"));
-        /// @dev this is a dedicated beacon for ERC20 tokens deployment, so we don't need to use this contract as a beacon
+        // dedicated beacon for ERC20 tokens deployment, so we don't need to use this contract as a beacon
+        // factory owns the beacon so upgradeTo() can propagate to all pegged tokens
         address beacon = address(new UpgradeableBeacon(implementation, address(this)));
 
         _setBeacon(beacon);
@@ -46,7 +47,9 @@ contract ERC20TokenFactory is GenericTokenFactory {
         address originToken,
         bytes calldata deployArgs
     ) external override onlyPaymentGateway returns (address) {
+        // deploy the BeaconProxy via CREATE2 for deterministic addressing
         address tokenAddress = _deployToken(gateway, originToken, deployArgs);
+        // register origin->pegged and pegged->info mappings for later lookups
         _afterDeployToken(tokenAddress, originToken);
 
         emit TokenDeployed(originToken, tokenAddress);
@@ -54,13 +57,19 @@ contract ERC20TokenFactory is GenericTokenFactory {
         return tokenAddress;
     }
 
+    /**
+     * @dev Deploys a pegged ERC20 token as a BeaconProxy via CREATE2 with a deterministic salt.
+     */
     function _deployToken(address gateway, address originToken, bytes calldata /*deployArgs*/) internal override returns (address) {
         require(gateway != address(0), ZeroAddressNotAllowed("Gateway"));
         require(originToken != address(0), ZeroAddressNotAllowed("OriginToken"));
 
+        // salt ties address to gateway+origin pair so each combo gets exactly one token
         bytes32 salt = _calculateSalt(gateway, originToken);
+        // BeaconProxy creation code with our beacon; no init data since metadata is set later
         bytes memory bytecode = _beaconProxyBytecode(beacon());
 
+        // CREATE2 deploy for cross-chain address predictability
         return Create2.deploy(0, salt, bytecode);
     }
 
@@ -74,12 +83,13 @@ contract ERC20TokenFactory is GenericTokenFactory {
         string memory /*tokenSymbol*/,
         uint8 /*decimals*/
     ) external pure override returns (bytes memory) {
+        // ERC20 pegged tokens receive metadata from the origin token at first bridge, not at deploy
         return bytes("");
     }
 
-    /// @dev Compute the token address deployed via this factory
     /// @inheritdoc GenericTokenFactory
     function _computeTokenAddress(address gateway, address originToken, bytes calldata /*deployArgs*/) internal view override returns (address) {
+        // must use identical salt and bytecode as _deployToken to match the CREATE2 address
         bytes32 salt = _calculateSalt(gateway, originToken);
         bytes memory bytecode = _beaconProxyBytecode(beacon());
         return Create2.computeAddress(salt, keccak256(bytecode));
