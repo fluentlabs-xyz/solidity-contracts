@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.30;
 
 /**
  * @title IGatewayBaseErrors
@@ -7,25 +7,25 @@ pragma solidity ^0.8.0;
  */
 interface IGatewayBaseErrors {
     /**
-     * @dev Thrown when the caller is not the configured FluentBridge contract.
+     * @notice Thrown when the caller is not the configured FluentBridge contract.
      * @dev selector: 0xacba36a5
      */
     error OnlyFluentBridge();
 
     /**
-     * @dev Thrown when bridge-native sender does not match the configured remote gateway.
+     * @notice Thrown when bridge-native sender does not match the configured remote gateway.
      * @dev selector: 0xa5c0236c
      */
     error MessageFromWrongGateway();
 
     /**
-     * @dev Thrown when a value is zero.
+     * @notice Thrown when a value is zero.
      * @dev selector: 0x78bcc63a
      */
     error ZeroValueNotAllowed(string field);
 
     /**
-     * @dev Thrown when an address is zero.
+     * @notice Thrown when an address is zero.
      * @dev selector: 0x44034241
      */
     error ZeroAddressNotAllowed(string field);

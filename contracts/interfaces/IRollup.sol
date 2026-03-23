@@ -107,15 +107,15 @@ interface IRollupErrors {
 
     /**
      * @notice Address field must not be zero.
-     * @dev selector: 0xa20444e1
+     * @dev selector: 0x44034241
      */
-    error ZeroAddressNotAllowed(bytes32 field);
+    error ZeroAddressNotAllowed(string field);
 
     /**
      * @notice Value field must not be zero.
-     * @dev selector: 0x1633b4c1
+     * @dev selector: 0x78bcc63a
      */
-    error ZeroValueNotAllowed(bytes32 field);
+    error ZeroValueNotAllowed(string field);
 
     /**
      * @notice Nitro enclave signature verification failed.
@@ -270,7 +270,6 @@ interface IRollupEvents {
     /**
      * @notice Emitted when a Nitro verifier is removed from the enabled whitelist.
      */
-
     event NitroVerifierDisabled(address indexed verifier);
 
     /**

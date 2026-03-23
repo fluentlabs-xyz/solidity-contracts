@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.30;
 
 import {MerkleTree} from "../../libraries/MerkleTree.sol";
 import {L2BlockHeader} from "../../interfaces/IRollupTypes.sol";
@@ -160,7 +160,9 @@ interface IFluentBridgeEvents {
  * @dev Core bridge interface: message lifecycle (send, receive, retry), state queries, and status tracking.
  */
 interface IFluentBridge is IFluentBridgeErrors, IFluentBridgeEvents {
-    /// @notice Enum describing the status of a cross-chain message.
+    /**
+     * @dev Describes the status of a cross-chain message.
+     */
     enum MessageStatus {
         /// @dev Message has not been received yet.
         None,

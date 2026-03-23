@@ -91,7 +91,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         // Identify the most recent batch so we know the revert range [toBatchIndex+1 .. lastAccepted]
         uint256 lastAcceptedBatchIndex = $._nextBatchIndex - 1;
         // Index 0 holds the genesis hash and must never be reverted
-        require(toBatchIndex > 0, ZeroValueNotAllowed(bytes32(toBatchIndex)));
+        require(toBatchIndex > 0, ZeroValueNotAllowed("toBatchIndex"));
         // Cap the number of batches that can be reverted in one call to bound gas usage
         require(lastAcceptedBatchIndex - toBatchIndex <= $._maxForceRevertBatchSize, InvalidBatchIndex(toBatchIndex, lastAcceptedBatchIndex));
 

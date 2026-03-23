@@ -37,6 +37,7 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
     /**
      * @dev ERC-7201 namespaced storage for L2-specific bridge state.
      */
+    /// @custom:storage-location erc7201:fluent.storage.L2FluentBridgeStorage
     struct L2FluentBridgeStorage {
         /// @dev L1 blocks after which an undelivered message is eligible for rollback (0 = disabled).
         uint256 _receiveMessageDeadline;
@@ -170,7 +171,9 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
         return _getL2FluentBridgeStorage()._l1BlockOracle;
     }
 
-    /// @notice Returns the L1 gas price oracle address.
+    /**
+     * @notice Returns the L1 gas price oracle address.
+     */
     function getL1GasPriceOracle() public view returns (address) {
         // Read from ERC-7201 namespaced storage via the storage accessor
         return _getL2FluentBridgeStorage()._l1GasPriceOracle;
@@ -182,13 +185,17 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
         return _getL2FluentBridgeStorage()._receiveMessageDeadline;
     }
 
-    /// @notice Returns the current gas price configuration.
+    /**
+     * @notice Returns the current gas price configuration.
+     */
     function getGasPriceConfig() public view returns (GasPriceConfig memory) {
         // Returns a memory copy of the three-field fee config struct
         return _getL2FluentBridgeStorage()._gasPriceConfig;
     }
 
-    /// @notice Returns the assumed L1 gas units used for fee calculation.
+    /**
+     * @notice Returns the assumed L1 gas units used for fee calculation.
+     */
     function getL1GasLimit() public view returns (uint256) {
         // Reads via getGasPriceConfig() which loads the full struct into memory
         return getGasPriceConfig()._l1GasLimit;
@@ -228,7 +235,9 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
         _getL2FluentBridgeStorage()._l1BlockOracle = l1BlockOracle;
     }
 
-    /// @notice Updates the L1 gas price oracle address.
+    /**
+     * @notice Updates the L1 gas price oracle address.
+     */
     function setL1GasPriceOracle(address l1GasPriceOracle) external onlyRole(DEFAULT_ADMIN_ROLE) {
         // Admin-gated — delegates to internal setter with validation
         _setL1GasPriceOracle(l1GasPriceOracle);
@@ -244,7 +253,9 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
         _getL2FluentBridgeStorage()._l1GasPriceOracle = l1GasPriceOracle;
     }
 
-    /// @notice Updates the gas price configuration.
+    /**
+     * @notice Updates the gas price configuration.
+     */
     function setGasPriceConfig(uint256 overheadGasPrice, uint256 scalarGasPrice, uint256 l1GasLimit) external onlyRole(DEFAULT_ADMIN_ROLE) {
         // Admin-gated — all three parameters are updated atomically
         _setGasPriceConfig(overheadGasPrice, scalarGasPrice, l1GasLimit);

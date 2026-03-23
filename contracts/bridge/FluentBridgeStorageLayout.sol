@@ -183,6 +183,7 @@ contract FluentBridgeStorageLayout is
 
     // ============ IFluentBridgeAdmin ============
 
+    /// @inheritdoc IFluentBridgeAdmin
     function setFeeTreasury(address newFeeTreasury) external onlyRole(DEFAULT_ADMIN_ROLE) {
         // Admin-gated — delegates to internal setter with zero-address validation
         _setFeeTreasury(newFeeTreasury);
@@ -199,6 +200,7 @@ contract FluentBridgeStorageLayout is
         _getFluentBridgeStorage()._feeTreasury = newFeeTreasury;
     }
 
+    /// @inheritdoc IFluentBridgeAdmin
     function setOtherBridge(address newOtherBridge) external onlyRole(DEFAULT_ADMIN_ROLE) {
         // Admin-gated — delegates to internal setter with zero-address validation
         _setOtherBridge(newOtherBridge);
@@ -215,6 +217,7 @@ contract FluentBridgeStorageLayout is
         _getFluentBridgeStorage()._otherBridge = newOtherBridge;
     }
 
+    /// @inheritdoc IFluentBridgeAdmin
     function setRelayerRole(address newRelayer) external onlyRole(DEFAULT_ADMIN_ROLE) {
         // Admin-gated — adds a new relayer without revoking existing ones
         _setRelayerRole(newRelayer);
@@ -230,12 +233,15 @@ contract FluentBridgeStorageLayout is
         _grantRole(RELAYER_ROLE, newRelayer);
     }
 
-    /// @notice Revokes RELAYER_ROLE from the given address.
+    /**
+     * @notice Revokes RELAYER_ROLE from the given address.
+     */
     function removeRelayerRole(address relayer) external onlyRole(DEFAULT_ADMIN_ROLE) {
         // Revoke relayer access; the address can no longer deliver cross-chain messages
         _revokeRole(RELAYER_ROLE, relayer);
     }
 
+    /// @inheritdoc IFluentBridgeAdmin
     function setExecuteGasLimit(uint256 newExecuteGasLimit) external onlyRole(DEFAULT_ADMIN_ROLE) {
         // Admin-gated — controls how much gas is forwarded to message targets
         _setExecuteGasLimit(newExecuteGasLimit);
@@ -272,17 +278,17 @@ contract FluentBridgeStorageLayout is
      * @dev ABI-encodes a cross-chain message for hashing.
      */
     function _encodeMessage(
-        address _from,
-        address _to,
-        uint256 _value,
-        uint256 _chainId,
-        uint256 _blockNumber,
-        uint256 _nonce,
-        bytes calldata _message
+        address from,
+        address to,
+        uint256 value,
+        uint256 chainId,
+        uint256 blockNumber,
+        uint256 nonce,
+        bytes calldata message
     ) internal pure returns (bytes memory) {
         // ABI-encode all message fields into a deterministic byte sequence
         // The keccak256 of this encoding is used as the Merkle leaf and status key
-        return abi.encode(_from, _to, _value, _chainId, _blockNumber, _nonce, _message);
+        return abi.encode(from, to, value, chainId, blockNumber, nonce, message);
     }
 
     /// @inheritdoc UUPSUpgradeable

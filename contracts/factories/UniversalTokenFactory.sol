@@ -21,7 +21,9 @@ contract UniversalTokenFactory is GenericTokenFactory {
         _disableInitializers();
     }
 
-    /// @notice Initializes the factory when used behind a proxy.
+    /**
+     * @notice Initializes the factory when used behind a proxy.
+     */
     function initialize(address initialOwner) external initializer {
         // Set up ownership and base factory state via the parent initializer
         __GenericTokenFactory_init(initialOwner);

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.30;
 
 /**
  * @title IUniversalTokenErrorCodes
@@ -73,16 +73,24 @@ interface IUniversalTokenErrorCodes {
  * @dev Universal Tokens use a precompile/runtime pattern
  */
 interface IUniversalToken is IUniversalTokenErrorCodes {
-    /// @notice Emitted when tokens are transferred
+    /**
+     * @notice Emitted when tokens are transferred.
+     */
     event Transfer(address indexed from, address indexed to, uint256 value);
 
-    /// @notice Emitted when allowance is set
+    /**
+     * @notice Emitted when allowance is set.
+     */
     event Approval(address indexed owner, address indexed spender, uint256 value);
 
-    /// @notice Emitted when contract is paused
+    /**
+     * @notice Emitted when contract is paused.
+     */
     event Paused(address indexed account);
 
-    /// @notice Emitted when contract is unpaused
+    /**
+     * @notice Emitted when contract is unpaused.
+     */
     event Unpaused(address indexed account);
 
     /**

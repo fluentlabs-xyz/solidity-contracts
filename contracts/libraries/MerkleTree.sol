@@ -36,7 +36,7 @@ library MerkleTree {
         // Each leaf is 32 bytes; determine the number of leaves from the buffer length
         uint256 count = _leafs.length / 32;
         // At least one leaf is required to form a valid tree
-        if (count == 0) revert NoLeavesProvided();
+        require(count != 0, NoLeavesProvided());
 
         // Reduce layers iteratively: each pass halves the number of nodes
         // by hashing adjacent pairs, writing results back in-place

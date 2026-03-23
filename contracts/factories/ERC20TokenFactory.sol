@@ -39,7 +39,7 @@ contract ERC20TokenFactory is GenericTokenFactory {
         _setBeacon(beacon);
     }
 
-    // ========== Deploy functions ==========
+    // ============ Deploy functions ============
 
     /// @inheritdoc GenericTokenFactory
     function deployToken(
@@ -73,7 +73,7 @@ contract ERC20TokenFactory is GenericTokenFactory {
         return Create2.deploy(0, salt, bytecode);
     }
 
-    // ========== Public view functions ==========
+    // ============ Public view functions ============
 
     /**
      * @dev The deploy args are empty for ERC20 tokens as the token metadata is not needed.

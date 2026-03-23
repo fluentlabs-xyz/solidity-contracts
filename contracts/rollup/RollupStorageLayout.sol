@@ -68,7 +68,6 @@ contract RollupStorageLayout is
 
     /**
      * @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.RollupStorage")) - 1)) & ~bytes32(uint256(0xff))
-     * @custom:storage-location erc7201:fluent.storage.RollupStorageLayout
      */
     bytes32 private constant ROLLUP_STORAGE_LOCATION = 0x3c5cb8ff22ae9906a910cecced8ac84ef594b2ee1cab438e85f81b70bddcc700;
 
@@ -78,6 +77,7 @@ contract RollupStorageLayout is
      * @dev Packed rollup state. All mutable storage is in this struct, accessed via
      *      {_getRollupStorage}. Fields are append-only for upgrade safety.
      */
+    /// @custom:storage-location erc7201:fluent.storage.RollupStorage
     struct RollupStorage {
         // ─── Slot 1: address(20) + uint96(12) = 32 ───
         /**

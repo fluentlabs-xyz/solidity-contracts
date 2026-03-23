@@ -62,7 +62,7 @@ contract L1BlockOracle is Ownable, IL1BlockOracle {
      * @dev Validates and stores the submitter address. Reverts on zero address.
      */
     function _setSubmitter(address submitter) internal {
-        if (submitter == address(0)) revert ZeroAddressNotAllowed("submitter");
+        require(submitter != address(0), ZeroAddressNotAllowed("submitter"));
         // emit before write so the event captures the previous submitter
         emit SubmitterUpdated(_submitter, submitter);
         _submitter = submitter;

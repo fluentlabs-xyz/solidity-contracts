@@ -99,8 +99,7 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
     // ============ Send Tokens ============
 
     /// @inheritdoc IERC20Gateway
-    // Entry point for users bridging ERC20 tokens. Callable by anyone (no role restriction).
-    // Nonreentrant guard prevents callbacks from token hooks re-entering this function.
+    /// @dev Callable by anyone. Nonreentrant guard prevents callbacks from token hooks re-entering.
     function sendTokens(address token, address to, uint256 amount) external payable nonReentrant {
         // Ensure the remote gateway has been configured — cannot route messages without a destination
         require(getOtherSideGateway() != address(0), ZeroAddressNotAllowed("getOtherSideGateway"));
@@ -233,8 +232,7 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
     }
 
     /// @inheritdoc IERC20Gateway
-    // Called on L1 when a user withdraws pegged tokens on L2 — releases the original
-    // escrowed tokens. Only the bridge can invoke this (onlyFluentBridge modifier).
+    /// @dev Releases escrowed origin tokens on L1. Restricted to bridge via {onlyFluentBridge}.
     function receiveOriginTokens(address originToken, address from, address to, uint256 amount) external onlyFluentBridge nonReentrant {
         // Trust check: only the bridge can call this, and the original cross-chain sender
         // must be the configured remote gateway — prevents unauthorized token release
@@ -291,19 +289,25 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         return _getERC20GatewayStorage()._tokenFactory;
     }
 
-    /// @notice Returns the token implementation address on the remote chain.
+    /**
+     * @notice Returns the token implementation address on the remote chain.
+     */
     function getOtherSideTokenImplementation() public view returns (address) {
         // Used for off-chain queries; not consumed in on-chain address computation
         return _getERC20GatewayStorage()._otherSideTokenImplementation;
     }
 
-    /// @notice Returns the factory address on the remote chain.
+    /**
+     * @notice Returns the factory address on the remote chain.
+     */
     function getOtherSideFactory() public view returns (address) {
         // Needed for deterministic CREATE2 address computation of remote pegged tokens
         return _getERC20GatewayStorage()._otherSideFactory;
     }
 
-    /// @notice Returns the beacon address on the remote chain.
+    /**
+     * @notice Returns the beacon address on the remote chain.
+     */
     function getOtherSideBeacon() public view returns (address) {
         // Used in the beacon-proxy CREATE2 address computation path
         return _getERC20GatewayStorage()._otherSideBeacon;

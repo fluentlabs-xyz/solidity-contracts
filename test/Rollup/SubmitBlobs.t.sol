@@ -94,7 +94,7 @@ contract SubmitBlobsTest is RollupAssertions {
         uint256 batchIndex = _acceptBatch(GENESIS_HASH, 0);
         _submitBlobs(batchIndex, 0);
 
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, bytes32("numBlobs")));
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "numBlobs"));
         vm.prank(sequencer);
         rollup.submitBlobs(batchIndex, 0);
     }
@@ -120,7 +120,7 @@ contract SubmitBlobsTest is RollupAssertions {
         bytes32[] memory h = new bytes32[](1);
         h[0] = bytes32(0);
         vm.blobhashes(h);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, bytes32("blobHash")));
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "blobHash"));
         vm.prank(sequencer);
         rollup.submitBlobs(batchIndex, 1);
     }

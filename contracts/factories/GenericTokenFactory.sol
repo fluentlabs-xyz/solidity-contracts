@@ -23,21 +23,11 @@ import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/acces
  * 4. Upgrade: owner calls upgradeTo(newImplementation) to upgrade all beacon-proxy tokens (ERC20 factory); Universal factory uses CREATE2, no beacon.
  */
 abstract contract GenericTokenFactory is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, IGenericTokenFactory {
-    /// @custom:storage-location erc7201:fluent.storage.GenericTokenFactoryStorage
-    struct GenericTokenFactoryStorage {
-        /// @dev Beacon contract backing all pegged token proxies.
-        address beacon;
-        /// @dev Gateway authorized to deploy tokens via {deployToken}.
-        address PaymentGateway;
-        /// @dev Origin token address to locally deployed pegged token address.
-        mapping(address => address) bridgedTokens;
-        /// @dev Pegged token address to its deployment metadata.
-        mapping(address => TokenInfo) tokenInfo;
-        /// @dev Reserved for future storage fields.
-        uint256[50] __gap;
-    }
+    // ============ Types ============
 
-    /// @notice Token deployment information
+    /**
+     * @dev Token deployment information.
+     */
     struct TokenInfo {
         /// @dev Address of the original token on the origin chain.
         address originToken;
@@ -47,8 +37,24 @@ abstract contract GenericTokenFactory is Initializable, UUPSUpgradeable, Ownable
         bool deployed;
     }
 
+    // ============ Storage ============
     /// @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.GenericTokenFactoryStorage")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant GENERIC_TOKEN_FACTORY_STORAGE_LOCATION = 0x2e7141bc12ac0a34646003e28ce36e2b4a5ec6dcb16986fae278c46570192200;
+
+    /// @custom:storage-location erc7201:fluent.storage.GenericTokenFactoryStorage
+    struct GenericTokenFactoryStorage {
+        /// @dev Beacon contract backing all pegged token proxies.
+        address _beacon;
+        /// @dev Gateway authorized to deploy tokens via {deployToken}.
+        address _paymentGateway;
+        /// @dev Origin token address to locally deployed pegged token address.
+        mapping(address => address) _bridgedTokens;
+        /// @dev Pegged token address to its deployment metadata.
+        mapping(address => TokenInfo) _tokenInfo;
+        /// @dev Reserved for future storage fields.
+        uint256[50] __gap;
+    }
+
     /// @dev Returns the storage pointer for the GenericTokenFactoryStorage struct.
     function _getGenericTokenFactoryStorage() internal pure returns (GenericTokenFactoryStorage storage $) {
         // load the ERC-7201 diamond storage slot via inline assembly
@@ -62,7 +68,7 @@ abstract contract GenericTokenFactory is Initializable, UUPSUpgradeable, Ownable
      */
     modifier onlyPaymentGateway() {
         // owner bypass allows manual token deployment during bootstrap or emergencies
-        require(msg.sender == _getGenericTokenFactoryStorage().PaymentGateway || msg.sender == owner(), OnlyPaymentGatewayOrOwner());
+        require(msg.sender == _getGenericTokenFactoryStorage()._paymentGateway || msg.sender == owner(), OnlyPaymentGatewayOrOwner());
         _;
     }
 
@@ -95,51 +101,61 @@ abstract contract GenericTokenFactory is Initializable, UUPSUpgradeable, Ownable
 
     // ============ Public view functions ============
 
-    /// @notice Returns the payment gateway address.
+    /**
+     * @notice Returns the payment gateway address.
+     */
     function paymentGateway() public view virtual returns (address) {
         // read from ERC-7201 namespaced storage to avoid slot collisions
-        return _getGenericTokenFactoryStorage().PaymentGateway;
+        return _getGenericTokenFactoryStorage()._paymentGateway;
     }
 
     // ============ Beacon functions ============
 
-    /// @notice Current implementation address (from beacon).
+    /**
+     * @notice Current implementation address (from beacon).
+     */
     function implementation() public view returns (address) {
         // forwards to the beacon's implementation getter for transparency
-        return IBeacon(_getGenericTokenFactoryStorage().beacon).implementation();
+        return IBeacon(_getGenericTokenFactoryStorage()._beacon).implementation();
     }
 
-    /// @notice Upgrades all pegged tokens to a new implementation (via beacon).
+    /**
+     * @notice Upgrades all pegged tokens to a new implementation (via beacon).
+     */
     function upgradeTo(address newImplementation) external onlyOwner {
         // single beacon upgrade atomically updates every BeaconProxy token
-        UpgradeableBeacon(_getGenericTokenFactoryStorage().beacon).upgradeTo(newImplementation);
+        UpgradeableBeacon(_getGenericTokenFactoryStorage()._beacon).upgradeTo(newImplementation);
     }
 
     /** @dev Returns the creation bytecode for a BeaconProxy pointing at the stored beacon. */
-    function _beaconProxyBytecode(address _beacon) internal pure returns (bytes memory) {
+    function _beaconProxyBytecode(address beaconAddr) internal pure returns (bytes memory) {
         // encode beacon address + empty init data into constructor args for CREATE2
-        return abi.encodePacked(type(BeaconProxy).creationCode, abi.encode(_beacon, ""));
+        return abi.encodePacked(type(BeaconProxy).creationCode, abi.encode(beaconAddr, ""));
     }
 
     /// @inheritdoc IGenericTokenFactory
     function beacon() public view returns (address) {
         // exposes the UpgradeableBeacon address backing all pegged token proxies
-        return _getGenericTokenFactoryStorage().beacon;
+        return _getGenericTokenFactoryStorage()._beacon;
     }
 
     /// @inheritdoc IGenericTokenFactory
     function getDeployArgs(string memory tokenName, string memory tokenSymbol, uint8 decimals) external view virtual returns (bytes memory);
 
-    /// @notice Mapping from origin token address to pegged token address (forwarder for ERC-7201 storage)
+    /**
+     * @notice Mapping from origin token address to pegged token address (forwarder for ERC-7201 storage).
+     */
     function bridgedTokens(address key) public view virtual returns (address) {
         // returns address(0) when no pegged token has been deployed for this origin
-        return _getGenericTokenFactoryStorage().bridgedTokens[key];
+        return _getGenericTokenFactoryStorage()._bridgedTokens[key];
     }
 
-    /// @notice Mapping from token address to deployment info (forwarder for ERC-7201 storage)
+    /**
+     * @notice Mapping from token address to deployment info (forwarder for ERC-7201 storage).
+     */
     function tokenInfo(address key) public view virtual returns (TokenInfo memory) {
         // returns a zero-initialized struct when no info exists for the given token
-        return _getGenericTokenFactoryStorage().tokenInfo[key];
+        return _getGenericTokenFactoryStorage()._tokenInfo[key];
     }
 
     /// @inheritdoc IGenericTokenFactory
@@ -179,11 +195,11 @@ abstract contract GenericTokenFactory is Initializable, UUPSUpgradeable, Ownable
     }
 
     /** @dev Validates and stores the payment gateway address. Reverts on zero address. */
-    function _setPaymentGateway(address _paymentGateway) internal {
-        require(_paymentGateway != address(0), ZeroAddressNotAllowed("PaymentGateway"));
+    function _setPaymentGateway(address newPaymentGateway) internal {
+        require(newPaymentGateway != address(0), ZeroAddressNotAllowed("PaymentGateway"));
         // emit old -> new for off-chain indexers before writing storage
-        emit PaymentGatewaySet(paymentGateway(), _paymentGateway);
-        _getGenericTokenFactoryStorage().PaymentGateway = _paymentGateway;
+        emit PaymentGatewaySet(paymentGateway(), newPaymentGateway);
+        _getGenericTokenFactoryStorage()._paymentGateway = newPaymentGateway;
     }
 
     /**
@@ -196,23 +212,23 @@ abstract contract GenericTokenFactory is Initializable, UUPSUpgradeable, Ownable
     }
 
     /** @dev Validates and stores the beacon address. Reverts on zero address. */
-    function _setBeacon(address _beacon) internal {
-        require(_beacon != address(0), ZeroAddressNotAllowed("Beacon"));
+    function _setBeacon(address newBeacon) internal {
+        require(newBeacon != address(0), ZeroAddressNotAllowed("Beacon"));
         // emit old -> new for off-chain indexers before writing storage
-        emit BeaconSet(beacon(), _beacon);
-        _getGenericTokenFactoryStorage().beacon = _beacon;
+        emit BeaconSet(beacon(), newBeacon);
+        _getGenericTokenFactoryStorage()._beacon = newBeacon;
     }
 
     /// @dev Subclasses use this to update bridged token storage (ERC-7201).
-    function _setBridgedToken(address _originToken, address _peggedToken) internal {
+    function _setBridgedToken(address originToken, address peggedToken) internal {
         // maps origin chain token to the locally deployed pegged token
-        _getGenericTokenFactoryStorage().bridgedTokens[_originToken] = _peggedToken;
+        _getGenericTokenFactoryStorage()._bridgedTokens[originToken] = peggedToken;
     }
 
     /// @dev Subclasses use this to update token info storage (ERC-7201).
-    function _setTokenInfo(address _tokenAddress, TokenInfo memory _info) internal {
+    function _setTokenInfo(address tokenAddress, TokenInfo memory info) internal {
         // stores reverse lookup: pegged address -> origin metadata
-        _getGenericTokenFactoryStorage().tokenInfo[_tokenAddress] = _info;
+        _getGenericTokenFactoryStorage()._tokenInfo[tokenAddress] = info;
     }
 
     /// @dev Salt for CREATE2 — matches {ERC20TokenFactory._calculateSalt}.

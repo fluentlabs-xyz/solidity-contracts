@@ -69,31 +69,31 @@ contract AdminTest is RollupAssertions {
 
     function test_RevertIf_setBridge_zeroAddress() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroAddressNotAllowed.selector, bytes32("bridge")));
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroAddressNotAllowed.selector, "bridge"));
         rollup.setBridge(address(0));
     }
 
     function test_RevertIf_setSp1Verifier_zeroAddress() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroAddressNotAllowed.selector, bytes32("sp1Verifier")));
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroAddressNotAllowed.selector, "sp1Verifier"));
         rollup.setSp1Verifier(address(0));
     }
 
     function test_RevertIf_setProgramVKey_zeroValue() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, bytes32("programVKey")));
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "programVKey"));
         rollup.setProgramVKey(bytes32(0));
     }
 
     function test_RevertIf_setGasLeft_zeroValue() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, bytes32("gasLeft")));
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "gasLeft"));
         rollup.setGasLeft(0);
     }
 
     function test_RevertIf_enableNitroVerifier_zeroAddress() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroAddressNotAllowed.selector, bytes32("nitroVerifier")));
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroAddressNotAllowed.selector, "nitroVerifier"));
         rollup.enableNitroVerifier(address(0));
     }
 
@@ -181,7 +181,7 @@ contract AdminTest is RollupAssertions {
         InitConfiguration memory cfg = _defaultInitConfig(address(0), sequencer);
         Rollup impl = new Rollup();
 
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroAddressNotAllowed.selector, bytes32("admin")));
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroAddressNotAllowed.selector, "admin"));
         new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
     }
 
@@ -367,7 +367,7 @@ contract AdminTest is RollupAssertions {
 
     function test_RevertIf_disableNitroVerifier_zeroAddress() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroAddressNotAllowed.selector, bytes32("verifier")));
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroAddressNotAllowed.selector, "verifier"));
         rollup.disableNitroVerifier(address(0));
     }
 
@@ -401,13 +401,13 @@ contract AdminTest is RollupAssertions {
 
     function test_RevertIf_setChallengeDepositAmount_zero() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, bytes32("challengeDepositAmount")));
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "challengeDepositAmount"));
         rollup.setChallengeDepositAmount(0);
     }
 
     function test_RevertIf_setAcceptDepositDeadline_zero() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, bytes32("acceptDepositDeadline")));
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "acceptDepositDeadline"));
         rollup.setAcceptDepositDeadline(0);
     }
 
@@ -416,7 +416,7 @@ contract AdminTest is RollupAssertions {
         cfg.genesisHash = bytes32(0);
         Rollup impl = new Rollup();
 
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, bytes32("genesisHash")));
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "genesisHash"));
         new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
     }
 
@@ -425,7 +425,7 @@ contract AdminTest is RollupAssertions {
         cfg.maxForceRevertBatchSize = 0;
         Rollup impl = new Rollup();
 
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, bytes32("maxForceRevertBatchSize")));
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "maxForceRevertBatchSize"));
         new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
     }
 

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.30;
+pragma solidity ^0.8.30;
 
 /**
  * @title IERC20GatewayErrors
@@ -13,19 +13,19 @@ interface IERC20GatewayErrors {
     error TokenNotFound();
 
     /**
-     * @dev Thrown when the origin token is zero.
+     * @notice Thrown when the origin token is zero.
      * @dev selector: 0x690be5f9
      */
     error OriginTokenZero();
 
     /**
-     * @dev Thrown when the pegged token is wrong.
+     * @notice Thrown when the pegged token is wrong.
      * @dev selector: 0x164f4f0e
      */
     error WrongPeggedToken();
 
     /**
-     * @dev Thrown when the token mapping check failed.
+     * @notice Thrown when the token mapping check failed.
      * @dev selector: 0xc0260b4c
      */
     error TokenMappingCheckFailed();

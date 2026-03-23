@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.30;
 
 import {MerkleTree} from "../../libraries/MerkleTree.sol";
 
@@ -93,57 +93,59 @@ interface IL1FluentBridge {
 
     /**
      * @notice Receives and executes a message with Merkle proofs (L1 only; messages from L2 to L1).
-     * @param _batchIndex Index of the rollup batch containing the message.
-     * @param _blockHeader L2 block header containing the withdrawal root.
-     * @param _from Sender on the source chain.
-     * @param _to Destination on this chain.
-     * @param _value Value to forward.
-     * @param _chainId Source chain id.
-     * @param _blockNumber Block number on source chain.
-     * @param _nonce Message nonce.
-     * @param _message Message payload.
-     * @param _withdrawal_proof Merkle proof for the withdrawal (message hash) against withdrawalRoot.
-     * @param _block_proof Merkle proof for the block header against the batch root.
+     * @param batchIndex Index of the rollup batch containing the message.
+     * @param blockHeader L2 block header containing the withdrawal root.
+     * @param from Sender on the source chain.
+     * @param to Destination on this chain.
+     * @param value Value to forward.
+     * @param chainId Source chain id.
+     * @param blockNumber Block number on source chain.
+     * @param nonce Message nonce.
+     * @param message Message payload.
+     * @param withdrawalProof Merkle proof for the withdrawal (message hash) against withdrawalRoot.
+     * @param blockProof Merkle proof for the block header against the batch root.
      */
     function receiveMessageWithProof(
-        uint256 _batchIndex,
-        L2BlockHeader calldata _blockHeader,
-        address _from,
-        address payable _to,
-        uint256 _value,
-        uint256 _chainId,
-        uint256 _blockNumber,
-        uint256 _nonce,
-        bytes calldata _message,
-        MerkleTree.MerkleProof calldata _withdrawal_proof,
-        MerkleTree.MerkleProof calldata _block_proof
+        uint256 batchIndex,
+        L2BlockHeader calldata blockHeader,
+        address from,
+        address payable to,
+        uint256 value,
+        uint256 chainId,
+        uint256 blockNumber,
+        uint256 nonce,
+        bytes calldata message,
+        MerkleTree.MerkleProof calldata withdrawalProof,
+        MerkleTree.MerkleProof calldata blockProof
     ) external;
 
-    /// @notice Processes a rollback with Merkle proofs (L1 only; refunds sender when message was not received on L2).
-    /// @dev Can only be used on the **L1 side** to refund the original sender when a message was not successfully received on L2.
-    /// @param _batchIndex Index of the rollup batch.
-    /// @param _blockHeader L2 block header containing the withdrawal root.
-    /// @param _from Original sender (refund recipient).
-    /// @param _to Original destination (unused for refund).
-    /// @param _value Value to refund.
-    /// @param _chainId Source chain id.
-    /// @param _blockNumber Block number on source chain.
-    /// @param _nonce Message nonce.
-    /// @param _message Message payload (for hash).
-    /// @param _rollback_proof Merkle proof for the rollback leaf against withdrawalRoot.
-    /// @param _block_proof Merkle proof for the block header against the batch root.
+    /**
+     * @notice Processes a rollback with Merkle proofs (L1 only; refunds sender when message was not received on L2).
+     * @dev Can only be used on the **L1 side** to refund the original sender when a message was not successfully received on L2.
+     * @param batchIndex Index of the rollup batch.
+     * @param blockHeader L2 block header containing the withdrawal root.
+     * @param from Original sender (refund recipient).
+     * @param to Original destination (unused for refund).
+     * @param value Value to refund.
+     * @param chainId Source chain id.
+     * @param blockNumber Block number on source chain.
+     * @param nonce Message nonce.
+     * @param message Message payload (for hash).
+     * @param withdrawalProof Merkle proof for the rollback leaf against withdrawalRoot.
+     * @param blockProof Merkle proof for the block header against the batch root.
+     */
     function rollbackMessageWithProof(
-        uint256 _batchIndex,
-        L2BlockHeader calldata _blockHeader,
-        address _from,
-        address _to,
-        uint256 _value,
-        uint256 _chainId,
-        uint256 _blockNumber,
-        uint256 _nonce,
-        bytes calldata _message,
-        MerkleTree.MerkleProof calldata _rollback_proof,
-        MerkleTree.MerkleProof calldata _block_proof
+        uint256 batchIndex,
+        L2BlockHeader calldata blockHeader,
+        address from,
+        address to,
+        uint256 value,
+        uint256 chainId,
+        uint256 blockNumber,
+        uint256 nonce,
+        bytes calldata message,
+        MerkleTree.MerkleProof calldata withdrawalProof,
+        MerkleTree.MerkleProof calldata blockProof
     ) external;
 
     /**

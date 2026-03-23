@@ -10,7 +10,7 @@ import {IGatewayBase} from "../interfaces/gateways/IGatewayBase.sol";
 
 /**
  * @title GatewayBase
- * @author Fluent Lab
+ * @author Fluent Labs
  *
  * @notice Shared gateway foundation for cross-chain token gateways.
  * @dev UUPS-upgradeable base that centralizes:

@@ -60,7 +60,7 @@ contract L1GasOracle is Ownable, IL1GasOracle {
      * @dev Validates and stores the submitter address. Reverts on zero address.
      */
     function _setSubmitter(address submitter) internal {
-        if (submitter == address(0)) revert ZeroAddressNotAllowed("submitter");
+        require(submitter != address(0), ZeroAddressNotAllowed("submitter"));
         emit SubmitterUpdated(_submitter, submitter);
         _submitter = submitter;
     }

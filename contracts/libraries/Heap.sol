@@ -66,7 +66,7 @@ library Heap {
         mapping(bytes32 => uint256) storage commitmentQueueIndex
     ) internal returns (bytes32 top) {
         // Empty heap means no challenges to resolve — revert to signal misuse
-        if (self.size == 0) revert HeapEmpty();
+        require(self.size != 0, HeapEmpty());
         // The root (index 0) always holds the element with the smallest deadline
         top = self.data[0];
         // Remove root and re-heapify so the next-smallest deadline becomes root
@@ -100,7 +100,7 @@ library Heap {
      *      Reverts with {HeapEmpty} if the heap has no elements.
      */
     function peek(HeapStorage storage self) internal view returns (bytes32) {
-        if (self.size == 0) revert HeapEmpty();
+        require(self.size != 0, HeapEmpty());
         // Root is always at index 0 — the element with the smallest challenge deadline
         return self.data[0];
     }

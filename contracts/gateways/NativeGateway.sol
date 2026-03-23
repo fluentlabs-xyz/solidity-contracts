@@ -8,7 +8,7 @@ import {INativeGateway} from "../interfaces/gateways/INativeGateway.sol";
 
 /**
  * @title NativeGateway
- * @author Fluent Lab
+ * @author Fluent Labs
  *
  * @notice Gateway for bridging native ETH between chains through `FluentBridge`.
  * @dev UUPS-upgradeable gateway. Bridge routing state is inherited from `GatewayBase` (ERC-7201 namespace),
@@ -35,7 +35,9 @@ contract NativeGateway is GatewayBase, INativeGateway {
         _disableInitializers();
     }
 
-    /// @notice Initializes the upgradeable gateway (replaces constructor when used behind a proxy).
+    /**
+     * @notice Initializes the upgradeable gateway (replaces constructor when used behind a proxy).
+     */
     function initialize(address initialOwner, address bridgeContract) public initializer {
         __GatewayBase_init(initialOwner, bridgeContract);
 

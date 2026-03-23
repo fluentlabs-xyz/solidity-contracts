@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.30;
+pragma solidity 0.8.30;
 
-import {ISP1Verifier} from "contracts/interfaces/ISP1Verifier.sol";
-import {INitroVerifier} from "contracts/interfaces/INitroVerifier.sol";
+import {ISP1Verifier} from "../interfaces/ISP1Verifier.sol";
+import {INitroVerifier} from "../interfaces/INitroVerifier.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 /**
  * @title NitroVerifier
+ * @author Fluent Labs
  * @dev Two-phase verifier for AWS Nitro Enclave-based block and batch signing.
  *
  *      Phase 1 — Attestation: an SP1 ZK proof is submitted via {verifyAttestation},
@@ -60,10 +61,9 @@ contract NitroVerifier is AccessControl, INitroVerifier {
      *      Reverts if `attestationVerifier_` is the zero address.
      */
     constructor(address attestationVerifier, address admin) {
-        if (attestationVerifier == address(0) || admin == address(0)) revert ZeroAddress();
+        require(attestationVerifier != address(0) && admin != address(0), ZeroAddress());
         _attestationVerifier = attestationVerifier;
-        bool granted = _grantRole(DEFAULT_ADMIN_ROLE, admin);
-        if (!granted) revert RoleGrantFailed();
+        require(_grantRole(DEFAULT_ADMIN_ROLE, admin), RoleGrantFailed());
     }
 
     // ============ INitroVerifier ============
@@ -101,8 +101,8 @@ contract NitroVerifier is AccessControl, INitroVerifier {
      * @notice Step 1 — propose a VKey rotation; executable after {VKEY_UPDATE_DELAY}.
      */
     function proposeVKeyUpdate(bytes32 newProgramVKey) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (newProgramVKey == bytes32(0)) revert ZeroVKey();
-        if (newProgramVKey == PROGRAM_VKEY) revert VKeyUnchanged();
+        require(newProgramVKey != bytes32(0), ZeroVKey());
+        require(newProgramVKey != PROGRAM_VKEY, VKeyUnchanged());
         pendingVKey = newProgramVKey;
         uint64 validAt = uint64(block.timestamp + VKEY_UPDATE_DELAY);
         pendingVKeyValidAt = validAt;
@@ -114,8 +114,8 @@ contract NitroVerifier is AccessControl, INitroVerifier {
      */
     function executeVKeyUpdate() external onlyRole(DEFAULT_ADMIN_ROLE) {
         bytes32 pending = pendingVKey; // 1 SLOAD, used twice below
-        if (pending == bytes32(0)) revert NoPendingUpdate();
-        if (block.timestamp < pendingVKeyValidAt) revert TimelockNotExpired();
+        require(pending != bytes32(0), NoPendingUpdate());
+        require(block.timestamp >= pendingVKeyValidAt, TimelockNotExpired());
         bytes32 oldVKey = PROGRAM_VKEY;
         PROGRAM_VKEY = pending;
         pendingVKey = bytes32(0);
@@ -128,7 +128,7 @@ contract NitroVerifier is AccessControl, INitroVerifier {
      */
     function cancelVKeyUpdate() external onlyRole(DEFAULT_ADMIN_ROLE) {
         bytes32 pending = pendingVKey; // 1 SLOAD, used twice below
-        if (pending == bytes32(0)) revert NoPendingUpdate();
+        require(pending != bytes32(0), NoPendingUpdate());
         emit VKeyUpdateCancelled(pending);
         pendingVKey = bytes32(0);
         pendingVKeyValidAt = 0;
@@ -142,7 +142,7 @@ contract NitroVerifier is AccessControl, INitroVerifier {
      *      {verifyBatch} immediately after revocation.
      */
     function revokeAttestation(address pubkey) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (!verifiedPubkeys[pubkey]) revert PubkeyNotVerified();
+        require(verifiedPubkeys[pubkey], PubkeyNotVerified());
         verifiedPubkeys[pubkey] = false;
         emit AttestationRevoked(pubkey);
     }
@@ -159,8 +159,8 @@ contract NitroVerifier is AccessControl, INitroVerifier {
      * @param proofBytes     Encoded SP1 proof.
      */
     function verifyAttestation(address expectedPubkey, bytes calldata proofBytes) external {
-        if (expectedPubkey == address(0)) revert ZeroAddress();
-        if (verifiedPubkeys[expectedPubkey]) revert PubkeyAlreadyVerified();
+        require(expectedPubkey != address(0), ZeroAddress());
+        require(!verifiedPubkeys[expectedPubkey], PubkeyAlreadyVerified());
         bytes32 vkey = PROGRAM_VKEY; // 1 SLOAD, passed to external call and event
         ISP1Verifier(_attestationVerifier).verifyProof(vkey, abi.encode(expectedPubkey), proofBytes);
         verifiedPubkeys[expectedPubkey] = true;

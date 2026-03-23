@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-only
+// SPDX-License-Identifier: MIT
 pragma solidity 0.8.30;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
@@ -11,6 +11,7 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
 
 /**
  * @title ERC20PeggedToken
+ * @author Fluent Labs
  * @dev Pegged ERC20 representation deployed behind a UpgradeableBeacon proxy.
  *      Mint and burn are restricted to the owner (gateway). Supports pause via {PausableUpgradeable}.
  *      Metadata (name, symbol, decimals) is set once during {initialize} and stored locally
@@ -83,13 +84,17 @@ contract ERC20PeggedToken is Initializable, ERC20Upgradeable, OwnableUpgradeable
 
     // ============ Mint / Burn ============
 
-    /// @notice Mint tokens; restricted to owner (bridge / gateway).
+    /**
+     * @notice Mint tokens; restricted to owner (bridge / gateway).
+     */
     function mint(address account, uint256 amount) external onlyOwner {
         // Only the gateway can mint — called when L1 tokens are deposited into the bridge
         _mint(account, amount);
     }
 
-    /// @notice Burn tokens; restricted to owner (bridge / gateway).
+    /**
+     * @notice Burn tokens; restricted to owner (bridge / gateway).
+     */
     function burn(address account, uint256 amount) external onlyOwner {
         // Only the gateway can burn — called when L2 tokens are withdrawn back to L1
         _burn(account, amount);
@@ -97,13 +102,17 @@ contract ERC20PeggedToken is Initializable, ERC20Upgradeable, OwnableUpgradeable
 
     // ============ Pause ============
 
-    /// @notice Pause all token transfers, mints, and burns.
+    /**
+     * @notice Pause all token transfers, mints, and burns.
+     */
     function pause() external onlyOwner {
         // Emergency circuit breaker — halts all transfers, mints, and burns via _update hook
         _pause();
     }
 
-    /// @notice Unpause token transfers, mints, and burns.
+    /**
+     * @notice Unpause token transfers, mints, and burns.
+     */
     function unpause() external onlyOwner {
         // Resumes normal operations after an emergency pause
         _unpause();

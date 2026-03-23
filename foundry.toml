@@ -12,7 +12,7 @@ fs_permissions = [
   {access = "read", path = "./broadcast"},
 ]
 libs = ["lib"]
-no_match_coverage = "(test|script)"
+no_match_coverage = "(test|script|ExcessivelySafeCall)"
 optimizer = true
 optimizer_runs = 200
 out = "forge-out"
