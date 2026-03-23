@@ -312,6 +312,11 @@ interface IRollupEvents {
      */
     event IncentiveFeeUpdated(uint256 previousIncentiveFee, uint256 newIncentiveFee);
 
+    /**
+     * @notice Emitted when the maximum force revert batch size is updated.
+     */
+    event MaxForceRevertBatchSizeUpdated(uint32 previousMaxForceRevertBatchSize, uint32 newMaxForceRevertBatchSize);
+
     // ============ Batch lifecycle ============
 
     /**

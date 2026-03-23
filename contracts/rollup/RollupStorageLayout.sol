@@ -136,7 +136,7 @@ contract RollupStorageLayout is
          * @dev ETH reward paid to challengers during force revert (on top of deposit refund)
          */
         uint256 _incentiveFee;
-        // ─── Slot 7: uint64(8) + uint64(8) + uint32(4) + uint32(4) = 24 bytes ───
+        // ─── Slot 7: uint64(8) + uint64(8) + uint32(4) + uint32(4) + uint32(4) = 28 bytes ───
         /**
          * @dev highest batch index with Finalized status; enforces sequential finalization
          */
@@ -153,7 +153,12 @@ contract RollupStorageLayout is
          * @dev max L1 blocks between deposit creation and its inclusion in a batch
          */
         uint32 _acceptDepositDeadline;
-        // ─── Per-batch records ───
+        // ============ Emergency revert pagination ============
+        /**
+         * @dev Max batch size to prevent OOG during paginated force revert. Should be >= 1.
+         */
+        uint32 _maxForceRevertBatchSize;
+        // ============ Per-batch records ============
         /**
          * @dev packed per-batch state (root, accepted block, expected blobs, status)
          */
@@ -174,7 +179,7 @@ contract RollupStorageLayout is
          * @dev commitments challenged per batch; used for refund iteration in force revert
          */
         mapping(uint256 => bytes32[]) _batchChallengedBlocks;
-        // ─── Challenge state (keyed by commitment) ───
+        // ============ Challenge state (keyed by commitment) ============
         /**
          * @dev tracks which block commitments have been proven; prevents duplicate proofs
          */
@@ -196,7 +201,7 @@ contract RollupStorageLayout is
          *      Zero means not in heap. Used by {Heap} for O(log n) removal.
          */
         mapping(bytes32 => uint256) _challengeQueueIndex;
-        // ─── Reward balances ───
+        // ============ Reward balances ============
         /**
          * @dev ETH balances claimable by challengers after force revert
          */
@@ -205,18 +210,12 @@ contract RollupStorageLayout is
          * @dev ETH balances claimable by provers after resolving challenges
          */
         mapping(address => uint256) _proverRewards;
-        // ─── Verifier whitelist ───
+        // ============ Verifier whitelist ============
         /**
          * @dev whitelist of Nitro enclave verifier contracts allowed for preconfirmation
          */
         mapping(address => bool) _enabledNitroVerifiers;
-        // ============ Emergency revert pagination ============
-        // TODO(d1r1,chillhacker): check the best type for this value
-        /**
-         * @dev Max batch size to prevent OOG during paginated force revert. Should be >= 1.
-         */
-        uint256 _maxForceRevertBatchSize;
-        // ─── Upgrade gap ───
+        // ============ Upgrade gap ============
         /// @dev Reserved storage slots for future upgrades.
         uint256[25] __gap;
     }
@@ -240,8 +239,7 @@ contract RollupStorageLayout is
         require(params.challengeWindow <= type(uint64).max, InvalidWindowConfig("challengeWindow out of range"));
         require(params.finalizationDelay <= type(uint64).max, InvalidWindowConfig("finalizationDelay out of range"));
         require(params.acceptDepositDeadline <= type(uint32).max, InvalidWindowConfig("acceptDepositDeadline out of range"));
-        // TODO(chillhacker): add more meaningful validations for maxForceRevertBatchSize
-        require(params.maxForceRevertBatchSize != 0, ZeroValueNotAllowed("maxForceRevertBatchSize"));
+        require(params.maxForceRevertBatchSize <= type(uint32).max, InvalidWindowConfig("maxForceRevertBatchSize out of range"));
         // preconfirmation must happen after blob submission completes (when both are enabled)
         if (params.submitBlobsWindow != 0 && params.preconfirmWindow != 0) {
             require(params.preconfirmWindow > params.submitBlobsWindow, InvalidWindowConfig("preconfirmWindow must exceed submitBlobsWindow"));
@@ -280,7 +278,7 @@ contract RollupStorageLayout is
         $._lastBlockHashInBatch[0] = params.genesisHash;
         // first real batch starts at index 1; index 0 is reserved for genesis
         $._nextBatchIndex = 1;
-        $._maxForceRevertBatchSize = params.maxForceRevertBatchSize;
+        _setMaxForceRevertBatchSize(uint32(params.maxForceRevertBatchSize));
 
         // external dependency addresses validated within their respective setters
         _setBridge(params.bridge);
@@ -642,6 +640,18 @@ contract RollupStorageLayout is
         RollupStorage storage $ = _getRollupStorage();
         emit IncentiveFeeUpdated($._incentiveFee, newIncentiveFee);
         $._incentiveFee = newIncentiveFee;
+    }
+
+    function setMaxForceRevertBatchSize(uint32 newMaxForceRevertBatchSize) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setMaxForceRevertBatchSize(newMaxForceRevertBatchSize);
+    }
+
+    /** @dev Stores the maximum force revert batch size. */
+    function _setMaxForceRevertBatchSize(uint32 newMaxForceRevertBatchSize) internal {
+        RollupStorage storage $ = _getRollupStorage();
+        require(newMaxForceRevertBatchSize != 0, ZeroValueNotAllowed("maxForceRevertBatchSize"));
+        emit MaxForceRevertBatchSizeUpdated($._maxForceRevertBatchSize, newMaxForceRevertBatchSize);
+        $._maxForceRevertBatchSize = newMaxForceRevertBatchSize;
     }
 
     // ============ Internal helpers ============
