@@ -35,6 +35,12 @@ interface IGatewayBaseErrors {
      * @dev selector: 0x9c8d2cd2
      */
     error InvalidRecipient();
+
+    /**
+     * @notice Thrown when the caller does not have the required role.
+     * @dev selector: 0x629e9f8b
+     */
+    error ExactFeeRequired();
 }
 
 /**
@@ -85,11 +91,6 @@ interface IGatewayBaseEvents {
      * @notice Emitted when the address of the bridge contract is updated.
      */
     event BridgeContractUpdated(address indexed prevValue, address indexed newValue);
-
-    /**
-     * @notice Emitted when the gas limit is updated.
-     */
-    event GasLimitUpdated(uint256 prevValue, uint256 newValue);
 
     /**
      * @notice Emitted when the other side chain id is updated.

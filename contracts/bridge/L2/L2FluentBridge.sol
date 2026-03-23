@@ -162,6 +162,12 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
             // Return false to skip message execution in the caller
             return false;
         }
+        // On Fluent L2, native ETH for inbound messages is minted by the chain's consensus
+        // layer before execution and burned if the call fails. The bridge balance is therefore
+        // always sufficient by protocol invariant. This check is defense-in-depth — it should
+        // never revert under normal operation, but guards against a broken minting mechanism.
+        if (value > 0) require(address(this).balance >= value, InsufficientBridgeBalance(value));
+
         // Deadline not exceeded — allow normal execution to proceed
         return true;
     }
@@ -269,7 +275,7 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
         // Load storage pointer once to batch writes and emit old values
         GasPriceConfig storage $ = _getL2FluentBridgeStorage()._gasPriceConfig;
         // Emit before writing so the event contains both old and new values
-        emit GasPriceConfigUpdated($._overheadGasPrice, overheadGasPrice, $._scalarGasPrice, scalarGasPrice);
+        emit GasPriceConfigUpdated($._overheadGasPrice, overheadGasPrice, $._scalarGasPrice, scalarGasPrice, $._l1GasLimit, l1GasLimit);
         // Update all three fee parameters atomically
         $._overheadGasPrice = overheadGasPrice;
         $._scalarGasPrice = scalarGasPrice;

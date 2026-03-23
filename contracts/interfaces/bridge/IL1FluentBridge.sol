@@ -51,12 +51,6 @@ interface IL1FluentBridge {
      * @dev selector: 0x83f48206
      */
     error QueueNotEmpty();
-    /**
-     * @notice Bridge balance too low to execute rollback refund (locked native on source chain).
-     * @dev selector: 0x50dd28ac
-     */
-    error InsufficientBridgeBalance(uint256 required);
-
     // ========== Events ==========
 
     /**

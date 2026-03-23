@@ -103,6 +103,10 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         require(to != address(0), InvalidRecipient());
         // Prevent sending zero tokens — disallow no-op messages that still consume bridge fees
         require(amount > 0, ZeroValueNotAllowed("amount"));
+        // Exact fee required — excess ETH would become cross-chain native value, but receive
+        // functions (receivePeggedTokens/receiveOriginTokens) are not payable, so delivery
+        // would permanently fail and lock both the ETH and the bridged tokens
+        require(msg.value == FluentBridge(getBridgeContract()).getSentMessageFee(), ExactFeeRequired());
 
         // Cache msg.sender to pass as both the protocol-level sender and the token source
         address sender = msg.sender;
@@ -280,7 +284,7 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         // Beacon proxy tokens need explicit initialization because their constructor is empty.
         // Universal tokens are self-initializing via their constructor arguments.
         // This gateway becomes the owner/minter of the pegged token, granting mint/burn authority.
-        if (deployArgs.length == 0) ERC20PeggedToken(peggedToken).initialize(name, symbol, decimals, address(this), originToken);
+        if (deployArgs.length == 0) ERC20PeggedToken(peggedToken).initialize(name, symbol, decimals, originToken);
 
         return peggedToken;
     }

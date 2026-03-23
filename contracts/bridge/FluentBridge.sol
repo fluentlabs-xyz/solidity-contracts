@@ -14,27 +14,25 @@ import {FluentBridgeStorageLayout} from "./FluentBridgeStorageLayout.sol";
  * @notice Core bridge contract for sending and receiving cross-chain messages between L1 and L2 using rollup validation.
  * @dev Deployed on both L1 and L2 with different config (L1: rollup set, deadline 0; L2: rollup zero, deadline non-zero).
  *      Upgradeable via UUPS proxy (ERC1967Proxy); upgrade authorized by owner.
- *      Native token handling: on send, msg.value is locked in this contract; on receive, caller must supply msg.value
- *      equal to message value (relayer liquidity); on rollback, this contract refunds from its locked balance (msg.value must be 0).
+ *      Native token handling: on send, msg.value is locked in this contract; on receive and rollback,
+ *      the bridge pays from its own pooled balance (receive functions are not payable).
  * @notice Workflows:
  * 1. Send message (L1 -> L2 or L2 -> L1):
  *    - Caller invokes sendMessage(to, message) with optional msg.value (native lock).
  *    - Message is encoded, hashed, and enqueued in the sent message queue when rollup is set.
  *    - Event SentMessage(from, to, value, chainId, blockNumber, nonce, messageHash, data) is emitted.
  * 2. Receive message with proof (L2 -> L1 only, when rollup is set):
- *    - Caller invokes receiveMessageWithProof(batchIndex, commitment, from, to, value, chainId, blockNumber, nonce, message, withdrawalProof, blockProof)
- *      with msg.value == value (caller supplies native for destination payout).
+ *    - Caller invokes receiveMessageWithProof(...) — not payable, bridge pays value from pooled balance.
  *    - Withdrawal and block Merkle proofs are verified; message is executed (target receives value and calldata).
  *    - Event ReceivedMessage(messageHash, success, returnData) is emitted.
  * 3. Receive message by authority (L2 side or Trusted Relayer/Bridge Authority):
- *    - Bridge Authority invokes receiveMessage(from, to, value, chainId, blockNumber, nonce, message) with msg.value == value.
+ *    - Bridge Authority invokes receiveMessage(...) — not payable, bridge pays value from pooled balance.
  *    - Sequential receivedNonce is enforced; message is executed.
  * 4. Rollback message (L2 -> L1, deadline exceeded):
- *    - Bridge Authority invokes rollbackMessageWithProof(...) with msg.value == 0.
- *    - This contract must hold at least `value` (locked from original send); refund is sent to original sender.
+ *    - Caller invokes rollbackMessageWithProof(...) — not payable, bridge refunds from locked balance.
  *    - Event ReceivedMessageRollback(messageHash, success, returnData) is emitted.
- * 5. Replay failed message (Bridge Authority):
- *    - Bridge Authority invokes receiveFailedMessage(...) with msg.value == value for a message previously marked Failed.
+ * 5. Replay failed message:
+ *    - Anyone invokes receiveFailedMessage(...) — not payable, bridge pays value from pooled balance.
  *    - Allows retrying after fixing conditions (e.g. gateway config).
  */
 abstract contract FluentBridge is FluentBridgeStorageLayout {

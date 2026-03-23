@@ -40,7 +40,7 @@ stateDiagram-v2
 
 **Ordering:** The relayer must pass **`messageNonce == getReceivedNonce()`** before the call mutates state. The bridge then **`_takeNextReceivedNonce()`** — the nonce is **consumed even if the message is later skipped** (L2 deadline path below).
 
-**Value:** For messages with **`value > 0`**, the relayer must send **`msg.value == value`** (native liquidity for the destination payout).
+**Value:** The function is **not payable**. For messages with **`value > 0`**, the bridge pays from its own **pooled balance** (ETH locked by prior `sendMessage` calls). On L2, the chain's consensus layer mints the required native ETH before execution.
 
 **High-level flow:**
 
@@ -132,7 +132,7 @@ sequenceDiagram
 
 ## 5. Retry: `receiveFailedMessage`
 
-**Who:** **Any address** (function is `payable` and **not** restricted to `RELAYER_ROLE`).
+**Who:** **Any address** (function is **not payable** and **not** restricted to `RELAYER_ROLE`).
 
 **Precondition:** **`getReceivedMessage(messageHash) == Failed`**. Otherwise **`MessageNotFailed()`**.
 
@@ -144,7 +144,7 @@ sequenceDiagram
 - When `_beforeReceiveMessage` returns `false`, **`receiveFailedMessage` returns early** and does not call **`_receiveMessage`**.
 - If `_beforeReceiveMessage` returns `true` (deadline not exceeded), `receiveFailedMessage` calls **`_receiveMessage(gasleft(), ...)`**, which executes the target and sets the final message status to **`Success`** or **`Failed`** in **`_receivedMessage`**.
 
-**Value:** Caller must supply **`msg.value == value`** when retrying a message that carries native value (same as relayer receive).
+**Value:** The function is **not payable**. For messages with **`value > 0`**, the bridge pays from its own **pooled balance** (same as relayer receive).
 
 **Nonce:** **`receiveFailedMessage` does not increment `receivedNonce`** — it only retries an existing hash.
 

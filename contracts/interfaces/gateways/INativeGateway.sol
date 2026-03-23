@@ -17,19 +17,11 @@ interface INativeGatewayErrors {
      * @dev selector: 0xf4b3b1bc
      */
     error NativeTransferFailed();
-
-    /**
-     * @notice Thrown when a supplied gas limit is zero or otherwise invalid for gateway execution.
-     * @dev Raised by gas-limit validation (e.g. `setGasLimit`) when the configured `_gasLimit` would render
-     *      cross-chain native transfers unsafe or non-functional.
-     * @dev selector: 0x98bdb2e0
-     */
-    error InvalidGasLimit();
 }
 
 /**
  * @title INativeGateway
- * @dev Native ETH bridging: send, receive, rescue, and gas limit configuration.
+ * @dev Native ETH bridging: send, receive, and rescue.
  */
 interface INativeGateway is INativeGatewayErrors {
     /**
@@ -52,18 +44,4 @@ interface INativeGateway is INativeGatewayErrors {
      * @param amount The amount of native tokens to rescue.
      */
     function rescueNative(address payable to, uint256 amount) external;
-
-    /**
-     * @notice Sets the gas limit for the bridge.
-     * @param newGasLimit The new gas limit.
-     *
-     * @dev Emits GasLimitUpdated
-     */
-    function setGasLimit(uint256 newGasLimit) external;
-
-    /**
-     * @notice Gets the gas limit for the bridge.
-     * @return The gas limit for the bridge.
-     */
-    function getGasLimit() external view returns (uint256);
 }

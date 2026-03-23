@@ -30,8 +30,17 @@ interface IL2FluentBridge {
      * @param newOverhead The new overhead gas price.
      * @param prevScalar The previous scalar gas price.
      * @param newScalar The new scalar gas price.
+     * @param prevL1BaseFee The previous L1 base fee used in the gas price calculation.
+     * @param newL1BaseFee The new L1 base fee used in the gas price calculation.
      */
-    event GasPriceConfigUpdated(uint256 indexed prevOverhead, uint256 newOverhead, uint256 indexed prevScalar, uint256 newScalar);
+    event GasPriceConfigUpdated(
+        uint256 indexed prevOverhead,
+        uint256 newOverhead,
+        uint256 indexed prevScalar,
+        uint256 newScalar,
+        uint256 indexed prevL1BaseFee,
+        uint256 newL1BaseFee
+    );
 
     /**
      * @notice Emitted when the address of the L1 block oracle is updated.

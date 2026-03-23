@@ -303,7 +303,7 @@ contract L1FluentBridgeTest is BridgeBase {
 
     function test_RevertIf_rollbackMessageWithProof_insufficientBalance() public {
         rollup.setFinalized(true);
-        vm.expectRevert(abi.encodeWithSelector(IL1FluentBridge.InsufficientBridgeBalance.selector, 1 ether));
+        vm.expectRevert(abi.encodeWithSelector(IFluentBridgeErrors.InsufficientBridgeBalance.selector, 1 ether));
         l1Bridge.rollbackMessageWithProof(1, _dummyHeader(), user, receiver, 1 ether, block.chainid, 1, 0, "", _dummyProof(), _dummyProof());
     }
 

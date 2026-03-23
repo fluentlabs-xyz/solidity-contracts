@@ -31,6 +31,29 @@ import {L2BlockHeader, BatchStatus, BatchRecord, ChallengeRecord} from "../inter
  * If any deadline is exceeded, {isRollupCorrupted} returns true and all state-changing
  * functions revert with {RollupCorrupted} until the corrupted batch is cleared via
  * {forceRevertBatch}.
+ *
+ * == Security: challenge timing and finalization ==
+ *
+ * The invariant `challengeWindow < finalizationDelay` (enforced at initialization and
+ * on every admin update) guarantees that the challenge window closes strictly before any
+ * batch becomes eligible for finalization. With the reference deployment parameters
+ * (`challengeWindow = 36 h`, `finalizationDelay = 48 h`) the gap is 12 hours, so a
+ * batch can never be finalized while challenges are still accepted.
+ *
+ * A challenge submitted near the end of the window leaves the prover very little wall-clock
+ * time to respond, because the resolution deadline is always `acceptedAtBlock + challengeWindow`
+ * regardless of when the challenge was created. If the prover cannot submit both a Nitro
+ * attestation and an SP1 proof before that deadline, the rollup enters the corrupted
+ * (safety-halt) state. This is by design:
+ *
+ * - *No funds are at risk* — the corrupted state blocks all mutations until
+ *   {EMERGENCY_ROLE} calls {forceRevertBatch} to roll back the affected batch.
+ * - The challenger's deposit remains locked in the reverted challenge record and is not
+ *   returned, disincentivizing frivolous last-moment challenges.
+ * - The sequencer can re-submit the batch after the corrupted state is cleared.
+ *
+ * Operators should therefore ensure the prover infrastructure can generate dual proofs
+ * well within the `challengeWindow` and monitor {BlockChallenged} events in real time.
  */
 contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
     // Attach min-heap operations to the HeapStorage type for the challenge priority queue

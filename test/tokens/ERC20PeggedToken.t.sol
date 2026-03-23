@@ -18,8 +18,9 @@ contract ERC20PeggedTokenTest is Test {
 
     function setUp() public {
         ERC20PeggedToken impl = new ERC20PeggedToken();
-        // Deploy via minimal proxy to allow initialization
-        bytes memory initData = abi.encodeCall(ERC20PeggedToken.initialize, ("Wrapped ETH", "WETH", 18, gateway, originAddr));
+        // Deploy via minimal proxy to allow initialization; msg.sender (this) becomes owner
+        vm.prank(gateway);
+        bytes memory initData = abi.encodeCall(ERC20PeggedToken.initialize, ("Wrapped ETH", "WETH", 18, originAddr));
         address proxy = address(new ERC1967Proxy(address(impl), initData));
         token = ERC20PeggedToken(proxy);
     }
@@ -38,19 +39,17 @@ contract ERC20PeggedTokenTest is Test {
         assertEq(token.decimals(), 18, "decimals mismatch");
     }
 
-    // ============ getOrigin ============
-
-    function test_getOrigin_returnsGatewayAndOriginAddress() public view {
-        (address gw, address origin) = token.getOrigin();
-        assertEq(gw, gateway, "gateway mismatch");
-        assertEq(origin, originAddr, "origin mismatch");
+    function test_owner_isGateway() public view {
+        assertEq(token.owner(), gateway, "owner should be gateway");
     }
 
     // ============ Pause / Unpause ============
 
     function test_pause_preventsTransfer() public {
+        vm.startPrank(gateway);
         token.mint(alice, 100e18);
         token.pause();
+        vm.stopPrank();
 
         vm.prank(alice);
         vm.expectRevert(ERC20PeggedToken.TokenPaused.selector);
@@ -60,9 +59,11 @@ contract ERC20PeggedTokenTest is Test {
     }
 
     function test_unpause_resumesTransfer() public {
+        vm.startPrank(gateway);
         token.mint(alice, 100e18);
         token.pause();
         token.unpause();
+        vm.stopPrank();
 
         vm.prank(alice);
         require(token.transfer(bob, 50e18), "transfer failed");
@@ -76,6 +77,7 @@ contract ERC20PeggedTokenTest is Test {
     }
 
     function test_RevertIf_unpause_callerNotOwner() public {
+        vm.prank(gateway);
         token.pause();
         vm.prank(alice);
         vm.expectRevert();
@@ -83,14 +85,19 @@ contract ERC20PeggedTokenTest is Test {
     }
 
     function test_RevertIf_mint_whenPaused() public {
+        vm.prank(gateway);
         token.pause();
+        vm.prank(gateway);
         vm.expectRevert(ERC20PeggedToken.TokenPaused.selector);
         token.mint(alice, 100e18);
     }
 
     function test_RevertIf_burn_whenPaused() public {
+        vm.prank(gateway);
         token.mint(alice, 100e18);
+        vm.prank(gateway);
         token.pause();
+        vm.prank(gateway);
         vm.expectRevert(ERC20PeggedToken.TokenPaused.selector);
         token.burn(alice, 50e18);
     }

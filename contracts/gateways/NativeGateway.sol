@@ -11,42 +11,21 @@ import {INativeGateway} from "../interfaces/gateways/INativeGateway.sol";
  * @author Fluent Labs
  *
  * @notice Gateway for bridging native ETH between chains through `FluentBridge`.
- * @dev UUPS-upgradeable gateway. Bridge routing state is inherited from `GatewayBase` (ERC-7201 namespace),
- *      while this contract stores `_gasLimit` in its own ERC-7201 namespace.
+ * @dev UUPS-upgradeable gateway. Bridge routing state is inherited from `GatewayBase` (ERC-7201 namespace).
  * @dev Security model:
  *      - `sendNativeTokens` requires `msg.value == amount`.
  *      - `receiveNativeTokens` is restricted to the configured bridge and verifies the remote gateway sender.
  *      - Incoming bridge calls must provide `msg.value == amount`, then ETH is forwarded to the recipient.
+ * @dev Gas protection: the bridge's `executeGasLimit` caps gas for the entire message execution on first
+ *      delivery. On retry via `receiveFailedMessage`, the caller controls gas via their transaction limit.
+ *      No gateway-level gas cap is needed.
  * @dev Flows:
  *      1) Source chain: user calls `sendNativeTokens(to, amount)` and ETH is forwarded into
  *         `FluentBridge.sendMessage{value: amount}(otherSide, payload)`.
- *      2) Destination chain: relayer executes bridge delivery; gateway validates origin and transfers ETH to `to`
- *         using `call{gas: getGasLimit(), value: amount}`.
- * @dev Admin functions: `setGasLimit` and `rescueNative`.
+ *      2) Destination chain: relayer executes bridge delivery; gateway validates origin and transfers ETH to `to`.
+ * @dev Admin functions: `rescueNative`.
  */
 contract NativeGateway is GatewayBase, INativeGateway {
-    uint256 public constant DEFAULT_GAS_LIMIT = 100_000;
-
-    // ============ Storage ============
-
-    /// @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.NativeGatewayStorage")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant NATIVE_GATEWAY_STORAGE_LOCATION = 0x205a078d4e86411e5dd213d5895e4c81144e7946e4ae8ea5406967287f811300;
-
-    /// @custom:storage-location erc7201:fluent.storage.NativeGatewayStorage
-    struct NativeGatewayStorage {
-        /// @dev Configurable gas limit forwarded when sending native tokens through the bridge.
-        uint256 _gasLimit;
-        /// @dev Reserved for future storage fields.
-        uint256[50] __gap;
-    }
-
-    /// @dev Returns the ERC-7201 storage pointer for NativeGateway state.
-    function _getNativeGatewayStorage() private pure returns (NativeGatewayStorage storage $) {
-        assembly ("memory-safe") {
-            $.slot := NATIVE_GATEWAY_STORAGE_LOCATION
-        }
-    }
-
     // ============ Constructor ============
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -59,10 +38,6 @@ contract NativeGateway is GatewayBase, INativeGateway {
      */
     function initialize(address initialOwner, address bridgeContract) public initializer {
         __GatewayBase_init(initialOwner, bridgeContract);
-
-        // ============ Storage ============
-        // safe default gas limit for native transfers; can be tuned later via setGasLimit
-        _setGasLimit(DEFAULT_GAS_LIMIT);
     }
 
     /// @inheritdoc INativeGateway
@@ -88,8 +63,9 @@ contract NativeGateway is GatewayBase, INativeGateway {
         require(msg.value == amount, InvalidNativeAmount());
         require(to != address(0), InvalidRecipient());
 
-        // gas-limited call prevents recipient from consuming unbounded gas
-        (bool success, ) = payable(to).call{gas: getGasLimit(), value: amount}("");
+        // Forward ETH to recipient — gas is bounded by the bridge's executeGasLimit on first
+        // delivery, and by the caller's transaction gas limit on retry via receiveFailedMessage
+        (bool success, ) = payable(to).call{value: amount}("");
         require(success, NativeTransferFailed());
 
         emit ReceivedTokens(from, to, amount);
@@ -100,30 +76,6 @@ contract NativeGateway is GatewayBase, INativeGateway {
         require(to != address(0), InvalidRecipient());
         (bool success, ) = to.call{value: amount}("");
         require(success, NativeTransferFailed());
-    }
-
-    // ============ Public getters ============
-
-    /// @inheritdoc INativeGateway
-    function getGasLimit() public view returns (uint256) {
-        return _getNativeGatewayStorage()._gasLimit;
-    }
-
-    // ============ Admin functions ============
-
-    /// @inheritdoc INativeGateway
-    function setGasLimit(uint256 newGasLimit) external onlyOwner {
-        _setGasLimit(newGasLimit);
-    }
-
-    /**
-     * @dev Validates and stores the gas limit. Reverts on zero value.
-     */
-    function _setGasLimit(uint256 newGasLimit) internal {
-        NativeGatewayStorage storage $ = _getNativeGatewayStorage();
-        require(newGasLimit > 0, InvalidGasLimit());
-        emit GasLimitUpdated($._gasLimit, newGasLimit);
-        $._gasLimit = newGasLimit;
     }
 
     /**

@@ -201,7 +201,7 @@ forge coverage --ir-minimum --report lcov
 
 - **Bridge pays value from its own balance.** On the trusted path, the relayer calls `receiveMessage` and the bridge forwards the message's `value` to the target — there is no explicit `msg.value == value` check. On the proof path (`receiveMessageWithProof`, `rollbackMessageWithProof`), the caller sends zero ETH and the bridge pays from locked funds. The bridge does not mint ETH; it only releases funds previously locked via `sendMessage`.
 
-- **No timelocks on critical admin parameters.** `receiveMessageDeadline`, `l1BlockOracle`, `rollup`, and `otherBridge` are changeable immediately by `DEFAULT_ADMIN_ROLE`. Admin is expected to be a multisig in production.
+- **Admin actions are timelocked at the infrastructure level.** The contracts themselves do not embed a timelock — all privileged roles (`DEFAULT_ADMIN_ROLE`, `PAUSER_ROLE`, etc.) are held by an OpenZeppelin `TimelockController` in production. This means parameter changes (`receiveMessageDeadline`, `l1BlockOracle`, `rollup`, `otherBridge`, etc.) are subject to the timelock's minimum delay before execution. The timelock contract is external to the bridge and rollup; it is not visible in the Solidity source but is enforced at the deployment/configuration layer.
 
 - **Nonce consumed before deadline check.** In `receiveMessage()`, `_takeNextReceivedNonce()` runs before `_beforeReceiveMessage()` (the L2 deadline hook). If the deadline is expired, the nonce is already consumed and the message is marked `Failed`. Retry happens via `receiveFailedMessage` on the same consumed nonce — no new nonce is spent.
 

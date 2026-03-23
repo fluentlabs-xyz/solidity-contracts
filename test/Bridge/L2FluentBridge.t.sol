@@ -246,7 +246,7 @@ contract SendMessageFeeTest is L2BridgeFeeBase {
 contract GasPriceConfigTest is L2BridgeFeeBase {
     function test_setGasPriceConfig_updatesAndEmits() public {
         vm.expectEmit(true, true, false, true);
-        emit IL2FluentBridge.GasPriceConfigUpdated(OVERHEAD, 5 gwei, SCALAR, 2e18);
+        emit IL2FluentBridge.GasPriceConfigUpdated(OVERHEAD, 5 gwei, SCALAR, 2e18, L1_GAS_LIMIT, L1_GAS_LIMIT);
 
         vm.prank(admin);
         bridge.setGasPriceConfig(5 gwei, 2e18, L1_GAS_LIMIT);

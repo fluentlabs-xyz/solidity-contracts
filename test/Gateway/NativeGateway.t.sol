@@ -34,7 +34,6 @@ contract NativeGatewayTest is GatewayBase {
         assertEq(nativeGateway.owner(), admin);
         assertEq(nativeGateway.getBridgeContract(), address(bridge));
         assertEq(nativeGateway.getOtherSideGateway(), remoteGateway);
-        assertEq(nativeGateway.getGasLimit(), nativeGateway.DEFAULT_GAS_LIMIT());
     }
 
     function test_sendNativeTokens_locksNativeInBridge() public {
@@ -165,26 +164,6 @@ contract NativeGatewayTest is GatewayBase {
         nativeGateway.receiveNativeTokens{value: 1 ether}(user, recipient, 1 ether);
     }
 
-    function test_setGasLimit_updatesValue() public {
-        vm.expectEmit(false, false, false, true, address(nativeGateway));
-        emit IGatewayBaseEvents.GasLimitUpdated(nativeGateway.getGasLimit(), 123_456);
-        vm.prank(admin);
-        nativeGateway.setGasLimit(123_456);
-        assertEq(nativeGateway.getGasLimit(), 123_456);
-    }
-
-    function test_setGasLimit_revertsForZero() public {
-        vm.prank(admin);
-        vm.expectRevert(INativeGatewayErrors.InvalidGasLimit.selector);
-        nativeGateway.setGasLimit(0);
-    }
-
-    function test_setGasLimit_revertsForNonOwner() public {
-        vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, user));
-        nativeGateway.setGasLimit(100_000);
-    }
-
     function test_rescueNative_transfersBalance() public {
         vm.deal(address(nativeGateway), 1 ether);
         uint256 beforeRecipient = recipient.balance;
@@ -238,13 +217,14 @@ contract NativeGatewayTest is GatewayBase {
         nativeGateway.acceptOwnership();
         assertEq(nativeGateway.owner(), newOwner);
 
+        // Previous owner can no longer perform admin actions
         vm.prank(admin);
         vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, admin));
-        nativeGateway.setGasLimit(1);
+        nativeGateway.rescueNative(payable(recipient), 0);
 
+        // New owner can perform admin actions
         vm.prank(newOwner);
-        nativeGateway.setGasLimit(33333);
-        assertEq(nativeGateway.getGasLimit(), 33333);
+        nativeGateway.rescueNative(payable(recipient), 0);
     }
 
     /// @dev Covers `receive()` — native ETH can be sent to the gateway (e.g. accidental transfers / rescues).

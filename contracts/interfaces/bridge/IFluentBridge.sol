@@ -104,6 +104,11 @@ interface IFluentBridgeErrors {
      * @dev selector: 0x025dbdd4
      */
     error InsufficientFee();
+
+    /**
+     * @notice Bridge balance too low to cover the native value required by the message.
+     */
+    error InsufficientBridgeBalance(uint256 required);
 }
 
 /**
