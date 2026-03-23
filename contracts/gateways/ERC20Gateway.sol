@@ -128,8 +128,6 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
 
     /// @dev Used on L1 to send origin tokens to the other side.
     function _sendOriginTokens(address token, address sender, address from, address to, uint256 amount) internal returns (bytes memory) {
-        // TODO(chillhacker): should we allow to send origin tokens to L1?
-
         // Verify remote routing is fully configured — both gateway and factory are needed to
         // deterministically compute the pegged token address on the destination chain
         require(
@@ -184,7 +182,6 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
 
     // ============ Receive Tokens ============
 
-    // TODO: should we allow to transfer any token? Especially, from L2 -> L1? Because, we pay for token deployment.
     /// @inheritdoc IERC20Gateway
     function receivePeggedTokens(
         address originToken,

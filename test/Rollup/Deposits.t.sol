@@ -12,11 +12,7 @@ import {RollupAssertions} from "./Base.t.sol";
  * @notice Covers Rollup._checkDeposits by feeding multiple L1 deposits into acceptNextBatch.
  */
 contract DepositsTest is RollupAssertions {
-    bytes32[3] internal _depositIds = [
-        keccak256("deposit-0"),
-        keccak256("deposit-1"),
-        keccak256("deposit-2")
-    ];
+    bytes32[3] internal _depositIds = [keccak256("deposit-0"), keccak256("deposit-1"), keccak256("deposit-2")];
 
     bytes32 internal _depositRoot;
     uint256 internal _depositCount = 3;
@@ -47,7 +43,7 @@ contract DepositsTest is RollupAssertions {
         batch[0].depositCount = _depositCount;
 
         vm.prank(sequencer);
-        rollup.acceptNextBatch(batch, 0);
+        rollup.acceptNextBatch(batch, 1);
 
         assertEq(uint8(rollup.getBatch(1).status), uint8(BatchStatus.HeadersSubmitted));
         assertEq(depositsBridge.poppedCount(), _depositCount, "not all deposits were popped");
@@ -60,7 +56,7 @@ contract DepositsTest is RollupAssertions {
 
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.DepositRootMismatch.selector, batch[0].blockHash));
         vm.prank(sequencer);
-        rollup.acceptNextBatch(batch, 0);
+        rollup.acceptNextBatch(batch, 1);
     }
 
     function test_acceptNextBatch_zeroDepositsSkipsCheck() public {
@@ -69,5 +65,32 @@ contract DepositsTest is RollupAssertions {
         rollup.acceptNextBatch(batch, 0);
         assertEq(uint8(rollup.getBatch(1).status), uint8(BatchStatus.HeadersSubmitted), "should accept without deposits");
         assertEq(depositsBridge.poppedCount(), 0, "no deposits should be popped");
+    }
+
+    function test_acceptNextBatch_checksDeposits_forMultipleDeposits_WithBlobs() public {
+        L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
+
+        // Trigger _checkDeposits for exactly one header (batch header index 0).
+        batch[0].depositRoot = _depositRoot;
+        batch[0].depositCount = _depositCount;
+
+        vm.prank(sequencer);
+        rollup.acceptNextBatch(batch, 1);
+
+        uint256 batchIndex = 1;
+        assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.HeadersSubmitted));
+        assertEq(depositsBridge.poppedCount(), _depositCount, "not all deposits were popped");
+
+        bytes32[] memory blobs = new bytes32[](1);
+        blobs[0] = keccak256(abi.encode("blob", batchIndex, uint256(0)));
+        vm.blobhashes(blobs);
+        vm.prank(sequencer);
+        rollup.submitBlobs(batchIndex, 1);
+
+        assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Accepted), "batch should become Accepted");
+
+        bytes32[] memory storedBlobHashes = rollup.batchBlobHashes(batchIndex);
+        assertEq(storedBlobHashes.length, 1, "stored blob hash count mismatch");
+        assertEq(storedBlobHashes[0], blobs[0], "stored blob hash mismatch");
     }
 }

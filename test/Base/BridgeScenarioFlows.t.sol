@@ -13,6 +13,7 @@ import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol
 import {IL1FluentBridge} from "../../contracts/interfaces/bridge/IL1FluentBridge.sol";
 import {L2BlockHeader} from "../../contracts/interfaces/IRollupTypes.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
+import {WithdrawalMerkle} from "../helpers/WithdrawalMerkle.sol";
 
 /// @dev L2 execution target that always reverts (unpleasant path: failed message on L2).
 contract RevertingMessenger {
@@ -278,7 +279,7 @@ contract BridgeScenarioERC20Test is BaseFlowERC20Test {
             uint256 chainId1,
             uint256 blockNumber1,
             uint256 nonce1,
-            ,
+            bytes32 l1ToL2MessageHash,
             bytes memory data1
         ) = _decodeBridgeSentMessage(vm.getRecordedLogs(), address(l1Bridge));
         address peggedOnL2 = l1Gateway.computeOtherSidePeggedTokenAddress(address(l2Gateway), address(originToken));
@@ -307,8 +308,9 @@ contract BridgeScenarioERC20Test is BaseFlowERC20Test {
 
         _selectL1();
         uint256 originBefore = originToken.balanceOf(l1Recipient);
+        bytes32[] memory deposits = WithdrawalMerkle.leavesSingleton(l1ToL2MessageHash);
 
-        _receiveErc20WithProof(messageHash, from2, to2, value2, chainId2, blockNumber2, nonce2, data2, anyUser);
+        _receiveErc20WithProof(messageHash, deposits, from2, to2, value2, chainId2, blockNumber2, nonce2, data2, anyUser);
 
         assertEq(uint256(l1Bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Success), "receive status");
         assertEq(originToken.balanceOf(l1Recipient) - originBefore, AMOUNT / 2, "origin not unlocked");

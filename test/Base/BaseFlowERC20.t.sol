@@ -3,66 +3,23 @@ pragma solidity 0.8.30;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {IGatewayBaseErrors} from "../../contracts/interfaces/gateways/IGatewayBase.sol";
 
 import {L1FluentBridge} from "../../contracts/bridge/L1/L1FluentBridge.sol";
-import {L2FluentBridge} from "../../contracts/bridge/L2/L2FluentBridge.sol";
-import {FluentBridgeStorageLayout} from "../../contracts/bridge/FluentBridgeStorageLayout.sol";
 import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol";
 import {ERC20Gateway} from "../../contracts/gateways/ERC20Gateway.sol";
 import {MockERC20Token} from "../../test/mocks/MockERC20.sol";
-import {L1BlockOracle} from "../../contracts/oracles/L1BlockOracle.sol";
-import {L1GasOracle} from "../../contracts/oracles/L1GasOracle.sol";
-import {Rollup} from "../../contracts/rollup/Rollup.sol";
-import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
+import {IFluentBridgeEvents} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
-import {InitConfiguration, L2BlockHeader} from "../../contracts/interfaces/IRollupTypes.sol";
+import {L2BlockHeader} from "../../contracts/interfaces/IRollupTypes.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
+import {BaseDeployERC20} from "./BaseDeploy.sol";
 import {WithdrawalMerkle} from "../helpers/WithdrawalMerkle.sol";
-import {MockNitroVerifier} from "../mocks/MockNitroVerifier.sol";
-import {MockSp1Verifier} from "../mocks/MockSp1Verifier.sol";
 
-contract BaseFlowERC20Test is Test {
-    uint256 internal constant RECEIVE_DEADLINE = 100;
-    bytes32 internal constant ZERO_BYTES_HASH = 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
-    bytes32 internal constant GENESIS_HASH = keccak256("genesis");
-    bytes32 internal constant PROGRAM_VKEY = keccak256("vkey");
-    bytes internal constant DUMMY_SIGNATURE = abi.encodePacked(keccak256("r"), keccak256("s"), uint8(27));
-
-    uint256 internal constant FINALIZATION_DELAY = 1;
-    uint256 internal constant MAX_FORCE_REVERT_BATCH_SIZE = 10;
+contract BaseFlowERC20Test is BaseDeployERC20 {
     bytes32 internal constant SENT_MESSAGE_SIG = keccak256("SentMessage(address,address,uint256,uint256,uint256,uint256,bytes32,bytes)");
     uint256 internal constant AMOUNT = 100 ether;
-
-    uint256 internal l1ForkId;
-    uint256 internal l2ForkId;
-    uint256 internal l1ChainId;
-    uint256 internal l2ChainId;
-
-    address internal admin;
-    address internal relayer;
-    address internal l1Sender;
-    address internal l2Recipient;
-    address internal l1Recipient;
-
-    L1FluentBridge internal l1Bridge;
-    L2FluentBridge internal l2Bridge;
-    Rollup internal l1Rollup;
-    MockNitroVerifier internal l1NitroVerifier;
-    L1BlockOracle internal l2BlockOracle;
-    L1GasOracle internal l2GasOracle;
-
-    ERC20Gateway internal l1Gateway;
-    ERC20Gateway internal l2Gateway;
-    ERC20TokenFactory internal l1Factory;
-    ERC20TokenFactory internal l2Factory;
-    address internal l1FactoryBeacon;
-    address internal l2FactoryBeacon;
-    ERC20PeggedToken internal peggedImplL1;
-    ERC20PeggedToken internal peggedImplL2;
-    MockERC20Token internal originToken;
 
     function setUp() public {
         admin = address(this);
@@ -90,121 +47,6 @@ contract BaseFlowERC20Test is Test {
         _deployOnL1();
         _deployOnL2();
         _linkCrossChain();
-    }
-
-    function _selectL1() internal {
-        vm.selectFork(l1ForkId);
-    }
-
-    function _selectL2() internal {
-        vm.selectFork(l2ForkId);
-    }
-
-    function _deployOnL1() internal {
-        _selectL1();
-
-        // Deploy real Rollup used for L2->L1 proof-based withdrawals.
-        l1NitroVerifier = new MockNitroVerifier();
-        MockSp1Verifier sp1 = new MockSp1Verifier();
-
-        InitConfiguration memory cfg;
-        cfg.admin = admin;
-        cfg.emergency = admin;
-        cfg.sequencer = relayer;
-        cfg.challenger = address(0);
-        cfg.prover = address(0);
-        cfg.preconfirmationRole = relayer;
-        cfg.sp1Verifier = address(sp1);
-        cfg.nitroVerifier = address(l1NitroVerifier);
-        cfg.bridge = address(0xB1); // not used because we set depositRoot == ZERO_BYTES_HASH in the test
-        cfg.programVKey = PROGRAM_VKEY;
-        cfg.genesisHash = GENESIS_HASH;
-        cfg.challengeDepositAmount = 1 ether;
-        cfg.challengeWindow = 0;
-        cfg.finalizationDelay = FINALIZATION_DELAY;
-        cfg.acceptDepositDeadline = 1000;
-        cfg.incentiveFee = 0;
-        cfg.submitBlobsWindow = 0;
-        cfg.preconfirmWindow = 1;
-        cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
-
-        Rollup rollupImpl = new Rollup();
-        ERC1967Proxy rollupProxy = new ERC1967Proxy(address(rollupImpl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
-        l1Rollup = Rollup(payable(address(rollupProxy)));
-
-        // L1 bridge
-        FluentBridgeStorageLayout.InitConfiguration memory params = FluentBridgeStorageLayout.InitConfiguration({
-            adminRole: admin,
-            pauserRole: admin,
-            relayerRole: relayer,
-            otherBridge: address(0xB1)
-        });
-
-        L1FluentBridge bridgeImpl = new L1FluentBridge();
-        ERC1967Proxy bridgeProxy = new ERC1967Proxy(
-            address(bridgeImpl),
-            abi.encodeCall(L1FluentBridge.initialize, (abi.encode(params), address(l1Rollup)))
-        );
-        l1Bridge = L1FluentBridge(payable(address(bridgeProxy)));
-        l1Bridge.setExecuteGasLimit(2_000_000);
-
-        // L1 ERC20 stack
-        peggedImplL1 = new ERC20PeggedToken();
-        ERC20TokenFactory fImpl = new ERC20TokenFactory();
-        ERC1967Proxy fProxy = new ERC1967Proxy(address(fImpl), abi.encodeCall(ERC20TokenFactory.initialize, (admin, address(peggedImplL1))));
-        l1Factory = ERC20TokenFactory(payable(address(fProxy)));
-        l1FactoryBeacon = l1Factory.beacon();
-
-        ERC20Gateway gImpl = new ERC20Gateway();
-        ERC1967Proxy gProxy = new ERC1967Proxy(
-            address(gImpl),
-            abi.encodeCall(ERC20Gateway.initialize, (admin, address(l1Bridge), address(l1Factory)))
-        );
-        l1Gateway = ERC20Gateway(payable(address(gProxy)));
-        l1Factory.setPaymentGateway(address(l1Gateway));
-
-        originToken = new MockERC20Token("Mock Token", "MOCK", 1_000_000 ether, l1Sender);
-    }
-
-    function _deployOnL2() internal {
-        _selectL2();
-
-        l2BlockOracle = new L1BlockOracle(address(this));
-        l2GasOracle = new L1GasOracle(relayer);
-
-        FluentBridgeStorageLayout.InitConfiguration memory params = FluentBridgeStorageLayout.InitConfiguration({
-            adminRole: admin,
-            pauserRole: admin,
-            relayerRole: relayer,
-            otherBridge: address(0xB2)
-        });
-
-        // L2 bridge
-        L2FluentBridge bridgeImpl = new L2FluentBridge();
-        ERC1967Proxy bridgeProxy = new ERC1967Proxy(
-            address(bridgeImpl),
-            abi.encodeCall(
-                L2FluentBridge.initialize,
-                (abi.encode(params), RECEIVE_DEADLINE, address(l2BlockOracle), address(l2GasOracle), 0, 0, 0, makeAddr("feeTreasury"))
-            )
-        );
-        l2Bridge = L2FluentBridge(payable(address(bridgeProxy)));
-        l2Bridge.setExecuteGasLimit(2_000_000);
-
-        // L2 ERC20 stack
-        peggedImplL2 = new ERC20PeggedToken();
-        ERC20TokenFactory fImpl = new ERC20TokenFactory();
-        ERC1967Proxy fProxy = new ERC1967Proxy(address(fImpl), abi.encodeCall(ERC20TokenFactory.initialize, (admin, address(peggedImplL2))));
-        l2Factory = ERC20TokenFactory(payable(address(fProxy)));
-        l2FactoryBeacon = l2Factory.beacon();
-
-        ERC20Gateway gImpl = new ERC20Gateway();
-        ERC1967Proxy gProxy = new ERC1967Proxy(
-            address(gImpl),
-            abi.encodeCall(ERC20Gateway.initialize, (admin, address(l2Bridge), address(l2Factory)))
-        );
-        l2Gateway = ERC20Gateway(payable(address(gProxy)));
-        l2Factory.setPaymentGateway(address(l2Gateway));
     }
 
     function _linkCrossChain() internal {
@@ -260,22 +102,35 @@ contract BaseFlowERC20Test is Test {
         revert("SentMessage log not found");
     }
 
+    function _depositRoot(bytes32[] memory depositLeaves) internal pure returns (bytes32) {
+        return keccak256(abi.encodePacked(depositLeaves));
+    }
+
     /// @param withdrawalLeaves Real message hashes for this L2 block (from `SentMessage` / rollback), in tree order.
-    function _finalizeSingleBlockBatch(bytes32[] memory withdrawalLeaves) internal returns (uint256 batchIndex, L2BlockHeader memory header) {
+    /// @param depositLeaves Real L1->L2 message hashes consumed by rollup from l1Bridge queue.
+    function _finalizeSingleBlockBatch(
+        bytes32[] memory withdrawalLeaves,
+        bytes32[] memory depositLeaves
+    ) internal returns (uint256 batchIndex, L2BlockHeader memory header) {
         _selectL1();
         bytes32 withdrawalRoot = WithdrawalMerkle.withdrawalRoot(withdrawalLeaves);
+        uint256 depositCount = depositLeaves.length;
+        bytes32 depositRoot = _depositRoot(depositLeaves);
         batchIndex = l1Rollup.nextBatchIndex();
         header = L2BlockHeader({
             previousBlockHash: GENESIS_HASH,
             blockHash: keccak256(abi.encodePacked("erc20-flow", withdrawalRoot)),
             withdrawalRoot: withdrawalRoot,
-            depositRoot: ZERO_BYTES_HASH,
-            depositCount: 0
+            depositRoot: depositRoot,
+            depositCount: depositCount
         });
         L2BlockHeader[] memory headers = new L2BlockHeader[](1);
         headers[0] = header;
+        uint256 queueBefore = l1Bridge.getSentMessageQueueSize();
+        assertEq(queueBefore, depositCount, "unexpected queued deposits before accept");
         vm.prank(relayer);
         l1Rollup.acceptNextBatch(headers, 1);
+        assertEq(l1Bridge.getSentMessageQueueSize(), queueBefore - depositCount, "deposits not popped from bridge queue");
         bytes32[] memory blobHashes = new bytes32[](1);
         blobHashes[0] = keccak256(abi.encode("erc20-flow-blob", batchIndex));
         vm.blobhashes(blobHashes);
@@ -291,6 +146,7 @@ contract BaseFlowERC20Test is Test {
     /// @dev Finalize with `withdrawalRoot` from the real L2→L1 message hash only, then `receiveMessageWithProof`.
     function _receiveErc20WithProof(
         bytes32 messageHash,
+        bytes32[] memory depositLeaves,
         address from2,
         address to2,
         uint256 value2,
@@ -301,7 +157,7 @@ contract BaseFlowERC20Test is Test {
         address caller
     ) internal {
         bytes32[] memory wl = WithdrawalMerkle.leavesSingleton(messageHash);
-        (uint256 batchIndex, L2BlockHeader memory header) = _finalizeSingleBlockBatch(wl);
+        (uint256 batchIndex, L2BlockHeader memory header) = _finalizeSingleBlockBatch(wl, depositLeaves);
         _selectL1();
         vm.prank(caller);
         l1Bridge.receiveMessageWithProof(
@@ -319,6 +175,7 @@ contract BaseFlowERC20Test is Test {
         );
     }
 
+    /// @notice HappyPath: origin token is sent from L1 to L2 and back to L1.
     function test_sendTokens_roundtripL1ToL2AndBack() public {
         // L1 -> L2: lock origin, mint pegged.
         _selectL1();
@@ -336,7 +193,7 @@ contract BaseFlowERC20Test is Test {
             uint256 chainId1,
             uint256 blockNumber1,
             uint256 nonce1,
-            ,
+            bytes32 l1ToL2MessageHash,
             bytes memory data1
         ) = _decodeBridgeSentMessage(vm.getRecordedLogs(), address(l1Bridge));
         assertEq(value1, 0);
@@ -367,13 +224,77 @@ contract BaseFlowERC20Test is Test {
             ,
             bytes memory data2
         ) = _decodeBridgeSentMessage(vm.getRecordedLogs(), address(l2Bridge));
+        bytes32[] memory deposits = WithdrawalMerkle.leavesSingleton(l1ToL2MessageHash);
         _selectL1();
         uint256 before = originToken.balanceOf(l1Recipient);
-        vm.prank(relayer);
-        l1Bridge.receiveMessage(from2, to2, value2, chainId2, blockNumber2, nonce2, data2);
+        _receiveErc20WithProof(
+            _messageHash(from2, to2, value2, chainId2, blockNumber2, nonce2, data2),
+            deposits,
+            from2,
+            to2,
+            value2,
+            chainId2,
+            blockNumber2,
+            nonce2,
+            data2,
+            relayer
+        );
         assertEq(originToken.balanceOf(l1Recipient) - before, AMOUNT / 2, "origin not unlocked");
     }
 
+    function test_sendTokens_onL2_chargesFeeToTreasury_andDoesNotLockValueWhenFeeOnly() public {
+        _selectL2();
+
+        // Configure deterministic non-zero fee:
+        // fee = 100 * (3 + 2) = 500
+        vm.prank(admin);
+        l2Bridge.setGasPriceConfig(2, 1e18, 100);
+        vm.prank(relayer);
+        l1GasOracle.updateL1GasPrice(3);
+
+        uint256 fee = l2Bridge.getSentMessageFee();
+        assertEq(fee, 500, "unexpected fee");
+
+        address feeTreasury = l2Bridge.getFeeTreasury();
+        uint256 bridgeBefore = address(l2Bridge).balance;
+        uint256 treasuryBefore = feeTreasury.balance;
+
+        // Seed pegged liquidity on L2 first (L1 -> L2 receive).
+        _selectL1();
+        vm.prank(l1Sender);
+        originToken.approve(address(l1Gateway), AMOUNT);
+        vm.recordLogs();
+        vm.prank(l1Sender);
+        l1Gateway.sendTokens(address(originToken), l2Recipient, AMOUNT);
+        (
+            address from1,
+            address to1,
+            uint256 value1,
+            uint256 chainId1,
+            uint256 blockNumber1,
+            uint256 nonce1,
+            ,
+            bytes memory data1
+        ) = _decodeBridgeSentMessage(vm.getRecordedLogs(), address(l1Bridge));
+        address peggedOnL2 = l1Gateway.computeOtherSidePeggedTokenAddress(address(l2Gateway), address(originToken));
+
+        _selectL2();
+        vm.prank(relayer);
+        l2Bridge.receiveMessage(from1, to1, value1, chainId1, blockNumber1, nonce1, data1);
+
+        // L2 -> L1 send with msg.value == fee, so message value is zero.
+        vm.deal(l2Recipient, fee);
+        vm.prank(l2Recipient);
+        IERC20(peggedOnL2).approve(address(l2Gateway), AMOUNT / 4);
+        vm.prank(l2Recipient);
+        l2Gateway.sendTokens{value: fee}(peggedOnL2, l1Recipient, AMOUNT / 4);
+
+        assertEq(feeTreasury.balance - treasuryBefore, fee, "fee treasury did not receive fee");
+        assertEq(address(l2Bridge).balance, bridgeBefore, "bridge must not lock value when only fee is paid");
+    }
+
+    /// @notice HappyPath: first receive fails due to lack of funds on L1 gateway,
+    ///         then retry unlocks after pop up the gateway balance.
     function test_receiveFailedMessage_retryUnlocksAfterRefund() public {
         // Prepare pegged on L2 by bridging L1->L2.
         _selectL1();
@@ -389,7 +310,7 @@ contract BaseFlowERC20Test is Test {
             uint256 chainId1,
             uint256 blockNumber1,
             uint256 nonce1,
-            ,
+            bytes32 l1ToL2MessageHash,
             bytes memory data1
         ) = _decodeBridgeSentMessage(vm.getRecordedLogs(), address(l1Bridge));
         address peggedOnL2 = l1Gateway.computeOtherSidePeggedTokenAddress(address(l2Gateway), address(originToken));
@@ -413,14 +334,14 @@ contract BaseFlowERC20Test is Test {
             bytes32 hash2,
             bytes memory data2
         ) = _decodeBridgeSentMessage(vm.getRecordedLogs(), address(l2Bridge));
+        bytes32[] memory deposits = WithdrawalMerkle.leavesSingleton(l1ToL2MessageHash);
 
         // Drain locked origin so first receiveOriginTokens attempt fails.
         _selectL1();
         vm.prank(address(l1Gateway));
         originToken.transfer(makeAddr("sink"), AMOUNT);
 
-        vm.prank(relayer);
-        l1Bridge.receiveMessage(from2, to2, value2, chainId2, blockNumber2, nonce2, data2);
+        _receiveErc20WithProof(hash2, deposits, from2, to2, value2, chainId2, blockNumber2, nonce2, data2, relayer);
         assertEq(uint256(l1Bridge.getReceivedMessage(hash2)), uint256(IFluentBridge.MessageStatus.Failed), "message should fail first");
 
         // Re-fund gateway and retry through receiveFailedMessage.
@@ -441,22 +362,26 @@ contract BaseFlowERC20Test is Test {
         vm.recordLogs();
         vm.prank(l1Sender);
         l1Gateway.sendTokens(address(originToken), l2Recipient, AMOUNT);
-        (address from, address to, uint256 value, , uint256 srcBlock, uint256 nonce, , bytes memory data) = _decodeBridgeSentMessage(
+        (address from, address to, uint256 value, , uint256 srcBlock, uint256 nonce, bytes32 l1ToL2MessageHash, bytes memory data) = _decodeBridgeSentMessage(
             vm.getRecordedLogs(),
             address(l1Bridge)
         );
 
         // L2: force deadline expiry and relay with L2 chain id to generate rollback hash.
         _selectL2();
-        l2BlockOracle.updateL1BlockNumber(srcBlock + RECEIVE_DEADLINE + 1);
+        l1BlockOracle.updateL1BlockNumber(srcBlock + RECEIVE_DEADLINE + 1);
         bytes32 failedHash = _messageHash(from, to, value, l2ChainId, srcBlock, nonce, data);
+        // expect RollbackMessage event
+        vm.expectEmit(true, true, true, true);
+        emit IFluentBridgeEvents.RollbackMessage(failedHash, block.number);
         vm.prank(relayer);
         l2Bridge.receiveMessage(from, to, value, l2ChainId, srcBlock, nonce, data);
         assertEq(uint256(l2Bridge.getReceivedMessage(failedHash)), uint256(IFluentBridge.MessageStatus.Failed), "not failed on L2");
 
         // L1: finalize proof batch and call rollbackMessageWithProof.
         bytes32[] memory withdrawalLeaves = WithdrawalMerkle.leavesSingleton(failedHash);
-        (uint256 batchIndex, L2BlockHeader memory header) = _finalizeSingleBlockBatch(withdrawalLeaves);
+        bytes32[] memory deposits = WithdrawalMerkle.leavesSingleton(l1ToL2MessageHash);
+        (uint256 batchIndex, L2BlockHeader memory header) = _finalizeSingleBlockBatch(withdrawalLeaves, deposits);
         MerkleTree.MerkleProof memory withdrawalProof = WithdrawalMerkle.proofForLeaf(withdrawalLeaves, 0);
         MerkleTree.MerkleProof memory blockProof = MerkleTree.MerkleProof({nonce: 0, proof: ""});
         vm.prank(relayer);
