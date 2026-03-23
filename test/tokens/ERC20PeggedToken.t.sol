@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
@@ -19,10 +19,7 @@ contract ERC20PeggedTokenTest is Test {
     function setUp() public {
         ERC20PeggedToken impl = new ERC20PeggedToken();
         // Deploy via minimal proxy to allow initialization
-        bytes memory initData = abi.encodeCall(
-            ERC20PeggedToken.initialize,
-            ("Wrapped ETH", "WETH", 18, gateway, originAddr)
-        );
+        bytes memory initData = abi.encodeCall(ERC20PeggedToken.initialize, ("Wrapped ETH", "WETH", 18, gateway, originAddr));
         address proxy = address(new ERC1967Proxy(address(impl), initData));
         token = ERC20PeggedToken(proxy);
     }

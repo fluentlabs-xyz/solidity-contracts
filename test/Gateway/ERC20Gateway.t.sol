@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
@@ -183,7 +183,8 @@ contract ERC20GatewayTest is GatewayBase {
         vm.prank(admin);
         vm.expectRevert(
             abi.encodeWithSelector(
-                IGatewayBaseErrors.ZeroAddressNotAllowed.selector, "otherSideGateway or otherSideTokenImplementation or otherSideFactory"
+                IGatewayBaseErrors.ZeroAddressNotAllowed.selector,
+                "otherSideGateway or otherSideTokenImplementation or otherSideFactory"
             )
         );
         gateway.setOtherSide(true, address(0), sourceChainId, makeAddr("impl"), makeAddr("factory"), address(0));

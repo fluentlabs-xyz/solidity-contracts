@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
 // NOTE: challengeBlock requires Preconfirmed status and sets it to Challenged —
@@ -402,9 +402,7 @@ contract ChallengeTest is RollupAssertions {
         vm.roll(deadline + 1);
         _assertRollupHealthy();
 
-        vm.expectRevert(
-            abi.encodeWithSelector(IRollupErrors.ChallengeResolutionTooLate.selector, batchIndex, deadline, block.number)
-        );
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ChallengeResolutionTooLate.selector, batchIndex, deadline, block.number));
         _resolveChallenge(batchIndex, headers[0], proof);
     }
 

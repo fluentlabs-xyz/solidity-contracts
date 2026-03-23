@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -362,10 +362,16 @@ contract BaseFlowERC20Test is BaseDeployERC20 {
         vm.recordLogs();
         vm.prank(l1Sender);
         l1Gateway.sendTokens(address(originToken), l2Recipient, AMOUNT);
-        (address from, address to, uint256 value, , uint256 srcBlock, uint256 nonce, bytes32 l1ToL2MessageHash, bytes memory data) = _decodeBridgeSentMessage(
-            vm.getRecordedLogs(),
-            address(l1Bridge)
-        );
+        (
+            address from,
+            address to,
+            uint256 value,
+            ,
+            uint256 srcBlock,
+            uint256 nonce,
+            bytes32 l1ToL2MessageHash,
+            bytes memory data
+        ) = _decodeBridgeSentMessage(vm.getRecordedLogs(), address(l1Bridge));
 
         // L2: force deadline expiry and relay with L2 chain id to generate rollback hash.
         _selectL2();

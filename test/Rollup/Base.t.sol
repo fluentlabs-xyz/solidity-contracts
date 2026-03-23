@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
@@ -47,9 +47,8 @@ abstract contract RollupBase is Test, IRollupEvents {
     ///      `MerkleTree.calculateMerkleRoot(abi.encodePacked(leftLeaf, rightLeaf))` for a two-leaf tree.
     bytes32 internal constant EXAMPLE_L2_TO_L1_WITHDRAWAL_LEAF = keccak256("rollup-test-l2-to-l1-withdrawal-leaf");
     bytes32 internal constant EXAMPLE_L1_TO_L2_ROLLBACK_LEAF = keccak256("rollup-test-l1-to-l2-rollback-leaf");
-    bytes32 internal constant EXAMPLE_WITHDRAWAL_ROOT = keccak256(
-        abi.encodePacked(EXAMPLE_L2_TO_L1_WITHDRAWAL_LEAF, EXAMPLE_L1_TO_L2_ROLLBACK_LEAF)
-    );
+    bytes32 internal constant EXAMPLE_WITHDRAWAL_ROOT =
+        keccak256(abi.encodePacked(EXAMPLE_L2_TO_L1_WITHDRAWAL_LEAF, EXAMPLE_L1_TO_L2_ROLLBACK_LEAF));
 
     uint256 internal constant BATCH_SIZE = 4;
     uint256 internal constant CHALLENGE_DEPOSIT = 1 ether;

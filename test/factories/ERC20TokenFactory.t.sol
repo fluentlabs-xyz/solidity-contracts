@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
@@ -21,10 +21,7 @@ contract ERC20TokenFactoryTest is Test {
         tokenImpl = new ERC20PeggedToken();
 
         ERC20TokenFactory impl = new ERC20TokenFactory();
-        ERC1967Proxy proxy = new ERC1967Proxy(
-            address(impl),
-            abi.encodeCall(ERC20TokenFactory.initialize, (address(this), address(tokenImpl)))
-        );
+        ERC1967Proxy proxy = new ERC1967Proxy(address(impl), abi.encodeCall(ERC20TokenFactory.initialize, (address(this), address(tokenImpl))));
         factory = ERC20TokenFactory(address(proxy));
         factory.setPaymentGateway(gateway);
     }
@@ -55,9 +52,7 @@ contract ERC20TokenFactoryTest is Test {
     }
 
     function test_RevertIf_setBeacon_zeroAddress() public {
-        vm.expectRevert(abi.encodeWithSelector(
-            IGenericTokenFactoryErrors.ZeroAddressNotAllowed.selector, "Beacon"
-        ));
+        vm.expectRevert(abi.encodeWithSelector(IGenericTokenFactoryErrors.ZeroAddressNotAllowed.selector, "Beacon"));
         factory.setBeacon(address(0));
     }
 

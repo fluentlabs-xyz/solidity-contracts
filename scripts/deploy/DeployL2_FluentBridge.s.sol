@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
 import {DeployLib} from "./DeployLib.s.sol";
@@ -54,4 +54,3 @@ contract DeployL2FluentBridge is DeployLib {
         }
     }
 }
-

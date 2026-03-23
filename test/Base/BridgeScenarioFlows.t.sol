@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -81,7 +81,11 @@ contract BridgeScenarioNativeTest is BaseFlowNativeTest {
         vm.prank(relayer);
         l2Bridge.receiveMessage(sentFrom, sentTo, sentValue, l2ChainIdForMessage, sentBlockNumber, sentNonce, sentData);
 
-        assertEq(uint256(l2Bridge.getReceivedMessage(l2FailedMessageHash)), uint256(IFluentBridge.MessageStatus.Failed), "L2 should mark failed");
+        assertEq(
+            uint256(l2Bridge.getReceivedMessage(l2FailedMessageHash)),
+            uint256(IFluentBridge.MessageStatus.Failed),
+            "L2 should mark failed"
+        );
 
         _selectL1();
 
@@ -254,7 +258,11 @@ contract BridgeScenarioNativeTest is BaseFlowNativeTest {
         vm.prank(relayer);
         l2Bridge.receiveMessage(sentFrom, sentTo, sentValue, sentChainId, sentBlockNumber, sentNonce, sentData);
 
-        assertEq(uint256(l2Bridge.getReceivedMessage(expectedHash)), uint256(IFluentBridge.MessageStatus.Failed), "should be Failed after revert");
+        assertEq(
+            uint256(l2Bridge.getReceivedMessage(expectedHash)),
+            uint256(IFluentBridge.MessageStatus.Failed),
+            "should be Failed after revert"
+        );
     }
 }
 

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
 import {Script} from "forge-std/Script.sol";
@@ -72,8 +72,7 @@ contract DeployUniversalTokenFactoryAndToken is Script {
 
         UniversalTokenFactory factory = UniversalTokenFactory(address(factoryProxyContract));
 
-        bytes memory deployArgs =
-            abi.encode(name, symbol, decimals, initialSupply, minter, pauser);
+        bytes memory deployArgs = abi.encode(name, symbol, decimals, initialSupply, minter, pauser);
 
         address token = factory.deployToken(gatewayAddr, originToken, deployArgs);
 
@@ -89,4 +88,3 @@ contract DeployUniversalTokenFactoryAndToken is Script {
         vm.writeJson(json, outputPath);
     }
 }
-

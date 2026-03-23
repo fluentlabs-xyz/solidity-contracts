@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
@@ -68,7 +68,19 @@ contract BridgePauserTest is BridgeBase {
         l1Bridge.pause();
 
         vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
-        l1Bridge.receiveMessageWithProof(0, _dummyHeader(), makeAddr("from"), payable(makeAddr("to")), 0, 1, 1, 0, "", _dummyProof(), _dummyProof());
+        l1Bridge.receiveMessageWithProof(
+            0,
+            _dummyHeader(),
+            makeAddr("from"),
+            payable(makeAddr("to")),
+            0,
+            1,
+            1,
+            0,
+            "",
+            _dummyProof(),
+            _dummyProof()
+        );
     }
 
     function test_RevertIf_rollbackMessageWithProof_paused() public {

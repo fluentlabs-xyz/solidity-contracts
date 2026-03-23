@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
 import {Script, stdJson, console2} from "forge-std/Script.sol";
@@ -175,8 +175,8 @@ contract SendAndReceiveNative is Script {
         return vm.parseUint(_trim(string(vm.ffi(cmd))));
     }
 
-    function _walletAddress(string memory /*pk*/ ) internal returns (address) {
-        return _stringToAddress(_bash("cast wallet address --private-key \"$PRIVATE_KEY\""));
+    function _walletAddress(string memory /*pk*/) internal returns (address) {
+        return _stringToAddress(_bash('cast wallet address --private-key "$PRIVATE_KEY"'));
     }
 
     function _balance(string memory rpc, address who) internal returns (uint256) {

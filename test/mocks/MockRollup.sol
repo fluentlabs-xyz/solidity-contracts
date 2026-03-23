@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
 import {BatchRecord, BatchStatus} from "../../contracts/interfaces/IRollupTypes.sol";
@@ -20,11 +20,12 @@ contract MockRollup {
     }
 
     function getBatch(uint256 batchIndex) external view returns (BatchRecord memory) {
-        return BatchRecord({
-            batchRoot: batchRoots[batchIndex],
-            acceptedAtBlock: 0,
-            expectedBlobs: 0,
-            status: finalized ? BatchStatus.Finalized : BatchStatus.None
-        });
+        return
+            BatchRecord({
+                batchRoot: batchRoots[batchIndex],
+                acceptedAtBlock: 0,
+                expectedBlobs: 0,
+                status: finalized ? BatchStatus.Finalized : BatchStatus.None
+            });
     }
 }

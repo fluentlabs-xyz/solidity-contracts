@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
@@ -48,4 +48,3 @@ contract RollupGettersTest is RollupAssertions {
         assertEq(rollup.challengeQueueAt(0), commitment, "challengeQueueAt");
     }
 }
-

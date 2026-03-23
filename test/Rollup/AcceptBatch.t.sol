@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
 import {RollupAssertions} from "./Base.t.sol";
@@ -79,9 +79,7 @@ contract AcceptBatchTest is RollupAssertions {
     function test_RevertIf_acceptNextBatch_callerNotSequencer() public {
         L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, user, rollup.SEQUENCER_ROLE())
-        );
+        vm.expectRevert(abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, user, rollup.SEQUENCER_ROLE()));
         vm.prank(user);
         rollup.acceptNextBatch(batch, 1);
     }
@@ -114,9 +112,7 @@ contract AcceptBatchTest is RollupAssertions {
         L2BlockHeader[] memory batch = _makeBatch(wrongParent);
         bytes32 expectedParent = rollup.lastBlockHashInBatch(1);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(IRollupErrors.WrongPreviousBlockHash.selector, expectedParent, wrongParent)
-        );
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.WrongPreviousBlockHash.selector, expectedParent, wrongParent));
         vm.prank(sequencer);
         rollup.acceptNextBatch(batch, 1);
     }
@@ -125,14 +121,7 @@ contract AcceptBatchTest is RollupAssertions {
         L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
         batch[1].previousBlockHash = keccak256("broken");
 
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IRollupErrors.InvalidBlockSequence.selector,
-                0,
-                batch[0].blockHash,
-                keccak256("broken")
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidBlockSequence.selector, 0, batch[0].blockHash, keccak256("broken")));
         vm.prank(sequencer);
         rollup.acceptNextBatch(batch, 1);
     }
@@ -150,9 +139,7 @@ contract AcceptBatchTest is RollupAssertions {
     function test_RevertIf_acceptNextBatch_wrongPreviousBlockHash() public {
         L2BlockHeader[] memory batch = _makeBatch(keccak256("not-genesis"));
 
-        vm.expectRevert(
-            abi.encodeWithSelector(IRollupErrors.WrongPreviousBlockHash.selector, GENESIS_HASH, keccak256("not-genesis"))
-        );
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.WrongPreviousBlockHash.selector, GENESIS_HASH, keccak256("not-genesis")));
         vm.prank(sequencer);
         rollup.acceptNextBatch(batch, 1);
     }
@@ -161,14 +148,7 @@ contract AcceptBatchTest is RollupAssertions {
         L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
         batch[1].previousBlockHash = keccak256("bad-link");
 
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IRollupErrors.InvalidBlockSequence.selector,
-                0,
-                batch[0].blockHash,
-                keccak256("bad-link")
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidBlockSequence.selector, 0, batch[0].blockHash, keccak256("bad-link")));
         vm.prank(sequencer);
         rollup.acceptNextBatch(batch, 1);
     }

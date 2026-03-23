@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
@@ -9,9 +9,7 @@ contract MerkleTreeHarness {
         return MerkleTree.calculateMerkleRoot(leaves);
     }
 
-    function verifyMerkleProof(
-        bytes32 root, bytes32 hash, uint256 nonce, bytes memory proof
-    ) external pure returns (bool) {
+    function verifyMerkleProof(bytes32 root, bytes32 hash, uint256 nonce, bytes memory proof) external pure returns (bool) {
         return MerkleTree.verifyMerkleProof(root, hash, nonce, proof);
     }
 }

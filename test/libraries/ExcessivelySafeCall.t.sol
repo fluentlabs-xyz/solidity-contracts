@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
@@ -18,7 +18,10 @@ contract RevertTarget {
 
 contract ExcessivelySafeCallHarness {
     function callTarget(
-        address target, uint256 value, bytes memory data, uint256 gasLimit
+        address target,
+        uint256 value,
+        bytes memory data,
+        uint256 gasLimit
     ) external returns (bool success, bytes memory returnData) {
         return ExcessivelySafeCall.excessivelySafeCall(target, value, data, gasLimit);
     }
@@ -35,24 +38,20 @@ contract ExcessivelySafeCallTest is Test {
 
     function test_excessivelySafeCall_truncatesLargeReturnData() public {
         ReturnBombTarget target = new ReturnBombTarget();
-        (bool success, bytes memory data) = harness.callTarget(
-            address(target), 0, abi.encodeCall(ReturnBombTarget.bomb, ()), gasleft()
-        );
+        (bool success, bytes memory data) = harness.callTarget(address(target), 0, abi.encodeCall(ReturnBombTarget.bomb, ()), gasleft());
         assertTrue(success, "call should succeed");
         assertLe(data.length, 1024, "return data should be truncated to 1024");
     }
 
     function test_excessivelySafeCall_failedCallReturnsFalse() public {
         RevertTarget target = new RevertTarget();
-        (bool success,) = harness.callTarget(
-            address(target), 0, abi.encodeCall(RevertTarget.fail, ()), gasleft()
-        );
+        (bool success, ) = harness.callTarget(address(target), 0, abi.encodeCall(RevertTarget.fail, ()), gasleft());
         assertFalse(success, "call should fail");
     }
 
     function test_excessivelySafeCall_emptyTargetSucceeds() public {
         address eoa = makeAddr("eoa");
-        (bool success,) = harness.callTarget(eoa, 0, "", gasleft());
+        (bool success, ) = harness.callTarget(eoa, 0, "", gasleft());
         assertTrue(success, "call to EOA should succeed");
     }
 }

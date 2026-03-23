@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
@@ -417,7 +417,9 @@ contract L2FluentBridgeTest is L2BridgeFeeBase {
 
     function test_RevertIf_setReceiveMessageDeadline_zero() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IFluentBridgeErrors.InvalidWindowConfig.selector, "receiveMessageDeadline must be greater than 0"));
+        vm.expectRevert(
+            abi.encodeWithSelector(IFluentBridgeErrors.InvalidWindowConfig.selector, "receiveMessageDeadline must be greater than 0")
+        );
         bridge.setReceiveMessageDeadline(0);
     }
 

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
 import {Script} from "forge-std/Script.sol";
@@ -64,20 +64,21 @@ abstract contract DeployLib is Script {
         address l1BlockOracle,
         address rollup
     ) internal returns (address bridgeProxy, address bridgeImpl) {
-        return _deployFluentBridge(
-            adminRole,
-            pauserRole,
-            relayerRole,
-            receiveMessageDeadline,
-            otherBridgePlaceholder,
-            l1BlockOracle,
-            address(0),
-            uint256(0),
-            uint256(0),
-            uint256(0),
-            address(0),
-            rollup
-        );
+        return
+            _deployFluentBridge(
+                adminRole,
+                pauserRole,
+                relayerRole,
+                receiveMessageDeadline,
+                otherBridgePlaceholder,
+                l1BlockOracle,
+                address(0),
+                uint256(0),
+                uint256(0),
+                uint256(0),
+                address(0),
+                rollup
+            );
     }
 
     /// @dev Full L2 init: `l1GasOracle`, `l2GasOverhead`, `l2GasScalar`, `feeTreasury` (use zeros to mirror the 7-arg overload defaults).

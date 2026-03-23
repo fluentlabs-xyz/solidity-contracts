@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
 import {RollupAssertions} from "./Base.t.sol";
@@ -261,9 +261,7 @@ contract FinalizeBatchesTest is RollupAssertions {
         uint256 batch1 = _acceptBatch(GENESIS_HASH, 0);
 
         // batch1 is in HeadersSubmitted status (blobs not submitted)
-        vm.expectRevert(
-            abi.encodeWithSelector(IRollupErrors.InvalidBatchStatus.selector, batch1, uint8(BatchStatus.HeadersSubmitted))
-        );
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidBatchStatus.selector, batch1, uint8(BatchStatus.HeadersSubmitted)));
         vm.prank(preconfirmer);
         rollup.preconfirmBatch(address(nitroVerifier), batch1, DUMMY_SIGNATURE);
     }
