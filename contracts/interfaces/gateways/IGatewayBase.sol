@@ -1,36 +1,46 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.30;
 
+/**
+ * @title IGatewayBaseErrors
+ * @dev Custom errors for the gateway base contract.
+ */
 interface IGatewayBaseErrors {
     /**
-     * @dev Thrown when the caller is not the configured FluentBridge contract.
+     * @notice Thrown when the caller is not the configured FluentBridge contract.
      * @dev selector: 0xacba36a5
      */
     error OnlyFluentBridge();
 
     /**
-     * @dev Thrown when bridge-native sender does not match the configured remote gateway.
-     * @dev selector: TODO
+     * @notice Thrown when bridge-native sender does not match the configured remote gateway.
+     * @dev selector: 0xa5c0236c
      */
     error MessageFromWrongGateway();
 
     /**
-     * @dev Thrown when a value is zero.
+     * @notice Thrown when a value is zero.
+     * @dev selector: 0x78bcc63a
      */
     error ZeroValueNotAllowed(string field);
 
     /**
-     * @dev Thrown when an address is zero.
+     * @notice Thrown when an address is zero.
+     * @dev selector: 0x44034241
      */
     error ZeroAddressNotAllowed(string field);
 
     /**
      * @notice Thrown when the recipient is zero.
-     * @dev selector: TODO
+     * @dev selector: 0x9c8d2cd2
      */
     error InvalidRecipient();
 }
 
+/**
+ * @title IGatewayBaseEvents
+ * @dev Events emitted by gateway contracts.
+ */
 interface IGatewayBaseEvents {
     /**
      * @notice Emitted when tokens are received.
@@ -87,6 +97,10 @@ interface IGatewayBaseEvents {
     event OtherSideChainIdUpdated(uint256 indexed prevValue, uint256 indexed newValue);
 }
 
+/**
+ * @title IGatewayBase
+ * @dev Admin and view functions shared by all gateway implementations.
+ */
 interface IGatewayBase is IGatewayBaseErrors, IGatewayBaseEvents {
     /**
      * @notice Returns the address of the bridge contract.

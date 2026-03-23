@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.30;
+pragma solidity ^0.8.30;
 
 /**
  * @title IGenericTokenFactoryErrors
@@ -8,7 +8,7 @@ pragma solidity 0.8.30;
 interface IGenericTokenFactoryErrors {
     /**
      * @dev Thrown when the address is zero.
-     * @dev selector: TODO
+     * @dev selector: 0x44034241
      */
     error ZeroAddressNotAllowed(string field);
 
@@ -44,17 +44,21 @@ interface IGenericTokenFactoryErrors {
 
     /**
      * @dev Thrown when the caller is not the payments gateway or the owner.
-     * @dev selector: TODO
+     * @dev selector: 0x5d7ca671
      */
     error OnlyPaymentGatewayOrOwner();
 
     /**
      * @dev Thrown when the value is zero.
-     * @dev selector: TODO
+     * @dev selector: 0x78bcc63a
      */
     error ZeroValueNotAllowed(string field);
 }
 
+/**
+ * @title IGenericTokenFactoryEvents
+ * @dev Events emitted by token factory contracts.
+ */
 interface IGenericTokenFactoryEvents {
     /**
      * @notice Emitted when a token is deployed

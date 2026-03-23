@@ -8,8 +8,17 @@ pragma solidity ^0.8.30;
  * @dev Provides a function to get the current L1 gas price
  */
 interface IL1GasOracle {
-    /// @notice Zero address not allowed for the submitter
+    /**
+     * @notice Zero address not allowed for the submitter.
+     * @dev selector: 0x44034241
+     */
     error ZeroAddressNotAllowed(string field);
+
+    /**
+     * @notice Caller is not the authorized submitter.
+     * @dev selector: 0xd393e877
+     */
+    error UnauthorizedSubmitter(address account);
 
     /// @dev Emitted when the L1 gas price is updated
     event L1GasPriceUpdated(uint256 gasPrice);

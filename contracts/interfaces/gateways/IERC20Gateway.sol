@@ -1,32 +1,40 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.30;
+pragma solidity ^0.8.30;
 
+/**
+ * @title IERC20GatewayErrors
+ * @dev Custom errors for the ERC20 gateway.
+ */
 interface IERC20GatewayErrors {
     /**
      * @notice Thrown when the token is not found.
-     * @dev selector: TODO
+     * @dev selector: 0xcbdb7b30
      */
     error TokenNotFound();
 
     /**
-     * @dev Thrown when the origin token is zero.
-     * @dev selector: TODO
+     * @notice Thrown when the origin token is zero.
+     * @dev selector: 0x690be5f9
      */
     error OriginTokenZero();
 
     /**
-     * @dev Thrown when the pegged token is wrong.
-     * @dev selector: TODO
+     * @notice Thrown when the pegged token is wrong.
+     * @dev selector: 0x164f4f0e
      */
     error WrongPeggedToken();
 
     /**
-     * @dev Thrown when the token mapping check failed.
-     * @dev selector: TODO
+     * @notice Thrown when the token mapping check failed.
+     * @dev selector: 0xc0260b4c
      */
     error TokenMappingCheckFailed();
 }
 
+/**
+ * @title IERC20Gateway
+ * @dev ERC20 token bridging: send, receive, deploy pegged tokens, and address computation.
+ */
 interface IERC20Gateway is IERC20GatewayErrors {
     /**
      * @notice Bridges ERC20 tokens to the remote chain and starts cross-chain delivery.

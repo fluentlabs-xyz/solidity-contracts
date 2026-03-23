@@ -18,11 +18,17 @@ contract L1BlockOracle is Ownable, IL1BlockOracle {
     /// @dev Hot key address authorized to submit block number updates.
     address internal _submitter;
 
+    /**
+     * @dev Restricts to the authorized submitter address.
+     */
     modifier onlySubmitter() {
-        require(msg.sender == _submitter, OwnableUnauthorizedAccount(msg.sender));
+        require(msg.sender == _submitter, UnauthorizedSubmitter(msg.sender));
         _;
     }
 
+    /**
+     * @dev Sets the contract owner to `msg.sender` and configures the initial submitter.
+     */
     constructor(address submitter) Ownable(msg.sender) {
         _setSubmitter(submitter);
     }
@@ -31,6 +37,7 @@ contract L1BlockOracle is Ownable, IL1BlockOracle {
 
     /// @inheritdoc IL1BlockOracle
     function updateL1BlockNumber(uint256 blockNumber) external override onlySubmitter {
+        // enforce strict monotonicity to prevent stale or replayed block numbers
         require(blockNumber > _l1BlockNumber, BlockNotMonotonic(_l1BlockNumber, blockNumber));
 
         _l1BlockNumber = blockNumber;
@@ -41,6 +48,7 @@ contract L1BlockOracle is Ownable, IL1BlockOracle {
 
     /// @inheritdoc IL1BlockOracle
     function setL1BlockNumber(uint256 blockNumber) external onlyOwner {
+        // owner bypass skips monotonicity check for emergency corrections
         _l1BlockNumber = blockNumber;
         emit L1BlockNumberUpdated(blockNumber);
     }
@@ -50,8 +58,12 @@ contract L1BlockOracle is Ownable, IL1BlockOracle {
         _setSubmitter(submitter);
     }
 
+    /**
+     * @dev Validates and stores the submitter address. Reverts on zero address.
+     */
     function _setSubmitter(address submitter) internal {
-        if (submitter == address(0)) revert ZeroAddressNotAllowed("submitter");
+        require(submitter != address(0), ZeroAddressNotAllowed("submitter"));
+        // emit before write so the event captures the previous submitter
         emit SubmitterUpdated(_submitter, submitter);
         _submitter = submitter;
     }

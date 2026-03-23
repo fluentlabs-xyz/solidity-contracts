@@ -8,11 +8,23 @@ pragma solidity ^0.8.30;
  * @dev Provides a function to get the current L1 block number
  */
 interface IL1BlockOracle {
-    /// @notice Zero address not allowed for the submitter
+    /**
+     * @notice Zero address not allowed for the submitter.
+     * @dev selector: 0x44034241
+     */
     error ZeroAddressNotAllowed(string field);
 
-    /// @notice Submitted block number is not greater than the current value.
+    /**
+     * @notice Submitted block number is not greater than the current value.
+     * @dev selector: 0xd591b406
+     */
     error BlockNotMonotonic(uint256 current, uint256 proposed);
+
+    /**
+     * @notice Caller is not the authorized submitter.
+     * @dev selector: 0xd393e877
+     */
+    error UnauthorizedSubmitter(address account);
 
     /// @dev Emitted when the L1 block number is updated
     event L1BlockNumberUpdated(uint256 indexed blockNumber);

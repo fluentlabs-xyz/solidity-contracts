@@ -11,193 +11,231 @@ import {MerkleTree} from "../libraries/MerkleTree.sol";
 interface IRollupErrors {
     /**
      * @notice Rollup is in a corrupted state — all state-changing functions are blocked.
+     * @dev selector: 0x5a92338c
      */
     error RollupCorrupted();
 
     /**
      * @notice Block's previousBlockHash does not match the expected chain tip.
+     * @dev selector: 0x56bb540a
      */
     error WrongPreviousBlockHash(bytes32 expected, bytes32 provided);
 
     /**
      * @notice Deposit root in the block header does not match the consumed bridge messages.
+     * @dev selector: 0x12336bd2
      */
     error DepositRootMismatch(bytes32 blockHash);
 
     /**
      * @notice L1 deposit was not consumed within the allowed window.
+     * @dev selector: 0x420ef0bc
      */
     error AcceptDepositDeadlineExceeded(uint256 deadline, uint256 currentBlock);
 
     /**
      * @notice Batch has already been finalized and cannot be modified.
+     * @dev selector: 0xa99bd781
      */
     error BatchAlreadyFinalized(uint256 batchIndex);
 
     /**
      * @notice Block commitment has already been proven.
+     * @dev selector: 0x5fbe7d51
      */
     error BlockAlreadyProven(bytes32 commitment);
 
     /**
      * @notice Block commitment has already been challenged.
+     * @dev selector: 0xd62ec379
      */
     error BlockAlreadyChallenged(bytes32 commitment);
 
     /**
      * @notice Block commitment has not been challenged — cannot resolve.
+     * @dev selector: 0x4615a600
      */
     error BlockNotChallenged(bytes32 commitment);
 
     /**
      * @notice Block commitment has not been proven.
+     * @dev selector: 0x0e68d7dc
      */
     error BlockNotProven(bytes32 commitment);
 
     /**
      * @notice Challenge deposit does not match the required amount.
+     * @dev selector: 0x5ad2069b
      */
     error IncorrectChallengeDeposit(uint256 required, uint256 provided);
 
     /**
      * @notice Native ETH transfer to recipient failed.
+     * @dev selector: 0xdea95fba
      */
     error EthTransferFailed(address recipient, uint256 amount);
 
     /**
      * @notice Block sequence is invalid — block[i].blockHash != block[i+1].previousBlockHash.
+     * @dev selector: 0xd2aeda88
      */
     error InvalidBlockSequence(uint256 index, bytes32 currentHash, bytes32 nextPrevHash);
 
     /**
      * @notice Merkle tree construction requires at least one leaf.
+     * @dev selector: 0x798e25ff
      */
     error NoLeavesProvided();
 
     /**
      * @notice Caller has no balance available for withdrawal.
+     * @dev selector: 0xd0d04f60
      */
     error NothingToWithdraw();
 
     /**
      * @notice msg.value is insufficient to cover challenger incentive fees for force revert.
+     * @dev selector: 0xdbbfb945
      */
     error NotEnoughValueIncentiveFee(uint256 value, uint256 incentiveFee);
 
     /**
      * @notice Merkle proof for the block header is invalid.
+     * @dev selector: 0xcdb93653
      */
     error InvalidBlockProof();
 
     /**
      * @notice Address field must not be zero.
+     * @dev selector: 0x44034241
      */
-    error ZeroAddressNotAllowed(bytes32 field);
+    error ZeroAddressNotAllowed(string field);
 
     /**
      * @notice Value field must not be zero.
+     * @dev selector: 0x78bcc63a
      */
-    error ZeroValueNotAllowed(bytes32 field);
+    error ZeroValueNotAllowed(string field);
 
     /**
      * @notice Nitro enclave signature verification failed.
+     * @dev selector: 0xb50f2b0e
      */
     error InvalidNitroSignature();
 
     /**
      * @notice Nitro verifier address is not in the enabled whitelist.
+     * @dev selector: 0x3c50f28c
      */
     error NitroVerifierNotEnabled(address nitroVerifier);
 
     /**
      * @notice Nitro verifier address is already in the enabled whitelist.
+     * @dev selector: 0x7d3f8b97
      */
     error NitroVerifierAlreadyEnabled(address nitroVerifier);
 
     /**
      * @notice nextBatchIndex would overflow uint96.
+     * @dev selector: 0x26bb590f
      */
     error NextBatchIndexOverflow();
 
     /**
      * @notice Blob hashes were not fully submitted within the `submitBlobsWindow`.
+     * @dev selector: 0xf9c77ce7
      */
     error SubmitBlobsWindowExceeded(uint256 deadline, uint256 currentBlock);
 
     /**
      * @notice Batch was not preconfirmed within the `preconfirmWindow`.
+     * @dev selector: 0x915afa97
      */
     error PreconfirmWindowExceeded(uint256 deadline, uint256 currentBlock);
 
     /**
      * @notice Number of submitted blob hashes exceeds the expected count for this batch.
+     * @dev selector: 0x756c086a
      */
     error InvalidBlobCount(uint32 expected, uint256 provided);
 
     /**
      * @notice Batch is not in the expected status for this operation.
+     * @dev selector: 0x0f36c0b9
      */
     error InvalidBatchStatus(uint256 batchIndex, uint8 current);
 
     /**
      * @notice Gas remaining is below the required threshold for safe iteration.
+     * @dev selector: 0x1c26714c
      */
     error InsufficientGas();
 
     /**
      * @notice Provided batch index is out of the accepted range.
+     * @dev selector: 0xb6d1990b
      */
     error InvalidBatchIndex(uint256 providedBatchIndex, uint256 currentBatchIndex);
 
     /**
      * @notice Challenge submitted after the batch-wide challenge window has closed.
      * @dev Fires when `block.number >= acceptedAtBlock + challengeWindow`.
+     * @dev selector: 0x5118dbec
      */
     error ChallengeTooLate(uint256 batchIndex);
 
     /**
      * @notice Challenge resolution attempted after the recorded deadline.
+     * @dev selector: 0x208c2197
      */
     error ChallengeResolutionTooLate(uint256 batchIndex, uint256 deadline, uint256 currentBlock);
 
     /**
      * @notice expectedBlobsCount does not fit into uint32 (storage truncation would occur).
+     * @dev selector: 0xb011bd91
      */
     error ExpectedBlobsCountOverflow(uint256 expectedBlobsCount);
 
     /**
      * @notice depositRoot is set to the "no-deposits" sentinel but depositCount is non-zero.
+     * @dev selector: 0xee65ef12
      */
     error InvalidDepositRootWithNonZeroCount(uint256 depositCount);
 
     /**
      * @notice preconfirmWindow must exceed submitBlobsWindow — both are measured from
      *         acceptedAtBlock, so preconfirmation cannot be required before blob submission completes.
+     * @dev selector: 0x14bef653
      */
     error InvalidWindowConfig(string reason);
 
     /**
      * @notice Block header `depositCount` exceeds the maximum value supported by on-chain processing.
+     * @dev selector: 0x44c573ae
      */
     error DepositCountTooLarge(uint256 depositCount);
 
     /**
      * @notice Number of block headers in a batch exceeds the protocol's maximum allowed batch size.
+     * @dev selector: 0x083e2f67
      */
     error BatchSizeTooLarge(uint256 batchSize);
 
     /**
      * @notice Number of blob hashes submitted exceeds the protocol's maximum allowed per batch.
+     * @dev selector: 0xf09704a6
      */
     error BlobCountTooLarge(uint256 blobCount);
 
     /**
      * @notice Batch index mismatch with challenge record.
+     * @dev selector: 0xc0586a8f
      */
     error BatchIndexMismatch(uint256 challengedBatchIndex, uint256 batchIndex);
 
     /**
      * @notice Address field is not a contract.
+     * @dev selector: 0xdd278830
      */
     error NotAContract(string field);
 }
@@ -232,7 +270,6 @@ interface IRollupEvents {
     /**
      * @notice Emitted when a Nitro verifier is removed from the enabled whitelist.
      */
-
     event NitroVerifierDisabled(address indexed verifier);
 
     /**
@@ -274,6 +311,11 @@ interface IRollupEvents {
      * @notice Emitted when the incentive fee is updated.
      */
     event IncentiveFeeUpdated(uint256 previousIncentiveFee, uint256 newIncentiveFee);
+
+    /**
+     * @notice Emitted when the maximum force revert batch size is updated.
+     */
+    event MaxForceRevertBatchSizeUpdated(uint32 previousMaxForceRevertBatchSize, uint32 newMaxForceRevertBatchSize);
 
     // ============ Batch lifecycle ============
 
@@ -535,6 +577,12 @@ interface IRollupWrite {
 
     /**
      * @notice Resolve a challenge by providing Nitro + SP1 proofs.
+     * @param batchIndex Index of the batch containing the challenged block.
+     * @param blockHeader L2 block header that was challenged.
+     * @param blockProof Merkle proof of the block header against the batch root.
+     * @param nitroVerifier Address of the Nitro verifier contract to use.
+     * @param nitroSignature 65-byte ECDSA Nitro enclave signature over the block payload.
+     * @param sp1Proof SP1 ZK proof validating the block execution.
      */
     function resolveChallenge(
         uint256 batchIndex,
@@ -549,7 +597,7 @@ interface IRollupWrite {
 
     /**
      * @notice Finalize consecutive batches up to and including `toBatchIndex`.
-     * @dev Permissionless. Stops early if a batch is not yet eligible (cooldown not passed).
+     * @dev Permissionless. Stops early if a batch is not yet eligible.
      *      Sequential — batch N finalizes only after batch N-1.
      * @param toBatchIndex Last batch index to attempt finalization for.
      * @return finalized Number of batches successfully finalized.
@@ -628,7 +676,7 @@ interface IRollupAdmin {
     function setPreconfirmWindow(uint64 newPreconfirmWindow) external;
 
     /**
-     * @notice Set the maximum L1 blocks a challenger has to submit a challenge after batch acceptance.
+     * @notice Set the maximum L1 blocks after batch acceptance for challenge submission.
      */
     function setChallengeWindow(uint64 newChallengeWindow) external;
 
@@ -646,6 +694,11 @@ interface IRollupAdmin {
      * @notice Set the ETH reward paid to challengers who successfully challenged a batch.
      */
     function setIncentiveFee(uint256 newIncentiveFee) external;
+
+    /**
+     * @notice Set the maximum force revert batch size.
+     */
+    function setMaxForceRevertBatchSize(uint32 newMaxForceRevertBatchSize) external;
 }
 
 /**
@@ -675,6 +728,7 @@ interface IRollupEmergency {
      * @dev Only callable by EMERGENCY_ROLE. Refunds challenger deposits with incentive fee.
      *      Sets `_nextBatchIndex` to `toBatchIndex + 1`, effectively discarding all
      *      batches in the range `(toBatchIndex, lastAcceptedBatchIndex]`.
+     *      Reverts per-call batch count exceeds `_maxForceRevertBatchSize`.
      * @param toBatchIndex The last batch to keep. All batches above this index are reverted.
      */
     function forceRevertBatch(uint256 toBatchIndex) external payable;

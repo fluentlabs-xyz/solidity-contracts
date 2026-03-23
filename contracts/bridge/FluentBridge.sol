@@ -39,11 +39,10 @@ import {FluentBridgeStorageLayout} from "./FluentBridgeStorageLayout.sol";
  */
 abstract contract FluentBridge is FluentBridgeStorageLayout {
     /**
-     * @notice Initialization happens in chain-specific implementations:
-     *         `L1FluentBridge.initialize(bytes,address)` and
-     *         `L2FluentBridge.initialize(bytes,uint256,address,address,uint256,uint256,address)`.
+     * @notice Sends a cross-chain message with optional native value.
+     * @dev Deducts the L2 send fee (if any), encodes and hashes the message,
+     *      then calls {_afterSendMessage} for chain-specific hooks (L1 enqueue).
      */
-
     function sendMessage(address to, bytes calldata message) external payable whenNotPaused nonReentrant {
         require(to != address(this) && to != getOtherBridge(), InvalidDestinationAddress());
         require(msg.value >= getSentMessageFee(), InsufficientFee());
@@ -66,12 +65,15 @@ abstract contract FluentBridge is FluentBridgeStorageLayout {
         return 0;
     }
 
-    /// @dev Virtual function that can be overridden by child contracts: L1FluentBridge and L2FluentBridge
+    /**
+     * @dev Hook called after message encoding. L1 overrides to enqueue the message hash.
+     */
     function _afterSendMessage(bytes32 messageHash) internal virtual {}
 
     /**
-     * @notice If it's L2 -> we mint ETH internally, it's supposed to be on the bridge
-        on L1 -> we don't mint ETH, it's supposed to be on the bridge -> we unlock it
+     * @notice Receives and executes a relayer-delivered cross-chain message.
+     * @dev Enforces sequential nonce, verifies message not already processed,
+     *      then delegates to {_receiveMessage} for ExcessivelySafeCall execution.
      */
     function receiveMessage(
         address from,
@@ -93,8 +95,8 @@ abstract contract FluentBridge is FluentBridgeStorageLayout {
     }
 
     /**
-     * @notice If it's L2 -> we mint ETH internally, it's supposed to be on the bridge
-        on L1 -> we don't mint ETH, it's supposed to be on the bridge -> we unlock it
+     * @notice Retries a previously failed message. Anyone can call with the original params.
+     * @dev Requires message status == Failed. Uses full gasleft() instead of executeGasLimit.
      */
     function receiveFailedMessage(
         address from,
@@ -114,7 +116,10 @@ abstract contract FluentBridge is FluentBridgeStorageLayout {
         _receiveMessage(gasleft(), from, to, value, message, messageHash);
     }
 
-    /// @dev Virtual function that can be overridden by child contracts: L1FluentBridge and L2FluentBridge
+    /**
+     * @dev Hook called before message execution. Override in L1/L2 bridges for
+     *      chain-specific checks (e.g., rollback deadline on L2). Return false to skip execution.
+     */
     function _beforeReceiveMessage(
         address /* _from */,
         address /* _to */,
@@ -127,6 +132,10 @@ abstract contract FluentBridge is FluentBridgeStorageLayout {
         return true;
     }
 
+    /**
+     * @dev Core message execution: sets {_nativeSender} for cross-chain sender identification,
+     *      forwards value and calldata via {ExcessivelySafeCall}, records result status.
+     */
     function _receiveMessage(uint256 gasLimit, address from, address to, uint256 value, bytes calldata message, bytes32 messageHash) internal {
         FluentBridgeStorage storage $ = _getFluentBridgeStorage();
 
@@ -140,10 +149,16 @@ abstract contract FluentBridge is FluentBridgeStorageLayout {
 
     // ============ Pauser functions ============
 
+    /**
+     * @notice Pauses all bridge operations.
+     */
     function pause() external onlyRole(PAUSER_ROLE) {
         _pause();
     }
 
+    /**
+     * @notice Unpauses bridge operations.
+     */
     function unpause() external onlyRole(PAUSER_ROLE) {
         _unpause();
     }

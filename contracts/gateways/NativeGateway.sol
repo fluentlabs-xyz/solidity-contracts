@@ -8,7 +8,7 @@ import {INativeGateway} from "../interfaces/gateways/INativeGateway.sol";
 
 /**
  * @title NativeGateway
- * @author Fluent Lab
+ * @author Fluent Labs
  *
  * @notice Gateway for bridging native ETH between chains through `FluentBridge`.
  * @dev UUPS-upgradeable gateway. Bridge routing state is inherited from `GatewayBase` (ERC-7201 namespace),
@@ -25,9 +25,9 @@ import {INativeGateway} from "../interfaces/gateways/INativeGateway.sol";
  * @dev Admin functions: `setGasLimit` and `rescueNative`.
  */
 contract NativeGateway is GatewayBase, INativeGateway {
-    /// @custom:oz-upgrades-unsafe-allow state-variable-immutable
     uint256 public constant DEFAULT_GAS_LIMIT = 100_000;
 
+    /// @dev Configurable gas limit forwarded when sending native tokens through the bridge.
     uint256 internal _gasLimit;
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -35,11 +35,14 @@ contract NativeGateway is GatewayBase, INativeGateway {
         _disableInitializers();
     }
 
-    /// @notice Initializes the upgradeable gateway (replaces constructor when used behind a proxy).
+    /**
+     * @notice Initializes the upgradeable gateway (replaces constructor when used behind a proxy).
+     */
     function initialize(address initialOwner, address bridgeContract) public initializer {
         __GatewayBase_init(initialOwner, bridgeContract);
 
         // ============ Storage ============
+        // safe default gas limit for native transfers; can be tuned later via setGasLimit
         _setGasLimit(DEFAULT_GAS_LIMIT);
     }
 
@@ -47,10 +50,12 @@ contract NativeGateway is GatewayBase, INativeGateway {
     function sendNativeTokens(address to) external payable nonReentrant {
         require(to != address(0), InvalidRecipient());
 
+        // deduct the bridge relay fee; remainder is the actual bridged amount
         uint256 fee = FluentBridge(getBridgeContract()).getSentMessageFee();
         require(msg.value > fee, InvalidNativeAmount());
         uint256 amount = msg.value - fee;
 
+        // forward full msg.value (amount + fee) so the bridge can retain the fee portion
         FluentBridge(getBridgeContract()).sendMessage{value: msg.value}(
             getOtherSideGateway(),
             abi.encodeCall(NativeGateway.receiveNativeTokens, (msg.sender, to, amount))
@@ -59,10 +64,12 @@ contract NativeGateway is GatewayBase, INativeGateway {
 
     /// @inheritdoc INativeGateway
     function receiveNativeTokens(address from, address to, uint256 amount) external payable onlyFluentBridge nonReentrant {
+        // verify the cross-chain message originated from the trusted remote gateway
         require(FluentBridge(msg.sender).getNativeSender() == getOtherSideGateway(), MessageFromWrongGateway());
         require(msg.value == amount, InvalidNativeAmount());
         require(to != address(0), InvalidRecipient());
 
+        // gas-limited call prevents recipient from consuming unbounded gas
         (bool success, ) = payable(to).call{gas: getGasLimit(), value: amount}("");
         require(success, NativeTransferFailed());
 
@@ -90,11 +97,17 @@ contract NativeGateway is GatewayBase, INativeGateway {
         _setGasLimit(newGasLimit);
     }
 
+    /**
+     * @dev Validates and stores the gas limit. Reverts on zero value.
+     */
     function _setGasLimit(uint256 newGasLimit) internal {
         require(newGasLimit > 0, InvalidGasLimit());
         emit GasLimitUpdated(_gasLimit, newGasLimit);
         _gasLimit = newGasLimit;
     }
 
+    /**
+     * @dev Accepts bare ETH transfers so the gateway can hold native value for bridging.
+     */
     receive() external payable {}
 }

@@ -38,7 +38,7 @@ contract L1BlockOracleTest is Test {
     }
 
     function test_RevertIf_updateL1BlockNumber_callerNotSubmitter() public {
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
+        vm.expectRevert(abi.encodeWithSelector(IL1BlockOracle.UnauthorizedSubmitter.selector, user));
         vm.prank(user);
         oracle.updateL1BlockNumber(100);
     }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.30;
 
 /**
  * @title IL2FluentBridge
@@ -7,10 +7,12 @@ pragma solidity ^0.8.0;
  * @dev Interface for the L2 bridge contract.
  */
 interface IL2FluentBridge {
-    // ========= Errors ==========
+    // ============ Errors ============
 
-    error InsufficientMsgValue();
-
+    /**
+     * @notice ETH transfer to the fee treasury failed during outbound message fee deduction.
+     * @dev selector: 0x5c389498
+     */
     error FailedToDeductFee();
 
     // ========== Events ==========
