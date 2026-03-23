@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
-import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {L1FluentBridge} from "../../contracts/bridge/L1/L1FluentBridge.sol";
 import {NativeGateway} from "../../contracts/gateways/NativeGateway.sol";

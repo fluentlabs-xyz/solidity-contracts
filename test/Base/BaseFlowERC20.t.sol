@@ -6,10 +6,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {Vm} from "forge-std/Vm.sol";
 import {IGatewayBaseErrors} from "../../contracts/interfaces/gateways/IGatewayBase.sol";
 
-import {L1FluentBridge} from "../../contracts/bridge/L1/L1FluentBridge.sol";
-import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol";
 import {ERC20Gateway} from "../../contracts/gateways/ERC20Gateway.sol";
-import {MockERC20Token} from "../../test/mocks/MockERC20.sol";
 import {IFluentBridgeEvents} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {L2BlockHeader} from "../../contracts/interfaces/IRollupTypes.sol";

@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
-import {IRollupEvents, IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
+import {IRollupEvents} from "../../contracts/interfaces/IRollup.sol";
 import {L2BlockHeader, BatchStatus, BatchRecord, InitConfiguration} from "../../contracts/interfaces/IRollupTypes.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 

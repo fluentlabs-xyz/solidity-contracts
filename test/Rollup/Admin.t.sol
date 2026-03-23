@@ -4,7 +4,7 @@ pragma solidity 0.8.30;
 import {RollupAssertions} from "./Base.t.sol";
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
 import {InitConfiguration, L2BlockHeader, BatchStatus} from "../../contracts/interfaces/IRollupTypes.sol";
-import {IRollupErrors, IRollupEvents} from "../../contracts/interfaces/IRollup.sol";
+import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MockSp1Verifier} from "../mocks/MockSp1Verifier.sol";
 import {MockNitroVerifier} from "../mocks/MockNitroVerifier.sol";

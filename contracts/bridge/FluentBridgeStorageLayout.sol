@@ -7,12 +7,6 @@ import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/ut
 import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 
-import {Rollup} from "../rollup/Rollup.sol";
-import {L2BlockHeader} from "../interfaces/IRollupTypes.sol";
-import {Queue} from "../libraries/Queue.sol";
-import {MerkleTree} from "../libraries/MerkleTree.sol";
-import {ExcessivelySafeCall} from "../libraries/ExcessivelySafeCall.sol";
-
 import {
     IFluentBridge,
     IFluentBridgeEvents,

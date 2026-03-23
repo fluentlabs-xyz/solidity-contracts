@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.30;
 
-import {MerkleTree} from "../../libraries/MerkleTree.sol";
-import {L2BlockHeader} from "../../interfaces/IRollupTypes.sol";
-
 /**
  * @title IFluentBridgeAdmin
  * @dev Admin functions for the bridge contract.
