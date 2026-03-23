@@ -19,24 +19,32 @@ import {IL1FluentBridge} from "../../interfaces/bridge/IL1FluentBridge.sol";
  * @dev L1 bridge contract for the Fluent bridge that lives on Ethereum.
  */
 contract L1FluentBridge is FluentBridge, IL1FluentBridge {
-    // ============ Storage ============
+    // ============ Constants ============
 
-    // TODO(@d1r1, @chillhacker): These storage fields use linear slots instead of ERC-7201
-    // namespaced storage, unlike the rest of the codebase. This creates slot collision risk
-    // if the inheritance chain changes. Migrate to a proper L1FluentBridgeStorage struct
-    // with a deterministic hash-based slot in a future upgrade.
+    /// @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.L1FluentBridgeStorage")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 internal constant L1_FLUENT_BRIDGE_STORAGE_LOCATION = 0x87bc3410b506da535d5d599e04bd2f08b89897a5d89e1855acbd7567af23bd00;
 
-    /// @dev Status of a rollback execution by message hash.
-    mapping(bytes32 => IFluentBridge.MessageStatus) internal _rollbackMessages;
+    struct L1FluentBridgeStorage {
+        /// @dev Status of a rollback execution by message hash.
+        mapping(bytes32 => IFluentBridge.MessageStatus) _rollbackMessages;
+        /// @dev Rollup contract used for batch finalization and proof verification.
+        Rollup _rollup;
+        /// @dev FIFO queue of sent messages consumed by the rollup during batch acceptance.
+        Queue.QueueStorage _sentMessageQueue;
+        /// @dev Reserved for future storage fields.
+        uint256[50] __gap;
+    }
 
-    /// @dev Rollup contract used for batch finalization and proof verification.
-    Rollup internal _rollup;
+    // ============ Storage accessor ============
 
-    /// @dev FIFO queue of sent messages consumed by the rollup during batch acceptance.
-    Queue.QueueStorage _sentMessageQueue;
-
-    /// @dev Reserved for future storage fields.
-    uint256[50] __gap;
+    /**
+     * @dev Returns the ERC-7201 storage pointer for L1-specific bridge state.
+     */
+    function _getL1FluentBridgeStorage() private pure returns (L1FluentBridgeStorage storage $) {
+        assembly ("memory-safe") {
+            $.slot := L1_FLUENT_BRIDGE_STORAGE_LOCATION
+        }
+    }
 
     // ============ Modifier ============
 
@@ -69,7 +77,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         // Bind the rollup contract used for finalization and proof verification
         _setRollup(newRollup);
         // Prepare the FIFO queue that the rollup drains during batch acceptance
-        Queue.initialize(_sentMessageQueue);
+        Queue.initialize(_getL1FluentBridgeStorage()._sentMessageQueue);
     }
 
     // ============ Send hooks ============
@@ -79,7 +87,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     function _afterSendMessage(bytes32 messageHash) internal override {
         // Enqueue the hash so the rollup can consume it during batch acceptance
         // The queue preserves FIFO ordering to match the deposit root construction
-        Queue.enqueue(_sentMessageQueue, messageHash);
+        Queue.enqueue(_getL1FluentBridgeStorage()._sentMessageQueue, messageHash);
     }
 
     // ============ Receive with proof ============
@@ -100,7 +108,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     ) external nonReentrant whenNotPaused {
         // Only finalized batches carry valid state roots — reject unfinalized ones
         // The rollup contract tracks batch lifecycle; finalized means SP1-proven or delay-elapsed
-        require(_rollup.isBatchFinalized(batchIndex), InvalidBlockProof());
+        require(Rollup(getRollup()).isBatchFinalized(batchIndex), InvalidBlockProof());
         // Messages originating from this chain cannot be "received" here — that would be a rollback
         // The chainId check differentiates between L2→L1 (receive) and L1→L2 (rollback) flows
         require(chainId != block.chainid, ForbiddenReceiveRollbackMessage());
@@ -143,7 +151,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     ) external nonReentrant whenNotPaused {
         // Rollback requires a finalized batch so the proof anchors to a committed state
         // Without finalization, the withdrawal root is not yet trustworthy
-        require(Rollup(_rollup).isBatchFinalized(batchIndex), InvalidBlockProof());
+        require(Rollup(getRollup()).isBatchFinalized(batchIndex), InvalidBlockProof());
         // Rollback only applies to messages that originated on THIS chain and failed on L2
         // If chainId == block.chainid, the message was sent FROM here, so rollback is valid
         require(chainId != block.chainid, ForbiddenRollbackReceivedMessage());
@@ -185,7 +193,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         // First proof: verify that this L2 block is part of the finalized batch
         // The leaf is the hash of the full block header fields
         bool blockValid = MerkleTree.verifyMerkleProof(
-            Rollup(_rollup).getBatch(batchIndex).batchRoot,
+            Rollup(getRollup()).getBatch(batchIndex).batchRoot,
             keccak256(
                 abi.encodePacked(blockHeader.previousBlockHash, blockHeader.blockHash, blockHeader.withdrawalRoot, blockHeader.depositRoot)
             ),
@@ -229,7 +237,9 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         (bool success, bytes memory data) = ExcessivelySafeCall.excessivelySafeCall(from, value, "", gasLimit);
         // Record outcome so the same rollback cannot be claimed again
         // Success means the ETH transfer landed; Failed means the recipient reverted
-        _rollbackMessages[messageHash] = success ? IFluentBridge.MessageStatus.Success : IFluentBridge.MessageStatus.Failed;
+        _getL1FluentBridgeStorage()._rollbackMessages[messageHash] = success
+            ? IFluentBridge.MessageStatus.Success
+            : IFluentBridge.MessageStatus.Failed;
 
         // Emit event with the transfer result and any return data for debugging
         emit ReceivedMessageRollback(messageHash, success, data);
@@ -241,7 +251,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     function popSentMessage() public onlyRollup returns (bytes32, uint256) {
         // Dequeue the oldest message hash — rollup consumes these during batch acceptance
         // to build the deposit root that binds L1→L2 messages to a specific batch
-        Queue.QueueItem memory item = Queue.dequeue(_sentMessageQueue);
+        Queue.QueueItem memory item = Queue.dequeue(_getL1FluentBridgeStorage()._sentMessageQueue);
         return (item.value, item.blockNumber);
     }
 
@@ -250,19 +260,19 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     /// @inheritdoc IL1FluentBridge
     function getRollbackMessage(bytes32 key) public view returns (IFluentBridge.MessageStatus) {
         // Returns None if never rolled back, Success/Failed based on ETH transfer outcome
-        return _rollbackMessages[key];
+        return _getL1FluentBridgeStorage()._rollbackMessages[key];
     }
 
     /// @inheritdoc IL1FluentBridge
     function getSentMessageQueueSize() public view returns (uint256) {
         // Number of L1→L2 messages waiting to be consumed by the rollup
-        return Queue.size(_sentMessageQueue);
+        return Queue.size(_getL1FluentBridgeStorage()._sentMessageQueue);
     }
 
     /// @inheritdoc IL1FluentBridge
     function getRollup() public view returns (address) {
         // Cast the typed Rollup reference back to address for external consumers
-        return address(_rollup);
+        return address(_getL1FluentBridgeStorage()._rollup);
     }
 
     // ============ Admin ============
@@ -277,14 +287,15 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
      * @dev Validates and stores the rollup address. Reverts on zero address or non-empty queue.
      */
     function _setRollup(address newRollup) internal {
+        L1FluentBridgeStorage storage $ = _getL1FluentBridgeStorage();
         // Zero address would break all finalization and proof verification calls
         require(newRollup != address(0), ZeroAddressNotAllowed("rollup"));
         // Changing the rollup while messages are queued would orphan them
         // because the new rollup would not know about pending messages
-        require(Queue.size(_sentMessageQueue) == 0, QueueNotEmpty());
+        require(Queue.size($._sentMessageQueue) == 0, QueueNotEmpty());
         // Emit old and new addresses for off-chain monitoring before writing
         emit RollupUpdated(getRollup(), newRollup);
         // Store the typed Rollup reference to avoid casting on every call
-        _rollup = Rollup(newRollup);
+        $._rollup = Rollup(newRollup);
     }
 }
