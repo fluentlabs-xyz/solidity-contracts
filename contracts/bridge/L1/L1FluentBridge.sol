@@ -24,6 +24,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     /// @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.L1FluentBridgeStorage")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 internal constant L1_FLUENT_BRIDGE_STORAGE_LOCATION = 0x87bc3410b506da535d5d599e04bd2f08b89897a5d89e1855acbd7567af23bd00;
 
+    /// @custom:storage-location erc7201:fluent.storage.L1FluentBridgeStorage
     struct L1FluentBridgeStorage {
         /// @dev Status of a rollback execution by message hash.
         mapping(bytes32 => IFluentBridge.MessageStatus) _rollbackMessages;
