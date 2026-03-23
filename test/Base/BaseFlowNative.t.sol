@@ -3,59 +3,19 @@ pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
-import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
-
 import {L1FluentBridge} from "../../contracts/bridge/L1/L1FluentBridge.sol";
-import {L2FluentBridge} from "../../contracts/bridge/L2/L2FluentBridge.sol";
-import {FluentBridgeStorageLayout} from "../../contracts/bridge/FluentBridgeStorageLayout.sol";
-
-import {L1BlockOracle} from "../../contracts/oracles/L1BlockOracle.sol";
-import {L1GasOracle} from "../../contracts/oracles/L1GasOracle.sol";
 import {NativeGateway} from "../../contracts/gateways/NativeGateway.sol";
-import {Rollup} from "../../contracts/rollup/Rollup.sol";
 
 import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
-import {InitConfiguration, L2BlockHeader} from "../../contracts/interfaces/IRollupTypes.sol";
+import {L2BlockHeader} from "../../contracts/interfaces/IRollupTypes.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 
+import {BaseDeployNative} from "./BaseDeploy.sol";
 import {WithdrawalMerkle} from "../helpers/WithdrawalMerkle.sol";
-import {MockNitroVerifier} from "../mocks/MockNitroVerifier.sol";
-import {MockSp1Verifier} from "../mocks/MockSp1Verifier.sol";
 
-contract BaseFlowNativeTest is Test {
-    uint256 internal constant RECEIVE_DEADLINE = 100;
+contract BaseFlowNativeTest is BaseDeployNative {
     bytes32 internal constant ZERO_BYTES_HASH = 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
-    bytes32 internal constant GENESIS_HASH = keccak256("genesis");
-    bytes32 internal constant PROGRAM_VKEY = keccak256("vkey");
-    bytes internal constant DUMMY_SIGNATURE = abi.encodePacked(keccak256("r"), keccak256("s"), uint8(27));
-    uint256 internal constant FINALIZATION_DELAY = 1;
-    uint256 internal constant MAX_FORCE_REVERT_BATCH_SIZE = 10;
     bytes32 internal constant SENT_MESSAGE_SIG = keccak256("SentMessage(address,address,uint256,uint256,uint256,uint256,bytes32,bytes)");
-
-    // Fork ids
-    uint256 internal l1ForkId;
-    uint256 internal l2ForkId;
-    uint256 internal l1ChainId;
-    uint256 internal l2ChainId;
-
-    // Actors
-    address internal admin;
-    address internal relayer;
-    address internal l1Sender;
-    address internal l2Recipient;
-    address internal l1Recipient;
-
-    // L1 contracts
-    L1FluentBridge internal l1Bridge;
-    NativeGateway internal l1Gateway;
-    Rollup internal l1Rollup;
-    MockNitroVerifier internal l1NitroVerifier;
-
-    // L2 contracts
-    L2FluentBridge internal l2Bridge;
-    NativeGateway internal l2Gateway;
-    L1BlockOracle internal l2BlockOracle;
-    L1GasOracle internal l2GasOracle;
 
     function setUp() public {
         admin = address(this);
@@ -83,99 +43,6 @@ contract BaseFlowNativeTest is Test {
         _deployOnL1();
         _deployOnL2();
         _linkCrossChain();
-    }
-
-    function _selectL1() internal {
-        vm.selectFork(l1ForkId);
-    }
-
-    function _selectL2() internal {
-        vm.selectFork(l2ForkId);
-    }
-
-    function _deployOnL1() internal {
-        _selectL1();
-
-        // Deploy real Rollup used for L2->L1 proof-based withdrawals.
-        l1NitroVerifier = new MockNitroVerifier();
-        MockSp1Verifier sp1 = new MockSp1Verifier();
-
-        InitConfiguration memory cfg;
-        cfg.admin = admin;
-        cfg.emergency = admin;
-        cfg.sequencer = relayer;
-        cfg.challenger = address(0);
-        cfg.prover = address(0);
-        cfg.preconfirmationRole = relayer;
-        cfg.sp1Verifier = address(sp1);
-        cfg.nitroVerifier = address(l1NitroVerifier);
-        cfg.bridge = address(0xB1); // not used because we set depositRoot == ZERO_BYTES_HASH in the test
-        cfg.programVKey = PROGRAM_VKEY;
-        cfg.genesisHash = GENESIS_HASH;
-        cfg.challengeDepositAmount = 1 ether;
-        cfg.challengeWindow = 0;
-        cfg.finalizationDelay = FINALIZATION_DELAY;
-        cfg.acceptDepositDeadline = 1000;
-        cfg.incentiveFee = 0;
-        cfg.submitBlobsWindow = 0;
-        cfg.preconfirmWindow = 1;
-        cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
-
-        Rollup rollupImpl = new Rollup();
-        ERC1967Proxy rollupProxy = new ERC1967Proxy(address(rollupImpl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
-        l1Rollup = Rollup(payable(address(rollupProxy)));
-
-        // Deploy L1 bridge (UUPS proxy)
-        FluentBridgeStorageLayout.InitConfiguration memory params = FluentBridgeStorageLayout.InitConfiguration({
-            adminRole: admin,
-            pauserRole: admin,
-            relayerRole: relayer,
-            otherBridge: address(0xB1) // patched after L2 is deployed
-        });
-
-        L1FluentBridge bridgeImpl = new L1FluentBridge();
-        ERC1967Proxy bridgeProxy = new ERC1967Proxy(
-            address(bridgeImpl),
-            abi.encodeCall(L1FluentBridge.initialize, (abi.encode(params), address(l1Rollup)))
-        );
-        l1Bridge = L1FluentBridge(payable(address(bridgeProxy)));
-
-        // Deploy NativeGateway
-        NativeGateway gatewayImpl = new NativeGateway();
-        ERC1967Proxy gatewayProxy = new ERC1967Proxy(address(gatewayImpl), abi.encodeCall(NativeGateway.initialize, (admin, address(l1Bridge))));
-        l1Gateway = NativeGateway(payable(address(gatewayProxy)));
-    }
-
-    function _deployOnL2() internal {
-        _selectL2();
-
-        // Oracle is used for L2 deadline/rollback checks. We keep it at the default (0),
-        // so our test messages will not trip the "deadline exceeded" branch.
-        l2BlockOracle = new L1BlockOracle(address(this));
-        l2GasOracle = new L1GasOracle(relayer);
-
-        FluentBridgeStorageLayout.InitConfiguration memory params = FluentBridgeStorageLayout.InitConfiguration({
-            adminRole: admin,
-            pauserRole: admin,
-            relayerRole: relayer,
-            otherBridge: address(0xB2)
-        });
-
-        // Deploy L2 bridge (UUPS proxy)
-        L2FluentBridge bridgeImpl = new L2FluentBridge();
-        ERC1967Proxy bridgeProxy = new ERC1967Proxy(
-            address(bridgeImpl),
-            abi.encodeCall(
-                L2FluentBridge.initialize,
-                (abi.encode(params), RECEIVE_DEADLINE, address(l2BlockOracle), address(l2GasOracle), 0, 0, 0, makeAddr("feeTreasury"))
-            )
-        );
-        l2Bridge = L2FluentBridge(payable(address(bridgeProxy)));
-
-        // Deploy NativeGateway
-        NativeGateway gatewayImpl = new NativeGateway();
-        ERC1967Proxy gatewayProxy = new ERC1967Proxy(address(gatewayImpl), abi.encodeCall(NativeGateway.initialize, (admin, address(l2Bridge))));
-        l2Gateway = NativeGateway(payable(address(gatewayProxy)));
     }
 
     function _linkCrossChain() internal {
@@ -342,6 +209,33 @@ contract BaseFlowNativeTest is Test {
         assertEq(uint256(l1Bridge.getReceivedMessage(l1MessageHash)), uint256(IFluentBridge.MessageStatus.Success));
         assertEq(l1Recipient.balance - l1PreRecipientBal, 1 ether, "L1 recipient didn't get ETH back");
         assertEq(address(l1Bridge).balance, 0, "L1 bridge should have forwarded all locked value");
+    }
+
+    function test_sendNativeTokens_chargesL2FeeToTreasury_andLocksNetAmount() public {
+        _selectL2();
+
+        // Configure a deterministic non-zero L2 message fee:
+        // fee = l1GasLimit * (((l1GasPrice * scalar) / 1e18) + overhead)
+        // => 100 * (3 + 2) = 500
+        vm.prank(admin);
+        l2Bridge.setGasPriceConfig(2, 1e18, 100);
+        vm.prank(relayer);
+        l2GasOracle.updateL1GasPrice(3);
+
+        uint256 fee = l2Bridge.getSentMessageFee();
+        assertEq(fee, 500, "unexpected fee");
+
+        address feeTreasury = l2Bridge.getFeeTreasury();
+        uint256 bridgeBefore = address(l2Bridge).balance;
+        uint256 treasuryBefore = feeTreasury.balance;
+        uint256 sendValue = 1 ether;
+        vm.deal(l2Recipient, sendValue);
+
+        vm.prank(l2Recipient);
+        l2Gateway.sendNativeTokens{value: sendValue}(l1Recipient);
+
+        assertEq(feeTreasury.balance - treasuryBefore, fee, "fee treasury did not receive fee");
+        assertEq(address(l2Bridge).balance - bridgeBefore, sendValue - fee, "bridge should lock net amount after fee");
     }
 
     function test_rollbackMessageWithProof_deadlineRefundsOnL1() public {
