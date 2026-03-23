@@ -47,8 +47,7 @@ contract NitroVerifier is AccessControl, INitroVerifier {
     bytes32 public pendingVKey;
 
     /// @dev Earliest timestamp at which {executeVKeyUpdate} may be called. Zero if no update is pending.
-    ///      uint64 leaves 24 bytes in its slot free for future packing.
-    uint64 public pendingVKeyValidAt;
+    uint256 public pendingVKeyValidAt;
 
     /// @dev Enclave pubkeys that have passed ZK attestation.
     ///      Enumeration is intentionally off-chain via events — avoids array SSTORE overhead.
@@ -104,7 +103,7 @@ contract NitroVerifier is AccessControl, INitroVerifier {
         require(newProgramVKey != bytes32(0), ZeroVKey());
         require(newProgramVKey != PROGRAM_VKEY, VKeyUnchanged());
         pendingVKey = newProgramVKey;
-        uint64 validAt = uint64(block.timestamp + VKEY_UPDATE_DELAY);
+        uint256 validAt = block.timestamp + VKEY_UPDATE_DELAY;
         pendingVKeyValidAt = validAt;
         emit VKeyUpdateProposed(newProgramVKey, validAt);
     }

@@ -145,6 +145,9 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
         // Fetch the latest known L1 block number from the on-chain oracle
         uint256 l1BlockNumber = IL1BlockOracle(getL1BlockOracle()).getL1BlockNumber();
 
+        // If the oracle returns 0, it means the L1 block number is not available yet. In this case, we cannot perform the deadline check.
+        require(l1BlockNumber > 0, ZeroValueNotAllowed("l1BlockNumber"));
+
         // Reconstruct the message hash to record the outcome in storage
         bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, blockNumber, messageNonce, message));
         // Check if enough L1 blocks have passed since the message was sent

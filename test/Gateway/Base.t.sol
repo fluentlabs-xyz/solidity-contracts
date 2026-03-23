@@ -38,6 +38,8 @@ abstract contract GatewayBase is Test {
 
     function _deployBridge(uint256 receiveMessageDeadline) internal {
         oracle = new L1BlockOracle(admin);
+        vm.prank(admin);
+        oracle.updateL1BlockNumber(1);
         L1GasOracle gasOracle = new L1GasOracle(relayer);
 
         L2FluentBridge impl = new L2FluentBridge();

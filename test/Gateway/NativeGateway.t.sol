@@ -30,7 +30,7 @@ contract NativeGatewayTest is GatewayBase {
         nativeGateway.setOtherSideGateway(remoteGateway);
     }
 
-    function test_initialize_setsDefaults() public {
+    function test_initialize_setsDefaults() public view {
         assertEq(nativeGateway.owner(), admin);
         assertEq(nativeGateway.getBridgeContract(), address(bridge));
         assertEq(nativeGateway.getOtherSideGateway(), remoteGateway);

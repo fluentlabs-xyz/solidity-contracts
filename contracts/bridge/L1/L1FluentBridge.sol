@@ -84,6 +84,22 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     // ============ Send hooks ============
 
     /// @inheritdoc FluentBridge
+    function _beforeReceiveMessage(
+        address /** from */,
+        address /** to */,
+        uint256 value,
+        uint256 /** chainId */,
+        uint256 /** blockNumber */,
+        uint256 /** messageNonce */,
+        bytes calldata /** message */
+    ) internal view override returns (bool) {
+        // Ensures the bridge has enough balance to cover the value being sent before allowing the message to be sent.
+        if (value > 0) require(address(this).balance >= value, InsufficientBridgeBalance(value));
+
+        return true;
+    }
+
+    /// @inheritdoc FluentBridge
     /// @dev Enqueues the message hash into the sent-message queue for rollup consumption.
     function _afterSendMessage(bytes32 messageHash) internal override {
         // Enqueue the hash so the rollup can consume it during batch acceptance
@@ -233,8 +249,12 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         // Self-calls could re-enter storage mutators or drain locked funds
         require(to != address(this), ForbiddenSelfCall());
 
-        // Refund ETH to the original sender using a gas-bounded call to limit returndata
-        // ExcessivelySafeCall caps returndata size, protecting against returndata bombs
+        // `message` is intentionally not forwarded to `from`.
+        // The calldata was encoded for `to` on L2 — `from` is the original sender and was never
+        // designed to receive it. Forwarding arbitrary calldata to an unprepared contract would
+        // create an uncontrolled external call and a reentrancy vector.
+        // Rollback is ETH-only; ERC-20 or other asset recovery is the responsibility of a
+        // protocol-layer wrapper that exposes its own claimRollback(messageHash) function.
         (bool success, bytes memory data) = ExcessivelySafeCall.excessivelySafeCall(from, value, "", gasLimit);
         // Record outcome so the same rollback cannot be claimed again
         // Success means the ETH transfer landed; Failed means the recipient reverted

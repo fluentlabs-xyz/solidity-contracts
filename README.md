@@ -13,7 +13,7 @@ Fluent is a Layer 2 blockchain that settles on Ethereum. This repository contain
 | `contracts/factories/` | `GenericTokenFactory`, `ERC20TokenFactory`, `UniversalTokenFactory` | Deterministic CREATE2 deployment of pegged tokens on the destination chain |
 | `contracts/tokens/` | `ERC20PeggedToken` | Beacon-proxied pegged ERC-20 representation on L2 |
 | `contracts/rollup/` | `Rollup`, `RollupStorageLayout` | L1 rollup: batch lifecycle, challenges, finalization, bridge deposit consumption |
-| `contracts/verifier/` | `NitroVerifier`, `SP1VerifierGroth16` | Nitro enclave signature verification and SP1 ZK proof verification |
+| `contracts/verifier/` | `NitroVerifier` | Nitro enclave signature verification |
 | `contracts/oracles/` | `L1BlockOracle`, `L1GasOracle` | L2-side oracles for L1 block number (deadline enforcement) and gas price (fee calculation) |
 | `contracts/libraries/` | `Heap`, `Queue`, `MerkleTree`, `ExcessivelySafeCall` | Min-heap (challenge queue), FIFO (sent messages), Merkle proofs, safe external calls |
 
@@ -74,6 +74,7 @@ None → HeadersSubmitted → Accepted → Preconfirmed → Finalized
 | `challengeBlock` | `CHALLENGER_ROLE` | Disputes a specific block; requires ETH deposit |
 
 Three deadline mechanisms protect liveness:
+
 - **`submitBlobsWindow`** — max L1 blocks for blob submission after header acceptance (0 = disabled)
 - **`preconfirmWindow`** — max L1 blocks for preconfirmation after acceptance (0 = disabled)
 - **`challengeWindow`** — L1 blocks a prover has to resolve a challenge
@@ -200,13 +201,19 @@ forge coverage --ir-minimum --report lcov
 
 - **Bridge pays value from its own balance.** On the trusted path, the relayer calls `receiveMessage` and the bridge forwards the message's `value` to the target — there is no explicit `msg.value == value` check. On the proof path (`receiveMessageWithProof`, `rollbackMessageWithProof`), the caller sends zero ETH and the bridge pays from locked funds. The bridge does not mint ETH; it only releases funds previously locked via `sendMessage`.
 
-- **No on-chain solvency accounting.** The invariant "total withdrawals <= total deposits" is enforced by protocol design (Merkle proofs against finalized rollup state), not by an on-chain balance tracker. `rollbackMessageWithProof` has an explicit `InsufficientBridgeBalance` check; `receiveMessageWithProof` does not — if the bridge is underfunded, the call silently fails and the message is marked `Failed`.
-
-- **Oracle failure silently disables deadlines.** `L2FluentBridge` uses `L1BlockOracle.getL1BlockNumber()` for receive-message deadlines. If the oracle returns 0 (uninitialized or broken), the deadline condition never triggers and messages never time out. There is no staleness check or circuit breaker on the oracle.
-
 - **No timelocks on critical admin parameters.** `receiveMessageDeadline`, `l1BlockOracle`, `rollup`, and `otherBridge` are changeable immediately by `DEFAULT_ADMIN_ROLE`. Admin is expected to be a multisig in production.
 
 - **Nonce consumed before deadline check.** In `receiveMessage()`, `_takeNextReceivedNonce()` runs before `_beforeReceiveMessage()` (the L2 deadline hook). If the deadline is expired, the nonce is already consumed and the message is marked `Failed`. Retry happens via `receiveFailedMessage` on the same consumed nonce — no new nonce is spent.
+
+- **Rollback transfers ETH only; `message` calldata is intentionally dropped.**
+  `_receiveMessage` forwards `message` to `to` — a contract that explicitly opted into the bridge
+  protocol and was designed to handle the encoded calldata. `_rollbackMessage` calls `from` (the
+  original sender), which was never designed as a message receiver. Forwarding the same calldata to
+  `from` would execute arbitrary logic on an unprepared contract, creating an uncontrolled external
+  call and a potential reentrancy vector. This is why rollback uses empty calldata and transfers ETH
+  only. As a consequence, ERC-20 or other non-native asset rollback is not handled by the bridge
+  itself — it is the responsibility of a protocol-layer wrapper that locks assets on send and exposes
+  a dedicated `claimRollback(messageHash)` function checking status via `getRollbackMessage()`.
 
 ---
 
