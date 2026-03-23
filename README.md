@@ -1,266 +1,215 @@
-# Solidity contracts — Fluent bridge, gateways, and rollup
+# Fluent Bridge Contracts
 
-## 1. Overview
+Fluent is a Layer 2 blockchain that settles on Ethereum. This repository contains the Solidity contracts for cross-chain communication between Ethereum (L1) and Fluent (L2): a general-purpose message bridge, ERC-20 and native ETH gateways built on top of it, and an L1 rollup contract that enables trustless withdrawal verification via Merkle proofs.
 
-### What this repository is
+## 1. Architecture
 
-Solidity contracts for **moving messages and value between Ethereum (L1) and Fluent (L2)**. The stack includes:
+### Contract structure
 
-- A **core bridge** (`FluentBridge` + L1/L2 implementations) for enqueueing, delivering, and optionally proving cross-chain messages.
-- **Gateways** (`ERC20Gateway`, `NativeGateway`) that encode token/native flows as bridge messages.
-- **Factories** and **pegged tokens** for deterministic L2 representations of L1 ERC-20s.
-- A **rollup** contract for batch lifecycle, challenges, and finalization, wired to the L1 bridge for proof-based paths.
-- **Verifiers** and **L1 oracles** used by the rollup and L2 bridge timing/fee logic.
+| Directory | Contracts | Purpose |
+|-----------|-----------|---------|
+| `contracts/bridge/` | `FluentBridge` (abstract), `L1FluentBridge`, `L2FluentBridge`, storage layout | Cross-chain message transport: send, receive (relayer), receive-with-proof (L1), rollback, retry |
+| `contracts/gateways/` | `GatewayBase` (abstract), `ERC20Gateway`, `NativeGateway` | User-facing asset entrypoints. Lock/escrow on source, mint/release on destination |
+| `contracts/factories/` | `GenericTokenFactory`, `ERC20TokenFactory`, `UniversalTokenFactory` | Deterministic CREATE2 deployment of pegged tokens on the destination chain |
+| `contracts/tokens/` | `ERC20PeggedToken` | Beacon-proxied pegged ERC-20 representation on L2 |
+| `contracts/rollup/` | `Rollup`, `RollupStorageLayout` | L1 rollup: batch lifecycle, challenges, finalization, bridge deposit consumption |
+| `contracts/verifier/` | `NitroVerifier`, `SP1VerifierGroth16` | Nitro enclave signature verification and SP1 ZK proof verification |
+| `contracts/oracles/` | `L1BlockOracle`, `L1GasOracle` | L2-side oracles for L1 block number (deadline enforcement) and gas price (fee calculation) |
+| `contracts/libraries/` | `Heap`, `Queue`, `MerkleTree`, `ExcessivelySafeCall` | Min-heap (challenge queue), FIFO (sent messages), Merkle proofs, safe external calls |
 
-### Why it exists
+All contracts use **UUPS proxy** pattern with **ERC-7201 namespaced storage**. Interfaces in `contracts/interfaces/` are the source of truth for function signatures, errors, and events.
 
-Fluent runs as an L2. These contracts define **how assets and calldata cross the boundary**: custody on the source chain, delivery on the destination chain, and (on L1) an alternative path that uses **rollup state commitments and Merkle proofs** instead of a trusted relayer for some withdrawals.
+### Message lifecycle
 
-### Key concepts (short)
+**L1 → L2 deposit (ERC-20 example):**
 
-| Concept | Meaning |
-|--------|---------|
-| **FluentBridge** | Abstract bridge: `sendMessage`, trusted `receiveMessage`, proof-based `receiveMessageWithProof` (L1), rollback/retry hooks. Concrete deployments are `L1FluentBridge` and `L2FluentBridge`. |
-| **Other bridge** | Each bridge stores the peer contract address on the remote chain; messages are logically “from” that peer when delivered. |
-| **Relayer / `RELAYER_ROLE`** | Account allowed to call trusted delivery on the destination chain. This is **trusted execution** (must supply `msg.value` equal to the message value for native payout). |
-| **Gateway** | User-facing contract that escrows/burns tokens (or locks native ETH), then calls `FluentBridge.sendMessage` with an ABI-encoded payload for the remote gateway. |
-| **Factory** | Deploys or resolves pegged token addresses; only the configured gateway (or owner) may trigger deploys. |
-| **Rollup** | Optimistic rollup with Nitro preconfirmation and SP1-style proof resolution; ties into L1 bridge queues and proof verification. |
-
----
-
-## 2. Architecture
-
-### Main components (by directory)
-
-- **`contracts/bridge/`** — `FluentBridge.sol` (abstract), `L1FluentBridge.sol`, `L2FluentBridge.sol`, storage layout.
-- **`contracts/gateways/`** — `GatewayBase.sol`, `ERC20Gateway.sol`, `NativeGateway.sol`.
-- **`contracts/factories/`** — `GenericTokenFactory.sol`, `ERC20TokenFactory.sol`, `UniversalTokenFactory.sol`.
-- **`contracts/tokens/`** — `ERC20PeggedToken.sol` (beacon proxies on L2).
-- **`contracts/rollup/`** — `Rollup.sol`, storage layout.
-- **`contracts/verifier/`** — e.g. `NitroVerifier.sol`.
-- **`contracts/oracles/`** — `L1BlockOracle.sol`, `L1GasOracle.sol` (L2 bridge fee/oracle inputs).
-
-### How they interact
-
-1. **User → gateway (source chain)**  
-   Approves/transfers tokens or sends ETH; gateway calls **`FluentBridge.sendMessage(remoteGateway, payload)`** (plus fees). Native value intended for the remote side is locked in the bridge (minus any outbound fee).
-
-2. **Bridge (source)**  
-   Emits **`SentMessage`** (includes nonce, chain id, block number, hash, calldata). On L1 with rollup configured, outbound messages can also be recorded for later proving.
-
-3. **Delivery (destination)**  
-   - **Trusted path:** `RELAYER_ROLE` calls **`receiveMessage(...)`** with correct ordering (`receivedNonce`) and **`msg.value == value`** when the message carries native value.  
-   - **Trust-minimized path (L2 → L1):** anyone (subject to proof checks) may call **`receiveMessageWithProof`** using finalized rollup data and Merkle proofs.
-
-4. **Gateway (destination)**  
-   Bridge calls **`receivePeggedTokens` / `receiveOriginTokens` / `receiveNativeTokens`** (depending on flow); gateway mints/unlocks/transfers to the end user.
-
-### Data and execution flow (ERC-20 deposit)
+1. User calls `ERC20Gateway.sendTokens(token, recipient, amount)` with `msg.value` covering the bridge fee.
+2. Gateway escrows the origin token and calls `FluentBridge.sendMessage(remoteGateway, payload)`.
+3. Bridge emits `SentMessage` (sender, to, value, chainId, blockNumber, nonce, messageHash, data). On L1 with rollup configured, the message is also enqueued for later proving.
+4. Off-chain relayer picks up the event and calls `L2FluentBridge.receiveMessage(...)` with the same parameters and matching `msg.value`.
+5. L2 bridge delivers the payload to the remote `ERC20Gateway`, which mints a pegged token to the recipient.
 
 ```mermaid
 sequenceDiagram
     participant User
-    participant L1Token as L1 ERC-20
     participant L1GW as L1 ERC20Gateway
-    participant L1Br as L1 FluentBridge
+    participant L1Br as L1FluentBridge
     participant Relayer
-    participant L2Br as L2 FluentBridge
+    participant L2Br as L2FluentBridge
     participant L2GW as L2 ERC20Gateway
 
-    User->>L1Token: approve(L1GW, amount)
     User->>L1GW: sendTokens(token, recipient, amount)
-    L1GW->>L1Token: pull / escrow
     L1GW->>L1Br: sendMessage(L2GW, payload)
-    L1Br-->>Relayer: SentMessage
-    Relayer->>L2Br: receiveMessage(..., payload)
-    L2Br->>L2GW: receive entrypoint (pegged/origin)
-    L2GW->>User: mint / transfer on L2
+    L1Br-->>Relayer: SentMessage event
+    Relayer->>L2Br: receiveMessage(...)
+    L2Br->>L2GW: receivePeggedTokens(...)
+    L2GW->>User: mint pegged token
 ```
 
-**Withdrawal** is the reverse: burn or escrow on L2, message to L1 gateway, unlock or release on L1. For rollup deployments, L2→L1 can use **`receiveMessageWithProof`** instead of the relayer (see interface and `Rollup` integration).
+**L2 → L1 withdrawal** is the reverse: burn pegged token on L2, message to L1 gateway, release escrowed token on L1. Two delivery paths exist on L1:
 
-### Further reading
+- **Trusted path:** Relayer calls `L1FluentBridge.receiveMessage(...)` (same as deposit, but L1-bound).
+- **Proof path:** Anyone calls `L1FluentBridge.receiveMessageWithProof(batchIndex, blockHeader, ..., withdrawalProof, blockProof)` using finalized rollup data and Merkle proofs — no relayer trust required.
 
-- **`docs/BridgeFailuresAndRollback.md`** — failed delivery, L2 deadline, `receiveFailedMessage`, L1 proof rollback (with diagrams).
-- **`docs/SecurityModel.md`** — roles, trust assumptions, invariants.
-- **`docs/UpgradeSafety.md`** — proxy/beacon upgrades, unsafe scripts, checklists.
-- **`docs/Addresses.md`** — tracked deployment addresses.
+**Native ETH bridging** follows the same pattern via `NativeGateway.sendNativeTokens(recipient)` with `msg.value` as the bridged amount.
+
+**Failure and rollback:** If delivery fails (target reverts, L2 deadline exceeded), the message is marked `Failed`. It can be retried via `receiveFailedMessage`, or on L1 the sender can be refunded via `rollbackMessageWithProof`. See [`docs/BridgeFailuresAndRollback.md`](docs/BridgeFailuresAndRollback.md) for the full lifecycle with state diagrams.
+
+### Rollup batch lifecycle
+
+The L1 `Rollup` contract manages batch progression:
+
+```
+None → HeadersSubmitted → Accepted → Preconfirmed → Finalized
+                                      ↕ Challenged
+```
+
+| Step | Who | What happens |
+|------|-----|-------------|
+| `acceptNextBatch` | `SEQUENCER_ROLE` | Submits L2 block headers for the next batch |
+| `submitBlobs` | `SEQUENCER_ROLE` | Provides EIP-4844 blob hashes for the accepted batch |
+| `preconfirmBatch` | `PRECONFIRMATION_ROLE` | Nitro enclave signature verifies batch integrity |
+| `finalizeBatches` | Anyone | Permissionless after `finalizationDelay` L1 blocks |
+| `finalizeWithProofs` | `PROVER_ROLE` | Immediate finalization if all blocks have SP1 proofs |
+| `challengeBlock` | `CHALLENGER_ROLE` | Disputes a specific block; requires ETH deposit |
+
+Three deadline mechanisms protect liveness:
+- **`submitBlobsWindow`** — max L1 blocks for blob submission after header acceptance (0 = disabled)
+- **`preconfirmWindow`** — max L1 blocks for preconfirmation after acceptance (0 = disabled)
+- **`challengeWindow`** — L1 blocks a prover has to resolve a challenge
+
+Exceeding any active deadline triggers the **corrupted** state. All state-changing functions revert until the corrupted batch is cleared via `forceRevertBatch` (`EMERGENCY_ROLE`).
+
+### Verification paths
+
+- **Batch preconfirmation:** `NitroVerifier.verifyBatch()` — ECDSA recovery against whitelisted Nitro enclave public keys.
+- **Challenge resolution:** Dual proof required — `NitroVerifier.verifyBlock()` (block-level Nitro signature) **and** `SP1Verifier.verifyProof()` (ZK proof).
+- **Enclave attestation:** SP1 ZK proof validates the Nitro certificate chain; verified public key is added to the whitelist.
+- **VKEY rotation:** 1-day timelock via `proposeVKeyUpdate` → `executeVKeyUpdate`.
 
 ---
 
-## 3. Setup
+## 2. Actors and roles
+
+| Contract | Role | Capabilities |
+|----------|------|-------------|
+| **FluentBridge** | `DEFAULT_ADMIN_ROLE` | Authorize UUPS upgrades; configure `otherBridge`, `rollup`, `l1BlockOracle`, `receiveMessageDeadline` |
+| | `PAUSER_ROLE` | Pause/unpause message sends and receives |
+| | `RELAYER_ROLE` | Execute trusted message delivery; retry failed messages |
+| **Rollup** | `DEFAULT_ADMIN_ROLE` | Authorize UUPS upgrades; rotate bridge/verifier addresses and timing parameters |
+| | `SEQUENCER_ROLE` | Submit batch headers and blob hashes |
+| | `PRECONFIRMATION_ROLE` | Preconfirm batches via Nitro verification |
+| | `CHALLENGER_ROLE` | Open disputes and lock challenge deposits |
+| | `PROVER_ROLE` | Resolve challenges and claim proof rewards |
+| | `EMERGENCY_ROLE` | Pause/unpause; force-revert corrupted batches |
+| **Gateways** | `owner()` | Authorize UUPS upgrades; configure bridge/factory routing and token mappings |
+| **Factories** | `owner()` | Rotate gateway address; upgrade beacon (ERC20 factory) |
+| **NitroVerifier** | `DEFAULT_ADMIN_ROLE` | Manage enclave public keys and VKEY |
+
+For full trust assumptions, invariants, and operator notes, see [`docs/SecurityModel.md`](docs/SecurityModel.md).
+
+---
+
+## 3. Build, test, and coverage
 
 ### Prerequisites
 
-- **[Foundry](https://book.getfoundry.sh/getting-started/installation)** (`forge`, `cast`, `anvil`). The repo pins **Solidity 0.8.30** in `foundry.toml`; you do not install `solc` separately if `forge` manages it.
-- **Git** (submodules under `lib/`).
+- **[Foundry](https://book.getfoundry.sh/getting-started/installation)** (`forge`, `cast`, `anvil`). The repo pins **Solidity 0.8.30** in `foundry.toml`.
 
-*(This repo does not use npm/package.json; Node.js is not required for build or tests.)*
+Node.js is not required.
 
-### Step 1 — Clone
+### Setup
 
 ```bash
 git clone https://github.com/fluentlabs-xyz/solidity-contracts.git
 cd solidity-contracts
-```
-
-### Step 2 — Install dependencies
-
-```bash
 forge install
 ```
 
-**Expected:** `lib/` contains dependencies such as `forge-std`, `openzeppelin-contracts`, `openzeppelin-contracts-upgradeable`, `openzeppelin-foundry-upgrades`. If `lib/` is missing or empty, `forge build` will fail until `forge install` succeeds.
-
-### Step 3 — Build
+### Build
 
 ```bash
 forge build
 ```
 
-**Expected:** Compiles without errors; artifacts under `forge-out/`.
+Compiles without errors; artifacts under `forge-out/`. Configuration: `via_ir = true`, Cancun EVM, optimizer on (200 runs).
 
-### Step 4 — Test
+### Test
 
 ```bash
 forge test
 ```
 
-**Expected (example):** All active suites pass, e.g. a summary line like:
+All active suites pass. Some suites require external RPC endpoints and are skipped when unavailable.
 
-`Ran N test suites in …: … tests passed, 0 failed, … skipped`
-
-*(Exact counts change as tests are added; skipped tests may appear if some suites are gated.)*
-
-### Optional — Local nodes
+Run a specific test file or directory:
 
 ```bash
-anvil --port 8545
-anvil --port 8546
+forge test --match-path test/Rollup/AcceptBatch.t.sol
+forge test --match-path "test/Bridge/*"
 ```
 
-Useful for forked or multi-chain scripting; not required for `forge test`.
-
-### Configuration notes (`foundry.toml`)
-
-- **`via_ir = true`**, **Cancun** EVM, **optimizer** on.
-- **`extra_output` / `ast` / `build_info`** — intended for upgrade reviews and storage layout tooling.
-- **`ffi = true`** and **`fs_permissions`** — required for some **deployment** scripts that read/write `deployments/` and `config/`.
-
----
-
-## 4. Usage examples
-
-### Format
-
-Forge scripts use **`vm.startBroadcast()`** — you supply a private key or keystore via Foundry’s usual flags (e.g. `--private-key`, `--ledger`, `--broadcast`).
-
-### ERC-20 deposit (initiate L1 → L2)
-
-**Script:** `scripts/user_flows/DepositTokens.s.sol`
-
-**Environment variables:**
-
-| Variable | Role |
-|----------|------|
-| `GATEWAY_ADDRESS` | `ERC20Gateway` proxy on the source chain |
-| `TOKEN_ADDRESS` | Origin ERC-20 |
-| `RECIPIENT` | Address on the destination chain |
-| `AMOUNT` | Amount in token units (`> 0`) |
-
-**Command (shape):**
+### Coverage
 
 ```bash
-forge script scripts/user_flows/DepositTokens.s.sol:DepositTokens \
-  --rpc-url "$RPC_URL" \
-  --broadcast
+forge coverage --ir-minimum
 ```
 
-**On-chain effect:** `approve` then `ERC20Gateway.sendTokens` → bridge `sendMessage` → `SentMessage` on source; a relayer (or proof path) must complete delivery on the destination.
+The `--ir-minimum` flag is required because the project compiles with `via_ir = true`. `ExcessivelySafeCall` is excluded via `no_match_coverage` in `foundry.toml` because Forge cannot instrument inline assembly.
 
-### Native bridge (shape)
-
-**Script:** `scripts/user_flows/SendAndReceiveNative.s.sol` (and related `sendNative.s.sol`, `ReceiveNative.s.sol`)
-
-Set addresses per the script header comments (bridge/gateway on L1/L2). These scripts mirror the operational flow used in tests; read each file’s `@dev Environment` block for exact env var names.
-
-### Low-level relayer debugging
-
-**Script:** `scripts/user_flows/ReceiveTokens.s.sol`  
-Calls **`FluentBridge.receiveMessage`** with explicit `(from, to, value, chainId, blockNumber, nonce, message)` — for **operators** who already have the encoded fields from `SentMessage`. Requires the bridge to hold enough ETH if `VALUE_WEI > 0`.
-
-### Cast — read configuration
+For an LCOV report:
 
 ```bash
-cast call "$BRIDGE" "getOtherBridge()(address)" --rpc-url "$RPC"
-cast call "$BRIDGE" "getSentMessageFee()(uint256)" --rpc-url "$RPC"
+forge coverage --ir-minimum --report lcov
 ```
 
-**Output:** ABI-decoded return values; use to verify wiring before sending real funds.
+### Test layout
+
+| Directory | What it covers |
+|-----------|---------------|
+| `test/Rollup/` | Batch lifecycle, admin, challenges, corruption, deposits, emergency, finalization (12 test files) |
+| `test/Bridge/` | Message delivery, admin, pausing, L1/L2 bridge variants (6 test files) |
+| `test/Gateway/` | ERC-20 and native gateway send/receive flows (3 test files) |
+| `test/Base/` | End-to-end integration flows for ERC-20 and native bridging (4 test files) |
+| `test/Invariant/` | Stateful invariant testing for bridge/gateway (1 test + handler) |
+| `test/Verifier/` | Nitro verifier tests (1 test file) |
+| `test/Oracle/` | L1BlockOracle and L1GasOracle (2 test files) |
+| `test/libraries/` | Heap, Queue, MerkleTree, ExcessivelySafeCall (4 test files) |
+| `test/factories/` | ERC20TokenFactory (1 test file) |
+| `test/tokens/` | ERC20PeggedToken (1 test file) |
+| `test/mocks/` | 7 mock contracts used across test suites |
+| `test/helpers/` | Shared test utilities (WithdrawalMerkle) |
 
 ---
 
-## 5. Developer guide
+## 4. Documentation
 
-### Extending the system
-
-- **New asset type:** Prefer a dedicated gateway that inherits **`GatewayBase`**, enforces **`onlyFluentBridge`** on receive paths, and encodes a fixed **remote selector** payload (same pattern as `NativeGateway` / `ERC20Gateway`).
-- **New message path on the bridge:** Subclassing **`FluentBridge`** directly is rarely needed; L1/L2 differences live in **`L1FluentBridge`** / **`L2FluentBridge`**. Coordinate storage layout via **`FluentBridgeStorageLayout`** and run storage diffs before upgrades.
-- **Tests:** Add suites under `test/Bridge`, `test/Gateway`, `test/Rollup`, etc., following existing **`Base.t.sol`** patterns.
-
-### Design decisions worth remembering
-
-- **Sequential nonces on receive:** Trusted delivery enforces ordering; gaps block progress until the missing nonce is delivered.
-- **Native value:** Relayer (or proof path caller) must provide **`msg.value == value`** for messages that carry ETH; the bridge does not mint ETH on L1.
-- **L2 deadlines:** **`L2FluentBridge`** uses **`L1BlockOracle`** (and related config) for receive deadlines; a stale oracle breaks timeout semantics (see security doc).
-- **Upgradeable contracts:** UUPS proxies + beacon for pegged tokens; **`foundry.toml`** enables **`storageLayout`** output for diffing.
-
-### Naming: “PaymentGateway” in scripts and docs
-
-Deploy helpers (e.g. **`DeployLib._deployPaymentGateway`**) deploy **`ERC20Gateway`** behind a UUPS proxy. Factories still use **`setPaymentGateway`** for the authorized gateway address. **`docs/SecurityModel.md`** may say “PaymentGateway”; the implementation file is **`contracts/gateways/ERC20Gateway.sol`**.
-
-### Gotchas / edge cases
-
-- **`receiveMessage` after deadline:** Can mark a message failed without executing the target; operators may use **`receiveFailedMessage`** after fixing downstream state (relayer-only).
-- **Self-call / forbidden destinations:** `sendMessage` must not target this bridge or **`otherBridge`**.
-- **Paused bridge:** Sends and receives respect **`Pausable`**; all user flows stop while paused.
-- **Scripts with `ALLOW_UNSAFE_UPGRADES`:** Some deploy/upgrade paths require **`ALLOW_UNSAFE_UPGRADES=true`** so unsafe OpenZeppelin upgrade helpers are never accidental (see **`docs/UpgradeSafety.md`**).
-- **`SetupBridge.s.sol`:** Uses **FFI** and external tooling patterns — treat as **operational** infrastructure, not on-chain logic to replicate in contracts.
+| Document | What it covers |
+|----------|---------------|
+| **[`docs/SecurityModel.md`](docs/SecurityModel.md)** | Contract topology, all privileged roles and capabilities, trust assumptions, core invariants, high-trust operations. **Start here for the full actor/role map.** |
+| **[`docs/BridgeFailuresAndRollback.md`](docs/BridgeFailuresAndRollback.md)** | Complete message lifecycle with state diagrams: trusted delivery, L2 timeout mechanics, target execution failure, retry via `receiveFailedMessage`, L1 proof-based rollback. |
+| **[`docs/UpgradeSafety.md`](docs/UpgradeSafety.md)** | All UUPS proxy and beacon upgrade surfaces, required 6-step upgrade procedure, unsafe scripts, deployment checks, auditor evidence checklist. |
+| **[`docs/Addresses.md`](docs/Addresses.md)** | Deployed contract addresses for Sepolia (L1) and Fluent testnet (L2), chain IDs, RPC endpoints, explorer links, verification instructions. |
+| **[`docs/DeveloperGuide.md`](docs/DeveloperGuide.md)** | Usage examples (deposit/withdraw scripts), extending the system (new gateways, message paths), troubleshooting common errors. |
 
 ---
 
-## 6. Troubleshooting
+## 5. Design constraints and known risks
 
-| Symptom | Likely cause | What to do |
-|--------|----------------|------------|
-| `forge build` / `forge test`: missing imports or `@openzeppelin` errors | Submodules not installed | Run `forge install` from repo root; confirm `lib/openzeppelin-contracts` exists. |
-| `InsufficientFee()` on `sendMessage` | `msg.value` below **`getSentMessageFee()`** | Increase `msg.value`; on native flows remember fee is deducted before locked “amount”. |
-| `MessageReceivedOutOfOrder()` | Relayer delivered nonces out of sequence | Replay or deliver the expected **`receivedNonce`** next; inspect `SentMessage` ordering on source. |
-| `MessageAlreadyReceived()` | Duplicate delivery or replay | Do not re-submit same hash; check off-chain idempotency. |
-| Target call fails / `Failed` status | Calldata, gas, or destination contract reverts | Fix gateway/token state; use **`receiveFailedMessage`** only when bridge marked the message failed. |
-| Deployment script reverts without clear ABI error | **`ALLOW_UNSAFE_UPGRADES`** not set where required | Set env var explicitly as documented in **`UpgradeSafety.md`** for those scripts only. |
-| L2 receive / timeout oddities | **`L1BlockOracle`** stale or misconfigured | Verify oracle updater pipeline and admin-configured deadline. |
+- **No nonce skip or reset.** Trusted delivery (`receiveMessage`) enforces strict sequential nonces with no admin override. If the relayer loses nonce N, the trusted path is blocked until nonce N is delivered. **Mitigation:** on L1, the proof path (`receiveMessageWithProof`) is nonce-independent and serves as fallback. On L2, recovery depends on relayer availability.
 
----
+- **Bridge pays value from its own balance.** On the trusted path, the relayer calls `receiveMessage` and the bridge forwards the message's `value` to the target — there is no explicit `msg.value == value` check. On the proof path (`receiveMessageWithProof`, `rollbackMessageWithProof`), the caller sends zero ETH and the bridge pays from locked funds. The bridge does not mint ETH; it only releases funds previously locked via `sendMessage`.
 
-## 7. Test layout
+- **No on-chain solvency accounting.** The invariant "total withdrawals <= total deposits" is enforced by protocol design (Merkle proofs against finalized rollup state), not by an on-chain balance tracker. `rollbackMessageWithProof` has an explicit `InsufficientBridgeBalance` check; `receiveMessageWithProof` does not — if the bridge is underfunded, the call silently fails and the message is marked `Failed`.
 
-- **`test/Rollup/`** — batch lifecycle, admin, challenges, corruption paths.
-- **`test/Bridge/`** — message delivery, admin, L1/L2 bridge behavior.
-- **`test/Gateway/`** — ERC-20 and native gateway flows.
-- **`test/Invariant/`** — bridge/gateway invariants.
-- **`test-old/`** — archived suites kept for reference while coverage migrates.
+- **Oracle failure silently disables deadlines.** `L2FluentBridge` uses `L1BlockOracle.getL1BlockNumber()` for receive-message deadlines. If the oracle returns 0 (uninitialized or broken), the deadline condition never triggers and messages never time out. There is no staleness check or circuit breaker on the oracle.
 
-```bash
-forge test --match-path test/Bridge
-forge fmt
-```
+- **No timelocks on critical admin parameters.** `receiveMessageDeadline`, `l1BlockOracle`, `rollup`, and `otherBridge` are changeable immediately by `DEFAULT_ADMIN_ROLE`. Admin is expected to be a multisig in production.
+
+- **Nonce consumed before deadline check.** In `receiveMessage()`, `_takeNextReceivedNonce()` runs before `_beforeReceiveMessage()` (the L2 deadline hook). If the deadline is expired, the nonce is already consumed and the message is marked `Failed`. Retry happens via `receiveFailedMessage` on the same consumed nonce — no new nonce is spent.
 
 ---
 
-## 8. Assumptions (documentation)
+## 6. License
 
-- **Remote URL** for clone is taken from this repo’s `origin` (`fluentlabs-xyz/solidity-contracts`); if you fork, change the URL.
-- **`docs/UpgradeSafety.md`** references **`UpgradePaymentGateway.s.sol`**; the **`scripts/upgrade/`** tree in this repo may only list **`UpgradeFluentBridge.s.sol`** and **`UpgradeERC20Beacon.s.sol`** — treat the security doc as the procedure source and align script names with your branch.
-- **Universal token** behavior is referenced in interfaces/factories; not all token implementations may live under **`contracts/tokens/`** in this checkout.
+Apache-2.0
