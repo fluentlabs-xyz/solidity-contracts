@@ -33,7 +33,7 @@ contract NitroVerifier is AccessControl, INitroVerifier {
     // ============ Constants ============
 
     /// @dev Minimum seconds between {proposeVKeyUpdate} and {executeVKeyUpdate}.
-    uint256 public constant VKEY_UPDATE_DELAY = 1 days;
+    uint256 public constant VKEY_UPDATE_DELAY = 1 minutes;
 
     // ============ Storage ============
 
@@ -47,7 +47,8 @@ contract NitroVerifier is AccessControl, INitroVerifier {
     uint256 public pendingVKeyValidAt;
 
     /// @dev Current SP1 program verification key for attestation proofs.
-    bytes32 internal _programVKey = 0x00e34107e4c5284bd4ecc4269c650671038c1e85d9dacb931b534e984f607334;
+    bytes32 internal _programVKey =
+        0x00e34107e4c5284bd4ecc4269c650671038c1e85d9dacb931b534e984f607334;
 
     /// @dev Enclave pubkeys that have passed ZK attestation.
     ///      Enumeration is intentionally off-chain via events — avoids array SSTORE overhead.
@@ -60,7 +61,10 @@ contract NitroVerifier is AccessControl, INitroVerifier {
      *      Reverts if `attestationVerifier_` is the zero address.
      */
     constructor(address attestationVerifier, address admin) {
-        require(attestationVerifier != address(0) && admin != address(0), ZeroAddress());
+        require(
+            attestationVerifier != address(0) && admin != address(0),
+            ZeroAddress()
+        );
         _attestationVerifier = attestationVerifier;
         require(_grantRole(DEFAULT_ADMIN_ROLE, admin), RoleGrantFailed());
     }
@@ -78,14 +82,26 @@ contract NitroVerifier is AccessControl, INitroVerifier {
     ) external view returns (address) {
         require(signature.length == 65, InvalidSignatureLength());
 
-        bytes32 payload = sha256(abi.encode(parentHash, blockHash, withdrawalHash, depositHash, blobHashes));
+        bytes32 payload = sha256(
+            abi.encode(
+                parentHash,
+                blockHash,
+                withdrawalHash,
+                depositHash,
+                blobHashes
+            )
+        );
         address verifier = _assertSignerAttested(payload, signature);
 
         return verifier;
     }
 
     /// @inheritdoc INitroVerifier
-    function verifyBatch(bytes32 batchRoot, bytes32[] calldata blobHashes, bytes calldata signature) external view returns (address) {
+    function verifyBatch(
+        bytes32 batchRoot,
+        bytes32[] calldata blobHashes,
+        bytes calldata signature
+    ) external view returns (address) {
         require(signature.length == 65, InvalidSignatureLength());
 
         bytes32 payload = sha256(abi.encode(batchRoot, blobHashes));
@@ -99,7 +115,9 @@ contract NitroVerifier is AccessControl, INitroVerifier {
     /**
      * @notice Step 1 — propose a VKey rotation; executable after {VKEY_UPDATE_DELAY}.
      */
-    function proposeVKeyUpdate(bytes32 newProgramVKey) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function proposeVKeyUpdate(
+        bytes32 newProgramVKey
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(newProgramVKey != bytes32(0), ZeroVKey());
         require(newProgramVKey != _programVKey, VKeyUnchanged());
         pendingVKey = newProgramVKey;
@@ -147,7 +165,9 @@ contract NitroVerifier is AccessControl, INitroVerifier {
      * @dev Enclave signatures from `pubkey` are rejected by {verifyBlock} and
      *      {verifyBatch} immediately after revocation.
      */
-    function revokeAttestation(address pubkey) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function revokeAttestation(
+        address pubkey
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(verifiedPubkeys[pubkey], PubkeyNotVerified());
         verifiedPubkeys[pubkey] = false;
         emit AttestationRevoked(pubkey);
@@ -164,11 +184,18 @@ contract NitroVerifier is AccessControl, INitroVerifier {
      * @param expectedPubkey Enclave-derived address to attest.
      * @param proofBytes     Encoded SP1 proof.
      */
-    function verifyAttestation(address expectedPubkey, bytes calldata proofBytes) external {
+    function verifyAttestation(
+        address expectedPubkey,
+        bytes calldata proofBytes
+    ) external {
         require(expectedPubkey != address(0), ZeroAddress());
         require(!verifiedPubkeys[expectedPubkey], PubkeyAlreadyVerified());
         bytes32 vkey = _programVKey; // 1 SLOAD, passed to external call and event
-        ISP1Verifier(_attestationVerifier).verifyProof(vkey, abi.encode(expectedPubkey), proofBytes);
+        ISP1Verifier(_attestationVerifier).verifyProof(
+            vkey,
+            abi.encode(expectedPubkey),
+            proofBytes
+        );
         verifiedPubkeys[expectedPubkey] = true;
         emit AttestationVerified(vkey, expectedPubkey);
     }
@@ -180,7 +207,10 @@ contract NitroVerifier is AccessControl, INitroVerifier {
      *      and reverts if the recovered address is not in {verifiedPubkeys}.
      *      Signature layout: r (32 bytes) || s (32 bytes) || v (1 byte).
      */
-    function _assertSignerAttested(bytes32 payload, bytes calldata signature) internal view returns (address) {
+    function _assertSignerAttested(
+        bytes32 payload,
+        bytes calldata signature
+    ) internal view returns (address) {
         address verifier = ECDSA.recover(payload, signature);
         require(verifiedPubkeys[verifier], SignerNotAttested());
 

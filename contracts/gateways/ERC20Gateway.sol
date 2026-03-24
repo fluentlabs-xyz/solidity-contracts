@@ -396,10 +396,29 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         address minter,
         address pauser
     ) internal pure returns (bytes memory) {
-        // The L2 UniversalTokenFactory precompile expects init code prefixed with "ERC " (0x45524320).
-        // This magic prefix distinguishes universal token deployments from regular CREATE2 calls.
-        // The remaining payload is the standard ABI-encoded constructor arguments.
-        return abi.encodePacked(UNIVERSAL_TOKEN_MAGIC_BYTES, abi.encode(name, symbol, decimals, initialSupply, minter, pauser));
+        // 0x45524320 ("ERC ") magic prefix for the L2 precompile at 0x520008.
+        // The remaining bytes must be abi.encode(bytes32, bytes32, uint8, uint256, address, address)
+        // — fixed-size encoding matching the Rust InitialSettings struct layout.
+        // Using string types here would produce dynamic ABI encoding which the precompile cannot decode.
+        return abi.encodePacked(
+            UNIVERSAL_TOKEN_MAGIC_BYTES,
+            abi.encode(
+                _stringToBytes32(name),
+                _stringToBytes32(symbol),
+                decimals,
+                initialSupply,
+                minter,
+                pauser
+            )
+        );
+    }
+
+    /** @dev Converts a string to bytes32, truncating if longer than 32 bytes. */
+    function _stringToBytes32(string memory str) internal pure returns (bytes32 result) {
+        bytes memory b = bytes(str);
+        assembly {
+            result := mload(add(b, 32))
+        }
     }
 
     /** @dev Computes the local token address for a given origin token using this gateway. */

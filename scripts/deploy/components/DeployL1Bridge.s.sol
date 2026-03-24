@@ -25,6 +25,7 @@ contract DeployL1FluentBridge is DeployLib {
         address relayerRole = vm.envOr("RELAYER_ROLE", json.readAddress(".roles.relayer"));
         address otherBridgePlaceholder = vm.envOr("OTHER_BRIDGE_PLACEHOLDER", address(0x1));
         address rollup = vm.envOr("ROLLUP", address(0));
+        require(rollup != address(0), "ROLLUP required for standalone L1 bridge deploy");
 
         vm.startBroadcast();
         address bridgeImpl;

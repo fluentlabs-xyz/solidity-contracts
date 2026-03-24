@@ -1,4 +1,5 @@
 {
+    "chainId": 20994,
     "roles": {
         "initialOwner": "0x1C92DffBCe76670F69007F22A54e31ff3Ab45d5E",
         "admin": "0x1C92DffBCe76670F69007F22A54e31ff3Ab45d5E",
@@ -7,6 +8,6 @@
     },
     "bridge": {
         "otherBridge": "0x0000000000000000000000000000000000000001",
-        "receiveMessageDeadline": 100
+        "receiveMessageDeadline": 600
     }
 }

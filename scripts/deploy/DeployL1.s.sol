@@ -8,6 +8,7 @@ import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol
 import {NitroVerifier} from "../../contracts/verifier/NitroVerifier.sol";
 import {NativeGateway} from "../../contracts/gateways/NativeGateway.sol";
 import {L1FluentBridge} from "../../contracts/bridge/L1/L1FluentBridge.sol";
+import {Rollup} from "../../contracts/rollup/Rollup.sol";
 import {InitConfiguration} from "../../contracts/interfaces/IRollupTypes.sol";
 import {Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
@@ -62,12 +63,10 @@ contract DeployL1 is DeployLib {
             adminRole
         ));
 
-        // 2. Bridge (rollup=0x0 initially — resolved in step 4)
-        (d.bridge, d.bridgeImpl) = _deployFluentBridge(
-            adminRole, pauserRole, relayerRole, 0, otherBridgePlaceholder, address(0), address(0)
-        );
-
-        // 3. Rollup (needs bridge address from step 2)
+        // 2. Rollup (bridge=placeholder, resolved in step 4)
+        //    Both Bridge and Rollup require non-zero counterpart at init.
+        //    Deploy Rollup first with a placeholder bridge address, then deploy Bridge
+        //    with the real Rollup address, then update Rollup's bridge via admin call.
         {
             InitConfiguration memory rollupParams;
             rollupParams.admin = adminRole;
@@ -78,7 +77,7 @@ contract DeployL1 is DeployLib {
             rollupParams.preconfirmationRole = vm.envOr("ROLLUP_PRECONFIRMATION_ROLE", json.readAddress(".rollup.preconfirmation"));
             rollupParams.nitroVerifier = d.nitroVerifier;
             rollupParams.sp1Verifier = vm.envOr("SP1_VERIFIER", json.readAddress(".rollup.sp1Verifier"));
-            rollupParams.bridge = d.bridge;
+            rollupParams.bridge = address(0x1);
             rollupParams.programVKey = vm.envOr("ROLLUP_PROGRAM_VKEY", json.readBytes32(".rollup.programVKey"));
             rollupParams.genesisHash = vm.envOr("ROLLUP_GENESIS_HASH", json.readBytes32(".rollup.genesisHash"));
             rollupParams.submitBlobsWindow = vm.envOr("ROLLUP_SUBMIT_BLOBS_WINDOW", json.readUint(".rollup.submitBlobsWindow"));
@@ -88,12 +87,18 @@ contract DeployL1 is DeployLib {
             rollupParams.challengeDepositAmount = vm.envOr("ROLLUP_CHALLENGE_DEPOSIT_AMOUNT", json.readUint(".rollup.challengeDepositAmount"));
             rollupParams.incentiveFee = vm.envOr("ROLLUP_INCENTIVE_FEE", json.readUint(".rollup.incentiveFee"));
             rollupParams.acceptDepositDeadline = vm.envOr("ROLLUP_ACCEPT_DEPOSIT_DEADLINE", json.readUint(".rollup.acceptDepositDeadline"));
+            rollupParams.maxForceRevertBatchSize = vm.envOr("ROLLUP_MAX_FORCE_REVERT_BATCH_SIZE", json.readUint(".rollup.maxForceRevertBatchSize"));
 
             (d.rollup, d.rollupImpl) = _deployRollup(rollupParams);
         }
 
-        // 4. Close circular dependency: bridge → rollup
-        L1FluentBridge(payable(d.bridge)).setRollup(d.rollup);
+        // 3. Bridge (with real rollup address from step 2)
+        (d.bridge, d.bridgeImpl) = _deployFluentBridge(
+            adminRole, pauserRole, relayerRole, 0, otherBridgePlaceholder, address(0), d.rollup
+        );
+
+        // 4. Close circular dependency: update rollup's bridge placeholder → real bridge
+        Rollup(d.rollup).setBridge(d.bridge);
 
         // 5. ERC20 factory + ERC20 gateway
         {

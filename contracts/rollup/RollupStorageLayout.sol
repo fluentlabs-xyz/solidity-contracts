@@ -225,7 +225,10 @@ contract RollupStorageLayout is
     /**
      * @dev Initializes rollup storage from ABI-encoded {InitConfiguration}.
      *      Called once from {Rollup.initialize} via the UUPS proxy.
+     *      Parent initializers (ReentrancyGuard, Pausable, AccessControl, UUPS)
+     *      are called in {Rollup.initialize} before this function.
      */
+    /// @custom:oz-upgrades-unsafe-allow missing-initializer-call
     function __RollupStorage_init(bytes memory data) internal onlyInitializing {
         RollupStorage storage $ = _getRollupStorage();
 

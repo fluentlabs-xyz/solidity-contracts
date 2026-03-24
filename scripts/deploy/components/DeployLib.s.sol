@@ -107,7 +107,6 @@ abstract contract DeployLib is Script {
         bytes memory initData = abi.encode(params);
 
         if (receiveMessageDeadline == 0) {
-            require(rollup != address(0), "ROLLUP required when RECEIVE_MSG_DEADLINE == 0 (L1 deploy)");
             bytes memory initializerData = abi.encodeCall(L1FluentBridge.initialize, (initData, rollup));
             bridgeProxy = Upgrades.deployUUPSProxy(L1_FLUENT_BRIDGE, initializerData);
             bridgeImpl = Upgrades.getImplementationAddress(bridgeProxy);
