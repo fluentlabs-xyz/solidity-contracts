@@ -1,0 +1,29 @@
+{
+    "roles": {
+        "initialOwner": "0x1C92DffBCe76670F69007F22A54e31ff3Ab45d5E",
+        "admin": "0x1C92DffBCe76670F69007F22A54e31ff3Ab45d5E",
+        "pauser": "0x1C92DffBCe76670F69007F22A54e31ff3Ab45d5E",
+        "relayer": "0x1C92DffBCe76670F69007F22A54e31ff3Ab45d5E"
+    },
+    "bridge": {
+        "otherBridge": "0x0000000000000000000000000000000000000001",
+        "receiveMessageDeadline": 0
+    },
+    "rollup": {
+        "sequencer": "0x0000000000000000000000000000000000000000",
+        "challenger": "0x0000000000000000000000000000000000000000",
+        "prover": "0x0000000000000000000000000000000000000000",
+        "emergency": "0x0000000000000000000000000000000000000000",
+        "preconfirmation": "0x0000000000000000000000000000000000000000",
+        "sp1Verifier": "0x397A5f7f3dBd538f23DE225B51f532c34448dA9B",
+        "programVKey": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "genesisHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "submitBlobsWindow": 7200,
+        "preconfirmWindow": 7201,
+        "challengeWindow": 10800,
+        "finalizationDelay": 14400,
+        "challengeDepositAmount": "10000000000000000",
+        "incentiveFee": "1000000000000000",
+        "acceptDepositDeadline": 10000
+    }
+}

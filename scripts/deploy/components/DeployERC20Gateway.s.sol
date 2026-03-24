@@ -2,15 +2,15 @@
 pragma solidity 0.8.30;
 
 import {DeployLib} from "./DeployLib.s.sol";
-import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol";
-import {UniversalTokenFactory} from "../../contracts/factories/UniversalTokenFactory.sol";
+import {ERC20TokenFactory} from "../../../contracts/factories/ERC20TokenFactory.sol";
+import {UniversalTokenFactory} from "../../../contracts/factories/UniversalTokenFactory.sol";
 
 /**
- * @notice Deployment script for PaymentGateway (impl + proxy). Links gateway to factory via setPaymentGateway.
+ * @notice Deployment script for ERC20Gateway (impl + proxy). Links gateway to factory via setPaymentGateway.
  * @dev Environment: INITIAL_OWNER (address), BRIDGE_ADDRESS (address), FACTORY_ADDRESS (address), OUTPUT_PATH (string, optional).
  *      FACTORY_ADDRESS can be ERC20TokenFactory or UniversalTokenFactory proxy.
  */
-contract DeployPaymentGateway is DeployLib {
+contract DeployERC20Gateway is DeployLib {
     function run() external returns (address gateway) {
         address initialOwner = vm.envAddress("INITIAL_OWNER");
         address bridgeAddress = vm.envAddress("BRIDGE_ADDRESS");
@@ -18,7 +18,7 @@ contract DeployPaymentGateway is DeployLib {
         string memory outputPath = vm.envOr("OUTPUT_PATH", string(""));
 
         vm.startBroadcast();
-        PaymentGatewayResult memory r = _deployPaymentGateway(initialOwner, bridgeAddress, factoryAddress);
+        ERC20GatewayResult memory r = _deployERC20Gateway(initialOwner, bridgeAddress, factoryAddress);
         _setPaymentGatewayOnFactory(factoryAddress, r.gateway);
         vm.stopBroadcast();
 
