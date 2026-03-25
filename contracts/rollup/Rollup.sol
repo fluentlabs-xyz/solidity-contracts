@@ -145,7 +145,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         // Refund any overpayment back to the caller (underflow safe: require on L115 guarantees msg.value >= totalIncentiveFees)
         uint256 refund = msg.value - totalIncentiveFees;
         if (refund > 0) {
-            (bool ok,) = msg.sender.call{value: refund}("");
+            (bool ok, ) = msg.sender.call{value: refund}("");
             require(ok, EthTransferFailed(msg.sender, refund));
         }
 

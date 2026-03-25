@@ -12,33 +12,41 @@ cd "$PROJECT_ROOT"
 
 if [[ -f .env ]]; then set -a; source .env; set +a; fi
 
-export FOUNDRY_OUT="${FOUNDRY_OUT:-forge-out}"
 
 L2_FORGE="${L2_FORGE:-gblend}"
 DEPLOYER="${DEPLOYER:?DEPLOYER required}"
 L1_RPC="${L1_RPC:?L1_RPC required}"
 L2_RPC="${L2_RPC:?L2_RPC required}"
 
-L1_MANIFEST="${L1_MANIFEST:-deployments/sepolia.json}"
-L2_MANIFEST="${L2_MANIFEST:-deployments/fluent_testnet.json}"
+ENV="${ENV:-testnet}"
+L1_MANIFEST="${L1_MANIFEST:-deployments/${ENV}/l1.json}"
+L2_MANIFEST="${L2_MANIFEST:-deployments/${ENV}/l2.json}"
 
 # Read addresses from manifests
 l2_bridge=$(jq -r '.bridge // .deployment.bridge' "$L2_MANIFEST")
 l1_erc20_gw=$(jq -r '.erc20_gateway // .deployment.erc20_gateway' "$L1_MANIFEST")
 l2_erc20_gw=$(jq -r '.erc20_gateway // .deployment.erc20_gateway' "$L2_MANIFEST")
 l1_block_oracle=$(jq -r '.l1_block_oracle // .deployment.l1_block_oracle' "$L2_MANIFEST")
-mock_token=$(jq -r '.mock_token // .deployment.mock_token' "$L1_MANIFEST")
 
 RECIPIENT="${RECIPIENT:-$(cast wallet address --account "$DEPLOYER")}"
 AMOUNT="${AMOUNT:-1000000000000000000}" # 1 token
 
-echo "=== Step 1: Deposit ERC20 L1→L2 ==="
+echo "=== Step 1: Deploy fresh test token on L1 ==="
+DEPLOY_LOG=$(mktemp)
+forge create test/mocks/MockERC20.sol:MockERC20Token \
+    --rpc-url "$L1_RPC" --account "$DEPLOYER" \
+    --constructor-args "Test Token" "TST" "$AMOUNT" "$RECIPIENT" | tee "$DEPLOY_LOG"
+mock_token=$(grep "Deployed to:" "$DEPLOY_LOG" | awk '{print $3}')
+rm -f "$DEPLOY_LOG"
+echo "  Token: $mock_token"
+
+echo "=== Step 2: Deposit ERC20 L1→L2 ==="
 GATEWAY_ADDRESS="$l1_erc20_gw" TOKEN_ADDRESS="$mock_token" \
     RECIPIENT="$RECIPIENT" AMOUNT="$AMOUNT" \
     forge script scripts/operations/DepositTokens.s.sol \
     --rpc-url "$L1_RPC" --account "$DEPLOYER" --broadcast
 
-echo "=== Step 2: Parse SentMessage event from broadcast ==="
+echo "=== Step 3: Parse SentMessage event from broadcast ==="
 L1_CHAIN_ID=$(cast chain-id --rpc-url "$L1_RPC")
 BROADCAST_JSON="broadcast/DepositTokens.s.sol/${L1_CHAIN_ID}/run-latest.json"
 
@@ -55,19 +63,19 @@ MESSAGE=$(echo "$DECODED" | sed -n '6p')
 
 echo "  Block: $SRC_BLOCK, Nonce: $NONCE"
 
-echo "=== Step 3: Update L1BlockOracle on L2 ==="
+echo "=== Step 4: Update L1BlockOracle on L2 ==="
 L1_BLOCK=$(cast block-number --rpc-url "$L1_RPC")
 cast send "$l1_block_oracle" "updateL1BlockNumber(uint256)" "$L1_BLOCK" \
     --rpc-url "$L2_RPC" --account "$DEPLOYER"
 
-echo "=== Step 4: Relay message on L2 ==="
+echo "=== Step 5: Relay message on L2 ==="
 # Use cast send directly — gblend script can't simulate proxy delegation
 cast send "$l2_bridge" \
     "receiveMessage(address,address,uint256,uint256,uint256,uint256,bytes)" \
     "$l1_erc20_gw" "$l2_erc20_gw" 0 "$L1_CHAIN_ID" "$SRC_BLOCK" "$NONCE" "$MESSAGE" \
     --rpc-url "$L2_RPC" --account "$DEPLOYER"
 
-echo "=== Step 5: Verify pegged token deployed on L2 ==="
+echo "=== Step 6: Verify pegged token deployed on L2 ==="
 l2_factory=$(jq -r '.factory // .deployment.factory' "$L2_MANIFEST")
 # bridgedTokens maps originToken → peggedToken on the factory
 PEGGED=$(cast call "$l2_factory" "bridgedTokens(address)(address)" "$mock_token" \

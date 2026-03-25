@@ -15,10 +15,7 @@ contract VerifyDeployment is Script {
         string memory path = vm.envString("MANIFEST_PATH");
         string memory json = vm.readFile(path);
 
-        string[8] memory keys = [
-            "bridge", "bridge_impl", "factory", "factory_impl",
-            "gateway", "gateway_impl", "pegged_impl", "factory_beacon"
-        ];
+        string[8] memory keys = ["bridge", "bridge_impl", "factory", "factory_impl", "gateway", "gateway_impl", "pegged_impl", "factory_beacon"];
 
         uint256 checked;
         uint256 failed;

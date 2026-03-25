@@ -133,7 +133,7 @@ forge install
 forge build
 ```
 
-Compiles without errors; artifacts under `forge-out/`. Configuration: `via_ir = true`, Cancun EVM, optimizer on (200 runs).
+Compiles without errors; artifacts under `out/`. Configuration: `via_ir = true`, Prague EVM, optimizer on (200 runs).
 
 ### Test
 
@@ -191,7 +191,7 @@ forge coverage --ir-minimum --report lcov
 | **[`docs/BridgeFailuresAndRollback.md`](docs/BridgeFailuresAndRollback.md)** | Complete message lifecycle with state diagrams: trusted delivery, L2 timeout mechanics, target execution failure, retry via `receiveFailedMessage`, L1 proof-based rollback. |
 | **[`docs/UpgradeSafety.md`](docs/UpgradeSafety.md)** | All UUPS proxy and beacon upgrade surfaces, required 6-step upgrade procedure, unsafe scripts, deployment checks, auditor evidence checklist. |
 | **[`docs/Addresses.md`](docs/Addresses.md)** | Deployed contract addresses for Sepolia (L1) and Fluent testnet (L2), chain IDs, RPC endpoints, explorer links, verification instructions. |
-| **[`docs/DeveloperGuide.md`](docs/DeveloperGuide.md)** | Usage examples (deposit/withdraw scripts), extending the system (new gateways, message paths), troubleshooting common errors. |
+| **[`docs/DeveloperGuide.md`](docs/DeveloperGuide.md)** | Deployment flow, upgrades, configuration, E2E testing, operations scripts, extending the system, troubleshooting. |
 
 ---
 

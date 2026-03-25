@@ -2,23 +2,23 @@
 pragma solidity 0.8.30;
 
 import {Script, console2} from "forge-std/Script.sol";
-import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
-import {UniversalTokenFactory} from "../../contracts/factories/UniversalTokenFactory.sol";
+import {Upgrades, Options} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
 /// @notice Upgrades UniversalTokenFactory proxy to the latest implementation.
-/// @dev Uses UnsafeUpgrades because UniversalTokenSDK library is unlinked.
-///      Requires ALLOW_UNSAFE_UPGRADES=true.
+/// @dev Env: PROXY_ADDRESS (required), UNSAFE_SKIP_STORAGE_CHECK (optional, for first upgrade).
 contract UpgradeUniversalTokenFactory is Script {
     function run() external {
         address proxy = vm.envAddress("PROXY_ADDRESS");
         require(proxy.code.length > 0, "proxy has no code");
-        require(vm.envOr("ALLOW_UNSAFE_UPGRADES", false), "ALLOW_UNSAFE_UPGRADES=true required");
+
+        Options memory opts;
+        opts.referenceContract = vm.envOr("REFERENCE_CONTRACT", string("UniversalTokenFactory.sol:UniversalTokenFactory"));
+        opts.unsafeSkipStorageCheck = vm.envOr("UNSAFE_SKIP_STORAGE_CHECK", false);
 
         vm.startBroadcast();
-        UniversalTokenFactory newImpl = new UniversalTokenFactory();
-        UnsafeUpgrades.upgradeProxy(proxy, address(newImpl), "");
+        Upgrades.upgradeProxy(proxy, "UniversalTokenFactory.sol:UniversalTokenFactory", "", opts);
         vm.stopBroadcast();
 
-        console2.log("Upgraded", proxy, "->", address(newImpl));
+        console2.log("Upgraded", proxy, "->", Upgrades.getImplementationAddress(proxy));
     }
 }

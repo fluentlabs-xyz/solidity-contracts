@@ -371,9 +371,7 @@ contract L1FluentBridgeTest is BridgeBase {
 
         // Reconstruct the same messageHash that would be produced by sendMessage on L1
         // and later included in the L2 block's withdrawalRoot after the rollback on L2
-        bytes32 messageHash = keccak256(
-            abi.encode(depositor, l2Target, depositValue, chainId, uint256(1), uint256(0), bytes(""))
-        );
+        bytes32 messageHash = keccak256(abi.encode(depositor, l2Target, depositValue, chainId, uint256(1), uint256(0), bytes("")));
 
         // The L2 sequencer builds a block whose withdrawalRoot contains the rollback messageHash.
         // After batch finalization on L1, this proof becomes verifiable.
@@ -385,9 +383,7 @@ contract L1FluentBridgeTest is BridgeBase {
             depositCount: 0
         });
 
-        bytes32 commitment = keccak256(
-            abi.encodePacked(header.previousBlockHash, header.blockHash, header.withdrawalRoot, header.depositRoot)
-        );
+        bytes32 commitment = keccak256(abi.encodePacked(header.previousBlockHash, header.blockHash, header.withdrawalRoot, header.depositRoot));
         rollup.setBatchRoot(1, commitment);
 
         MerkleTree.MerkleProof memory emptyProof = MerkleTree.MerkleProof(0, "");
@@ -408,11 +404,7 @@ contract L1FluentBridgeTest is BridgeBase {
             emptyProof
         );
 
-        assertEq(
-            uint8(l1Bridge.getRollbackMessage(messageHash)),
-            uint8(IFluentBridge.MessageStatus.Success),
-            "rollback should succeed"
-        );
+        assertEq(uint8(l1Bridge.getRollbackMessage(messageHash)), uint8(IFluentBridge.MessageStatus.Success), "rollback should succeed");
         assertEq(depositor.balance, depositorBalBefore + depositValue, "depositor should receive refund");
     }
 }

@@ -3,159 +3,104 @@ pragma solidity 0.8.30;
 
 import {stdJson} from "forge-std/StdJson.sol";
 
-import {DeployLib} from "./components/DeployLib.s.sol";
-import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol";
+import {DeployRollup} from "./DeployRollup.s.sol";
+import {DeployL1Bridge} from "./DeployL1Bridge.s.sol";
+import {DeployERC20Factory} from "./DeployERC20Factory.s.sol";
+import {DeployERC20Gateway} from "./DeployERC20Gateway.s.sol";
+import {DeployNativeGateway} from "./DeployNativeGateway.s.sol";
 import {NitroVerifier} from "../../contracts/verifier/NitroVerifier.sol";
-import {NativeGateway} from "../../contracts/gateways/NativeGateway.sol";
-import {L1FluentBridge} from "../../contracts/bridge/L1/L1FluentBridge.sol";
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
+import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol";
 import {InitConfiguration} from "../../contracts/interfaces/IRollupTypes.sol";
-import {Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
+import {MockERC20Token} from "../../test/mocks/MockERC20.sol";
 
-/**
- * @notice L1 deploy orchestrator: NitroVerifier + Bridge + Rollup + Factories + Gateways.
- * @dev Reads chain config from scripts/input/<NETWORK>.json. Env vars override JSON values.
- *      Handles the bridge↔rollup circular dependency: deploys bridge with rollup=0x0,
- *      then deploys rollup with the bridge address, then calls bridge.setRollup().
- */
-contract DeployL1 is DeployLib {
+/// @notice L1 orchestrator: deploys full stack in dependency order.
+/// @dev Reads config from scripts/config/<NETWORK>.json.
+///      Handles the bridge↔rollup circular dependency: deploys rollup with placeholder bridge,
+///      then bridge with real rollup, then calls Rollup.setBridge().
+contract DeployL1 is DeployRollup, DeployL1Bridge, DeployERC20Factory, DeployERC20Gateway, DeployNativeGateway {
     using stdJson for string;
 
-    struct Deployment {
-        address nitroVerifier;
-        address bridge;
-        address bridgeImpl;
-        address rollup;
-        address rollupImpl;
-        address peggedImpl;
-        address factoryImpl;
-        address factory;
-        address factoryBeacon;
-        address erc20GatewayImpl;
-        address erc20Gateway;
-        address nativeGatewayImpl;
-        address nativeGateway;
-        address mockToken;
-    }
-
-    function run() external {
-        // Phase 1: Config
+    function run() external override(DeployRollup, DeployL1Bridge, DeployERC20Factory, DeployERC20Gateway, DeployNativeGateway) {
         string memory network = vm.envOr("NETWORK", string("testnet/l1"));
         string memory json = _readConfig(network);
-        string memory outputPath = vm.envOr("OUTPUT_PATH", string("deployments/sepolia.json"));
+        string memory outputPath = vm.envOr("OUTPUT_PATH", string.concat("deployments/", network, ".json"));
 
         address initialOwner = vm.envOr("INITIAL_OWNER", json.readAddress(".roles.initialOwner"));
         require(initialOwner != address(0), "INITIAL_OWNER required");
-
         address adminRole = vm.envOr("ADMIN_ROLE", json.readAddress(".roles.admin"));
         address pauserRole = vm.envOr("PAUSER_ROLE", json.readAddress(".roles.pauser"));
         address relayerRole = vm.envOr("RELAYER_ROLE", json.readAddress(".roles.relayer"));
-        address otherBridgePlaceholder = vm.envOr("OTHER_BRIDGE_PLACEHOLDER", address(0x1));
 
-        Deployment memory d;
-
-        // Phase 2: Deploy
         vm.startBroadcast();
 
-        // 1. NitroVerifier (plain contract, no proxy)
-        d.nitroVerifier = address(new NitroVerifier(
-            vm.envOr("SP1_VERIFIER", json.readAddress(".rollup.sp1Verifier")),
-            adminRole
-        ));
+        // 1. NitroVerifier (plain contract)
+        address nitroVerifier = address(new NitroVerifier(vm.envOr("SP1_VERIFIER", json.readAddress(".rollup.sp1Verifier")), adminRole));
 
         // 2. Rollup (bridge=placeholder, resolved in step 4)
-        //    Both Bridge and Rollup require non-zero counterpart at init.
-        //    Deploy Rollup first with a placeholder bridge address, then deploy Bridge
-        //    with the real Rollup address, then update Rollup's bridge via admin call.
-        {
-            InitConfiguration memory rollupParams;
-            rollupParams.admin = adminRole;
-            rollupParams.emergency = vm.envOr("ROLLUP_EMERGENCY", json.readAddress(".rollup.emergency"));
-            rollupParams.sequencer = vm.envOr("ROLLUP_SEQUENCER", json.readAddress(".rollup.sequencer"));
-            rollupParams.challenger = vm.envOr("ROLLUP_CHALLENGER", json.readAddress(".rollup.challenger"));
-            rollupParams.prover = vm.envOr("ROLLUP_PROVER", json.readAddress(".rollup.prover"));
-            rollupParams.preconfirmationRole = vm.envOr("ROLLUP_PRECONFIRMATION_ROLE", json.readAddress(".rollup.preconfirmation"));
-            rollupParams.nitroVerifier = d.nitroVerifier;
-            rollupParams.sp1Verifier = vm.envOr("SP1_VERIFIER", json.readAddress(".rollup.sp1Verifier"));
-            rollupParams.bridge = address(0x1);
-            rollupParams.programVKey = vm.envOr("ROLLUP_PROGRAM_VKEY", json.readBytes32(".rollup.programVKey"));
-            rollupParams.genesisHash = vm.envOr("ROLLUP_GENESIS_HASH", json.readBytes32(".rollup.genesisHash"));
-            rollupParams.submitBlobsWindow = vm.envOr("ROLLUP_SUBMIT_BLOBS_WINDOW", json.readUint(".rollup.submitBlobsWindow"));
-            rollupParams.preconfirmWindow = vm.envOr("ROLLUP_PRECONFIRM_WINDOW", json.readUint(".rollup.preconfirmWindow"));
-            rollupParams.challengeWindow = vm.envOr("ROLLUP_CHALLENGE_WINDOW", json.readUint(".rollup.challengeWindow"));
-            rollupParams.finalizationDelay = vm.envOr("ROLLUP_FINALIZATION_DELAY", json.readUint(".rollup.finalizationDelay"));
-            rollupParams.challengeDepositAmount = vm.envOr("ROLLUP_CHALLENGE_DEPOSIT_AMOUNT", json.readUint(".rollup.challengeDepositAmount"));
-            rollupParams.incentiveFee = vm.envOr("ROLLUP_INCENTIVE_FEE", json.readUint(".rollup.incentiveFee"));
-            rollupParams.acceptDepositDeadline = vm.envOr("ROLLUP_ACCEPT_DEPOSIT_DEADLINE", json.readUint(".rollup.acceptDepositDeadline"));
-            rollupParams.maxForceRevertBatchSize = vm.envOr("ROLLUP_MAX_FORCE_REVERT_BATCH_SIZE", json.readUint(".rollup.maxForceRevertBatchSize"));
+        InitConfiguration memory rollupParams = _readRollupParams(json, adminRole, nitroVerifier);
+        rollupParams.bridge = address(0x1);
+        RollupResult memory rollup = _deployRollup(rollupParams);
 
-            (d.rollup, d.rollupImpl) = _deployRollup(rollupParams);
-        }
+        // 3. Bridge (with real rollup)
+        L1BridgeResult memory bridge = _deployL1Bridge(adminRole, pauserRole, relayerRole, address(0x1), rollup.proxy);
 
-        // 3. Bridge (with real rollup address from step 2)
-        (d.bridge, d.bridgeImpl) = _deployFluentBridge(
-            adminRole, pauserRole, relayerRole, 0, otherBridgePlaceholder, address(0), d.rollup
-        );
+        // 4. Close circular dependency
+        Rollup(rollup.proxy).setBridge(bridge.proxy);
 
-        // 4. Close circular dependency: update rollup's bridge placeholder → real bridge
-        Rollup(d.rollup).setBridge(d.bridge);
-
-        // 5. ERC20 factory + ERC20 gateway
-        {
-            ERC20FactoryResult memory factoryResult = _deployERC20TokenFactory(initialOwner);
-            d.peggedImpl = factoryResult.peggedImpl;
-            d.factoryImpl = factoryResult.factoryImpl;
-            d.factory = factoryResult.factory;
-            d.factoryBeacon = factoryResult.factoryBeacon;
-
-            ERC20GatewayResult memory gatewayResult = _deployERC20Gateway(initialOwner, d.bridge, d.factory);
-            d.erc20GatewayImpl = gatewayResult.gatewayImpl;
-            d.erc20Gateway = gatewayResult.gateway;
-
-            ERC20TokenFactory(d.factory).setPaymentGateway(d.erc20Gateway);
-        }
+        // 5. ERC20 factory + gateway
+        ERC20FactoryResult memory factory = _deployERC20Factory(initialOwner);
+        ERC20GatewayResult memory erc20Gw = _deployERC20Gateway(initialOwner, bridge.proxy, factory.factory);
+        ERC20TokenFactory(factory.factory).setPaymentGateway(erc20Gw.gateway);
 
         // 6. NativeGateway
-        d.nativeGateway = Upgrades.deployUUPSProxy(
-            "NativeGateway.sol:NativeGateway",
-            abi.encodeCall(NativeGateway.initialize, (initialOwner, d.bridge))
-        );
-        d.nativeGatewayImpl = Upgrades.getImplementationAddress(d.nativeGateway);
+        NativeGatewayResult memory nativeGw = _deployNativeGateway(initialOwner, bridge.proxy);
 
         // 7. Mock token (testnet only)
-        d.mockToken = _deployMockFromEnv(initialOwner);
+        address mockToken = _deployMock(initialOwner);
 
         vm.stopBroadcast();
 
-        // Phase 3: Artifacts
-        if (bytes(outputPath).length != 0) {
-            _writeOutput(outputPath, d);
-        }
+        _writeL1Manifest(outputPath, nitroVerifier, rollup, bridge, factory, erc20Gw, nativeGw, mockToken);
     }
 
-    function _deployMockFromEnv(address initialOwner) internal returns (address) {
-        string memory mockName = vm.envOr("MOCK_ERC20_NAME", string("Mock Deposit Token"));
-        string memory mockSymbol = vm.envOr("MOCK_ERC20_SYMBOL", string("MDT"));
-        uint256 mockSupply = vm.envOr("MOCK_ERC20_SUPPLY", uint256(1_000_000 ether));
-        address mockRecipient = vm.envOr("MOCK_ERC20_RECIPIENT", initialOwner);
-        return _deployMockERC20(mockName, mockSymbol, mockSupply, mockRecipient);
+    function _deployMock(address initialOwner) internal returns (address) {
+        return
+            address(
+                new MockERC20Token(
+                    vm.envOr("MOCK_ERC20_NAME", string("Mock Deposit Token")),
+                    vm.envOr("MOCK_ERC20_SYMBOL", string("MDT")),
+                    vm.envOr("MOCK_ERC20_SUPPLY", uint256(1_000_000 ether)),
+                    vm.envOr("MOCK_ERC20_RECIPIENT", initialOwner)
+                )
+            );
     }
 
-    function _writeOutput(string memory outputPath, Deployment memory d) internal {
-        string memory out = vm.serializeAddress("deployment", "nitro_verifier", d.nitroVerifier);
-        out = vm.serializeAddress("deployment", "bridge", d.bridge);
-        out = vm.serializeAddress("deployment", "bridge_impl", d.bridgeImpl);
-        out = vm.serializeAddress("deployment", "rollup", d.rollup);
-        out = vm.serializeAddress("deployment", "rollup_impl", d.rollupImpl);
-        out = vm.serializeAddress("deployment", "pegged_impl", d.peggedImpl);
-        out = vm.serializeAddress("deployment", "factory_impl", d.factoryImpl);
-        out = vm.serializeAddress("deployment", "factory", d.factory);
-        out = vm.serializeAddress("deployment", "factory_beacon", d.factoryBeacon);
-        out = vm.serializeAddress("deployment", "erc20_gateway_impl", d.erc20GatewayImpl);
-        out = vm.serializeAddress("deployment", "erc20_gateway", d.erc20Gateway);
-        out = vm.serializeAddress("deployment", "native_gateway_impl", d.nativeGatewayImpl);
-        out = vm.serializeAddress("deployment", "native_gateway", d.nativeGateway);
-        out = vm.serializeAddress("deployment", "mock_token", d.mockToken);
+    function _writeL1Manifest(
+        string memory outputPath,
+        address nitroVerifier,
+        RollupResult memory rollup,
+        L1BridgeResult memory bridge,
+        ERC20FactoryResult memory factory,
+        ERC20GatewayResult memory erc20Gw,
+        NativeGatewayResult memory nativeGw,
+        address mockToken
+    ) internal {
+        string memory out = vm.serializeUint("deployment", "chainId", block.chainid);
+        out = vm.serializeAddress("deployment", "nitro_verifier", nitroVerifier);
+        out = vm.serializeAddress("deployment", "rollup", rollup.proxy);
+        out = vm.serializeAddress("deployment", "rollup_impl", rollup.impl);
+        out = vm.serializeAddress("deployment", "bridge", bridge.proxy);
+        out = vm.serializeAddress("deployment", "bridge_impl", bridge.impl);
+        out = vm.serializeAddress("deployment", "factory", factory.factory);
+        out = vm.serializeAddress("deployment", "factory_impl", factory.factoryImpl);
+        out = vm.serializeAddress("deployment", "factory_beacon", factory.factoryBeacon);
+        out = vm.serializeAddress("deployment", "pegged_impl", factory.peggedImpl);
+        out = vm.serializeAddress("deployment", "erc20_gateway", erc20Gw.gateway);
+        out = vm.serializeAddress("deployment", "erc20_gateway_impl", erc20Gw.gatewayImpl);
+        out = vm.serializeAddress("deployment", "native_gateway", nativeGw.gateway);
+        out = vm.serializeAddress("deployment", "native_gateway_impl", nativeGw.gatewayImpl);
+        out = vm.serializeAddress("deployment", "mock_token", mockToken);
         vm.writeJson(out, outputPath);
     }
 }

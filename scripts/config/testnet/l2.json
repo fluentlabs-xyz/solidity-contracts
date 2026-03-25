@@ -8,6 +8,12 @@
     },
     "bridge": {
         "otherBridge": "0x0000000000000000000000000000000000000001",
-        "receiveMessageDeadline": 600
+        "receiveMessageDeadline": 600,
+        "executeGasLimit": 300000
+    },
+    "timelock": {
+        "normalDelay": 60,
+        "emergencyDelay": 10,
+        "safe": "0x0000000000000000000000000000000000000000"
     }
 }

@@ -8,22 +8,22 @@ import {NativeGateway} from "../../contracts/gateways/NativeGateway.sol";
 
 /**
  * @notice Configure L1 bridge and gateways to point at L2 counterparts.
- * @dev Reads both deployment manifests and the L2 config for chain ID.
+ * @dev Reads deployment manifests from deployments/<ENV>/ and L2 config for chain ID.
  *      Broadcasts against L1 RPC only.
- *      Run SetupL2.s.sol separately against L2 RPC to complete linking.
  *
  * Environment:
- * - SOURCE_JSON (optional, default: "deployments/sepolia.json")
- * - DEST_JSON (optional, default: "deployments/fluent_testnet.json")
- * - DEST_CONFIG (optional, default: "scripts/config/testnet/l2.json")
+ * - ENV (optional, default: "testnet") — deployment environment
+ * - DEST_CONFIG (optional, default: "scripts/config/<ENV>/l2.json") — L2 chain config
  */
 contract SetupL1Bridge is Script {
     using stdJson for string;
 
     function run() external {
-        string memory sourceJson = vm.readFile(vm.envOr("SOURCE_JSON", string("deployments/sepolia.json")));
-        string memory destJson = vm.readFile(vm.envOr("DEST_JSON", string("deployments/fluent_testnet.json")));
-        string memory destConfig = vm.readFile(vm.envOr("DEST_CONFIG", string("scripts/config/testnet/l2.json")));
+        string memory env = vm.envOr("ENV", string("testnet"));
+        string memory sourceJson = vm.readFile(vm.envOr("SOURCE_JSON", string.concat("deployments/", env, "/l1.json")));
+        string memory destJson = vm.readFile(vm.envOr("DEST_JSON", string.concat("deployments/", env, "/l2.json")));
+        string memory sourceConfig = vm.readFile(vm.envOr("SOURCE_CONFIG", string.concat("scripts/config/", env, "/l1.json")));
+        string memory destConfig = vm.readFile(vm.envOr("DEST_CONFIG", string.concat("scripts/config/", env, "/l2.json")));
 
         address l1Bridge = _readAddr(sourceJson, "bridge");
         address l1Erc20Gateway = _readAddr(sourceJson, "erc20_gateway");
@@ -36,6 +36,7 @@ contract SetupL1Bridge is Script {
         address l2FactoryBeacon = _readAddr(destJson, "factory_beacon");
         address l2PeggedImpl = _readAddr(destJson, "pegged_impl");
         uint256 l2ChainId = destConfig.readUint(".chainId");
+        uint256 executeGasLimit = sourceConfig.readUint(".bridge.executeGasLimit");
 
         require(l1Bridge != address(0) && l2Bridge != address(0), "bridge addresses missing");
         require(l1Erc20Gateway != address(0) && l2Erc20Gateway != address(0), "erc20 gateway addresses missing");
@@ -51,14 +52,8 @@ contract SetupL1Bridge is Script {
 
         vm.startBroadcast();
         L1FluentBridge(payable(l1Bridge)).setOtherBridge(l2Bridge);
-        ERC20Gateway(payable(l1Erc20Gateway)).setOtherSide(
-            true,
-            l2Erc20Gateway,
-            l2ChainId,
-            l2PeggedImpl,
-            l2Factory,
-            l2FactoryBeacon
-        );
+        L1FluentBridge(payable(l1Bridge)).setExecuteGasLimit(executeGasLimit);
+        ERC20Gateway(payable(l1Erc20Gateway)).setOtherSide(true, l2Erc20Gateway, l2ChainId, l2PeggedImpl, l2Factory, l2FactoryBeacon);
         NativeGateway(payable(l1NativeGateway)).setOtherSideGateway(l2NativeGateway);
         vm.stopBroadcast();
     }
