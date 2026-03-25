@@ -72,7 +72,6 @@ contract DeployL2 is DeployL2Bridge, DeployUniversalFactory, DeployERC20Gateway,
         out = vm.serializeAddress("deployment", "bridge_impl", bridge.impl);
         out = vm.serializeAddress("deployment", "factory", factory.factory);
         out = vm.serializeAddress("deployment", "factory_impl", factory.factoryImpl);
-        out = vm.serializeAddress("deployment", "factory_beacon", address(0));
         out = vm.serializeAddress("deployment", "pegged_impl", UNIVERSAL_RUNTIME);
         out = vm.serializeAddress("deployment", "erc20_gateway", erc20Gw.gateway);
         out = vm.serializeAddress("deployment", "erc20_gateway_impl", erc20Gw.gatewayImpl);
