@@ -400,17 +400,11 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         // The remaining bytes must be abi.encode(bytes32, bytes32, uint8, uint256, address, address)
         // — fixed-size encoding matching the Rust InitialSettings struct layout.
         // Using string types here would produce dynamic ABI encoding which the precompile cannot decode.
-        return abi.encodePacked(
-            UNIVERSAL_TOKEN_MAGIC_BYTES,
-            abi.encode(
-                _stringToBytes32(name),
-                _stringToBytes32(symbol),
-                decimals,
-                initialSupply,
-                minter,
-                pauser
-            )
-        );
+        return
+            abi.encodePacked(
+                UNIVERSAL_TOKEN_MAGIC_BYTES,
+                abi.encode(_stringToBytes32(name), _stringToBytes32(symbol), decimals, initialSupply, minter, pauser)
+            );
     }
 
     /** @dev Converts a string to bytes32, truncating if longer than 32 bytes. */

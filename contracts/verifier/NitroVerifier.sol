@@ -181,13 +181,13 @@ contract NitroVerifier is AccessControl, INitroVerifier {
      * @dev The SP1 program verifies the AWS Nitro certificate chain off-chain and
      *      produces a proof with `abi.encode(expectedPubkey)` as the public output,
      *      verified here against {_programVKey}.
+     *      DEFAULT_ADMIN_ROLE is required to prevent attack if SP1 verification is compromised —
+     *      ensures only trusted parties can submit proofs. Since DEFAULT_ADMIN_ROLE is mutlisig,
+     *      the risk of compromise is reduced.
      * @param expectedPubkey Enclave-derived address to attest.
      * @param proofBytes     Encoded SP1 proof.
      */
-    function verifyAttestation(
-        address expectedPubkey,
-        bytes calldata proofBytes
-    ) external {
+    function verifyAttestation(address expectedPubkey, bytes calldata proofBytes) external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(expectedPubkey != address(0), ZeroAddress());
         require(!verifiedPubkeys[expectedPubkey], PubkeyAlreadyVerified());
         bytes32 vkey = _programVKey; // 1 SLOAD, passed to external call and event

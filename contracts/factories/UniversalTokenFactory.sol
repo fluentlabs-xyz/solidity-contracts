@@ -142,17 +142,11 @@ contract UniversalTokenFactory is GenericTokenFactory {
         // The remaining bytes must be abi.encode(bytes32, bytes32, uint8, uint256, address, address)
         // — fixed-size encoding matching the Rust InitialSettings struct layout.
         // Using string types here would produce dynamic ABI encoding which the precompile cannot decode.
-        return abi.encodePacked(
-            bytes4(0x45524320),
-            abi.encode(
-                _stringToBytes32(name),
-                _stringToBytes32(symbol),
-                decimals,
-                initialSupply,
-                minter,
-                pauser
-            )
-        );
+        return
+            abi.encodePacked(
+                bytes4(0x45524320),
+                abi.encode(_stringToBytes32(name), _stringToBytes32(symbol), decimals, initialSupply, minter, pauser)
+            );
     }
 
     function _stringToBytes32(string memory str) internal pure returns (bytes32 result) {
