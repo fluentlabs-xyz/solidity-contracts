@@ -235,6 +235,14 @@ contract FluentBridgeStorageLayout is
         _revokeRole(RELAYER_ROLE, relayer);
     }
 
+    /**
+     * @notice Revokes RELAYER_ROLE during an emergency without waiting for the admin timelock.
+     * @param relayer Address to revoke relayer access from.
+     */
+    function emergencyRevokeRelayer(address relayer) external onlyRole(PAUSER_ROLE) {
+        _revokeRole(RELAYER_ROLE, relayer);
+    }
+
     /// @inheritdoc IFluentBridgeAdmin
     function setExecuteGasLimit(uint256 newExecuteGasLimit) external onlyRole(DEFAULT_ADMIN_ROLE) {
         // Admin-gated — controls how much gas is forwarded to message targets

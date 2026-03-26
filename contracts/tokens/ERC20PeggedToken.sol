@@ -59,12 +59,7 @@ contract ERC20PeggedToken is Initializable, ERC20Upgradeable, OwnableUpgradeable
     // ============ Initializer ============
 
     /** @notice Initializes the pegged token with metadata. The caller (`msg.sender`) becomes the owner. */
-    function initialize(
-        string memory name_,
-        string memory symbol_,
-        uint8 decimals_,
-        address originAddress
-    ) public initializer {
+    function initialize(string memory name_, string memory symbol_, uint8 decimals_, address originAddress) public initializer {
         // Pass empty strings because name/symbol are stored locally below,
         // overriding the default ERC20 storage to support custom per-token metadata
         __ERC20_init("", "");

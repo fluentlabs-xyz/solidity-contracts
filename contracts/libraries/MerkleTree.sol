@@ -94,11 +94,7 @@ library MerkleTree {
      *      at each level (even = left, odd = right).
      * @return True if the reconstructed root matches `_root`.
      */
-    function verifyMerkleProof(bytes32 _root, bytes32 _hash, uint256 _nonce, bytes memory _proof)
-        internal
-        pure
-        returns (bool)
-    {
+    function verifyMerkleProof(bytes32 _root, bytes32 _hash, uint256 _nonce, bytes memory _proof) internal pure returns (bool) {
         // Proof must be a sequence of 32-byte sibling hashes
         require(_proof.length % 32 == 0, InvalidProof());
         // Number of levels in the proof corresponds to the tree depth

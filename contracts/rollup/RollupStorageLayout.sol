@@ -225,7 +225,10 @@ contract RollupStorageLayout is
     /**
      * @dev Initializes rollup storage from ABI-encoded {InitConfiguration}.
      *      Called once from {Rollup.initialize} via the UUPS proxy.
+     *      Parent initializers (ReentrancyGuard, Pausable, AccessControl, UUPS)
+     *      are called in {Rollup.initialize} before this function.
      */
+    /// @custom:oz-upgrades-unsafe-allow missing-initializer-call
     function __RollupStorage_init(bytes memory data) internal onlyInitializing {
         RollupStorage storage $ = _getRollupStorage();
 
@@ -653,6 +656,17 @@ contract RollupStorageLayout is
         require(newMaxForceRevertBatchSize != 0, ZeroValueNotAllowed("maxForceRevertBatchSize"));
         emit MaxForceRevertBatchSizeUpdated($._maxForceRevertBatchSize, newMaxForceRevertBatchSize);
         $._maxForceRevertBatchSize = newMaxForceRevertBatchSize;
+    }
+
+    // ============ Emergency role management ============
+
+    /// @inheritdoc IRollupAdmin
+    function emergencyRevokeRole(bytes32 role, address account) external onlyRole(EMERGENCY_ROLE) {
+        require(
+            role == SEQUENCER_ROLE || role == PRECONFIRMATION_ROLE || role == CHALLENGER_ROLE || role == PROVER_ROLE,
+            InvalidOperationalRole(role)
+        );
+        _revokeRole(role, account);
     }
 
     // ============ Internal helpers ============

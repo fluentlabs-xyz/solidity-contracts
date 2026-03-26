@@ -16,6 +16,12 @@ interface IRollupErrors {
     error RollupCorrupted();
 
     /**
+     * @notice Thrown when emergencyRevokeRole is called with a non-operational role.
+     * @dev selector: 0xaecb755c
+     */
+    error InvalidOperationalRole(bytes32 role);
+
+    /**
      * @notice Block's previousBlockHash does not match the expected chain tip.
      * @dev selector: 0x56bb540a
      */
@@ -629,6 +635,11 @@ interface IRollupWrite {
  * @dev Admin configuration setters, restricted to DEFAULT_ADMIN_ROLE.
  */
 interface IRollupAdmin {
+    /**
+     * @notice Revokes an operational role during an emergency without waiting for the admin timelock.
+     */
+    function emergencyRevokeRole(bytes32 role, address account) external;
+
     /**
      * @notice Update the bridge contract address.
      */
