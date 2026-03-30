@@ -37,12 +37,14 @@ contract NitroVerifierTest is Test {
 
     function test_verifyAttestation_whitelistsPubkey() public {
         address pubkey = makeAddr("pubkey");
+        vm.prank(admin);
         verifier.verifyAttestation(pubkey, hex"1234");
         assertTrue(verifier.verifiedPubkeys(pubkey));
     }
 
     function test_revokeAttestation_removesPubkey() public {
         address pubkey = makeAddr("pubkey");
+        vm.prank(admin);
         verifier.verifyAttestation(pubkey, hex"1234");
         vm.prank(admin);
         verifier.revokeAttestation(pubkey);
@@ -53,6 +55,7 @@ contract NitroVerifierTest is Test {
         uint256 signerKey = 0xA11CE;
         address signer = vm.addr(signerKey);
 
+        vm.prank(admin);
         verifier.verifyAttestation(signer, hex"1234");
 
         bytes32 parentHash = keccak256("parent");
@@ -72,6 +75,7 @@ contract NitroVerifierTest is Test {
         uint256 signerKey = 0xA11CE;
         address signer = vm.addr(signerKey);
 
+        vm.prank(admin);
         verifier.verifyAttestation(signer, hex"1234");
 
         bytes32 batchRoot = keccak256("batch");
@@ -109,8 +113,10 @@ contract NitroVerifierTest is Test {
 
     function test_RevertIf_verifyAttestation_pubkeyAlreadyVerified() public {
         address pubkey = makeAddr("pubkey");
+        vm.prank(admin);
         verifier.verifyAttestation(pubkey, hex"1234");
         vm.expectRevert(INitroVerifier.PubkeyAlreadyVerified.selector);
+        vm.prank(admin);
         verifier.verifyAttestation(pubkey, hex"1234");
     }
 
