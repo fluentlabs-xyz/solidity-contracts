@@ -33,7 +33,7 @@ contract NitroVerifier is AccessControl, INitroVerifier {
     // ============ Constants ============
 
     /// @dev Minimum seconds between {proposeVKeyUpdate} and {executeVKeyUpdate}.
-    uint256 public constant VKEY_UPDATE_DELAY = 1 days;
+    uint256 public constant VKEY_UPDATE_DELAY = 1 minutes;
 
     // ============ Storage ============
 

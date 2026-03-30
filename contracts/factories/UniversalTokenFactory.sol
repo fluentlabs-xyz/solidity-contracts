@@ -99,11 +99,7 @@ contract UniversalTokenFactory is GenericTokenFactory {
     // ============ Internal ============
 
     /// @inheritdoc GenericTokenFactory
-    function _computeTokenAddress(
-        address gateway,
-        address originToken,
-        bytes calldata deployArgs
-    ) internal view override returns (address) {
+    function _computeTokenAddress(address gateway, address originToken, bytes calldata deployArgs) internal view override returns (address) {
         // Decode the same args that _deployToken would use
         (string memory name, string memory symbol, uint8 decimals, uint256 initialSupply, address minter, address pauser) = _decodeDeployArgs(
             deployArgs

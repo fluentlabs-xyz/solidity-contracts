@@ -258,9 +258,8 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         (bool success, bytes memory data) = ExcessivelySafeCall.excessivelySafeCall(from, value, "", gasLimit);
         // Record outcome so the same rollback cannot be claimed again
         // Success means the ETH transfer landed; Failed means the recipient reverted
-        _getL1FluentBridgeStorage()._rollbackMessages[messageHash] = success
-            ? IFluentBridge.MessageStatus.Success
-            : IFluentBridge.MessageStatus.Failed;
+        _getL1FluentBridgeStorage()._rollbackMessages[messageHash] =
+            success ? IFluentBridge.MessageStatus.Success : IFluentBridge.MessageStatus.Failed;
 
         // Emit event with the transfer result and any return data for debugging
         emit ReceivedMessageRollback(messageHash, success, data);

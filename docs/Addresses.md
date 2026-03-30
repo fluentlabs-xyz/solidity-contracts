@@ -2,24 +2,28 @@
 
 Current deployment: **Sepolia (L1)** ↔ **Fluent testnet (L2)**.
 
-Source: `deployments/sepolia.json`, `deployments/fluent_testnet.json`.
-**Fluent testnet Explorer:** https://testnet.fluentscan.xyz/
+Source: `deployments/testnet/l1.json`, `deployments/testnet/l2.json`.
 
 ---
 
 ## Sepolia (L1)
 
-| Contract | Address | Explorer |
-|----------|---------|----------|
-| **FluentBridge** (proxy) | `0x990568FfaDddBDBF614ff1EA0eF5630BD8957Ddc` | [View](https://sepolia.etherscan.io/address/0x990568FfaDddBDBF614ff1EA0eF5630BD8957Ddc) |
-| FluentBridge (impl) | `0x5d88CD642b160477A2A7B121edF8338dff6B59b3` | [View](https://sepolia.etherscan.io/address/0x5d88CD642b160477A2A7B121edF8338dff6B59b3) |
-| **ERC20TokenFactory** (proxy) | `0x299647D9CCB041CC7B24334132Ce40bAe782307B` | [View](https://sepolia.etherscan.io/address/0x299647D9CCB041CC7B24334132Ce40bAe782307B) |
-| ERC20TokenFactory (impl) | `0xAcc5dbf44ED0720A58247c91A60825bbC44770a9` | [View](https://sepolia.etherscan.io/address/0xAcc5dbf44ED0720A58247c91A60825bbC44770a9) |
-| UpgradeableBeacon | `0x89C1066323dBb4a0fC8a23343EC2966579cc0877` | [View](https://sepolia.etherscan.io/address/0x89C1066323dBb4a0fC8a23343EC2966579cc0877) |
-| ERC20PeggedToken (impl) | `0xe2963EC5EE91C5EF911Ea5993135C72b7ce6CA2e` | [View](https://sepolia.etherscan.io/address/0xe2963EC5EE91C5EF911Ea5993135C72b7ce6CA2e) |
-| **PaymentGateway** (proxy) | `0x8a2b6627fFbd481907b23070Faf5a33C596A1b9f` | [View](https://sepolia.etherscan.io/address/0x8a2b6627fFbd481907b23070Faf5a33C596A1b9f) |
-| PaymentGateway (impl) | `0x246f6AA064F607AEb76208BcF7948212F0894ceA` | [View](https://sepolia.etherscan.io/address/0x246f6AA064F607AEb76208BcF7948212F0894ceA) |
-| **MockERC20** (test token) | `0x39f86A7d19f1bF090EbBaF6BFAbB900c5CF48DB8` | [View](https://sepolia.etherscan.io/address/0x39f86A7d19f1bF090EbBaF6BFAbB900c5CF48DB8) |
+| Contract | Address |
+|----------|---------|
+| **NitroVerifier** | `0x31b6A225FD96770a59b9d6A63973DE1C881B393d` |
+| **Rollup** (proxy) | `0x30998EE150e669ed3761F80dda435CaaA6bf5032` |
+| Rollup (impl) | `0xaA2a73D5158aCdFbd73c6A26f286a8E9a9c0766a` |
+| **L1FluentBridge** (proxy) | `0x94A1454943FCf5C88C270F7B7cE3D2F23fc84FCf` |
+| L1FluentBridge (impl) | `0x7CB564503A7445e8C24D8495c141E8dB18f9b556` |
+| **ERC20TokenFactory** (proxy) | `0x72ef90575Dd90b6f22e3faED2CFA0AA8e8Ee7DBa` |
+| ERC20TokenFactory (impl) | `0xBa2D7Ac3D0bC97F38Fa6a8119845c1F20F41E45e` |
+| UpgradeableBeacon | `0x0749709b37FDE16B8eAB94e247F76E30c58AC72b` |
+| ERC20PeggedToken (impl) | `0x8B149688869e25d713A8f409DB62dDC0b7a2FF88` |
+| **ERC20Gateway** (proxy) | `0xbA1d2D76184127fD289D46bB2a721B8D6339372D` |
+| ERC20Gateway (impl) | `0x3F17fC9C8a7FDd92dbDBF821a651EBcfffA6ddaB` |
+| **NativeGateway** (proxy) | `0x1a2B1cCb1bE6789eF5878f8d65998e5CA7e0393F` |
+| NativeGateway (impl) | `0x7A18D9d23b4316EAD042cbDDca92fDf4a8D09B6F` |
+| MockERC20 (test token) | `0xE47b61EeFa9a4019b2CE699920BE91092b5bda39` |
 
 - **Chain ID:** 11155111
 - **RPC:** https://ethereum-sepolia-rpc.publicnode.com
@@ -29,58 +33,36 @@ Source: `deployments/sepolia.json`, `deployments/fluent_testnet.json`.
 
 ## Fluent testnet (L2)
 
-| Contract | Address | Explorer |
-|----------|---------|----------|
-| **FluentBridge** (proxy) | `0x22795142Ceb81A2b676c72a369edb99990A3622B` | [View](https://testnet.fluentscan.xyz/address/0x22795142Ceb81A2b676c72a369edb99990A3622B) |
-| FluentBridge (impl) | `0xa09E0ca1C5fa103fd7a91Ce10b1d88af9C9f9Fd3` | [View](https://testnet.fluentscan.xyz/address/0xa09E0ca1C5fa103fd7a91Ce10b1d88af9C9f9Fd3) |
-| **UniversalTokenFactory** (proxy) | `0x4c64F50F9CbeE440f8c4ea6147517018D680AE6c` | [View](https://testnet.fluentscan.xyz/address/0x4c64F50F9CbeE440f8c4ea6147517018D680AE6c) |
-| UniversalTokenFactory (impl) | `0x4bc7ef271d5659025c2A88B149BD1da019570538` | [View](https://testnet.fluentscan.xyz/address/0x4bc7ef271d5659025c2A88B149BD1da019570538) |
-| **PaymentGateway** (proxy) | `0xdC9BF18a1c307ce1A84e2775C7645e57eB373CD4` | [View](https://testnet.fluentscan.xyz/address/0xdC9BF18a1c307ce1A84e2775C7645e57eB373CD4) |
-| PaymentGateway (impl) | `0xdE0079364f24045Fa144CaE722055709d8547b4d` | [View](https://testnet.fluentscan.xyz/address/0xdE0079364f24045Fa144CaE722055709d8547b4d) |
-| Pegged token (precompile) | `0x0000000000000000000000000000000000520008` | — |
+| Contract | Address |
+|----------|---------|
+| **L1BlockOracle** | `0xBFbeEC28d16c227453dEc576120F006c258FDDaC` |
+| **L2FluentBridge** (proxy) | `0x22BC1D0b22CD5C2696c4a05Deaeb18c91226B37A` |
+| L2FluentBridge (impl) | `0x6317faa6389184308903A81b4989F88aBB044A4F` |
+| **UniversalTokenFactory** (proxy) | `0x67AF4912A5A8f8ec31D840bdE9E76276DDEFAD6b` |
+| UniversalTokenFactory (impl) | `0x7FaE25a23237C2B6e28b02Cf8567982a6503e528` |
+| **ERC20Gateway** (proxy) | `0xEd7E1E435B64f61FBD975e1e909aB37a6d3c2092` |
+| ERC20Gateway (impl) | `0xeDeA99d586a5d536d3a64e491FCc58ed65E37F5B` |
+| **NativeGateway** (proxy) | `0x990568FfaDddBDBF614ff1EA0eF5630BD8957Ddc` |
+| NativeGateway (impl) | `0x5d88CD642b160477A2A7B121edF8338dff6B59b3` |
+| Pegged token (precompile) | `0x0000000000000000000000000000000000520008` |
 
-- **Chain ID:** 20994 (confirm at runtime with `cast chain-id --rpc-url <L2_RPC>`)
+- **Chain ID:** 20994
 - **RPC:** https://rpc.testnet.fluent.xyz/
 - **Explorer:** https://testnet.fluentscan.xyz/
 
 ---
 
-## Pegged token address (L1 → L2)
-
-The L2 pegged token address is computed with CREATE2 using the **L2 chain id** in the salt (L1 gateway) or origin-token-only salt (L2 Universal). The L1 gateway's `otherSideChainId` must equal L2's actual `block.chainid`, or the relayer can hit `WrongPeggedToken` on L2. The deploy scripts set `otherSideChainId` from L2 RPC (`cast chain-id`) so it matches. If you deployed earlier with a wrong chain id, call on L1 gateway (as owner): `setOtherSideUniversal(L2_GATEWAY, L2_PEGGED_IMPL, L2_FACTORY, <L2_CHAIN_ID_FROM_RPC>)` with the real L2 chain id from `cast chain-id --rpc-url <L2_RPC>`.
-
----
-
-## Relayer – deployment blocks (FluentBridge)
-
-Use these as **from-block** when indexing `SentMessage` (and other bridge events) so the relayer starts from bridge deployment. Get the block number from the broadcast receipts in `broadcast/DeployFluentBridge.s.sol/{chainId}/run-latest.json` (transaction that created the **proxy** contract).
-
-| Chain        | FluentBridge (proxy) | Deployment block |
-|-------------|----------------------|------------------|
-| **Sepolia** | `0x990568FfaDddBDBF614ff1EA0eF5630BD8957Ddc` | See broadcast receipts |
-| **Fluent testnet** | `0x22795142Ceb81A2b676c72a369edb99990A3622B` | See broadcast receipts |
-
----
-
 ## JSON sources
 
-- **L1:** `deployments/sepolia.json`
-- **L2:** `deployments/fluent_testnet.json`
-
-## Rollup deployment status
-
-`DeployRollup.s.sol` exists, but no canonical rollup deployment is tracked in the public deployment JSON files above yet. Keep rollup addresses and verifier metadata with the deployment artifacts before sharing a package with auditors.
+- **L1:** `deployments/testnet/l1.json`
+- **L2:** `deployments/testnet/l2.json`
 
 ---
 
-## Verification
+## Governance (per chain)
 
-**Compiler:** Solidity 0.8.30, optimization enabled, 200 runs.
-
-With `ETHERSCAN_API_KEY` in `.env`:
-
-```bash
-bash ./scripts/deploy/bash/verify-sepolia-fluent-testnet.sh
-```
-
-Runs L1 (Etherscan) and L2 (Blockscout) verification in a single execution. Sepolia contracts are verified via Etherscan; Fluent testnet contracts via Blockscout at https://testnet.fluentscan.xyz/.
+| Contract | L1 Address | L2 Address |
+|----------|-----------|-----------|
+| Gnosis Safe | TBD | TBD |
+| Normal Timelock (24h) | TBD | TBD |
+| Emergency Timelock (1min) | TBD | TBD |

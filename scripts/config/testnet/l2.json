@@ -1,0 +1,19 @@
+{
+    "chainId": 20994,
+    "roles": {
+        "initialOwner": "0x1C92DffBCe76670F69007F22A54e31ff3Ab45d5E",
+        "admin": "0x1C92DffBCe76670F69007F22A54e31ff3Ab45d5E",
+        "pauser": "0x1C92DffBCe76670F69007F22A54e31ff3Ab45d5E",
+        "relayer": "0x1C92DffBCe76670F69007F22A54e31ff3Ab45d5E"
+    },
+    "bridge": {
+        "otherBridge": "0x0000000000000000000000000000000000000001",
+        "receiveMessageDeadline": 600,
+        "executeGasLimit": 300000
+    },
+    "timelock": {
+        "normalDelay": 60,
+        "emergencyDelay": 10,
+        "safe": "0x0000000000000000000000000000000000000000"
+    }
+}
