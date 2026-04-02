@@ -147,4 +147,23 @@ interface IL1FluentBridge {
      * @return The current queue depth.
      */
     function getSentMessageQueueSize() external view returns (uint256);
+
+    /**
+     * @notice Returns the message hash and block number at `index` without modifying the queue.
+     * @dev Reverts if `index` is outside the valid range [front, back).
+     * @param index Queue position to read.
+     * @return messageHash Keccak256 hash of the encoded cross-chain message.
+     * @return blockNumber L1 block number when the message was enqueued.
+     */
+    function peekSentMessage(uint256 index) external view returns (bytes32 messageHash, uint256 blockNumber);
+
+    /**
+     * @notice Front pointer of the sent-message queue (next unprocessed nonce).
+     */
+    function sentMessageQueueFront() external view returns (uint256);
+
+    /**
+     * @notice Back pointer of the sent-message queue (total messages ever enqueued).
+     */
+    function sentMessageQueueBack() external view returns (uint256);
 }

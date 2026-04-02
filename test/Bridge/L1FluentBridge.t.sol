@@ -335,6 +335,60 @@ contract L1FluentBridgeTest is BridgeBase {
         l1Bridge.rollbackMessageWithProof(1, header, from, to, 0, chainId, 1, 0, "", emptyProof, emptyProof);
     }
 
+    // ============ peekSentMessage ============
+
+    function test_peekSentMessage_returnsCorrectEntry() public {
+        l1Bridge.sendMessage(receiver, hex"01");
+        l1Bridge.sendMessage(receiver, hex"02");
+
+        (bytes32 hash0,) = l1Bridge.peekSentMessage(0);
+        (bytes32 hash1,) = l1Bridge.peekSentMessage(1);
+
+        assertTrue(hash0 != bytes32(0), "first message hash should be non-zero");
+        assertTrue(hash1 != bytes32(0), "second message hash should be non-zero");
+        assertTrue(hash0 != hash1, "message hashes should differ");
+    }
+
+    function test_RevertIf_peekSentMessage_indexBelowFront() public {
+        l1Bridge.sendMessage(receiver, hex"01");
+
+        vm.prank(address(rollup));
+        l1Bridge.popSentMessage();
+
+        vm.expectRevert(abi.encodeWithSelector(Queue.QueueOutOfBounds.selector, 0));
+        l1Bridge.peekSentMessage(0);
+    }
+
+    function test_RevertIf_peekSentMessage_indexAboveBack() public {
+        l1Bridge.sendMessage(receiver, hex"01");
+
+        vm.expectRevert(abi.encodeWithSelector(Queue.QueueOutOfBounds.selector, 1));
+        l1Bridge.peekSentMessage(1);
+    }
+
+    // ============ sentMessageQueueFront / sentMessageQueueBack ============
+
+    function test_sentMessageQueueFront_returnsCurrentFront() public {
+        assertEq(l1Bridge.sentMessageQueueFront(), 0, "initial front should be 0");
+
+        l1Bridge.sendMessage(receiver, hex"01");
+
+        vm.prank(address(rollup));
+        l1Bridge.popSentMessage();
+
+        assertEq(l1Bridge.sentMessageQueueFront(), 1, "front should advance after pop");
+    }
+
+    function test_sentMessageQueueBack_returnsCurrentBack() public {
+        assertEq(l1Bridge.sentMessageQueueBack(), 0, "initial back should be 0");
+
+        l1Bridge.sendMessage(receiver, hex"01");
+        assertEq(l1Bridge.sentMessageQueueBack(), 1, "back should advance after enqueue");
+
+        l1Bridge.sendMessage(receiver, hex"02");
+        assertEq(l1Bridge.sentMessageQueueBack(), 2, "back should advance after second enqueue");
+    }
+
     // ============ getRollbackMessage ============
 
     function test_getRollbackMessage_returnsStoredStatus() public view {

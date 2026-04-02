@@ -14,6 +14,11 @@ library Queue {
     error QueueEmpty();
 
     /**
+     * @notice Index is outside the valid range [front, back).
+     */
+    error QueueOutOfBounds(uint256 index);
+
+    /**
      * @dev Single queued item: message hash and the block it was enqueued in.
      */
     struct QueueItem {
@@ -68,6 +73,15 @@ library Queue {
     function peek(QueueStorage storage self) internal view returns (QueueItem memory) {
         require(!isEmpty(self), QueueEmpty());
         return self.data[self.front];
+    }
+
+    /**
+     * @dev Returns the item at `index` without removing it.
+     *      Reverts with {QueueOutOfBounds} if `index` is outside [front, back).
+     */
+    function peekAt(QueueStorage storage self, uint256 index) internal view returns (QueueItem memory) {
+        require(index >= self.front && index < self.back, QueueOutOfBounds(index));
+        return self.data[index];
     }
 
     /**
