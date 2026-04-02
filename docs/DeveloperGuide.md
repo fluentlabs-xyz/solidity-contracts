@@ -5,6 +5,7 @@
 - **[Foundry](https://book.getfoundry.sh/getting-started/installation)** — `forge`, `cast`, `anvil`
 - **[gblend](https://github.com/aspect-build/gblend)** — Fluent VM-compatible forge fork (required for L2)
 - **Node.js** — required by OpenZeppelin upgrade validator (runs via `npx`)
+
 ## Key management
 
 Scripts never handle private keys directly. Use Foundry's encrypted keystore:
@@ -23,7 +24,7 @@ Then use `--account deployer` in all forge/gblend commands. Foundry prompts for 
 |--------|-------------|
 | `--account deployer` | Testnet deploys (encrypted keystore) |
 | `--ledger` / `--trezor` | Production mainnet |
-| `--private-key` | Local Anvil only |
+| `--private-key` | Local Anvil only (use `DEPLOYER_KEY` env var with `deploy.sh`) |
 
 ---
 
@@ -72,7 +73,11 @@ NETWORK=testnet/l1 \
     --rpc-url $L1_RPC --account deployer --broadcast
 ```
 
-Deploys: NitroVerifier → Rollup (bridge=placeholder) → L1FluentBridge → `Rollup.setBridge()` → ERC20TokenFactory → ERC20Gateway → NativeGateway → MockERC20.
+Deploys in three phases (see [Deployment Order](#deployment-order) below):
+
+1. **Matched contracts** (nonce 0–8): L1FluentBridge → ERC20PeggedToken → ERC20TokenFactory → ERC20Gateway → NativeGateway
+2. **L1-specific** (nonce 9–12): NitroVerifier → Rollup → MockERC20
+3. **Configure** (nonce 13–14): `Bridge.setRollup()` → `Factory.setPaymentGateway()`
 
 Output: `deployments/testnet/l1.json`
 
@@ -84,7 +89,11 @@ NETWORK=testnet/l2 \
     --rpc-url $L2_RPC --account deployer --broadcast --skip-simulation
 ```
 
-Deploys: L1BlockOracle → L2FluentBridge → UniversalTokenFactory → ERC20Gateway → NativeGateway.
+Deploys in three phases:
+
+1. **Matched contracts** (nonce 0–8): L2FluentBridge → L1BlockOracle → UniversalTokenFactory → ERC20Gateway → NativeGateway
+2. **L2-specific** (nonce 9): L1GasOracle
+3. **Configure** (nonce 10–14): oracle wiring → gas config → fee treasury → `Factory.setPaymentGateway()`
 
 Output: `deployments/testnet/l2.json`
 
@@ -103,12 +112,15 @@ gblend script scripts/deploy/SetupL2.s.sol \
 ```
 
 Setup scripts call:
+
 - `bridge.setOtherBridge(remoteBridge)`
 - `bridge.setExecuteGasLimit(executeGasLimit)` (from `scripts/config/<env>/<chain>.json`)
 - `erc20Gateway.setOtherSide(isUniversal, remoteGateway, chainId, tokenImpl, factory, beacon)`
 - `nativeGateway.setOtherSideGateway(remoteGateway)`
 
-#### 5. Post-deploy: fund L2 bridge and configure oracles
+#### 5. Post-deploy: fund L2 bridge
+>>>>>>>
+>>>>>>> 6773db9 (refactor(scripts): modular deploy with nonce ordering)
 
 ```bash
 # Fund L2 bridge for testnet (needed for native bridging)
@@ -119,11 +131,45 @@ cast send $L1_BLOCK_ORACLE "updateL1BlockNumber(uint256)" \
     $(cast block-number --rpc-url $L1_RPC) \
     --rpc-url $L2_RPC --account deployer
 
-# Configure L2 gas oracle (for bridge fee calculation)
-cast send $L2_BRIDGE "setGasPriceConfig(uint256,uint256,uint256)" \
-    1000 1000000000000000000 21000 \
-    --rpc-url $L2_RPC --account deployer
 ```
+
+Oracle wiring and gas config are now handled by the deploy script (Phase 3), so manual `setGasPriceConfig` is no longer needed.
+
+### Deployment order
+
+Deployment scripts use deterministic nonce ordering so that key proxy contracts land at the **same address** on both L1 and L2 (same deployer + same nonce = same `CREATE` address). The deployer nonce **must be zero** when deployment starts.
+
+Three phases in a single broadcast:
+
+1. **Matched contracts** (nonce 0–8) — bridge, factory prerequisite, factory, gateways. Same order on both chains.
+2. **Chain-specific contracts** (nonce 9+) — Rollup/NitroVerifier on L1, L1GasOracle on L2.
+3. **Configure** — setter calls to wire dependencies (nonce positions don't matter).
+
+Nonce 2 is a **factory prerequisite slot**: L1 deploys `ERC20PeggedToken` (required by factory init), L2 deploys `L1BlockOracle` (placed here for nonce alignment).
+
+```
+
+L1                                    L2
+──────────────────────────────        ──────────────────────────────
+nonce 0:  Bridge impl                nonce 0:  Bridge impl
+nonce 1:  Bridge proxy        ←SAME→ nonce 1:  Bridge proxy
+nonce 2:  ERC20PeggedToken           nonce 2:  L1BlockOracle
+nonce 3:  Factory impl               nonce 3:  Factory impl
+nonce 4:  Factory proxy       ←SAME→ nonce 4:  Factory proxy
+nonce 5:  ERC20Gateway impl          nonce 5:  ERC20Gateway impl
+nonce 6:  ERC20Gateway proxy  ←SAME→ nonce 6:  ERC20Gateway proxy
+nonce 7:  NativeGateway impl         nonce 7:  NativeGateway impl
+nonce 8:  NativeGateway proxy ←SAME→ nonce 8:  NativeGateway proxy
+nonce 9+: NitroVerifier, Rollup...   nonce 9:  L1GasOracle
+nonce 13+: configure (setters)       nonce 10+: configure (setters)
+
+```
+
+**Rules:**
+
+- Never reorder Phase 1 (nonce 0–8) — breaks address determinism
+- Never insert new deployments between nonce 0 and 8
+- The `UpgradeableBeacon` inside `ERC20TokenFactory.initialize` uses a **proxy nonce**, not deployer nonce
 
 ---
 
@@ -132,10 +178,16 @@ cast send $L2_BRIDGE "setGasPriceConfig(uint256,uint256,uint256)" \
 ### Config files
 
 ```
+
 scripts/config/
   testnet/
     l1.json     ← Sepolia: roles, rollup params, chainId
     l2.json     ← Fluent testnet: roles, bridge params, chainId
+
+  local/
+    l1.json     ← Anvil L1: Anvil account #0 for all roles, chainId 31337
+    l2.json     ← Anvil L2: Anvil account #0 for all roles, chainId 31338
+
 ```
 
 Configs contain **static** values only (roles, timing, economics). Dynamic addresses come from deployment manifests or env vars.
@@ -150,11 +202,12 @@ See `.env.example` for the full list. Key variables:
 |----------|----------|---------|---------|
 | `L1_RPC` | Yes | — | L1 RPC endpoint |
 | `L2_RPC` | Yes | — | L2 RPC endpoint |
-| `DEPLOYER` | Yes | — | Keystore account name |
-| `FOUNDRY_OUT` | No | `out` | Only set if `foundry.toml` overrides output dir |
+| `DEPLOYER` | One of these | — | Keystore account name |
+| `DEPLOYER_KEY` | required | — | Private key (takes precedence over `DEPLOYER`) |
 | `ENV` | No | `testnet` | Deployment environment (config + manifest paths) |
-| `OUTPUT_PATH` | No | `deployments/<ENV>/l1.json` | Manifest output path (derived from NETWORK) |
 | `L2_FORGE` | No | `gblend` | Forge binary for L2 commands |
+| `OUTPUT_PATH` | No | `deployments/<ENV>/l1.json` | Manifest output path (derived from NETWORK) |
+| `FOUNDRY_OUT` | No | `forge-out` | OZ upgrades artifact dir (set by `deploy.sh`) |
 
 ### Deployment manifests
 
@@ -253,6 +306,36 @@ Deploys a new `MockERC20Token` on each run to test the full path including facto
 
 Both scripts read addresses from deployment manifests and use `cast send` for L2 relay (avoids gblend simulation issues).
 
+### Local deployment testing (Anvil)
+
+Validate deployment scripts without touching real networks by running against two local Anvil instances:
+
+```bash
+# Start L1 and L2 Anvil instances
+anvil --port 8545 --chain-id 31337 &
+anvil --port 8546 --chain-id 31338 &
+
+# Mock SP1 verifier (Rollup init requires a contract at this address)
+cast rpc anvil_setCode 0x0000000000000000000000000000000000000001 \
+    0x600160005260206000F3 --rpc-url http://localhost:8545
+
+# Run the real deploy against local Anvils
+ENV=local \
+L1_RPC=http://localhost:8545 \
+L2_RPC=http://localhost:8546 \
+L2_FORGE=forge \
+DEPLOYER_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80 \
+./scripts/deploy.sh
+```
+
+This runs the exact same deployment scripts as production. If it completes without reverting, the scripts are correct. Manifests are written to `deployments/local/`.
+
+**Notes:**
+
+- Uses `forge` for both chains (no gblend). Tests Solidity logic but not Fluent VM specifics.
+- Deployer nonce must be zero — use fresh Anvil instances.
+- The `anvil_setCode` step is required because the Rollup initializer validates that `sp1Verifier` is a deployed contract.
+
 ---
 
 ## Operations scripts
@@ -287,6 +370,7 @@ scripts/deploy/
 ```
 
 Each component script has:
+
 - `_deploy*()` — internal function, no broadcast, returns result struct. Used by orchestrators.
 - `run()` — standalone entry point with env var reading, broadcast, and manifest writing.
 
@@ -326,6 +410,7 @@ safe create --network <fluent-rpc> --owners 0xOwner1,0xOwner2,0xOwner3,0xOwner4,
 ```
 
 Note the Safe addresses and update `scripts/config/<env>/l1.json` and `l2.json`:
+
 ```json
 "timelock": {
     "safe": "0xYourSafeAddress..."
@@ -365,6 +450,7 @@ LAYER=l2 NORMAL_TIMELOCK=0x... EMERGENCY_TIMELOCK=0x... \
 ```
 
 The migration script:
+
 1. Grants admin roles to normal timelock, emergency roles to emergency timelock
 2. Transfers Ownable2Step contracts to normal timelock (and accepts via timelock)
 3. Sets target delays on both timelocks (deployed with delay=0 for atomic migration)
@@ -401,7 +487,6 @@ The OZ plugin can't find build artifacts. Run `forge clean && forge build` for a
 **`MalformedBuiltinParams` on L2 proxy calls**
 Use `--skip-simulation` for all L2 gblend commands. For relay, use `cast send` directly.
 
-
 **`does not specify what contract it upgrades from`**
 First upgrade — set `UNSAFE_SKIP_STORAGE_CHECK=true`.
 
@@ -409,7 +494,8 @@ First upgrade — set `UNSAFE_SKIP_STORAGE_CHECK=true`.
 Check `cast call $BRIDGE "getReceivedNonce()(uint256)"` and relay skipped nonces first.
 
 **Bridge↔Rollup circular dependency**
-DeployL1 handles this: Rollup with placeholder → Bridge → `Rollup.setBridge()`.
+
+DeployL1 handles this: Bridge with rollup=0x1 placeholder → Rollup (with real bridge) → `Bridge.setRollup()`.
 
 **`Device not configured (os error 6)` on macOS**
 Run in interactive terminal. Use `--sender` for dry-run, `--account` for broadcast.
