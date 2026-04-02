@@ -290,6 +290,22 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     }
 
     /// @inheritdoc IL1FluentBridge
+    function peekSentMessage(uint256 index) public view returns (bytes32 messageHash, uint256 blockNumber) {
+        Queue.QueueItem memory item = Queue.peekAt(_getL1FluentBridgeStorage()._sentMessageQueue, index);
+        return (item.value, item.blockNumber);
+    }
+
+    /// @inheritdoc IL1FluentBridge
+    function sentMessageQueueFront() public view returns (uint256) {
+        return _getL1FluentBridgeStorage()._sentMessageQueue.front;
+    }
+
+    /// @inheritdoc IL1FluentBridge
+    function sentMessageQueueBack() public view returns (uint256) {
+        return _getL1FluentBridgeStorage()._sentMessageQueue.back;
+    }
+
+    /// @inheritdoc IL1FluentBridge
     function getRollup() public view returns (address) {
         // Cast the typed Rollup reference back to address for external consumers
         return address(_getL1FluentBridgeStorage()._rollup);
