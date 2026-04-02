@@ -18,6 +18,7 @@ import {IL1FluentBridge} from "../../interfaces/bridge/IL1FluentBridge.sol";
  *
  * @dev L1 bridge contract for the Fluent bridge that lives on Ethereum.
  */
+/// @custom:oz-upgrades-from build-info-v1:L1FluentBridge
 contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     // ============ Constants ============
 
