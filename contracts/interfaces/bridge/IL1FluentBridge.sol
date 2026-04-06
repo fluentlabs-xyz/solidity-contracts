@@ -86,6 +86,14 @@ interface IL1FluentBridge {
     function popSentMessage() external returns (bytes32, uint256);
 
     /**
+     * @notice Re-enqueues a message hash at the front of the sent-message queue. Callable only by the rollup contract.
+     * @dev Used during {Rollup-forceRevertBatch} to restore deposits that were consumed by a batch which is being reverted.
+     *      The restored entry receives a fresh block number so the freshness deadline is reset.
+     * @param messageHash The message hash to restore.
+     */
+    function pushSentMessage(bytes32 messageHash) external;
+
+    /**
      * @notice Receives and executes a message with Merkle proofs (L1 only; messages from L2 to L1).
      * @param batchIndex Index of the rollup batch containing the message.
      * @param blockHeader L2 block header containing the withdrawal root.

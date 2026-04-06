@@ -5,8 +5,10 @@
 .DS_Store
 /tmp
 /forge-out
+/out
 /forge-cache
 /broadcast
 .env
 /coverage
 lcov.info
+.claude/

@@ -513,6 +513,11 @@ interface IRollupRead {
     function batchProvenBlocks(uint256 batchIndex) external view returns (bytes32[] memory);
 
     /**
+     * @notice Returns deposit message hashes consumed during acceptance of a batch, in the order they were popped from the bridge queue.
+     */
+    function batchDepositIds(uint256 batchIndex) external view returns (bytes32[] memory);
+
+    /**
      * @notice Returns true if a block commitment has been proven.
      */
     function isBlockProven(bytes32 commitment) external view returns (bool);
