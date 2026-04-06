@@ -335,6 +335,13 @@ contract AdminTest is RollupAssertions {
         assertEq(rollup.incentiveFee(), newFee);
     }
 
+    function test_RevertIf_setIncentiveFee_exceedsMax() public {
+        uint256 maxFee = rollup.MAX_INCENTIVE_FEE();
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.IncentiveFeeTooLarge.selector, maxFee + 1, maxFee));
+        rollup.setIncentiveFee(maxFee + 1);
+    }
+
     function test_setGasLeft_updatesValue() public {
         vm.prank(admin);
         rollup.setGasLeft(type(uint32).max);
