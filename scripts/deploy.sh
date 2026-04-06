@@ -19,7 +19,7 @@ set -euo pipefail
 #   DEPLOYER_KEY    Private key (takes precedence over DEPLOYER, useful for Anvil)
 #   ENV             Deployment environment (default: testnet) — determines config and manifest paths
 #   VERIFY          Set to 1 to verify contracts (default: 0)
-#   L2_FORGE        Forge binary for L2 (default: gblend)
+#   L2_FORGE        Forge binary for L2 (default: forge)
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -49,12 +49,12 @@ fi
 DEPLOY_DIR="$SCRIPT_DIR/deploy"
 
 # OZ foundry-upgrades reads artifacts via FOUNDRY_OUT; align with foundry.toml
-export FOUNDRY_OUT="${FOUNDRY_OUT:-forge-out}"
+export FOUNDRY_OUT="${FOUNDRY_OUT:-out}"
 
 ENV="${ENV:-testnet}"
 L1_RPC="${L1_RPC:?L1_RPC required}"
 L2_RPC="${L2_RPC:?L2_RPC required}"
-L2_FORGE="${L2_FORGE:-gblend}"
+L2_FORGE="${L2_FORGE:-forge}"
 
 # Auth: DEPLOYER_KEY (private key) takes precedence over DEPLOYER (cast wallet account)
 if [[ -n "${DEPLOYER_KEY:-}" ]]; then

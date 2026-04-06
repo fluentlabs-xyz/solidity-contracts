@@ -207,7 +207,7 @@ See `.env.example` for the full list. Key variables:
 | `ENV` | No | `testnet` | Deployment environment (config + manifest paths) |
 | `L2_FORGE` | No | `gblend` | Forge binary for L2 commands |
 | `OUTPUT_PATH` | No | `deployments/<ENV>/l1.json` | Manifest output path (derived from NETWORK) |
-| `FOUNDRY_OUT` | No | `forge-out` | OZ upgrades artifact dir (set by `deploy.sh`) |
+| `FOUNDRY_OUT` | No | `out` | OZ upgrades artifact dir (set by `deploy.sh`) |
 
 ### Deployment manifests
 
