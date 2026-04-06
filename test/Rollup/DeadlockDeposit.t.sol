@@ -66,9 +66,7 @@ contract DeadlockDepositTest is RollupAssertions {
         L2BlockHeader[] memory batch = _makeBatchWithDeposit(GENESIS_HASH, 0, depositHash);
 
         vm.prank(sequencer);
-        vm.expectRevert(
-            abi.encodeWithSelector(IRollupErrors.AcceptDepositDeadlineExceeded.selector, depositBlock + DEPOSIT_DEADLINE, block.number)
-        );
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.RollupCorrupted.selector));
         rollup.acceptNextBatch(batch, 1);
     }
 
@@ -129,14 +127,14 @@ contract DeadlockDepositTest is RollupAssertions {
         // Advance past the deposit deadline.
         vm.roll(depositBlock + DEPOSIT_DEADLINE + 1);
 
-        // The sequencer finally tries to include the expired deposit — it reverts.
+        assertTrue(rollup.isRollupCorrupted(), "stale queue head should surface as corruption");
+
+        // The sequencer cannot ingest further batches until emergency recovery.
         bytes32 lastHash = rollup.lastBlockHashInBatch(1);
         L2BlockHeader[] memory batchWithDeposit = _makeBatchWithDeposit(lastHash, 0, depositHash);
 
         vm.prank(sequencer);
-        vm.expectRevert(
-            abi.encodeWithSelector(IRollupErrors.AcceptDepositDeadlineExceeded.selector, depositBlock + DEPOSIT_DEADLINE, block.number)
-        );
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.RollupCorrupted.selector));
         rollup.acceptNextBatch(batchWithDeposit, 1);
     }
 
@@ -173,13 +171,7 @@ contract DeadlockDepositTest is RollupAssertions {
 
         vm.roll(depositBlock + DEPOSIT_DEADLINE + 1);
         vm.prank(sequencer);
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IRollupErrors.AcceptDepositDeadlineExceeded.selector,
-                depositBlock + DEPOSIT_DEADLINE,
-                depositBlock + DEPOSIT_DEADLINE + 1
-            )
-        );
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.RollupCorrupted.selector));
         rollup2.acceptNextBatch(batch2, 1);
     }
 

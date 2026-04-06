@@ -45,4 +45,24 @@ contract MockDepositBridge {
     function poppedCount() external view returns (uint256) {
         return _front;
     }
+
+    /// @dev Mirrors {IL1FluentBridge-getSentMessageQueueSize} for `_rollupCorrupted` deposit checks.
+    function getSentMessageQueueSize() external view returns (uint256) {
+        return _back - _front;
+    }
+
+    function sentMessageQueueFront() external view returns (uint256) {
+        return _front;
+    }
+
+    function sentMessageQueueBack() external view returns (uint256) {
+        return _back;
+    }
+
+    /// @dev Mirrors {IL1FluentBridge-peekSentMessage} — `index` must be in `[front, back)`.
+    function peekSentMessage(uint256 index) external view returns (bytes32 messageHash, uint256 blockNumber) {
+        require(index >= _front && index < _back, "peek oob");
+        Deposit storage d = _q[index];
+        return (d.id, d.blockNumber);
+    }
 }

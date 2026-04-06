@@ -28,7 +28,8 @@ import {L2BlockHeader, BatchStatus, BatchRecord, ChallengeRecord} from "../inter
  * - {RollupStorage-challengeWindow}: deadline by which open challenges must be resolved.
  * - {RollupStorage-finalizationDelay}: minimum wait before a batch can be finalized.
  *
- * If any deadline is exceeded, {isRollupCorrupted} returns true and all state-changing
+ * If any deadline is exceeded (including a stale head deposit in the L1 bridge queue when
+ * the bridge is a contract), {isRollupCorrupted} returns true and all state-changing
  * functions revert with {RollupCorrupted} until the corrupted batch is cleared via
  * {forceRevertBatch}.
  *
@@ -562,14 +563,20 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
     // ============ Internal — lifecycle ============
 
     /**
-     * @dev Checks if the rollup is corrupted by examining the oldest non-finalized batch.
+     * @dev Checks if the rollup is corrupted by examining the oldest non-finalized batch
+     *      and L1 sent-message queue liveness.
      *      Corruption occurs when any of the following deadlines are exceeded:
      *      - `submitBlobsWindow`: blob hashes not submitted in time (HeadersSubmitted).
      *      - `preconfirmWindow`: batch not preconfirmed in time (Accepted).
      *      - `challengeWindow`: open challenge not resolved before its deadline (Challenged).
+     *      - **Deposit queue**: the head of the L1 bridge sent-message FIFO is older than
+     *        `acceptDepositDeadline` (same rule as `_checkDeposits`), so it can never be
+     *        included — enables `forceRevertBatch` and honest monitoring.
      */
     function _rollupCorrupted() internal view returns (bool) {
         RollupStorage storage $ = _getRollupStorage();
+        if (_depositQueueHeadStale($)) return true;
+
         // Check only the oldest non-finalized batch — corruption is sequential
         uint256 batchIndex = uint256($._lastFinalizedBatchIndex) + 1;
         // If all batches are finalized (or none exist), the rollup is healthy
@@ -592,6 +599,23 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         }
         // No deadline violated — rollup is healthy
         return false;
+    }
+
+    /**
+     * @dev True when the L1 bridge queue is non-empty and the head item violates the same
+     *      freshness bound used in `_checkDeposits` (anti-censorship).
+     */
+    function _depositQueueHeadStale(RollupStorage storage $) private view returns (bool) {
+        address bridgeAddr = $._bridge;
+        if (bridgeAddr == address(0) || bridgeAddr.code.length == 0) return false;
+
+        IL1FluentBridge bridge = IL1FluentBridge(bridgeAddr);
+        if (bridge.getSentMessageQueueSize() == 0) return false;
+
+        uint256 front = bridge.sentMessageQueueFront();
+        (, uint256 enqueuedBlock) = bridge.peekSentMessage(front);
+        uint256 deadline = uint256($._acceptDepositDeadline);
+        return block.number > enqueuedBlock + deadline;
     }
 
     /**
