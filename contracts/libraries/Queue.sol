@@ -19,6 +19,11 @@ library Queue {
     error QueueOutOfBounds(uint256 index);
 
     /**
+     * @notice pushFront attempted while the front cursor is at 0 (no room to decrement).
+     */
+    error QueueUnderflow();
+
+    /**
      * @dev Single queued item: message hash and the block it was enqueued in.
      */
     struct QueueItem {
@@ -54,6 +59,24 @@ library Queue {
     function enqueue(QueueStorage storage self, bytes32 value) internal {
         self.data[self.back] = QueueItem(value, block.number);
         self.back++;
+    }
+
+    /**
+     * @dev Writes `value` at position `front - 1` and decrements `front`, with the current
+     *      block number. Used by the rollup to restore deposits that were popped by a
+     *      now-reverted batch. Safe as long as only previously-popped items are pushed back:
+     *      every {dequeue} increments `front`, so `front > 0` is guaranteed for any item
+     *      that was previously dequeued.
+     */
+    function pushFront(QueueStorage storage self, bytes32 value) internal {
+        // Safety: the only legitimate caller restores previously-popped items, so `front`
+        // has been incremented at least once per restore. Still guard against underflow
+        // defensively — violating this would corrupt the queue cursor.
+        require(self.front > 0, QueueUnderflow());
+        self.front--;
+        // Fresh block.number resets the deposit's freshness deadline, matching the semantics
+        // of enqueue() — the depositor is not penalized for rollup corruption.
+        self.data[self.front] = QueueItem(value, block.number);
     }
 
     /**

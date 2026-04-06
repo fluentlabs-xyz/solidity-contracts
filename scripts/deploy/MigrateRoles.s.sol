@@ -79,10 +79,15 @@ contract MigrateRoles is DeployBase {
 
         // ── Ownable oracles (L2 only) → normal timelock ──
         if (keccak256(bytes(layer)) == keccak256("l2")) {
-            address oracle = _readAddr(manifest, "l1_block_oracle");
-            if (oracle != address(0)) {
-                Ownable(oracle).transferOwnership(normalTL);
+            address blockOracle = _readAddr(manifest, "l1_block_oracle");
+            if (blockOracle != address(0)) {
+                Ownable(blockOracle).transferOwnership(normalTL);
                 console2.log("  L1BlockOracle: owner -> normalTL");
+            }
+            address gasOracle = _readAddr(manifest, "l1_gas_oracle");
+            if (gasOracle != address(0)) {
+                Ownable(gasOracle).transferOwnership(normalTL);
+                console2.log("  L1GasOracle: owner -> normalTL");
             }
         }
 
@@ -97,14 +102,22 @@ contract MigrateRoles is DeployBase {
         console2.log("  Delays set: normal=%d, emergency=%d", normalDelay, emergencyDelay);
 
         // ── Renounce EOA admin (LAST) ──
+        // Verify grants landed before burning deployer access
         if (bridge != address(0)) {
+            require(IAccessControl(bridge).hasRole(DEFAULT_ADMIN_ROLE, normalTL), "bridge: normalTL missing admin");
             IAccessControl(bridge).renounceRole(DEFAULT_ADMIN_ROLE, msg.sender);
         }
         if (keccak256(bytes(layer)) == keccak256("l1")) {
             address rollup = _readAddr(manifest, "rollup");
             address nitroVerifier = _readAddr(manifest, "nitro_verifier");
-            if (rollup != address(0)) IAccessControl(rollup).renounceRole(DEFAULT_ADMIN_ROLE, msg.sender);
-            if (nitroVerifier != address(0)) IAccessControl(nitroVerifier).renounceRole(DEFAULT_ADMIN_ROLE, msg.sender);
+            if (rollup != address(0)) {
+                require(IAccessControl(rollup).hasRole(DEFAULT_ADMIN_ROLE, normalTL), "rollup: normalTL missing admin");
+                IAccessControl(rollup).renounceRole(DEFAULT_ADMIN_ROLE, msg.sender);
+            }
+            if (nitroVerifier != address(0)) {
+                require(IAccessControl(nitroVerifier).hasRole(DEFAULT_ADMIN_ROLE, normalTL), "nitroVerifier: normalTL missing admin");
+                IAccessControl(nitroVerifier).renounceRole(DEFAULT_ADMIN_ROLE, msg.sender);
+            }
         }
         console2.log("  EOA admin renounced");
 
@@ -120,6 +133,7 @@ contract MigrateRoles is DeployBase {
     function _acceptViaTimelock(address timelock, address target) internal {
         if (target == address(0)) return;
         FluentTimeLock tl = FluentTimeLock(payable(timelock));
+        require(tl.getMinDelay() == 0, "timelock minDelay must be 0 for migration");
         bytes memory data = abi.encodeCall(Ownable2Step.acceptOwnership, ());
         tl.schedule(target, 0, data, bytes32(0), bytes32(0), 0);
         tl.execute(target, 0, data, bytes32(0), bytes32(0));

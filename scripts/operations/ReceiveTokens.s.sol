@@ -20,9 +20,9 @@ contract ReceiveTokens is Script {
         address from = vm.envAddress("FROM");
         address to = vm.envAddress("TO");
         uint256 valueWei = vm.envOr("VALUE_WEI", uint256(0));
-        uint256 srcChainId = vm.envOr("SRC_CHAIN_ID", uint256(0));
-        uint256 srcBlockNumber = vm.envOr("SRC_BLOCK_NUMBER", uint256(0));
-        uint256 nonce = vm.envOr("NONCE", uint256(0));
+        uint256 srcChainId = vm.envUint("SRC_CHAIN_ID");
+        uint256 srcBlockNumber = vm.envUint("SRC_BLOCK_NUMBER");
+        uint256 nonce = vm.envUint("NONCE");
         string memory messageHex = vm.envOr("MESSAGE_HEX", string(""));
 
         require(bytes(messageHex).length > 2, "MESSAGE_HEX must be non-empty 0x hex");
