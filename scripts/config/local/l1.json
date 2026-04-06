@@ -21,12 +21,12 @@
         "programVKey": "0x00e34107e4c5284bd4ecc4269c650671038c1e85d9dacb931b534e984f607334",
         "genesisHash": "0x4fd032b3f5730f5a581b27220bedfda176dc7005072a158eac84c9c4206c9f4e",
         "submitBlobsWindow": 7200,
-        "preconfirmWindow": 7201,
         "challengeWindow": 10800,
         "finalizationDelay": 14400,
         "challengeDepositAmount": "10000000000000000",
         "incentiveFee": "1000000000000000",
         "acceptDepositDeadline": 10000,
+        "maxDepositsPerBatch": 100,
         "maxForceRevertBatchSize": 100
     },
     "timelock": {

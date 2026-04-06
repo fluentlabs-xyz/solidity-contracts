@@ -25,6 +25,7 @@ abstract contract BaseDeployNative is Test {
     bytes32 internal constant PROGRAM_VKEY = keccak256("vkey");
     bytes internal constant DUMMY_SIGNATURE = abi.encodePacked(keccak256("r"), keccak256("s"), uint8(27));
     uint256 internal constant FINALIZATION_DELAY = 1;
+    uint256 internal constant MAX_DEPOSITS_PER_BATCH = 100;
     uint256 internal constant MAX_FORCE_REVERT_BATCH_SIZE = 10;
 
     // Fork ids
@@ -84,9 +85,8 @@ abstract contract BaseDeployNative is Test {
         cfg.acceptDepositDeadline = 1000;
         cfg.incentiveFee = 0;
         cfg.submitBlobsWindow = 0;
-        cfg.preconfirmWindow = 1;
         cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
-
+        cfg.maxDepositsPerBatch = MAX_DEPOSITS_PER_BATCH;
         Rollup rollupImpl = new Rollup();
         ERC1967Proxy rollupProxy = new ERC1967Proxy(address(rollupImpl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
         l1Rollup = Rollup(payable(address(rollupProxy)));
@@ -146,6 +146,7 @@ abstract contract BaseDeployERC20 is Test {
     bytes32 internal constant PROGRAM_VKEY = keccak256("vkey");
     bytes internal constant DUMMY_SIGNATURE = abi.encodePacked(keccak256("r"), keccak256("s"), uint8(27));
     uint256 internal constant FINALIZATION_DELAY = 1;
+    uint256 internal constant MAX_DEPOSITS_PER_BATCH = 100;
     uint256 internal constant MAX_FORCE_REVERT_BATCH_SIZE = 10;
 
     uint256 internal l1ForkId;
@@ -208,7 +209,7 @@ abstract contract BaseDeployERC20 is Test {
         cfg.acceptDepositDeadline = 1000;
         cfg.incentiveFee = 0;
         cfg.submitBlobsWindow = 0;
-        cfg.preconfirmWindow = 1;
+        cfg.maxDepositsPerBatch = MAX_DEPOSITS_PER_BATCH;
         cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
 
         Rollup rollupImpl = new Rollup();

@@ -13,7 +13,6 @@ contract RollupGettersTest is RollupAssertions {
         assertEq(rollup.incentiveFee(), 0.1 ether, "incentiveFee");
         assertEq(rollup.acceptDepositDeadline(), 1000, "acceptDepositDeadline");
         assertEq(rollup.submitBlobsWindow(), SUBMIT_BLOBS_WINDOW, "submitBlobsWindow");
-        assertEq(rollup.preconfirmWindow(), PRECONFIRM_WINDOW, "preconfirmWindow");
     }
 
     function test_isBatchPreconfirmed_transitions() public {

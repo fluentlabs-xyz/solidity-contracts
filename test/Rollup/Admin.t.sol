@@ -29,7 +29,7 @@ contract AdminTest is RollupAssertions {
         cfg.acceptDepositDeadline = 1000;
         cfg.incentiveFee = 0.1 ether;
         cfg.submitBlobsWindow = SUBMIT_BLOBS_WINDOW;
-        cfg.preconfirmWindow = PRECONFIRM_WINDOW;
+        cfg.maxDepositsPerBatch = MAX_DEPOSITS_PER_BATCH;
         cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
     }
 
@@ -58,7 +58,7 @@ contract AdminTest is RollupAssertions {
         cfg.acceptDepositDeadline = 1000;
         cfg.incentiveFee = 0.1 ether;
         cfg.submitBlobsWindow = SUBMIT_BLOBS_WINDOW;
-        cfg.preconfirmWindow = PRECONFIRM_WINDOW;
+        cfg.maxDepositsPerBatch = MAX_DEPOSITS_PER_BATCH;
         cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
         Rollup impl = new Rollup();
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
@@ -141,39 +141,12 @@ contract AdminTest is RollupAssertions {
         cfg.acceptDepositDeadline = 1000;
         cfg.incentiveFee = 0.1 ether;
         cfg.submitBlobsWindow = SUBMIT_BLOBS_WINDOW;
-        cfg.preconfirmWindow = PRECONFIRM_WINDOW;
+        cfg.maxDepositsPerBatch = MAX_DEPOSITS_PER_BATCH;
         cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
         Rollup impl = new Rollup();
         vm.expectRevert(
             abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "challengeWindow must be less than finalizationDelay")
         );
-        new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
-    }
-
-    function test_RevertIf_initialize_preconfirmWindowLessThanSubmitBlobsWindow() public {
-        MockSp1Verifier sp1 = new MockSp1Verifier();
-        InitConfiguration memory cfg;
-        cfg.admin = admin;
-        cfg.emergency = admin;
-        cfg.sequencer = sequencer;
-        cfg.challenger = challenger;
-        cfg.prover = prover;
-        cfg.preconfirmationRole = preconfirmer;
-        cfg.sp1Verifier = address(sp1);
-        cfg.nitroVerifier = address(0);
-        cfg.bridge = bridgeAddr;
-        cfg.programVKey = PROGRAM_VKEY;
-        cfg.genesisHash = GENESIS_HASH;
-        cfg.challengeDepositAmount = CHALLENGE_DEPOSIT;
-        cfg.challengeWindow = CHALLENGE_WINDOW;
-        cfg.finalizationDelay = FINALIZATION_DELAY;
-        cfg.acceptDepositDeadline = 1000;
-        cfg.incentiveFee = 0.1 ether;
-        cfg.submitBlobsWindow = 100;
-        cfg.preconfirmWindow = 50;
-        cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
-        Rollup impl = new Rollup();
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "preconfirmWindow must exceed submitBlobsWindow"));
         new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
     }
 
@@ -275,18 +248,6 @@ contract AdminTest is RollupAssertions {
         assertEq(rollup.submitBlobsWindow(), newWindow);
     }
 
-    function test_setPreconfirmWindow_updatesAndEmits() public {
-        uint64 newWindow = 120;
-        uint64 prev = uint64(rollup.preconfirmWindow());
-
-        vm.expectEmit(true, false, false, true, address(rollup));
-        emit PreconfirmWindowUpdated(prev, newWindow);
-        vm.prank(admin);
-        rollup.setPreconfirmWindow(newWindow);
-
-        assertEq(rollup.preconfirmWindow(), newWindow);
-    }
-
     function test_setChallengeWindow_updatesAndEmits() public {
         uint64 newWindow = 100;
         uint64 prev = uint64(rollup.challengeWindow());
@@ -297,6 +258,33 @@ contract AdminTest is RollupAssertions {
         rollup.setChallengeWindow(newWindow);
 
         assertEq(rollup.challengeWindow(), newWindow);
+    }
+
+    function test_setMaxDepositsPerBatch_updatesAndEmits() public {
+        uint64 newCap = 250;
+        uint64 prev = uint64(rollup.maxDepositsPerBatch());
+
+        vm.expectEmit(true, false, false, true, address(rollup));
+        emit MaxDepositsPerBatchUpdated(prev, newCap);
+        vm.prank(admin);
+        rollup.setMaxDepositsPerBatch(newCap);
+
+        assertEq(rollup.maxDepositsPerBatch(), newCap);
+    }
+
+    function test_RevertIf_setMaxDepositsPerBatch_zero() public {
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "maxDepositsPerBatch"));
+        rollup.setMaxDepositsPerBatch(0);
+    }
+
+    function test_RevertIf_initialize_zeroMaxDepositsPerBatch() public {
+        InitConfiguration memory cfg = _defaultInitConfig(admin, sequencer);
+        cfg.maxDepositsPerBatch = 0;
+        Rollup impl = new Rollup();
+
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "maxDepositsPerBatch"));
+        new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
     }
 
     function test_setFinalizationDelay_updatesAndEmits() public {
@@ -369,22 +357,6 @@ contract AdminTest is RollupAssertions {
         vm.prank(admin);
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroAddressNotAllowed.selector, "verifier"));
         rollup.disableNitroVerifier(address(0));
-    }
-
-    function test_RevertIf_setSubmitBlobsWindow_exceedsPreconfirm() public {
-        // preconfirmWindow is 100, so setting submitBlobsWindow >= 100 should fail
-        vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "submitBlobsWindow >= preconfirmWindow"));
-        // forge-lint: disable-next-line(unsafe-typecast)
-        rollup.setSubmitBlobsWindow(uint64(PRECONFIRM_WINDOW));
-    }
-
-    function test_RevertIf_setPreconfirmWindow_belowSubmitBlobs() public {
-        // submitBlobsWindow is 50, so setting preconfirmWindow <= 50 should fail
-        vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "preconfirmWindow <= submitBlobsWindow"));
-        // forge-lint: disable-next-line(unsafe-typecast)
-        rollup.setPreconfirmWindow(uint64(SUBMIT_BLOBS_WINDOW));
     }
 
     function test_RevertIf_setChallengeWindow_exceedsFinalization() public {

@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
-// NOTE: challengeBlock requires Preconfirmed status and sets it to Challenged —
-// only one active challenge per batch is possible through the public API.
-// Multi-challenge partial resolution is therefore not testable.
+// NOTE: challengeBlock accepts batches in Accepted or Preconfirmed status and sets them to
+// Challenged. Only one active challenge per batch is possible through the public API because
+// each call requires the pre-challenge status. Multi-challenge partial resolution is
+// therefore not testable via the public API.
 
 import {RollupAssertions} from "./Base.t.sol";
 import {L2BlockHeader, BatchStatus, ChallengeRecord} from "../../contracts/interfaces/IRollupTypes.sol";
@@ -54,7 +55,55 @@ contract ChallengeTest is RollupAssertions {
         assertEq(rollup.challengeQueue().length, 1);
     }
 
-    function test_RevertIf_challengeBlock_notPreconfirmed() public {
+    function test_challengeBlock_acceptedBatch_transitionsToChallenged() public {
+        // Build an Accepted batch — header submit + blobs, but NO preconfirmBatch.
+        uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
+        bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);
+
+        L2BlockHeader[] memory headers = _makeBatch(lastHash);
+        uint256 batchIndex = rollup.nextBatchIndex();
+        vm.prank(sequencer);
+        rollup.acceptNextBatch(headers, 1);
+        _submitBlobs(batchIndex, 0);
+
+        // Batch is Accepted, not Preconfirmed.
+        assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Accepted));
+
+        MerkleTree.MerkleProof memory proof = _buildMerkleProof(headers, 0);
+        _challengeBlock(batchIndex, headers[0], proof);
+
+        assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Challenged));
+
+        bytes32 commitment = _computeCommitment(headers[0]);
+        ChallengeRecord memory rec = rollup.getChallenge(commitment);
+        assertEq(rec.batchIndex, batchIndex);
+        assertEq(rec.deposit, CHALLENGE_DEPOSIT);
+        assertEq(rec.challenger, challenger);
+    }
+
+    /// @dev Documents the "always Preconfirmed" restoration semantics: a batch challenged while
+    ///      in Accepted is promoted to Preconfirmed after full resolution because per-block
+    ///      Nitro+SP1 dual proofs are strictly stronger evidence than a single preconfirmBatch
+    ///      signature. This is a tripwire for any future change to the restore policy.
+    function test_resolveChallenge_fromAcceptedBatch_setsPreconfirmed() public {
+        uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
+        bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);
+
+        L2BlockHeader[] memory headers = _makeBatch(lastHash);
+        uint256 batchIndex = rollup.nextBatchIndex();
+        vm.prank(sequencer);
+        rollup.acceptNextBatch(headers, 1);
+        _submitBlobs(batchIndex, 0);
+        // No preconfirmBatch — batch stays in Accepted before the challenge.
+
+        MerkleTree.MerkleProof memory proof = _buildMerkleProof(headers, 0);
+        _challengeBlock(batchIndex, headers[0], proof);
+        _resolveChallenge(batchIndex, headers[0], proof);
+
+        assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Preconfirmed), "batch should be promoted to Preconfirmed");
+    }
+
+    function test_RevertIf_challengeBlock_headersSubmittedBatch() public {
         uint256 batchIndex = _acceptBatch(GENESIS_HASH, 0);
         L2BlockHeader[] memory headers = _makeBatch(GENESIS_HASH);
         MerkleTree.MerkleProof memory proof = _buildMerkleProof(headers, 0);

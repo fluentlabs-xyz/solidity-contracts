@@ -235,7 +235,7 @@ contract DeadlockDepositTest is RollupAssertions {
         cfg.acceptDepositDeadline = DEPOSIT_DEADLINE;
         cfg.incentiveFee = 0.1 ether;
         cfg.submitBlobsWindow = SUBMIT_BLOBS_WINDOW;
-        cfg.preconfirmWindow = PRECONFIRM_WINDOW;
+        cfg.maxDepositsPerBatch = MAX_DEPOSITS_PER_BATCH;
         cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
         Rollup impl = new Rollup();
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
