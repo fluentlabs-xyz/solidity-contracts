@@ -215,9 +215,15 @@ contract RollupStorageLayout is
          * @dev whitelist of Nitro enclave verifier contracts allowed for preconfirmation
          */
         mapping(address => bool) _enabledNitroVerifiers;
+        // ============ Deposit tracking for force-revert restoration ============
+        /**
+         * @dev deposit message hashes consumed per batch during acceptNextBatch; restored to
+         *      the bridge queue on force-revert via {L1FluentBridge-pushSentMessage}
+         */
+        mapping(uint256 => bytes32[]) _batchDepositIds;
         // ============ Upgrade gap ============
         /// @dev Reserved storage slots for future upgrades.
-        uint256[25] __gap;
+        uint256[24] __gap;
     }
 
     // ============ Storage Initializer ============
@@ -434,6 +440,11 @@ contract RollupStorageLayout is
     /// @inheritdoc IRollupRead
     function batchProvenBlocks(uint256 batchIndex) public view returns (bytes32[] memory) {
         return _getRollupStorage()._batchProvenBlocks[batchIndex];
+    }
+
+    /// @inheritdoc IRollupRead
+    function batchDepositIds(uint256 batchIndex) public view returns (bytes32[] memory) {
+        return _getRollupStorage()._batchDepositIds[batchIndex];
     }
 
     /// @inheritdoc IRollupRead

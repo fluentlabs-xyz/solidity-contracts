@@ -275,6 +275,14 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         return (item.value, item.blockNumber);
     }
 
+    /// @inheritdoc IL1FluentBridge
+    function pushSentMessage(bytes32 messageHash) public onlyRollup {
+        // Restore at the front of the queue so sequencer-side matching (which walks
+        // L2 ReceivedMessage events against queue entries in FIFO order) still succeeds
+        // after the rollup re-submits the previously-reverted L2 blocks.
+        Queue.pushFront(_getL1FluentBridgeStorage()._sentMessageQueue, messageHash);
+    }
+
     // ============ Views ============
 
     /// @inheritdoc IL1FluentBridge

@@ -4,8 +4,19 @@ import {RollupAssertions} from "./Base.t.sol";
 import {L2BlockHeader, BatchStatus} from "../../contracts/interfaces/IRollupTypes.sol";
 import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
+import {MockDepositBridge} from "../mocks/MockDepositBridge.sol";
+import {MockNitroVerifier} from "../mocks/MockNitroVerifier.sol";
 
 contract ForceRevertTest is RollupAssertions {
+    MockDepositBridge internal depositBridge;
+
+    function setUp() public override {
+        depositBridge = new MockDepositBridge();
+        bridgeAddr = address(depositBridge);
+        nitroVerifier = new MockNitroVerifier();
+        rollup = _deployRollup(bridgeAddr);
+    }
+
     // ============ Cleanup ============
 
     function test_forceRevert_cleansUpBlobHashes() public {
@@ -312,5 +323,80 @@ contract ForceRevertTest is RollupAssertions {
         vm.prank(admin);
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.NotEnoughValueIncentiveFee.selector, insufficient, fee));
         rollup.forceRevertBatch{value: insufficient}(batch1);
+    }
+
+    // ============ Deposit restoration ============
+
+    /// @dev Reproduces the auditor-reported bug: deposits popped during `acceptNextBatch`
+    ///      must be restored to the bridge queue on `forceRevertBatch`, in their original
+    ///      order, so the sequencer can re-submit the same L2 blocks after recovery.
+    ///
+    ///      The scenario interleaves new deposits between acceptance and revert to force
+    ///      the fix to push-to-front rather than push-to-back (the latter would place
+    ///      restored deposits behind the new ones and break sequencer-side matching).
+    function test_forceRevert_restoresDepositsToQueueInOriginalOrder() public {
+        uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
+        bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);
+
+        // Two deposits arrive and are consumed by batch2
+        bytes32 depositA = keccak256("deposit-A");
+        bytes32 depositB = keccak256("deposit-B");
+        depositBridge.enqueue(depositA, block.number);
+        depositBridge.enqueue(depositB, block.number);
+
+        L2BlockHeader[] memory batch2Headers = _makeBatchWithDeposits(lastHash, 0, depositA, depositB);
+        vm.prank(sequencer);
+        rollup.acceptNextBatch(batch2Headers, 1);
+
+        assertEq(depositBridge.queueSize(), 0, "both deposits consumed by acceptNextBatch");
+
+        // Between acceptance and force-revert, new deposits arrive in the queue.
+        // Push-to-back would place the restored A, B behind these new entries and
+        // break sequencer-side cursor matching.
+        bytes32 depositC = keccak256("deposit-C");
+        bytes32 depositD = keccak256("deposit-D");
+        depositBridge.enqueue(depositC, block.number);
+        depositBridge.enqueue(depositD, block.number);
+
+        // Trigger corruption: DA deadline exceeded for batch2
+        vm.roll(block.number + SUBMIT_BLOBS_WINDOW + 1);
+        _assertRollupCorrupted();
+
+        // Force-revert batch2
+        vm.prank(admin);
+        rollup.forceRevertBatch(batch1);
+        _assertRollupHealthy();
+
+        // All four deposits must be present
+        assertEq(depositBridge.queueSize(), 4, "restored deposits + new ones present");
+
+        // Order must be [A, B, C, D] — restored at front in original order, new ones behind.
+        // Pop them back out and check the exact sequence.
+        (bytes32 popped0, ) = depositBridge.popSentMessage();
+        (bytes32 popped1, ) = depositBridge.popSentMessage();
+        (bytes32 popped2, ) = depositBridge.popSentMessage();
+        (bytes32 popped3, ) = depositBridge.popSentMessage();
+        assertEq(popped0, depositA, "position 0 must be restored A");
+        assertEq(popped1, depositB, "position 1 must be restored B");
+        assertEq(popped2, depositC, "position 2 must be new C");
+        assertEq(popped3, depositD, "position 3 must be new D");
+    }
+
+    // ============ Helpers ============
+
+    /// @dev Builds a batch whose first header commits to two deposits, computing the
+    ///      expected depositRoot as keccak256(abi.encodePacked(ids)).
+    function _makeBatchWithDeposits(
+        bytes32 parentHash,
+        uint256 headerIndex,
+        bytes32 depositA,
+        bytes32 depositB
+    ) internal pure returns (L2BlockHeader[] memory batch) {
+        batch = _makeBatch(parentHash);
+        bytes32[] memory ids = new bytes32[](2);
+        ids[0] = depositA;
+        ids[1] = depositB;
+        batch[headerIndex].depositRoot = keccak256(abi.encodePacked(ids));
+        batch[headerIndex].depositCount = 2;
     }
 }
