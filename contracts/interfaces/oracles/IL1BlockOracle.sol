@@ -26,6 +26,18 @@ interface IL1BlockOracle {
      */
     error UnauthorizedSubmitter(address account);
 
+    /**
+     * @notice L1 block number must be non-zero (zero breaks bridge deadline semantics).
+     * @dev selector: 0x2a99708d
+     */
+    error L1BlockNumberZeroNotAllowed();
+
+    /**
+     * @notice L1 block number exceeds the protocol maximum (prevents deadline arithmetic abuse).
+     * @dev selector: 0xbea07e88
+     */
+    error L1BlockNumberTooLarge(uint256 provided, uint256 maximum);
+
     /// @dev Emitted when the L1 block number is updated
     event L1BlockNumberUpdated(uint256 indexed blockNumber);
 
