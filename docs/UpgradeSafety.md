@@ -18,11 +18,10 @@
 
 ## Unsafe Upgrade Tooling
 
-- `scripts/deploy/DeployLib.s.sol`
-- `scripts/upgrade/UpgradeFluentBridge.s.sol`
 - `scripts/upgrade/UpgradeERC20Beacon.s.sol`
+- `scripts/upgrade/UpgradeL2Bridge.s.sol`
 
-These scripts still use unsafe upgrade helpers in some paths. They now require `ALLOW_UNSAFE_UPGRADES=true` to make operator intent explicit, but they should still be treated as high-risk operational tools.
+These scripts use unsafe upgrade helpers (`UnsafeUpgrades`) because gblend does not support the `UPGRADE_INTERFACE_VERSION` check. They should be treated as high-risk operational tools.
 
 ## Deployment Checks
 

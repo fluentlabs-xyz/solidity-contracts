@@ -17,14 +17,13 @@ import {L2BlockHeader, BatchStatus, BatchRecord, ChallengeRecord} from "../inter
  * @dev Rollup contract serves as an Optimistic Rollup in a relation with FluentBridge with two verifier paths: AWS Nitro Enclave for preconfirmation
  * and SP1 for ZK proof-based challenge resolution.
  *
- * Batches progress through five statuses: HeadersSubmitted → Accepted → Preconfirmed →
- * Finalized, with Challenged as a transient branch from Preconfirmed that resolves back
- * to Preconfirmed once all disputes are settled.
+ * Batches progress through HeadersSubmitted → Accepted → Preconfirmed → Finalized, with
+ * Challenged as a transient branch from either Accepted or Preconfirmed. Preconfirmation
+ * via {preconfirmBatch} has no deadline — it can happen at any time after blob submission.
  *
  * All timing windows are measured from the block in which `acceptNextBatch` was called
  * ({BatchRecord-acceptedAtBlock}). The windows are:
  * - {RollupStorage-submitBlobsWindow}: deadline for the sequencer to submit blob hashes.
- * - {RollupStorage-preconfirmWindow}: deadline for the preconfirmation service to confirm.
  * - {RollupStorage-challengeWindow}: deadline by which open challenges must be resolved.
  * - {RollupStorage-finalizationDelay}: minimum wait before a batch can be finalized.
  *
@@ -187,17 +186,34 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
     }
 
     /**
-     * @dev Deletes all storage associated with `batchIndex` during force-revert:
-     *      blob hashes, challenged blocks, proven blocks, batch record, and last block hash.
+     * @dev Deletes all storage associated with `batchIndex` during force-revert and restores
+     *      the deposits that were popped by this batch back to the front of the bridge queue.
+     *
+     *      Restoration order matters: {forceRevertBatch}'s outer loop processes batches
+     *      newest-to-oldest. Within each batch we iterate popped deposits in reverse so each
+     *      `pushSentMessage` places the item at the new front. Combined, the final queue
+     *      state has the deposits in their original nonce-ascending order — which the
+     *      off-chain sequencer requires to re-match its L2 ReceivedMessage events.
+     *
+     *      External call to the bridge is safe here: {forceRevertBatch} holds the
+     *      nonReentrant guard, and the bridge is trusted.
      */
     function _cleanupForceRevertBatch(uint256 batchIndex) internal {
         RollupStorage storage $ = _getRollupStorage();
+        // Restore deposits in reverse so the final queue order matches the original pop order.
+        bytes32[] storage depositIds = $._batchDepositIds[batchIndex];
+        uint256 depositCount = depositIds.length;
+        address bridgeAddr = $._bridge;
+        for (uint256 i = depositCount; i > 0; --i) {
+            IL1FluentBridge(bridgeAddr).pushSentMessage(depositIds[i - 1]); // wake-disable-line reentrancy
+        }
         // Delete all storage slots associated with this batch to reclaim gas
         // and ensure reverted batches leave no residual state
         delete $._batches[batchIndex];
         delete $._batchProvenBlocks[batchIndex];
         delete $._batchChallengedBlocks[batchIndex];
         delete $._batchBlobHashes[batchIndex];
+        delete $._batchDepositIds[batchIndex];
         // Remove the chain-linkage hash so re-submitted batches don't collide
         delete $._lastBlockHashInBatch[batchIndex];
     }
@@ -229,9 +245,13 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
 
         // Cache gas floor to prevent an out-of-gas DoS in the validation loop below
         uint256 gasLeft = $._gasLeft;
+        // Per-batch deposit cap — sum of depositCount across all headers must not exceed this
+        uint256 totalDeposits = 0;
+        uint256 depositCap = uint256($._maxDepositsPerBatch);
 
-        // Phase 1: validate header chain linkage (adjacent block hash pairs; single-block batches skip).
-        // Each header's blockHash must equal the next header's previousBlockHash
+        // Validate header chain linkage AND accumulate deposit counts in a single pass.
+        // The chain-linkage check pairs headers[i] with headers[i+1], so the loop runs
+        // to batchSize-1; the last header's deposits are counted after the loop.
         for (uint256 i = 0; i < batchSize - 1; ++i) {
             // Ensure enough gas remains for each iteration to prevent partial execution
             require(gasleft() >= gasLeft, InsufficientGas());
@@ -240,7 +260,14 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
                 blockHeaders[i].blockHash == blockHeaders[i + 1].previousBlockHash,
                 InvalidBlockSequence(i, blockHeaders[i].blockHash, blockHeaders[i + 1].previousBlockHash)
             );
+            // Accumulate deposit count and fail fast if the cap is already breached
+            totalDeposits += blockHeaders[i].depositCount;
+            require(totalDeposits <= depositCap, DepositCountTooLarge(totalDeposits));
         }
+
+        // Last header: chain-linkage already anchored by the loop above, only deposit cap remains
+        totalDeposits += blockHeaders[batchSize - 1].depositCount;
+        require(totalDeposits <= depositCap, DepositCountTooLarge(totalDeposits));
 
         // Sanity check: a zero deposit root must have zero deposit count (no phantom deposits)
         if (blockHeaders[batchSize - 1].depositRoot == ZERO_BYTES_HASH) {
@@ -270,11 +297,11 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         // forge-lint: disable-next-line(unsafe-typecast)
         $._nextBatchIndex = uint96(batchIndex + 1);
 
-        // Phase 2 (CEI): external bridge calls happen after all state writes above.
+        // --- Interactions (CEI): external bridge calls happen after all state writes above ---
         // Pop deposits from the L1 bridge queue and verify they match the header's depositRoot
         for (uint256 i = 0; i < batchSize; ++i) {
             // Only check blocks that claim deposits — skip blocks with empty deposit roots
-            if (blockHeaders[i].depositRoot != ZERO_BYTES_HASH) _checkDeposits(blockHeaders[i]);
+            if (blockHeaders[i].depositRoot != ZERO_BYTES_HASH) _checkDeposits(batchIndex, blockHeaders[i]);
         }
 
         // Notify indexers of the new batch — includes the Merkle root for off-chain verification
@@ -350,7 +377,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         // over the batch root and blob hashes; returns the signer address for the event
         address verifier = INitroVerifier(nitroVerifier).verifyBatch(batch.batchRoot, $._batchBlobHashes[batchIndex], signature);
 
-        // State transition: Accepted → Preconfirmed; batch is now eligible for finalization or challenge
+        // State transition: Accepted → Preconfirmed
         batch.status = BatchStatus.Preconfirmed;
         emit BatchPreconfirmed(batchIndex, nitroVerifier, verifier);
     }
@@ -369,8 +396,12 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         require(!_rollupCorrupted(), RollupCorrupted());
         BatchRecord storage batch = $._batches[batchIndex];
 
-        // Challenges can only target Preconfirmed batches — not earlier or finalized ones
-        require(batch.status == BatchStatus.Preconfirmed, InvalidBatchStatus(batchIndex, uint8(batch.status)));
+        // Challenges target Accepted or Preconfirmed batches — HeadersSubmitted has no blobs,
+        // Challenged already has an open dispute, Finalized is immutable.
+        require(
+            batch.status == BatchStatus.Accepted || batch.status == BatchStatus.Preconfirmed,
+            InvalidBatchStatus(batchIndex, uint8(batch.status))
+        );
         // Exact deposit required — overpayment is not refunded, underpayment is rejected;
         // this deposit is forfeited to the prover if the challenge is resolved
         require(msg.value == $._challengeDepositAmount, IncorrectChallengeDeposit($._challengeDepositAmount, msg.value));
@@ -444,7 +475,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         delete $._challenges[commitment];
         _removeChallengeFromQueue(commitment);
 
-        // When every challenged block in the batch has been proven, restore to Preconfirmed
+        // When every challenged block in the batch has been proven, set to Preconfirmed
         // so the batch can proceed toward finalization
         if ($._batchChallengedBlocks[batchIndex].length == $._batchProvenBlocks[batchIndex].length) {
             $._batches[batchIndex].status = BatchStatus.Preconfirmed;
@@ -548,7 +579,6 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
      * @dev Checks if the rollup is corrupted by examining the oldest non-finalized batch.
      *      Corruption occurs when any of the following deadlines are exceeded:
      *      - `submitBlobsWindow`: blob hashes not submitted in time (HeadersSubmitted).
-     *      - `preconfirmWindow`: batch not preconfirmed in time (Accepted).
      *      - `challengeWindow`: open challenge not resolved before its deadline (Challenged).
      */
     function _rollupCorrupted() internal view returns (bool) {
@@ -566,9 +596,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         // Deadline 1: sequencer failed to submit blobs within the allowed window
         // (window value of 0 means this deadline is disabled)
         if (status == BatchStatus.HeadersSubmitted && $._submitBlobsWindow != 0 && block.number > accepted + $._submitBlobsWindow) return true;
-        // Deadline 2: preconfirmation service failed to confirm within the allowed window
-        if (status == BatchStatus.Accepted && $._preconfirmWindow != 0 && block.number > accepted + $._preconfirmWindow) return true;
-        // Deadline 3: a challenge exists whose resolution deadline has passed
+        // Deadline 2: a challenge exists whose resolution deadline has passed
         // Peek at the min-heap root — the challenge with the earliest deadline
         if (status == BatchStatus.Challenged && !$._challengeQueue.isEmpty()) {
             return $._challenges[$._challengeQueue.peek()].deadline < block.number;
@@ -587,16 +615,16 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
 
         // Already done — allow the caller loop to continue to the next batch
         if (batch.status == BatchStatus.Finalized) return true;
-        // Only preconfirmed batches are eligible; anything else stops the loop
-        // (HeadersSubmitted, Accepted, Challenged batches cannot be finalized)
-        if (batch.status != BatchStatus.Preconfirmed) return false;
+        // Only Accepted or Preconfirmed batches are eligible for finalization.
+        // HeadersSubmitted (blobs missing), Challenged (open dispute) cannot finalize.
+        if (batch.status != BatchStatus.Accepted && batch.status != BatchStatus.Preconfirmed) return false;
         // Batches must finalize in order — gap means a predecessor is not ready yet
         if (batchIndex != uint256($._lastFinalizedBatchIndex) + 1) return false;
         // Delay not elapsed — batch needs to age before finalization is allowed
         // This gives challengers time to dispute before the batch becomes irreversible
         if (block.number - uint256(batch.acceptedAtBlock) <= $._finalizationDelay) return false;
 
-        // State transition: Preconfirmed → Finalized (irreversible)
+        // State transition: Accepted|Preconfirmed → Finalized (irreversible)
         batch.status = BatchStatus.Finalized;
         // Advance the finalization watermark so the next batch becomes eligible
         if (batchIndex > type(uint64).max) return false;
@@ -704,16 +732,20 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
     // ============ Internal — helpers ============
 
     /**
-     * @dev Verifies that L1 deposits match the depositRoot in the block header.
+     * @dev Verifies that L1 deposits match the depositRoot in the block header and records
+     *      the popped deposit IDs against `batchIndex` so they can be restored by
+     *      {_cleanupForceRevertBatch} on force-revert.
      *      Called after all state writes in acceptNextBatch (CEI pattern) and within
      *      a nonReentrant guard — reentrancy warning is a false positive.
      */
-    function _checkDeposits(L2BlockHeader calldata header) private {
+    function _checkDeposits(uint256 batchIndex, L2BlockHeader calldata header) private {
         RollupStorage storage $ = _getRollupStorage();
         // Cache the deposit freshness deadline to avoid repeated storage reads in the loop
         uint256 deadline = $._acceptDepositDeadline;
-        // Allocate array to collect deposit IDs for root verification
+        // Allocate in-memory array for the root verification at the end of the loop
         bytes32[] memory depositIds = new bytes32[](header.depositCount);
+        // Storage array to append popped IDs for force-revert restoration
+        bytes32[] storage persisted = $._batchDepositIds[batchIndex];
         for (uint256 i = 0; i < header.depositCount; ++i) {
             // External call to the bridge: pops the next deposit from the FIFO queue
             // Called after all state writes in acceptNextBatch (CEI) under nonReentrant guard
@@ -721,6 +753,8 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
             // Ensure the deposit is not stale — prevents sequencers from including very old deposits
             require(block.number <= depositBlockNumber + deadline, AcceptDepositDeadlineExceeded(depositBlockNumber + deadline, block.number));
             depositIds[i] = depositId;
+            // Persist so force-revert can restore this exact hash back to the queue front
+            persisted.push(depositId);
         }
         // Final integrity check: the hash of all popped deposit IDs must match the header's
         // depositRoot — ensures the sequencer included exactly these deposits in the L2 block

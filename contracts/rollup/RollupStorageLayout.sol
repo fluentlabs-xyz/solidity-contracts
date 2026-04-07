@@ -120,12 +120,12 @@ contract RollupStorageLayout is
          */
         uint64 _submitBlobsWindow;
         /**
-         * @dev Maximum number of L1 blocks after batch acceptance for the preconfirmation service
-         *      to call `preconfirmBatch`. Both `submitBlobsWindow` and this deadline are measured
-         *      from `acceptedAtBlock`, so this value must exceed `submitBlobsWindow` to give the
-         *      preconfirmation service time to act after DA submission completes. Set to 0 to disable.
+         * @dev Maximum total deposits allowed across all block headers in a single batch. Summed
+         *      and checked in {IRollupWrite-acceptNextBatch} against the configured cap; enforced
+         *      non-zero by {_setMaxDepositsPerBatch}. Replaces the removed `_preconfirmWindow`
+         *      field in slot 4 (pre-testnet layout swap).
          */
-        uint64 _preconfirmWindow;
+        uint64 _maxDepositsPerBatch;
         // ─── Slot 5: uint256(32) ───
         /**
          * @dev ETH deposit required to open a challenge; awarded to prover on resolution
@@ -215,9 +215,15 @@ contract RollupStorageLayout is
          * @dev whitelist of Nitro enclave verifier contracts allowed for preconfirmation
          */
         mapping(address => bool) _enabledNitroVerifiers;
+        // ============ Deposit tracking for force-revert restoration ============
+        /**
+         * @dev deposit message hashes consumed per batch during acceptNextBatch; restored to
+         *      the bridge queue on force-revert via {L1FluentBridge-pushSentMessage}
+         */
+        mapping(uint256 => bytes32[]) _batchDepositIds;
         // ============ Upgrade gap ============
         /// @dev Reserved storage slots for future upgrades.
-        uint256[25] __gap;
+        uint256[24] __gap;
     }
 
     // ============ Storage Initializer ============
@@ -238,19 +244,15 @@ contract RollupStorageLayout is
         // ─── Deadline invariants ───
         // all window values are stored as uint64/uint32; reject values that would silently truncate
         require(params.submitBlobsWindow <= type(uint64).max, InvalidWindowConfig("submitBlobsWindow out of range"));
-        require(params.preconfirmWindow <= type(uint64).max, InvalidWindowConfig("preconfirmWindow out of range"));
         require(params.challengeWindow <= type(uint64).max, InvalidWindowConfig("challengeWindow out of range"));
         require(params.finalizationDelay <= type(uint64).max, InvalidWindowConfig("finalizationDelay out of range"));
         require(params.acceptDepositDeadline <= type(uint32).max, InvalidWindowConfig("acceptDepositDeadline out of range"));
+        require(params.maxDepositsPerBatch <= type(uint64).max, InvalidWindowConfig("maxDepositsPerBatch out of range"));
         require(params.maxForceRevertBatchSize <= type(uint32).max, InvalidWindowConfig("maxForceRevertBatchSize out of range"));
-        // preconfirmation must happen after blob submission completes (when both are enabled)
-        if (params.submitBlobsWindow != 0 && params.preconfirmWindow != 0) {
-            require(params.preconfirmWindow > params.submitBlobsWindow, InvalidWindowConfig("preconfirmWindow must exceed submitBlobsWindow"));
-        }
-        // set blob submission and preconfirmation windows before challenge/finalization
-        // because the setters cross-validate against each other
+
+        // configuration is independent per setter; non-zero guards live inside the setters
         _setSubmitBlobsWindow(uint64(params.submitBlobsWindow));
-        _setPreconfirmWindow(uint64(params.preconfirmWindow));
+        _setMaxDepositsPerBatch(uint64(params.maxDepositsPerBatch));
         // challenge window must be strictly less to guarantee full finalization delay
         require(params.challengeWindow < params.finalizationDelay, InvalidWindowConfig("challengeWindow must be less than finalizationDelay"));
         _setChallengeWindow(uint64(params.challengeWindow));
@@ -354,9 +356,9 @@ contract RollupStorageLayout is
     }
 
     /// @inheritdoc IRollupConfig
-    function preconfirmWindow() public view returns (uint256) {
-        // zero means the preconfirmation deadline is disabled
-        return uint256(_getRollupStorage()._preconfirmWindow);
+    function maxDepositsPerBatch() public view returns (uint256) {
+        // hard cap on per-batch total deposit count; enforced in acceptNextBatch, non-zero
+        return uint256(_getRollupStorage()._maxDepositsPerBatch);
     }
 
     // ============ IRollupRead ============
@@ -434,6 +436,11 @@ contract RollupStorageLayout is
     /// @inheritdoc IRollupRead
     function batchProvenBlocks(uint256 batchIndex) public view returns (bytes32[] memory) {
         return _getRollupStorage()._batchProvenBlocks[batchIndex];
+    }
+
+    /// @inheritdoc IRollupRead
+    function batchDepositIds(uint256 batchIndex) public view returns (bytes32[] memory) {
+        return _getRollupStorage()._batchDepositIds[batchIndex];
     }
 
     /// @inheritdoc IRollupRead
@@ -565,28 +572,22 @@ contract RollupStorageLayout is
     /** @dev Stores the blob submission window in L1 blocks. */
     function _setSubmitBlobsWindow(uint64 newSubmitBlobsWindow) internal {
         RollupStorage storage $ = _getRollupStorage();
-        // blob submission must complete before preconfirmation can start
-        if ($._preconfirmWindow != 0) {
-            require(newSubmitBlobsWindow < $._preconfirmWindow, InvalidWindowConfig("submitBlobsWindow >= preconfirmWindow"));
-        }
         emit SubmitBlobsWindowUpdated($._submitBlobsWindow, newSubmitBlobsWindow);
         $._submitBlobsWindow = newSubmitBlobsWindow;
     }
 
     /// @inheritdoc IRollupAdmin
-    function setPreconfirmWindow(uint64 newPreconfirmWindow) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        _setPreconfirmWindow(newPreconfirmWindow);
+    function setMaxDepositsPerBatch(uint64 newMaxDepositsPerBatch) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setMaxDepositsPerBatch(newMaxDepositsPerBatch);
     }
 
-    /** @dev Stores the preconfirmation window. Must not exceed submitBlobsWindow. */
-    function _setPreconfirmWindow(uint64 newPreconfirmWindow) internal {
+    /** @dev Stores the maximum total deposits allowed per batch. Reverts on zero. */
+    function _setMaxDepositsPerBatch(uint64 newMaxDepositsPerBatch) internal {
         RollupStorage storage $ = _getRollupStorage();
-        // preconfirmation must allow time for blob submission to complete first
-        if (newPreconfirmWindow != 0 && $._submitBlobsWindow != 0) {
-            require(newPreconfirmWindow > $._submitBlobsWindow, InvalidWindowConfig("preconfirmWindow <= submitBlobsWindow"));
-        }
-        emit PreconfirmWindowUpdated($._preconfirmWindow, newPreconfirmWindow);
-        $._preconfirmWindow = newPreconfirmWindow;
+        // zero would reject every batch containing deposits — disable via a high cap instead
+        require(newMaxDepositsPerBatch != 0, ZeroValueNotAllowed("maxDepositsPerBatch"));
+        emit MaxDepositsPerBatchUpdated($._maxDepositsPerBatch, newMaxDepositsPerBatch);
+        $._maxDepositsPerBatch = newMaxDepositsPerBatch;
     }
 
     /// @inheritdoc IRollupAdmin
@@ -594,7 +595,7 @@ contract RollupStorageLayout is
         _setChallengeWindow(newChallengeWindow);
     }
 
-    /** @dev Stores the challenge window. Must not exceed preconfirmWindow. */
+    /** @dev Stores the challenge window. Must be strictly less than finalizationDelay. */
     function _setChallengeWindow(uint64 newChallengeWindow) internal {
         RollupStorage storage $ = _getRollupStorage();
         // challenge window must end before finalization to give challengers full response time

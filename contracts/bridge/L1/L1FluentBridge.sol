@@ -18,7 +18,6 @@ import {IL1FluentBridge} from "../../interfaces/bridge/IL1FluentBridge.sol";
  *
  * @dev L1 bridge contract for the Fluent bridge that lives on Ethereum.
  */
-/// @custom:oz-upgrades-from build-info-v1:L1FluentBridge
 contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     // ============ Constants ============
 
@@ -274,6 +273,14 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         // to build the deposit root that binds L1→L2 messages to a specific batch
         Queue.QueueItem memory item = Queue.dequeue(_getL1FluentBridgeStorage()._sentMessageQueue);
         return (item.value, item.blockNumber);
+    }
+
+    /// @inheritdoc IL1FluentBridge
+    function pushSentMessage(bytes32 messageHash) public onlyRollup {
+        // Restore at the front of the queue so sequencer-side matching (which walks
+        // L2 ReceivedMessage events against queue entries in FIFO order) still succeeds
+        // after the rollup re-submits the previously-reverted L2 blocks.
+        Queue.pushFront(_getL1FluentBridgeStorage()._sentMessageQueue, messageHash);
     }
 
     // ============ Views ============

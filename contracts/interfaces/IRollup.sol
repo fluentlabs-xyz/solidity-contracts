@@ -154,12 +154,6 @@ interface IRollupErrors {
     error SubmitBlobsWindowExceeded(uint256 deadline, uint256 currentBlock);
 
     /**
-     * @notice Batch was not preconfirmed within the `preconfirmWindow`.
-     * @dev selector: 0x915afa97
-     */
-    error PreconfirmWindowExceeded(uint256 deadline, uint256 currentBlock);
-
-    /**
      * @notice Number of submitted blob hashes exceeds the expected count for this batch.
      * @dev selector: 0x756c086a
      */
@@ -209,14 +203,13 @@ interface IRollupErrors {
     error InvalidDepositRootWithNonZeroCount(uint256 depositCount);
 
     /**
-     * @notice preconfirmWindow must exceed submitBlobsWindow — both are measured from
-     *         acceptedAtBlock, so preconfirmation cannot be required before blob submission completes.
+     * @notice Window configuration invariant violated during initialization or an admin update.
      * @dev selector: 0x14bef653
      */
     error InvalidWindowConfig(string reason);
 
     /**
-     * @notice Block header `depositCount` exceeds the maximum value supported by on-chain processing.
+     * @notice Total deposit count across a batch's block headers exceeds the configured `maxDepositsPerBatch` cap.
      * @dev selector: 0x44c573ae
      */
     error DepositCountTooLarge(uint256 depositCount);
@@ -294,9 +287,9 @@ interface IRollupEvents {
     event SubmitBlobsWindowUpdated(uint64 previousSubmitBlobsWindow, uint64 newSubmitBlobsWindow);
 
     /**
-     * @notice Emitted when the preconfirm window is updated.
+     * @notice Emitted when the max deposits per batch is updated.
      */
-    event PreconfirmWindowUpdated(uint64 previousPreconfirmWindow, uint64 newPreconfirmWindow);
+    event MaxDepositsPerBatchUpdated(uint64 previousMaxDepositsPerBatch, uint64 newMaxDepositsPerBatch);
 
     /**
      * @notice Emitted when the challenge window is updated.
@@ -432,9 +425,9 @@ interface IRollupConfig {
     function submitBlobsWindow() external view returns (uint256);
 
     /**
-     * @notice Max L1 blocks after batch acceptance for preconfirmation.
+     * @notice Maximum number of deposits allowed per batch, used to prevent out-of-gas during paginated force revert.
      */
-    function preconfirmWindow() external view returns (uint256);
+    function maxDepositsPerBatch() external view returns (uint256);
 }
 
 /**
@@ -517,6 +510,11 @@ interface IRollupRead {
      * @notice Returns commitments of blocks that have been proven in a batch.
      */
     function batchProvenBlocks(uint256 batchIndex) external view returns (bytes32[] memory);
+
+    /**
+     * @notice Returns deposit message hashes consumed during acceptance of a batch, in the order they were popped from the bridge queue.
+     */
+    function batchDepositIds(uint256 batchIndex) external view returns (bytes32[] memory);
 
     /**
      * @notice Returns true if a block commitment has been proven.
@@ -681,10 +679,12 @@ interface IRollupAdmin {
     function setSubmitBlobsWindow(uint64 newSubmitBlobsWindow) external;
 
     /**
-     * @notice Set the maximum L1 blocks after batch acceptance for batch preconfirmation
-     *         (measured from acceptedAtBlock).
+     * @notice Sets the maximum number of deposits allowed per batch.
+     * @dev Caps deposit count to prevent out-of-gas during paginated force-revert.
+     *      Must be >= 1.
+     * @param newMaxDepositsPerBatch The new cap to enforce in `_checkDeposits`.
      */
-    function setPreconfirmWindow(uint64 newPreconfirmWindow) external;
+    function setMaxDepositsPerBatch(uint64 newMaxDepositsPerBatch) external;
 
     /**
      * @notice Set the maximum L1 blocks after batch acceptance for challenge submission.

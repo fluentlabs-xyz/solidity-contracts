@@ -9,15 +9,15 @@ import {FluentBridgeStorageLayout} from "../../contracts/bridge/FluentBridgeStor
 import {L1GasOracle} from "../../contracts/oracles/L1GasOracle.sol";
 import {DeployBase} from "./DeployBase.s.sol";
 
-/// @notice Deploys L2FluentBridge behind a UUPS proxy with L1BlockOracle and L1GasOracle.
+/// @notice Deploys L2FluentBridge behind a UUPS proxy.
 /// @dev Inherit and call _deployL2Bridge() inside your broadcast.
+///      Gas oracle must be deployed separately and passed as a parameter.
 contract DeployL2Bridge is DeployBase {
     using stdJson for string;
 
     struct L2BridgeResult {
         address proxy;
         address impl;
-        address gasOracle;
     }
 
     function _deployL2Bridge(
@@ -27,11 +27,12 @@ contract DeployL2Bridge is DeployBase {
         address otherBridge,
         address l1BlockOracle,
         uint256 receiveMessageDeadline,
+        address gasOracle,
         address feeTreasury
     ) internal returns (L2BridgeResult memory r) {
         require(l1BlockOracle != address(0), "L1_BLOCK_ORACLE required");
         require(receiveMessageDeadline > 0, "RECEIVE_MSG_DEADLINE required");
-        r.gasOracle = address(new L1GasOracle(relayerRole));
+        require(gasOracle != address(0), "l1_gas_oracle required");
         address treasury = feeTreasury == address(0) ? adminRole : feeTreasury;
         FluentBridgeStorageLayout.InitConfiguration memory params = FluentBridgeStorageLayout.InitConfiguration({
             adminRole: adminRole,
@@ -41,15 +42,13 @@ contract DeployL2Bridge is DeployBase {
         });
         r.proxy = Upgrades.deployUUPSProxy(
             "L2FluentBridge.sol:L2FluentBridge",
-            abi.encodeCall(
-                L2FluentBridge.initialize,
-                (abi.encode(params), receiveMessageDeadline, l1BlockOracle, r.gasOracle, 0, 0, 0, treasury)
-            )
+            abi.encodeCall(L2FluentBridge.initialize, (abi.encode(params), receiveMessageDeadline, l1BlockOracle, gasOracle, 0, 0, 0, treasury))
         );
         r.impl = Upgrades.getImplementationAddress(r.proxy);
     }
 
     /// @dev Standalone: NETWORK, L1_BLOCK_ORACLE required. Reads roles from config.
+    ///      Deploys L1GasOracle inline, then passes to _deployL2Bridge.
     function run() external virtual {
         string memory json = _readConfig(vm.envOr("NETWORK", string("testnet/l2")));
         address adminRole = vm.envOr("ADMIN_ROLE", json.readAddress(".roles.admin"));
@@ -66,6 +65,7 @@ contract DeployL2Bridge is DeployBase {
         console2.log("  receiveMessageDeadline:", receiveMessageDeadline);
 
         vm.startBroadcast();
+        address gasOracle = address(new L1GasOracle(relayerRole));
         L2BridgeResult memory r = _deployL2Bridge(
             adminRole,
             pauserRole,
@@ -73,18 +73,19 @@ contract DeployL2Bridge is DeployBase {
             otherBridge,
             l1BlockOracle,
             receiveMessageDeadline,
+            gasOracle,
             address(0)
         );
         vm.stopBroadcast();
 
         console2.log("L2FluentBridge deployed:", r.proxy);
         console2.log("  impl:", r.impl);
-        console2.log("  gasOracle:", r.gasOracle);
+        console2.log("  gasOracle:", gasOracle);
 
         if (bytes(outputPath).length != 0) {
             string memory out = vm.serializeAddress("deployment", "bridge", r.proxy);
             out = vm.serializeAddress("deployment", "bridge_impl", r.impl);
-            out = vm.serializeAddress("deployment", "gas_oracle", r.gasOracle);
+            out = vm.serializeAddress("deployment", "l1_gas_oracle", gasOracle);
             vm.writeJson(out, outputPath);
         }
     }

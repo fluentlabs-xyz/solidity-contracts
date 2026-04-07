@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
-import {Script, stdJson, console2} from "forge-std/Script.sol";
+import {stdJson, console2} from "forge-std/Script.sol";
 import {L1FluentBridge} from "../../contracts/bridge/L1/L1FluentBridge.sol";
 import {ERC20Gateway} from "../../contracts/gateways/ERC20Gateway.sol";
 import {NativeGateway} from "../../contracts/gateways/NativeGateway.sol";
+import {DeployBase} from "./DeployBase.s.sol";
 
 /**
  * @notice Configure L1 bridge and gateways to point at L2 counterparts.
@@ -15,7 +16,7 @@ import {NativeGateway} from "../../contracts/gateways/NativeGateway.sol";
  * - ENV (optional, default: "testnet") — deployment environment
  * - DEST_CONFIG (optional, default: "scripts/config/<ENV>/l2.json") — L2 chain config
  */
-contract SetupL1Bridge is Script {
+contract SetupL1Bridge is DeployBase {
     using stdJson for string;
 
     function run() external {
@@ -56,13 +57,5 @@ contract SetupL1Bridge is Script {
         ERC20Gateway(payable(l1Erc20Gateway)).setOtherSide(true, l2Erc20Gateway, l2ChainId, l2PeggedImpl, l2Factory, l2FactoryBeacon);
         NativeGateway(payable(l1NativeGateway)).setOtherSideGateway(l2NativeGateway);
         vm.stopBroadcast();
-    }
-
-    function _readAddr(string memory json, string memory key) internal view returns (address) {
-        string memory nested = string.concat(".deployment.", key);
-        if (vm.keyExistsJson(json, nested)) return json.readAddress(nested);
-        string memory flat = string.concat(".", key);
-        if (vm.keyExistsJson(json, flat)) return json.readAddress(flat);
-        return address(0);
     }
 }

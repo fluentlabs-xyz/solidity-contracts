@@ -107,8 +107,10 @@ struct InitConfiguration {
     uint256 incentiveFee;
     /// @dev Max L1 blocks after acceptance for blob submission; 0 = disabled
     uint256 submitBlobsWindow;
-    /// @dev Max L1 blocks after acceptance for preconfirmation; 0 = disabled
-    uint256 preconfirmWindow;
+    /// @dev Hard cap on the total deposit count across all block headers in a batch; enforced in
+    ///      {IRollupWrite-acceptNextBatch}. Must be non-zero. Bounds per-batch acceptance work
+    ///      now that the preconfirm deadline no longer indirectly caps it.
+    uint256 maxDepositsPerBatch;
     /// @dev Max batch size to revert at once
     uint256 maxForceRevertBatchSize;
 }
