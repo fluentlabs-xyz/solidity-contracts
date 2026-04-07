@@ -63,6 +63,12 @@ contract RollupStorageLayout is
      */
     uint32 public constant DEFAULT_GAS_LEFT = 1_000_000;
 
+    /**
+     * @dev Upper bound on {incentiveFee} so `challenge.deposit + fee` cannot overflow uint256
+     *      during {forceRevertBatch} reward crediting.
+     */
+    uint256 public constant MAX_INCENTIVE_FEE = 1000 ether;
+
     /// @dev keccak256 of empty bytes — used to detect zero-message roots.
     bytes32 public constant ZERO_BYTES_HASH = 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
 
@@ -637,6 +643,7 @@ contract RollupStorageLayout is
 
     /** @dev Stores the incentive fee paid to force-revert callers. */
     function _setIncentiveFee(uint256 newIncentiveFee) internal {
+        require(newIncentiveFee <= MAX_INCENTIVE_FEE, IncentiveFeeTooLarge(newIncentiveFee, MAX_INCENTIVE_FEE));
         RollupStorage storage $ = _getRollupStorage();
         emit IncentiveFeeUpdated($._incentiveFee, newIncentiveFee);
         $._incentiveFee = newIncentiveFee;
