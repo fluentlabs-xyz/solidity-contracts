@@ -21,6 +21,7 @@ import {MockSp1Verifier} from "../mocks/MockSp1Verifier.sol";
 
 abstract contract BaseDeployNative is Test {
     uint256 internal constant RECEIVE_DEADLINE = 100;
+    uint256 internal constant ACCEPT_DEPOSIT_DEADLINE = 1000;
     bytes32 internal constant GENESIS_HASH = keccak256("genesis");
     bytes32 internal constant PROGRAM_VKEY = keccak256("vkey");
     bytes internal constant DUMMY_SIGNATURE = abi.encodePacked(keccak256("r"), keccak256("s"), uint8(27));
@@ -82,7 +83,6 @@ abstract contract BaseDeployNative is Test {
         cfg.challengeDepositAmount = 1 ether;
         cfg.challengeWindow = 0;
         cfg.finalizationDelay = FINALIZATION_DELAY;
-        cfg.acceptDepositDeadline = 1000;
         cfg.incentiveFee = 0;
         cfg.submitBlobsWindow = 0;
         cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
@@ -101,7 +101,7 @@ abstract contract BaseDeployNative is Test {
         L1FluentBridge bridgeImpl = new L1FluentBridge();
         ERC1967Proxy bridgeProxy = new ERC1967Proxy(
             address(bridgeImpl),
-            abi.encodeCall(L1FluentBridge.initialize, (abi.encode(params), address(l1Rollup), RECEIVE_DEADLINE))
+            abi.encodeCall(L1FluentBridge.initialize, (abi.encode(params), address(l1Rollup), RECEIVE_DEADLINE, ACCEPT_DEPOSIT_DEADLINE))
         );
         l1Bridge = L1FluentBridge(payable(address(bridgeProxy)));
 
@@ -142,6 +142,7 @@ abstract contract BaseDeployNative is Test {
 
 abstract contract BaseDeployERC20 is Test {
     uint256 internal constant RECEIVE_DEADLINE = 100;
+    uint256 internal constant ACCEPT_DEPOSIT_DEADLINE = 1000;
     bytes32 internal constant GENESIS_HASH = keccak256("genesis");
     bytes32 internal constant PROGRAM_VKEY = keccak256("vkey");
     bytes internal constant DUMMY_SIGNATURE = abi.encodePacked(keccak256("r"), keccak256("s"), uint8(27));
@@ -206,7 +207,6 @@ abstract contract BaseDeployERC20 is Test {
         cfg.challengeDepositAmount = 1 ether;
         cfg.challengeWindow = 0;
         cfg.finalizationDelay = FINALIZATION_DELAY;
-        cfg.acceptDepositDeadline = 1000;
         cfg.incentiveFee = 0;
         cfg.submitBlobsWindow = 0;
         cfg.maxDepositsPerBatch = MAX_DEPOSITS_PER_BATCH;
@@ -226,7 +226,7 @@ abstract contract BaseDeployERC20 is Test {
         L1FluentBridge bridgeImpl = new L1FluentBridge();
         ERC1967Proxy bridgeProxy = new ERC1967Proxy(
             address(bridgeImpl),
-            abi.encodeCall(L1FluentBridge.initialize, (abi.encode(params), address(l1Rollup), RECEIVE_DEADLINE))
+            abi.encodeCall(L1FluentBridge.initialize, (abi.encode(params), address(l1Rollup), RECEIVE_DEADLINE, ACCEPT_DEPOSIT_DEADLINE))
         );
         l1Bridge = L1FluentBridge(payable(address(bridgeProxy)));
         l1Bridge.setExecuteGasLimit(2_000_000);

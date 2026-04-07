@@ -23,7 +23,7 @@ contract DepositsTest is RollupAssertions {
     MockDepositBridge internal depositsBridge;
 
     function setUp() public override {
-        depositsBridge = new MockDepositBridge();
+        depositsBridge = new MockDepositBridge(1000);
         for (uint256 i = 0; i < 3; i++) {
             depositsBridge.enqueue(_depositIds[i], block.number);
         }

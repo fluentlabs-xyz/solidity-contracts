@@ -63,6 +63,11 @@ interface IL1FluentBridge {
      */
     event ReceiveMessageDeadlineUpdated(uint256 indexed prevValue, uint256 indexed newValue);
 
+    /**
+     * @notice Emitted when the L1-owned deposit acceptance deadline is updated.
+     */
+    event AcceptDepositDeadlineUpdated(uint256 indexed prevValue, uint256 indexed newValue);
+
     // ========== Functions ==========
 
     /**
@@ -86,6 +91,14 @@ interface IL1FluentBridge {
      */
     function setReceiveMessageDeadline(uint256 newReceiveMessageDeadline) external;
     /**
+     * @notice Returns the L1-owned deposit acceptance deadline used to snapshot queued deposits.
+     */
+    function getAcceptDepositDeadline() external view returns (uint256);
+    /**
+     * @notice Updates the L1-owned deposit acceptance deadline used for new and re-queued deposits.
+     */
+    function setAcceptDepositDeadline(uint256 newAcceptDepositDeadline) external;
+    /**
      * @notice Get the status of a rollback message by its hash.
      * @param key The hash of the rollback message.
      * @return The status of the rollback message.
@@ -94,7 +107,7 @@ interface IL1FluentBridge {
     /**
      * @notice Dequeues the next sent message hash for rollup processing. Callable only by the rollup contract.
      * @return messageHash The next message hash in the queue.
-     * @return blockNumber The block number when the message was sent and enqueued.
+     * @return acceptByBlockNumber Absolute L1 block number by which the deposit must be accepted.
      */
     function popSentMessage() external returns (bytes32, uint256);
 
@@ -175,9 +188,9 @@ interface IL1FluentBridge {
      * @dev Reverts if `index` is outside the valid range [front, back).
      * @param index Queue position to read.
      * @return messageHash Keccak256 hash of the encoded cross-chain message.
-     * @return blockNumber L1 block number when the message was enqueued.
+     * @return acceptByBlockNumber Absolute L1 block number by which the deposit must be accepted.
      */
-    function peekSentMessage(uint256 index) external view returns (bytes32 messageHash, uint256 blockNumber);
+    function peekSentMessage(uint256 index) external view returns (bytes32 messageHash, uint256 acceptByBlockNumber);
 
     /**
      * @notice Front pointer of the sent-message queue (next unprocessed nonce).

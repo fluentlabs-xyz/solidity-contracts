@@ -11,6 +11,7 @@ import {L1BlockOracle} from "../../contracts/oracles/L1BlockOracle.sol";
 import {L1GasOracle} from "../../contracts/oracles/L1GasOracle.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 import {L2BlockHeader} from "../../contracts/interfaces/IRollupTypes.sol";
+import {MockRollup} from "../mocks/MockRollup.sol";
 
 contract NoopReceiver {
     uint256 public calls;
@@ -34,6 +35,7 @@ contract RejectEther {
 
 abstract contract BridgeBase is Test {
     uint256 internal constant RECEIVE_MESSAGE_DEADLINE = 100;
+    uint256 internal constant ACCEPT_DEPOSIT_DEADLINE = 1000;
 
     address internal admin = makeAddr("admin");
     address internal pauser = makeAddr("pauser");
@@ -42,6 +44,7 @@ abstract contract BridgeBase is Test {
 
     L1FluentBridge internal l1Bridge;
     L2FluentBridge internal l2Bridge;
+    MockRollup internal l1RollupMock;
 
     function setUp() public virtual {
         FluentBridgeStorageLayout.InitConfiguration memory cfg = FluentBridgeStorageLayout.InitConfiguration({
@@ -51,10 +54,14 @@ abstract contract BridgeBase is Test {
             otherBridge: makeAddr("otherBridge")
         });
 
+        l1RollupMock = new MockRollup();
         L1FluentBridge l1Impl = new L1FluentBridge();
         ERC1967Proxy l1Proxy = new ERC1967Proxy(
             address(l1Impl),
-            abi.encodeCall(L1FluentBridge.initialize, (abi.encode(cfg), makeAddr("rollupA"), RECEIVE_MESSAGE_DEADLINE))
+            abi.encodeCall(
+                L1FluentBridge.initialize,
+                (abi.encode(cfg), address(l1RollupMock), RECEIVE_MESSAGE_DEADLINE, ACCEPT_DEPOSIT_DEADLINE)
+            )
         );
         l1Bridge = L1FluentBridge(payable(address(l1Proxy)));
 

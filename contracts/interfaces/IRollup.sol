@@ -179,7 +179,7 @@ interface IRollupErrors {
 
     /**
      * @notice Challenge submitted after the batch-wide challenge window has closed.
-     * @dev Fires when `block.number >= acceptedAtBlock + challengeWindow`.
+     * @dev Fires when `block.number >= acceptedAtBlock + challengeWindowSnapshot`.
      * @dev selector: 0x5118dbec
      */
     error ChallengeTooLate(uint256 batchIndex);
@@ -275,11 +275,6 @@ interface IRollupEvents {
      * @notice Emitted when the gas left is updated.
      */
     event GasLeftUpdated(uint32 previousGasLeft, uint32 newGasLeft);
-
-    /**
-     * @notice Emitted when the accept deposit deadline is updated.
-     */
-    event AcceptDepositDeadlineUpdated(uint32 previousAcceptDepositDeadline, uint32 newAcceptDepositDeadline);
 
     /**
      * @notice Emitted when the submit blobs window is updated.
@@ -413,11 +408,6 @@ interface IRollupConfig {
      * @notice ETH incentive paid to challengers during force-revert distribution.
      */
     function incentiveFee() external view returns (uint256);
-
-    /**
-     * @notice Max L1 blocks between L1 deposit and L2 block acceptance.
-     */
-    function acceptDepositDeadline() external view returns (uint256);
 
     /**
      * @notice Max L1 blocks after batch acceptance for blob submission.
@@ -568,9 +558,9 @@ interface IRollupWrite {
     /**
      * @notice Challenge a specific L2 block in a preconfirmed batch.
      * @dev Caller must send exactly `challengeDepositAmount` in ETH as a deposit.
-     *      Challenges are accepted while `block.number < acceptedAtBlock + challengeWindow`.
+     *      Challenges are accepted while `block.number < acceptedAtBlock + challengeWindowSnapshot`.
      *      The deadline is fixed at acceptance time — all windows are measured from
-     *      `acceptedAtBlock`, not from challenge creation.
+     *      `acceptedAtBlock`, not from challenge creation or current admin config.
      * @param batchIndex The batch index to challenge.
      * @param blockHeader The L2 block header to challenge.
      * @param blockProof The Merkle proof of the L2 block header.
@@ -667,11 +657,6 @@ interface IRollupAdmin {
      * @notice Set minimum gas threshold per block header iteration in acceptNextBatch.
      */
     function setGasLeft(uint32 newGasLeft) external;
-
-    /**
-     * @notice Set the maximum L1 blocks between deposit creation and batch inclusion.
-     */
-    function setAcceptDepositDeadline(uint32 newAcceptDepositDeadline) external;
 
     /**
      * @notice Set the maximum L1 blocks after batch acceptance for batch blob submission.

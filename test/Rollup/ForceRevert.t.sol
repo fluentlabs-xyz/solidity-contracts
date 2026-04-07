@@ -11,7 +11,7 @@ contract ForceRevertTest is RollupAssertions {
     MockDepositBridge internal depositBridge;
 
     function setUp() public override {
-        depositBridge = new MockDepositBridge();
+        depositBridge = new MockDepositBridge(1000);
         bridgeAddr = address(depositBridge);
         nitroVerifier = new MockNitroVerifier();
         rollup = _deployRollup(bridgeAddr);

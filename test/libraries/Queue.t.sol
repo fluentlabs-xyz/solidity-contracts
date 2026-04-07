@@ -12,7 +12,7 @@ contract QueueHarness {
     }
 
     function enqueue(bytes32 value) external {
-        Queue.enqueue(_q, value);
+        Queue.enqueue(_q, value, block.number);
     }
 
     function dequeue() external returns (Queue.QueueItem memory) {

@@ -34,8 +34,10 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         Queue.QueueStorage _sentMessageQueue;
         /// @dev L1-owned receive-message deadline used to snapshot L1->L2 message expiries at send time.
         uint256 _receiveMessageDeadline;
+        /// @dev L1-owned deposit acceptance deadline used to snapshot queue freshness for new and re-queued deposits.
+        uint256 _acceptDepositDeadline;
         /// @dev Reserved for future storage fields.
-        uint256[49] __gap;
+        uint256[48] __gap;
     }
 
     // ============ Storage accessor ============
@@ -71,9 +73,14 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     // ============ Initializer ============
 
     /**
-     * @notice Initializes the L1 bridge with base config, rollup address, and receive-message deadline.
+     * @notice Initializes the L1 bridge with base config, rollup address, and L1-owned deadlines.
      */
-    function initialize(bytes calldata data, address newRollup, uint256 receiveMessageDeadline) external initializer {
+    function initialize(
+        bytes calldata data,
+        address newRollup,
+        uint256 receiveMessageDeadline,
+        uint256 acceptDepositDeadline
+    ) external initializer {
         // Decode and apply base bridge config (roles, other bridge, gas limit)
         __FluentBridgeStorage_init(data);
 
@@ -81,6 +88,8 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         _setRollup(newRollup);
         // Snapshot source for future L1->L2 message expiries.
         _setReceiveMessageDeadline(receiveMessageDeadline);
+        // Snapshot source for new and re-queued deposits consumed by the rollup.
+        _setAcceptDepositDeadline(acceptDepositDeadline);
         // Prepare the FIFO queue that the rollup drains during batch acceptance
         Queue.initialize(_getL1FluentBridgeStorage()._sentMessageQueue);
     }
@@ -107,8 +116,9 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     /// @dev Enqueues the message hash into the sent-message queue for rollup consumption.
     function _afterSendMessage(bytes32 messageHash) internal override {
         // Enqueue the hash so the rollup can consume it during batch acceptance
-        // The queue preserves FIFO ordering to match the deposit root construction
-        Queue.enqueue(_getL1FluentBridgeStorage()._sentMessageQueue, messageHash);
+        // The queue preserves FIFO ordering to match the deposit root construction and snapshots
+        // the current bridge-owned deposit acceptance deadline into the queue item.
+        Queue.enqueue(_getL1FluentBridgeStorage()._sentMessageQueue, messageHash, _getDepositAcceptByBlockNumber());
     }
 
     /**
@@ -116,6 +126,14 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
      */
     function _getReceiveMessageDeadline() internal view override returns (uint256) {
         return getReceiveMessageDeadline();
+    }
+
+    /**
+     * @dev Returns the absolute L1 block number by which a newly queued deposit must be
+     *      accepted by the rollup, using the bridge's current deposit deadline.
+     */
+    function _getDepositAcceptByBlockNumber() internal view returns (uint256) {
+        return block.number + getAcceptDepositDeadline();
     }
 
     // ============ Receive with proof ============
@@ -283,15 +301,16 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         // Dequeue the oldest message hash — rollup consumes these during batch acceptance
         // to build the deposit root that binds L1→L2 messages to a specific batch
         Queue.QueueItem memory item = Queue.dequeue(_getL1FluentBridgeStorage()._sentMessageQueue);
-        return (item.value, item.blockNumber);
+        return (item.value, item.acceptByBlockNumber);
     }
 
     /// @inheritdoc IL1FluentBridge
     function pushSentMessage(bytes32 messageHash) public onlyRollup {
         // Restore at the front of the queue so sequencer-side matching (which walks
         // L2 ReceivedMessage events against queue entries in FIFO order) still succeeds
-        // after the rollup re-submits the previously-reverted L2 blocks.
-        Queue.pushFront(_getL1FluentBridgeStorage()._sentMessageQueue, messageHash);
+        // after the rollup re-submits the previously-reverted L2 blocks. The restored item
+        // receives a fresh absolute acceptance deadline from the current rollup config.
+        Queue.pushFront(_getL1FluentBridgeStorage()._sentMessageQueue, messageHash, _getDepositAcceptByBlockNumber());
     }
 
     // ============ Views ============
@@ -309,14 +328,19 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     }
 
     /// @inheritdoc IL1FluentBridge
-    function peekSentMessage(uint256 index) public view returns (bytes32 messageHash, uint256 blockNumber) {
+    function peekSentMessage(uint256 index) public view returns (bytes32 messageHash, uint256 acceptByBlockNumber) {
         Queue.QueueItem memory item = Queue.peekAt(_getL1FluentBridgeStorage()._sentMessageQueue, index);
-        return (item.value, item.blockNumber);
+        return (item.value, item.acceptByBlockNumber);
     }
 
     /// @inheritdoc IL1FluentBridge
     function getReceiveMessageDeadline() public view returns (uint256) {
         return _getL1FluentBridgeStorage()._receiveMessageDeadline;
+    }
+
+    /// @inheritdoc IL1FluentBridge
+    function getAcceptDepositDeadline() public view returns (uint256) {
+        return _getL1FluentBridgeStorage()._acceptDepositDeadline;
     }
 
     /// @inheritdoc IL1FluentBridge
@@ -348,6 +372,11 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         _setReceiveMessageDeadline(newReceiveMessageDeadline);
     }
 
+    /// @inheritdoc IL1FluentBridge
+    function setAcceptDepositDeadline(uint256 newAcceptDepositDeadline) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setAcceptDepositDeadline(newAcceptDepositDeadline);
+    }
+
     /**
      * @dev Validates and stores the rollup address. Reverts on zero address or non-empty queue.
      */
@@ -371,5 +400,14 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         require(newReceiveMessageDeadline > 0, InvalidWindowConfig("receiveMessageDeadline must be greater than 0"));
         emit ReceiveMessageDeadlineUpdated(getReceiveMessageDeadline(), newReceiveMessageDeadline);
         _getL1FluentBridgeStorage()._receiveMessageDeadline = newReceiveMessageDeadline;
+    }
+
+    /**
+     * @dev Stores the L1-owned deposit acceptance deadline. Reverts on zero value.
+     */
+    function _setAcceptDepositDeadline(uint256 newAcceptDepositDeadline) internal {
+        require(newAcceptDepositDeadline > 0, InvalidWindowConfig("acceptDepositDeadline must be greater than 0"));
+        emit AcceptDepositDeadlineUpdated(getAcceptDepositDeadline(), newAcceptDepositDeadline);
+        _getL1FluentBridgeStorage()._acceptDepositDeadline = newAcceptDepositDeadline;
     }
 }

@@ -38,7 +38,10 @@ contract L1FluentBridgeTest is BridgeBase {
         L1FluentBridge impl = new L1FluentBridge();
         ERC1967Proxy proxy = new ERC1967Proxy(
             address(impl),
-            abi.encodeCall(L1FluentBridge.initialize, (abi.encode(cfg), address(rollup), RECEIVE_MESSAGE_DEADLINE))
+            abi.encodeCall(
+                L1FluentBridge.initialize,
+                (abi.encode(cfg), address(rollup), RECEIVE_MESSAGE_DEADLINE, ACCEPT_DEPOSIT_DEADLINE)
+            )
         );
         l1Bridge = L1FluentBridge(payable(address(proxy)));
     }
@@ -66,6 +69,47 @@ contract L1FluentBridgeTest is BridgeBase {
         }
 
         fail("SentMessage log not found");
+    }
+
+    function test_sendMessage_snapshotsCurrentAcceptDepositDeadlineInQueue() public {
+        uint256 queuedAtBlock = block.number;
+        l1Bridge.sendMessage(receiver, hex"0102");
+
+        (, uint256 acceptByBlockNumber) = l1Bridge.peekSentMessage(0);
+        assertEq(
+            acceptByBlockNumber,
+            queuedAtBlock + l1Bridge.getAcceptDepositDeadline(),
+            "queue should snapshot the current bridge deposit deadline"
+        );
+    }
+
+    function test_sendMessage_afterAcceptDepositDeadlineUpdate_usesNewQueueDeadline() public {
+        vm.prank(admin);
+        l1Bridge.setAcceptDepositDeadline(25);
+
+        uint256 queuedAtBlock = block.number;
+        l1Bridge.sendMessage(receiver, hex"0102");
+
+        (, uint256 acceptByBlockNumber) = l1Bridge.peekSentMessage(0);
+        assertEq(acceptByBlockNumber, queuedAtBlock + 25, "newly queued deposits should use the updated deadline");
+    }
+
+    function test_pushSentMessage_restoresWithFreshAcceptByBlockNumber() public {
+        l1Bridge.sendMessage(receiver, hex"0102");
+
+        vm.prank(address(rollup));
+        (bytes32 messageHash, ) = l1Bridge.popSentMessage();
+
+        vm.prank(admin);
+        l1Bridge.setAcceptDepositDeadline(25);
+        vm.roll(block.number + 7);
+        uint256 restoredAtBlock = block.number;
+
+        vm.prank(address(rollup));
+        l1Bridge.pushSentMessage(messageHash);
+
+        (, uint256 acceptByBlockNumber) = l1Bridge.peekSentMessage(0);
+        assertEq(acceptByBlockNumber, restoredAtBlock + 25, "restored deposits should get a fresh deadline snapshot");
     }
 
     function test_RevertIf_popSentMessage_queueEmpty() public {

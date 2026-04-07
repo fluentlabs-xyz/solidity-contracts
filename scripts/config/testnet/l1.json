@@ -9,6 +9,7 @@
     "bridge": {
         "otherBridge": "0x0000000000000000000000000000000000000001",
         "receiveMessageDeadline": 600,
+        "acceptDepositDeadline": 10000,
         "executeGasLimit": 1000000
     },
     "rollup": {
@@ -25,7 +26,6 @@
         "finalizationDelay": 14400,
         "challengeDepositAmount": "10000000000000000",
         "incentiveFee": "1000000000000000",
-        "acceptDepositDeadline": 10000,
         "maxDepositsPerBatch": 100,
         "maxForceRevertBatchSize": 100
     },

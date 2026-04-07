@@ -5,7 +5,8 @@ pragma solidity ^0.8.30;
  * @title Queue
  * @dev FIFO queue for sent bridge messages. Used by {L1FluentBridge} to buffer
  *      outbound message hashes until consumed by the rollup via {L1FluentBridge-popSentMessage}.
- *      Each item records the message hash and the L1 block number at enqueue time.
+ *      Each item records the message hash and the absolute L1 block number by which the
+ *      deposit must be accepted by the rollup.
  */
 library Queue {
     /**
@@ -24,13 +25,13 @@ library Queue {
     error QueueUnderflow();
 
     /**
-     * @dev Single queued item: message hash and the block it was enqueued in.
+     * @dev Single queued item: message hash and the absolute acceptance deadline snapshotted on L1.
      */
     struct QueueItem {
         /// @dev Keccak256 hash of the encoded cross-chain message.
         bytes32 value;
-        /// @dev L1 block number when the item was enqueued.
-        uint256 blockNumber;
+        /// @dev Absolute L1 block number by which the deposit must be accepted by the rollup.
+        uint256 acceptByBlockNumber;
     }
 
     /**
@@ -54,29 +55,29 @@ library Queue {
     }
 
     /**
-     * @dev Appends `value` to the back of the queue, recording the current block number.
+     * @dev Appends `value` to the back of the queue with a snapshotted absolute acceptance deadline.
      */
-    function enqueue(QueueStorage storage self, bytes32 value) internal {
-        self.data[self.back] = QueueItem(value, block.number);
+    function enqueue(QueueStorage storage self, bytes32 value, uint256 acceptByBlockNumber) internal {
+        self.data[self.back] = QueueItem({value: value, acceptByBlockNumber: acceptByBlockNumber});
         self.back++;
     }
 
     /**
-     * @dev Writes `value` at position `front - 1` and decrements `front`, with the current
-     *      block number. Used by the rollup to restore deposits that were popped by a
-     *      now-reverted batch. Safe as long as only previously-popped items are pushed back:
+     * @dev Writes `value` at position `front - 1` and decrements `front`, using a caller-supplied
+     *      absolute acceptance deadline. Used by the rollup to restore deposits that were popped
+     *      by a now-reverted batch. Safe as long as only previously-popped items are pushed back:
      *      every {dequeue} increments `front`, so `front > 0` is guaranteed for any item
      *      that was previously dequeued.
      */
-    function pushFront(QueueStorage storage self, bytes32 value) internal {
+    function pushFront(QueueStorage storage self, bytes32 value, uint256 acceptByBlockNumber) internal {
         // Safety: the only legitimate caller restores previously-popped items, so `front`
         // has been incremented at least once per restore. Still guard against underflow
         // defensively — violating this would corrupt the queue cursor.
         require(self.front > 0, QueueUnderflow());
         self.front--;
-        // Fresh block.number resets the deposit's freshness deadline, matching the semantics
-        // of enqueue() — the depositor is not penalized for rollup corruption.
-        self.data[self.front] = QueueItem(value, block.number);
+        // The caller snapshots a fresh absolute acceptance deadline on restore so the depositor
+        // is not penalized for rollup corruption.
+        self.data[self.front] = QueueItem({value: value, acceptByBlockNumber: acceptByBlockNumber});
     }
 
     /**

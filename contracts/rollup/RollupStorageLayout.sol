@@ -149,10 +149,6 @@ contract RollupStorageLayout is
          * @dev minimum gasleft() required per block header iteration in acceptNextBatch
          */
         uint32 _gasLeft;
-        /**
-         * @dev max L1 blocks between deposit creation and its inclusion in a batch
-         */
-        uint32 _acceptDepositDeadline;
         // ============ Emergency revert pagination ============
         /**
          * @dev Max batch size to prevent OOG during paginated force revert. Should be >= 1.
@@ -246,7 +242,6 @@ contract RollupStorageLayout is
         require(params.submitBlobsWindow <= type(uint64).max, InvalidWindowConfig("submitBlobsWindow out of range"));
         require(params.challengeWindow <= type(uint64).max, InvalidWindowConfig("challengeWindow out of range"));
         require(params.finalizationDelay <= type(uint64).max, InvalidWindowConfig("finalizationDelay out of range"));
-        require(params.acceptDepositDeadline <= type(uint32).max, InvalidWindowConfig("acceptDepositDeadline out of range"));
         require(params.maxDepositsPerBatch <= type(uint64).max, InvalidWindowConfig("maxDepositsPerBatch out of range"));
         require(params.maxForceRevertBatchSize <= type(uint32).max, InvalidWindowConfig("maxForceRevertBatchSize out of range"));
 
@@ -257,8 +252,6 @@ contract RollupStorageLayout is
         require(params.challengeWindow < params.finalizationDelay, InvalidWindowConfig("challengeWindow must be less than finalizationDelay"));
         _setChallengeWindow(uint64(params.challengeWindow));
         _setFinalizationDelay(uint64(params.finalizationDelay));
-
-        _setAcceptDepositDeadline(uint32(params.acceptDepositDeadline));
 
         // ─── Role setup ───
         // admin is the only required address; other roles fall back to admin if unset
@@ -341,12 +334,6 @@ contract RollupStorageLayout is
     function incentiveFee() public view returns (uint256) {
         // bonus ETH paid on top of deposit refund during force revert
         return _getRollupStorage()._incentiveFee;
-    }
-
-    /// @inheritdoc IRollupConfig
-    function acceptDepositDeadline() public view returns (uint256) {
-        // widened to uint256; stored as uint32 since L1 block counts fit in 32 bits
-        return uint256(_getRollupStorage()._acceptDepositDeadline);
     }
 
     /// @inheritdoc IRollupConfig
@@ -548,20 +535,6 @@ contract RollupStorageLayout is
         require(newGasLeft != 0, ZeroValueNotAllowed("gasLeft"));
         emit GasLeftUpdated($._gasLeft, newGasLeft);
         $._gasLeft = newGasLeft;
-    }
-
-    /// @inheritdoc IRollupAdmin
-    function setAcceptDepositDeadline(uint32 newAcceptDepositDeadline) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        _setAcceptDepositDeadline(newAcceptDepositDeadline);
-    }
-
-    /** @dev Stores the deposit acceptance deadline in L1 blocks. */
-    function _setAcceptDepositDeadline(uint32 newAcceptDepositDeadline) internal {
-        RollupStorage storage $ = _getRollupStorage();
-        // zero deadline would allow deposits to remain unincluded indefinitely
-        require(newAcceptDepositDeadline != 0, ZeroValueNotAllowed("acceptDepositDeadline"));
-        emit AcceptDepositDeadlineUpdated($._acceptDepositDeadline, newAcceptDepositDeadline);
-        $._acceptDepositDeadline = newAcceptDepositDeadline;
     }
 
     /// @inheritdoc IRollupAdmin

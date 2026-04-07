@@ -39,6 +39,8 @@ struct L2BlockHeader {
 
 /**
  * @dev Packed per-batch state record.
+ *      All batch-level timing windows are snapshotted at {IRollupWrite-acceptNextBatch}
+ *      so later admin updates do not retroactively affect in-flight batches.
  */
 struct BatchRecord {
     /// @dev Merkle root of L2 block headers for this batch.
@@ -49,6 +51,12 @@ struct BatchRecord {
     uint32 expectedBlobs;
     /// @dev Current lifecycle state of this batch.
     BatchStatus status;
+    /// @dev Blob-submission window snapshotted from rollup config at acceptance time; 0 disables the deadline.
+    uint64 submitBlobsWindowSnapshot;
+    /// @dev Challenge window snapshotted from rollup config at acceptance time.
+    uint64 challengeWindowSnapshot;
+    /// @dev Finalization delay snapshotted from rollup config at acceptance time.
+    uint64 finalizationDelaySnapshot;
 }
 
 /**
@@ -101,8 +109,6 @@ struct InitConfiguration {
     uint256 challengeWindow;
     /// @dev Minimum L1 blocks after acceptance before finalization
     uint256 finalizationDelay;
-    /// @dev Max L1 blocks between deposit creation and batch inclusion
-    uint256 acceptDepositDeadline;
     /// @dev ETH reward paid to challengers during force revert
     uint256 incentiveFee;
     /// @dev Max L1 blocks after acceptance for blob submission; 0 = disabled

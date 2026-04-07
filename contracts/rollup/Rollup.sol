@@ -21,11 +21,12 @@ import {L2BlockHeader, BatchStatus, BatchRecord, ChallengeRecord} from "../inter
  * Challenged as a transient branch from either Accepted or Preconfirmed. Preconfirmation
  * via {preconfirmBatch} has no deadline — it can happen at any time after blob submission.
  *
- * All timing windows are measured from the block in which `acceptNextBatch` was called
- * ({BatchRecord-acceptedAtBlock}). The windows are:
- * - {RollupStorage-submitBlobsWindow}: deadline for the sequencer to submit blob hashes.
- * - {RollupStorage-challengeWindow}: deadline by which open challenges must be resolved.
- * - {RollupStorage-finalizationDelay}: minimum wait before a batch can be finalized.
+ * All batch-lifecycle timing windows are snapshotted from config in the block in which
+ * `acceptNextBatch` was called and stored in {BatchRecord}. The windows are:
+ * - {BatchRecord-submitBlobsWindowSnapshot}: deadline for the sequencer to submit blob hashes.
+ * - {BatchRecord-challengeWindowSnapshot}: deadline by which challenges may be submitted
+ *   and by which open challenges must be resolved.
+ * - {BatchRecord-finalizationDelaySnapshot}: minimum wait before a batch can be finalized.
  *
  * If any deadline is exceeded, {isRollupCorrupted} returns true and all state-changing
  * functions revert with {RollupCorrupted} until the corrupted batch is cleared via
@@ -35,12 +36,12 @@ import {L2BlockHeader, BatchStatus, BatchRecord, ChallengeRecord} from "../inter
  *
  * The invariant `challengeWindow < finalizationDelay` (enforced at initialization and
  * on every admin update) guarantees that the challenge window closes strictly before any
- * batch becomes eligible for finalization. With the reference deployment parameters
+ * newly accepted batch becomes eligible for finalization. With the reference deployment parameters
  * (`challengeWindow = 36 h`, `finalizationDelay = 48 h`) the gap is 12 hours, so a
  * batch can never be finalized while challenges are still accepted.
  *
  * A challenge submitted near the end of the window leaves the prover very little wall-clock
- * time to respond, because the resolution deadline is always `acceptedAtBlock + challengeWindow`
+ * time to respond, because the resolution deadline is always `acceptedAtBlock + challengeWindowSnapshot`
  * regardless of when the challenge was created. If the prover cannot submit both a Nitro
  * attestation and an SP1 proof before that deadline, the rollup enters the corrupted
  * (safety-halt) state. This is by design:
@@ -282,6 +283,11 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         batch.batchRoot = batchRoot;
         // Record the L1 block number — all timing windows are measured from this anchor
         batch.acceptedAtBlock = uint64(block.number);
+        // Snapshot all batch-lifecycle windows so later admin updates do not retroactively
+        // change the deadlines of already-accepted batches.
+        batch.submitBlobsWindowSnapshot = $._submitBlobsWindow;
+        batch.challengeWindowSnapshot = $._challengeWindow;
+        batch.finalizationDelaySnapshot = $._finalizationDelay;
         // Store expected blob count so submitBlobs can validate completeness
         require(expectedBlobsCount <= type(uint32).max, ExpectedBlobsCountOverflow(expectedBlobsCount));
         // casting to 'uint32' is safe because we validate the bounds above.
@@ -327,10 +333,10 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         require(batch.status == BatchStatus.HeadersSubmitted, InvalidBatchStatus(batchIndex, uint8(batch.status)));
 
         // If the submit-blobs deadline is enabled (non-zero), enforce the time window
-        if ($._submitBlobsWindow != 0) {
+        if (batch.submitBlobsWindowSnapshot != 0) {
             require(
-                block.number <= uint256(batch.acceptedAtBlock) + $._submitBlobsWindow,
-                SubmitBlobsWindowExceeded(uint256(batch.acceptedAtBlock) + $._submitBlobsWindow, block.number)
+                block.number <= uint256(batch.acceptedAtBlock) + uint256(batch.submitBlobsWindowSnapshot),
+                SubmitBlobsWindowExceeded(uint256(batch.acceptedAtBlock) + uint256(batch.submitBlobsWindowSnapshot), block.number)
             );
         }
 
@@ -406,7 +412,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         // this deposit is forfeited to the prover if the challenge is resolved
         require(msg.value == $._challengeDepositAmount, IncorrectChallengeDeposit($._challengeDepositAmount, msg.value));
         // Challenge must be submitted before the challenge window closes (strict less-than)
-        require(block.number < uint256(batch.acceptedAtBlock) + $._challengeWindow, ChallengeTooLate(batchIndex));
+        require(block.number < uint256(batch.acceptedAtBlock) + uint256(batch.challengeWindowSnapshot), ChallengeTooLate(batchIndex));
 
         // Compute the keccak commitment of the challenged block header
         bytes32 commitment = _computeCommitment(blockHeader);
@@ -423,7 +429,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         $._batchChallengedBlocks[batchIndex].push(commitment);
 
         // Create the challenge record with the resolution deadline derived from the challenge window
-        uint256 deadline = uint256(batch.acceptedAtBlock) + $._challengeWindow;
+        uint256 deadline = uint256(batch.acceptedAtBlock) + uint256(batch.challengeWindowSnapshot);
         $._challenges[commitment] = ChallengeRecord({deposit: msg.value, challenger: _msgSender(), deadline: deadline, batchIndex: batchIndex});
         // Insert into the min-heap priority queue ordered by deadline — _rollupCorrupted()
         // peeks at the earliest deadline to detect expiry
@@ -595,7 +601,9 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
 
         // Deadline 1: sequencer failed to submit blobs within the allowed window
         // (window value of 0 means this deadline is disabled)
-        if (status == BatchStatus.HeadersSubmitted && $._submitBlobsWindow != 0 && block.number > accepted + $._submitBlobsWindow) return true;
+        if (status == BatchStatus.HeadersSubmitted && batch.submitBlobsWindowSnapshot != 0) {
+            return block.number > accepted + uint256(batch.submitBlobsWindowSnapshot);
+        }
         // Deadline 2: a challenge exists whose resolution deadline has passed
         // Peek at the min-heap root — the challenge with the earliest deadline
         if (status == BatchStatus.Challenged && !$._challengeQueue.isEmpty()) {
@@ -622,7 +630,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         if (batchIndex != uint256($._lastFinalizedBatchIndex) + 1) return false;
         // Delay not elapsed — batch needs to age before finalization is allowed
         // This gives challengers time to dispute before the batch becomes irreversible
-        if (block.number - uint256(batch.acceptedAtBlock) <= $._finalizationDelay) return false;
+        if (block.number <= uint256(batch.acceptedAtBlock) + uint256(batch.finalizationDelaySnapshot)) return false;
 
         // State transition: Preconfirmed → Finalized (irreversible)
         batch.status = BatchStatus.Finalized;
@@ -740,8 +748,6 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
      */
     function _checkDeposits(uint256 batchIndex, L2BlockHeader calldata header) private {
         RollupStorage storage $ = _getRollupStorage();
-        // Cache the deposit freshness deadline to avoid repeated storage reads in the loop
-        uint256 deadline = $._acceptDepositDeadline;
         // Allocate in-memory array for the root verification at the end of the loop
         bytes32[] memory depositIds = new bytes32[](header.depositCount);
         // Storage array to append popped IDs for force-revert restoration
@@ -749,12 +755,17 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         for (uint256 i = 0; i < header.depositCount; ++i) {
             // External call to the bridge: pops the next deposit from the FIFO queue
             // Called after all state writes in acceptNextBatch (CEI) under nonReentrant guard
-            (bytes32 depositId, uint256 depositBlockNumber) = IL1FluentBridge($._bridge).popSentMessage(); // wake-disable-line reentrancy
-            // Ensure the deposit is not stale — prevents sequencers from including very old deposits
-            require(block.number <= depositBlockNumber + deadline, AcceptDepositDeadlineExceeded(depositBlockNumber + deadline, block.number));
-            depositIds[i] = depositId;
+            (bytes32 depositId, uint256 acceptByBlockNumber) = IL1FluentBridge($._bridge).popSentMessage(); // wake-disable-line reentrancy
+
+            // Prevent the sequencer from including deposits after the snapshotted acceptance deadline expires.
+            require(
+                block.number <= acceptByBlockNumber,
+                AcceptDepositDeadlineExceeded(acceptByBlockNumber, block.number)
+            );
+
             // Persist so force-revert can restore this exact hash back to the queue front
             persisted.push(depositId);
+            depositIds[i] = depositId;
         }
         // Final integrity check: the hash of all popped deposit IDs must match the header's
         // depositRoot — ensures the sequencer included exactly these deposits in the L2 block

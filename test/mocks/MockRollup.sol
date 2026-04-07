@@ -25,7 +25,10 @@ contract MockRollup {
                 batchRoot: batchRoots[batchIndex],
                 acceptedAtBlock: 0,
                 expectedBlobs: 0,
-                status: finalized ? BatchStatus.Finalized : BatchStatus.None
+                status: finalized ? BatchStatus.Finalized : BatchStatus.None,
+                submitBlobsWindowSnapshot: 0,
+                challengeWindowSnapshot: 0,
+                finalizationDelaySnapshot: 0
             });
     }
 }

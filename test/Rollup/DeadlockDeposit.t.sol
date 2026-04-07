@@ -14,7 +14,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 // V-FLNT-VUL-009: Deadlock scenario in rollup due to undeliverable deposits
 //
 // Audited code (fd208df) had two conflicting deadline mechanisms:
-//   1. acceptDepositDeadline (Rollup): reverts acceptNextBatch if deposits sit
+//   1. acceptDepositDeadline (L1 bridge queue policy): reverts acceptNextBatch if deposits sit
 //      in the L1 queue past this window — anti-censorship guard.
 //   2. The bridge delivery-time timeout path: expired L1→L2 messages were
 //      silently skipped without dequeuing from the L1 queue or emitting
@@ -37,7 +37,7 @@ contract DeadlockDepositTest is RollupAssertions {
     MockDepositBridge internal depositBridge;
 
     function setUp() public override {
-        depositBridge = new MockDepositBridge();
+        depositBridge = new MockDepositBridge(DEPOSIT_DEADLINE);
         nitroVerifier = new MockNitroVerifier();
         rollup = _deployRollupWithBridge(address(depositBridge));
     }
@@ -153,7 +153,7 @@ contract DeadlockDepositTest is RollupAssertions {
         hashes[0] = depositHash;
 
         // ── At exact boundary: should succeed ──
-        MockDepositBridge bridge1 = new MockDepositBridge();
+        MockDepositBridge bridge1 = new MockDepositBridge(DEPOSIT_DEADLINE);
         bridge1.enqueue(depositHash, depositBlock);
         Rollup rollup1 = _deployRollupWithBridge(address(bridge1));
 
@@ -167,7 +167,7 @@ contract DeadlockDepositTest is RollupAssertions {
         assertEq(uint8(rollup1.getBatch(1).status), uint8(BatchStatus.HeadersSubmitted), "batch should succeed at exact deadline boundary");
 
         // ── One block past boundary: should revert ──
-        MockDepositBridge bridge2 = new MockDepositBridge();
+        MockDepositBridge bridge2 = new MockDepositBridge(DEPOSIT_DEADLINE);
         bridge2.enqueue(depositHash, depositBlock);
         Rollup rollup2 = _deployRollupWithBridge(address(bridge2));
 
@@ -234,7 +234,6 @@ contract DeadlockDepositTest is RollupAssertions {
         cfg.challengeDepositAmount = CHALLENGE_DEPOSIT;
         cfg.challengeWindow = CHALLENGE_WINDOW;
         cfg.finalizationDelay = FINALIZATION_DELAY;
-        cfg.acceptDepositDeadline = DEPOSIT_DEADLINE;
         cfg.incentiveFee = 0.1 ether;
         cfg.submitBlobsWindow = SUBMIT_BLOBS_WINDOW;
         cfg.maxDepositsPerBatch = MAX_DEPOSITS_PER_BATCH;

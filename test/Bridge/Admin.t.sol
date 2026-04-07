@@ -108,6 +108,31 @@ contract BridgeAdminTest is BridgeBase {
         l1Bridge.setReceiveMessageDeadline(0);
     }
 
+    function test_setAcceptDepositDeadline_updatesValue() public {
+        uint256 prev = l1Bridge.getAcceptDepositDeadline();
+        vm.expectEmit(true, true, true, true, address(l1Bridge));
+        emit IL1FluentBridge.AcceptDepositDeadlineUpdated(prev, 777);
+        vm.prank(admin);
+        l1Bridge.setAcceptDepositDeadline(777);
+        assertEq(l1Bridge.getAcceptDepositDeadline(), 777);
+    }
+
+    function test_RevertIf_setAcceptDepositDeadline_callerNotAdmin() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, stranger, l1Bridge.DEFAULT_ADMIN_ROLE())
+        );
+        vm.prank(stranger);
+        l1Bridge.setAcceptDepositDeadline(777);
+    }
+
+    function test_RevertIf_setAcceptDepositDeadline_zeroValue() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(IFluentBridgeErrors.InvalidWindowConfig.selector, "acceptDepositDeadline must be greater than 0")
+        );
+        vm.prank(admin);
+        l1Bridge.setAcceptDepositDeadline(0);
+    }
+
     function test_setL1BlockOracle_updatesAddress() public {
         address prev = l2Bridge.getL1BlockOracle();
         address nextOracle = makeAddr("l1BlockOracleB");
