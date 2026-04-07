@@ -247,21 +247,26 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         // Cache gas floor to prevent an out-of-gas DoS in the validation loop below
         uint256 gasLeft = $._gasLeft;
 
-        // Phase 1: validate header chain linkage (adjacent block hash pairs; single-block batches skip).
-        // Each header's blockHash must equal the next header's previousBlockHash
+        // Phase 1: validate header chain linkage (adjacent block hash pairs; single-block batches skip)
+        // and deposit metadata (zero deposit root => zero count). One gas floor check per iteration —
+        // same pattern as historically used so callers get InsufficientGas instead of opaque OOG deep in the loop.
         for (uint256 i = 0; i < batchSize - 1; ++i) {
-            // Ensure enough gas remains for each iteration to prevent partial execution
             require(gasleft() >= gasLeft, InsufficientGas());
-            // Verify the sequential block hash chain — any break means corrupted or misordered headers
+            if (blockHeaders[i].depositRoot == ZERO_BYTES_HASH) {
+                require(blockHeaders[i].depositCount == 0, InvalidDepositRootWithNonZeroCount(blockHeaders[i].depositCount));
+            }
             require(
                 blockHeaders[i].blockHash == blockHeaders[i + 1].previousBlockHash,
                 InvalidBlockSequence(i, blockHeaders[i].blockHash, blockHeaders[i + 1].previousBlockHash)
             );
         }
-
-        // Sanity check: a zero deposit root must have zero deposit count (no phantom deposits)
-        if (blockHeaders[batchSize - 1].depositRoot == ZERO_BYTES_HASH) {
-            require(blockHeaders[batchSize - 1].depositCount == 0, InvalidDepositRootWithNonZeroCount(blockHeaders[batchSize - 1].depositCount));
+        if (batchSize != 0) {
+            if (blockHeaders[batchSize - 1].depositRoot == ZERO_BYTES_HASH) {
+                require(
+                    blockHeaders[batchSize - 1].depositCount == 0,
+                    InvalidDepositRootWithNonZeroCount(blockHeaders[batchSize - 1].depositCount)
+                );
+            }
         }
 
         // Build the Merkle root from all block header commitments — used for proofs later

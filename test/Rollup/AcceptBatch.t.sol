@@ -128,10 +128,18 @@ contract AcceptBatchTest is RollupAssertions {
 
     function test_RevertIf_acceptNextBatch_zeroDepositRootWithNonZeroCount() public {
         L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
-        // `acceptNextBatch` validates deposit metadata on the last header in the batch.
         batch[batch.length - 1].depositCount = 5;
 
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidDepositRootWithNonZeroCount.selector, uint256(5)));
+        vm.prank(sequencer);
+        rollup.acceptNextBatch(batch, 1);
+    }
+
+    function test_RevertIf_acceptNextBatch_interiorZeroDepositRootWithNonZeroCount() public {
+        L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
+        batch[0].depositCount = 7;
+
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidDepositRootWithNonZeroCount.selector, uint256(7)));
         vm.prank(sequencer);
         rollup.acceptNextBatch(batch, 1);
     }
