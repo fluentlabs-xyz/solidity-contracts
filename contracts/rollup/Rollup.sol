@@ -615,16 +615,16 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
 
         // Already done — allow the caller loop to continue to the next batch
         if (batch.status == BatchStatus.Finalized) return true;
-        // Only preconfirmed batches are eligible; anything else stops the loop
-        // (HeadersSubmitted, Accepted, Challenged batches cannot be finalized)
-        if (batch.status != BatchStatus.Preconfirmed) return false;
+        // Only Accepted or Preconfirmed batches are eligible for finalization.
+        // HeadersSubmitted (blobs missing), Challenged (open dispute) cannot finalize.
+        if (batch.status != BatchStatus.Accepted && batch.status != BatchStatus.Preconfirmed) return false;
         // Batches must finalize in order — gap means a predecessor is not ready yet
         if (batchIndex != uint256($._lastFinalizedBatchIndex) + 1) return false;
         // Delay not elapsed — batch needs to age before finalization is allowed
         // This gives challengers time to dispute before the batch becomes irreversible
         if (block.number - uint256(batch.acceptedAtBlock) <= $._finalizationDelay) return false;
 
-        // State transition: Preconfirmed → Finalized (irreversible)
+        // State transition: Accepted|Preconfirmed → Finalized (irreversible)
         batch.status = BatchStatus.Finalized;
         // Advance the finalization watermark so the next batch becomes eligible
         if (batchIndex > type(uint64).max) return false;
