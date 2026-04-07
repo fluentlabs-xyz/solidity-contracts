@@ -290,6 +290,25 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     }
 
     /// @inheritdoc IL1FluentBridge
+    function getMessageAt(uint256 index) public view returns (bytes32 hash) {
+        L1FluentBridgeStorage storage $ = _getL1FluentBridgeStorage();
+        // No additional checks due to gas optimization.
+        hash = $._sentMessageHashes[index];
+    }
+
+    /// @inheritdoc IL1FluentBridge
+    function advanceSentMessageCursor(uint256 count) public onlyRollup {
+        L1FluentBridgeStorage storage $ = _getL1FluentBridgeStorage();
+        // Reverts if advancing the cursor would exceed the number of unconsumed messages
+        require($._sentMessageFront + count <= $._sentMessageBack, InvalidAdvanceCount(count, getSentMessageQueueSize()));
+        // Persistent semantics: the slots are NOT deleted — only the cursor advances.
+        // {Rollup-forceRevertBatch} relies on this to rewind without re-sending the data.
+        unchecked {
+            $._sentMessageFront += count;
+        }
+    }
+
+    /// @inheritdoc IL1FluentBridge
     function rewindSentMessageCursor(uint256 newFront) public onlyRollup {
         L1FluentBridgeStorage storage $ = _getL1FluentBridgeStorage();
         // Monotonically backward only — the rollup is responsible for ensuring the

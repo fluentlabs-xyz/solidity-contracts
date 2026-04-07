@@ -115,6 +115,100 @@ contract L1FluentBridgeTest is BridgeBase {
         l1Bridge.rewindSentMessageCursor(0);
     }
 
+    function test_getMessageAt_returnsHashAtIndex() public {
+        l1Bridge.sendMessage(receiver, hex"01");
+        l1Bridge.sendMessage(receiver, hex"02");
+
+        bytes32 hash0 = l1Bridge.getMessageAt(0);
+        bytes32 hash1 = l1Bridge.getMessageAt(1);
+
+        assertTrue(hash0 != bytes32(0), "index 0 should hold a real hash");
+        assertTrue(hash1 != bytes32(0), "index 1 should hold a real hash");
+        assertTrue(hash0 != hash1, "two different sends should produce two different hashes");
+
+        // Peek does not advance the cursor — the queue is still full.
+        assertEq(l1Bridge.getSentMessageCursor(), 0, "peek must not advance");
+        assertEq(l1Bridge.getSentMessageQueueSize(), 2, "peek must not shrink the queue");
+    }
+
+    function test_getMessageAt_returnsZeroForOutOfRange() public {
+        l1Bridge.sendMessage(receiver, hex"01");
+
+        // By design, getMessageAt has no bounds check — out-of-range indices read from
+        // the default value of the underlying mapping and return bytes32(0). Callers are
+        // responsible for using getSentMessageCursor/getSentMessageQueueSize to stay in range.
+        assertEq(l1Bridge.getMessageAt(1), bytes32(0), "past back returns zero");
+        assertEq(l1Bridge.getMessageAt(100), bytes32(0), "far past back returns zero");
+    }
+
+    function test_advanceSentMessageCursor_advancesCorrectly() public {
+        l1Bridge.sendMessage(receiver, hex"01");
+        l1Bridge.sendMessage(receiver, hex"02");
+        l1Bridge.sendMessage(receiver, hex"03");
+
+        assertEq(l1Bridge.getSentMessageCursor(), 0);
+        assertEq(l1Bridge.getSentMessageQueueSize(), 3);
+
+        vm.prank(address(rollup));
+        l1Bridge.advanceSentMessageCursor(2);
+
+        assertEq(l1Bridge.getSentMessageCursor(), 2, "cursor advanced by 2");
+        assertEq(l1Bridge.getSentMessageQueueSize(), 1, "one message remains");
+
+        // A second call accumulates.
+        vm.prank(address(rollup));
+        l1Bridge.advanceSentMessageCursor(1);
+
+        assertEq(l1Bridge.getSentMessageCursor(), 3, "cursor advanced to back");
+        assertEq(l1Bridge.getSentMessageQueueSize(), 0, "queue drained");
+    }
+
+    function test_advanceSentMessageCursor_batchedConsumeMatchesOneByOne() public {
+        // Verify that (peek via getMessageAt) + (bulk advance) is equivalent to
+        // N calls to consumeNextSentMessage — same observed hashes, same final cursor.
+        l1Bridge.sendMessage(receiver, hex"01");
+        l1Bridge.sendMessage(receiver, hex"02");
+        l1Bridge.sendMessage(receiver, hex"03");
+
+        uint256 start = l1Bridge.getSentMessageCursor();
+        bytes32 peekedA = l1Bridge.getMessageAt(start);
+        bytes32 peekedB = l1Bridge.getMessageAt(start + 1);
+        bytes32 peekedC = l1Bridge.getMessageAt(start + 2);
+
+        vm.prank(address(rollup));
+        l1Bridge.advanceSentMessageCursor(3);
+
+        // Cursor moved to back.
+        assertEq(l1Bridge.getSentMessageCursor(), start + 3, "cursor matches bulk advance");
+
+        // The peeked hashes must equal what consumeNextSentMessage would have returned.
+        // Rewind and verify by re-consuming one at a time.
+        vm.prank(address(rollup));
+        l1Bridge.rewindSentMessageCursor(start);
+
+        vm.prank(address(rollup));
+        assertEq(l1Bridge.consumeNextSentMessage(), peekedA, "one-by-one A matches peek");
+        vm.prank(address(rollup));
+        assertEq(l1Bridge.consumeNextSentMessage(), peekedB, "one-by-one B matches peek");
+        vm.prank(address(rollup));
+        assertEq(l1Bridge.consumeNextSentMessage(), peekedC, "one-by-one C matches peek");
+    }
+
+    function test_RevertIf_advanceSentMessageCursor_countExceedsQueueSize() public {
+        l1Bridge.sendMessage(receiver, hex"01");
+        // queueSize = 1, advance by 2 should revert
+        vm.prank(address(rollup));
+        vm.expectRevert(abi.encodeWithSelector(IL1FluentBridge.InvalidAdvanceCount.selector, uint256(2), uint256(1)));
+        l1Bridge.advanceSentMessageCursor(2);
+    }
+
+    function test_RevertIf_advanceSentMessageCursor_callerNotRollup() public {
+        l1Bridge.sendMessage(receiver, hex"01");
+        vm.prank(nonRollup);
+        vm.expectRevert(IL1FluentBridge.OnlyRollup.selector);
+        l1Bridge.advanceSentMessageCursor(1);
+    }
+
     function test_RevertIf_setRollup_queueNotEmpty() public {
         l1Bridge.sendMessage(receiver, hex"deadbeef");
 

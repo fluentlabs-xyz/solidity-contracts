@@ -736,11 +736,18 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         RollupStorage storage $ = _getRollupStorage();
         // Allocate in-memory array for the root verification at the end of the loop
         bytes32[] memory depositIds = new bytes32[](header.depositCount);
+        uint256 id = IL1FluentBridge($._bridge).getSentMessageCursor(); // wake-disable-line reentrancy
+
         for (uint256 i = 0; i < header.depositCount; ++i) {
             // External call to the bridge: advances the consume cursor and returns the next hash.
             // Called after all state writes in acceptNextBatch (CEI) under nonReentrant guard
-            depositIds[i] = IL1FluentBridge($._bridge).consumeNextSentMessage(); // wake-disable-line reentrancy
+            depositIds[i] = IL1FluentBridge($._bridge).getMessageAt(id); // wake-disable-line reentrancy
+            unchecked {
+                id++;
+            }
         }
+
+        IL1FluentBridge($._bridge).advanceSentMessageCursor(header.depositCount); // wake-disable-line reentrancy
         // Final integrity check: the hash of all popped deposit IDs must match the header's
         // depositRoot — ensures the sequencer included exactly these deposits in the L2 block
         require(keccak256(abi.encodePacked(depositIds)) == header.depositRoot, DepositRootMismatch(header.blockHash));

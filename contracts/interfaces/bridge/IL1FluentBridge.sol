@@ -56,6 +56,13 @@ interface IL1FluentBridge {
      * @dev selector: 0x4875ecb8
      */
     error SentMessageQueueEmpty();
+
+    /**
+     * @notice Sent-message cursor cannot advance by `count` — not enough unconsumed messages remain.
+     * @dev selector: 0xc743a919
+     */
+    error InvalidAdvanceCount(uint256 count, uint256 queueSize);
+
     /**
      * @notice Rewind target is greater than the current sent-message consume cursor.
      * @dev selector: 0x3df1aff3
@@ -88,6 +95,23 @@ interface IL1FluentBridge {
      * @return The status of the rollback message.
      */
     function getRollbackMessage(bytes32 key) external view returns (IFluentBridge.MessageStatus);
+
+    /**
+     * @notice Peeks at the sent message hash at the given index without advancing the consume cursor.
+     * @param index The index of the message hash to peek at (0-based).
+     * @return hash The message hash at the given index.
+     */
+    function getMessageAt(uint256 index) external view returns (bytes32 hash);
+
+    /**
+     * @notice Moves the sent-message consume cursor forward by `count`. Callable only by the rollup contract.
+     * @dev Used during {Rollup-acceptNextBatch} to pop messages that are included in the accepted batch.
+     *      The rollup is responsible for ensuring `count` does not exceed the number of unconsumed messages —
+     *      `acceptNextBatch` already prevents over-consuming, so this is upheld by construction.
+     * @param count Number of messages to consume (advance the cursor by).
+     */
+    function advanceSentMessageCursor(uint256 count) external;
+
     /**
      * @notice Reads the next sent-message hash for rollup consumption and advances the consume cursor.
      *         Callable only by the rollup contract.
