@@ -124,7 +124,7 @@ interface IFluentBridgeEvents {
         address indexed to,
         uint256 value,
         uint256 chainId,
-        uint256 blockNumber,
+        uint256 validUntilBlockNumber,
         uint256 nonce,
         bytes32 messageHash,
         bytes data
@@ -136,7 +136,7 @@ interface IFluentBridgeEvents {
      */
     event ReceivedMessage(bytes32 messageHash, bool successfulCall, bytes returnData);
     /**
-     * @notice Emitted when a rollback is triggered (message not received on L2 within deadline).
+     * @notice Emitted when a rollback is triggered after an inbound message reaches its committed expiry.
      */
     event RollbackMessage(bytes32 messageHash, uint256 blockNumber);
     /**
@@ -224,7 +224,8 @@ interface IFluentBridge is IFluentBridgeErrors, IFluentBridgeEvents {
      * @param to Destination on this chain.
      * @param value Value to forward.
      * @param chainId Source chain id.
-     * @param blockNumber Block number on source chain.
+     * @param validUntilBlockNumber Committed receive-deadline block number from the original message hash.
+     *        L1->L2 messages use an absolute L1 expiry block; directions without a receive deadline use 0.
      * @param nonce Message nonce (must match receivedNonce).
      * @param message Message payload.
      */
@@ -233,7 +234,7 @@ interface IFluentBridge is IFluentBridgeErrors, IFluentBridgeEvents {
         address to,
         uint256 value,
         uint256 chainId,
-        uint256 blockNumber,
+        uint256 validUntilBlockNumber,
         uint256 nonce,
         bytes calldata message
     ) external;
@@ -246,7 +247,8 @@ interface IFluentBridge is IFluentBridgeErrors, IFluentBridgeEvents {
      * @param to Destination on this chain.
      * @param value Value to forward.
      * @param chainId Source chain id.
-     * @param blockNumber Block number on source chain.
+     * @param validUntilBlockNumber Committed receive-deadline block number from the original message hash.
+     *        L1->L2 messages use an absolute L1 expiry block; directions without a receive deadline use 0.
      * @param nonce Message nonce.
      * @param message Message payload.
      */
@@ -255,7 +257,7 @@ interface IFluentBridge is IFluentBridgeErrors, IFluentBridgeEvents {
         address to,
         uint256 value,
         uint256 chainId,
-        uint256 blockNumber,
+        uint256 validUntilBlockNumber,
         uint256 nonce,
         bytes calldata message
     ) external;

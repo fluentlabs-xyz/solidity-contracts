@@ -38,10 +38,10 @@ contract FluentBridgeTest is GatewayBase {
         RevertingReceiver receiver = new RevertingReceiver();
         bytes memory payload = abi.encodeCall(RevertingReceiver.fail, ());
 
-        (bytes32 messageHash, uint256 nonce, uint256 sourceBlock) = _relayMessage(remoteBridge, address(receiver), 0, payload);
+        (bytes32 messageHash, uint256 nonce, uint256 validUntilBlockNumber) = _relayMessage(remoteBridge, address(receiver), 0, payload);
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
 
-        _retryFailedMessage(remoteBridge, address(receiver), 0, sourceBlock, nonce, payload);
+        _retryFailedMessage(remoteBridge, address(receiver), 0, validUntilBlockNumber, nonce, payload);
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
     }
 

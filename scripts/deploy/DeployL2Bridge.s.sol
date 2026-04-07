@@ -26,12 +26,10 @@ contract DeployL2Bridge is DeployBase {
         address relayerRole,
         address otherBridge,
         address l1BlockOracle,
-        uint256 receiveMessageDeadline,
         address gasOracle,
         address feeTreasury
     ) internal returns (L2BridgeResult memory r) {
         require(l1BlockOracle != address(0), "L1_BLOCK_ORACLE required");
-        require(receiveMessageDeadline > 0, "RECEIVE_MSG_DEADLINE required");
         require(gasOracle != address(0), "l1_gas_oracle required");
         address treasury = feeTreasury == address(0) ? adminRole : feeTreasury;
         FluentBridgeStorageLayout.InitConfiguration memory params = FluentBridgeStorageLayout.InitConfiguration({
@@ -42,7 +40,7 @@ contract DeployL2Bridge is DeployBase {
         });
         r.proxy = Upgrades.deployUUPSProxy(
             "L2FluentBridge.sol:L2FluentBridge",
-            abi.encodeCall(L2FluentBridge.initialize, (abi.encode(params), receiveMessageDeadline, l1BlockOracle, gasOracle, 0, 0, 0, treasury))
+            abi.encodeCall(L2FluentBridge.initialize, (abi.encode(params), l1BlockOracle, gasOracle, 0, 0, 0, treasury))
         );
         r.impl = Upgrades.getImplementationAddress(r.proxy);
     }
@@ -56,26 +54,15 @@ contract DeployL2Bridge is DeployBase {
         address relayerRole = vm.envOr("RELAYER_ROLE", json.readAddress(".roles.relayer"));
         address otherBridge = vm.envOr("OTHER_BRIDGE", address(0x1));
         address l1BlockOracle = vm.envAddress("L1_BLOCK_ORACLE");
-        uint256 receiveMessageDeadline = vm.envOr("RECEIVE_MSG_DEADLINE", json.readUint(".bridge.receiveMessageDeadline"));
         string memory outputPath = vm.envOr("OUTPUT_PATH", string(""));
 
         console2.log("Deploying L2FluentBridge");
         console2.log("  admin:", adminRole);
         console2.log("  l1BlockOracle:", l1BlockOracle);
-        console2.log("  receiveMessageDeadline:", receiveMessageDeadline);
 
         vm.startBroadcast();
         address gasOracle = address(new L1GasOracle(relayerRole));
-        L2BridgeResult memory r = _deployL2Bridge(
-            adminRole,
-            pauserRole,
-            relayerRole,
-            otherBridge,
-            l1BlockOracle,
-            receiveMessageDeadline,
-            gasOracle,
-            address(0)
-        );
+        L2BridgeResult memory r = _deployL2Bridge(adminRole, pauserRole, relayerRole, otherBridge, l1BlockOracle, gasOracle, address(0));
         vm.stopBroadcast();
 
         console2.log("L2FluentBridge deployed:", r.proxy);

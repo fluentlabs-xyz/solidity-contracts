@@ -15,7 +15,7 @@
 
 - `DEFAULT_ADMIN_ROLE`
   - Authorizes UUPS upgrades.
-  - Can change `otherBridge`, `rollup`, `l1BlockOracle`, and `receiveMessageDeadline`.
+  - Can change `otherBridge`, `rollup` (L1), `l1BlockOracle` (L2), and `receiveMessageDeadline` (L1).
 - `PAUSER_ROLE`
   - Can pause and unpause message sends and receives.
 - `RELAYER_ROLE`

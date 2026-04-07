@@ -20,7 +20,8 @@ contract DeployL1Bridge is DeployBase {
         address pauserRole,
         address relayerRole,
         address otherBridge,
-        address rollup
+        address rollup,
+        uint256 receiveMessageDeadline
     ) internal returns (L1BridgeResult memory r) {
         FluentBridgeStorageLayout.InitConfiguration memory params = FluentBridgeStorageLayout.InitConfiguration({
             adminRole: adminRole,
@@ -30,26 +31,28 @@ contract DeployL1Bridge is DeployBase {
         });
         r.proxy = Upgrades.deployUUPSProxy(
             "L1FluentBridge.sol:L1FluentBridge",
-            abi.encodeCall(L1FluentBridge.initialize, (abi.encode(params), rollup))
+            abi.encodeCall(L1FluentBridge.initialize, (abi.encode(params), rollup, receiveMessageDeadline))
         );
         r.impl = Upgrades.getImplementationAddress(r.proxy);
     }
 
-    /// @dev Standalone: ADMIN_ROLE, PAUSER_ROLE, RELAYER_ROLE, ROLLUP_ADDRESS required.
+    /// @dev Standalone: ADMIN_ROLE, PAUSER_ROLE, RELAYER_ROLE, ROLLUP_ADDRESS, RECEIVE_MSG_DEADLINE required.
     function run() external virtual {
         address adminRole = vm.envAddress("ADMIN_ROLE");
         address pauserRole = vm.envAddress("PAUSER_ROLE");
         address relayerRole = vm.envAddress("RELAYER_ROLE");
         address otherBridge = vm.envOr("OTHER_BRIDGE", address(0x1));
         address rollup = vm.envAddress("ROLLUP_ADDRESS");
+        uint256 receiveMessageDeadline = vm.envUint("RECEIVE_MSG_DEADLINE");
         string memory outputPath = vm.envOr("OUTPUT_PATH", string(""));
 
         console2.log("Deploying L1FluentBridge");
         console2.log("  admin:", adminRole);
         console2.log("  rollup:", rollup);
+        console2.log("  receiveMessageDeadline:", receiveMessageDeadline);
 
         vm.startBroadcast();
-        L1BridgeResult memory r = _deployL1Bridge(adminRole, pauserRole, relayerRole, otherBridge, rollup);
+        L1BridgeResult memory r = _deployL1Bridge(adminRole, pauserRole, relayerRole, otherBridge, rollup, receiveMessageDeadline);
         vm.stopBroadcast();
 
         console2.log("L1FluentBridge deployed:", r.proxy);

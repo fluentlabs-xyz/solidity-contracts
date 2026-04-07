@@ -97,7 +97,7 @@ A separate cap bounds per-batch acceptance work:
 
 | Contract | Role | Capabilities |
 |----------|------|-------------|
-| **FluentBridge** | `DEFAULT_ADMIN_ROLE` | Authorize UUPS upgrades; configure `otherBridge`, `rollup`, `l1BlockOracle`, `receiveMessageDeadline` |
+| **FluentBridge** | `DEFAULT_ADMIN_ROLE` | Authorize UUPS upgrades; configure `otherBridge`, `rollup` (L1), `l1BlockOracle` (L2), and `receiveMessageDeadline` (L1) |
 | | `PAUSER_ROLE` | Pause/unpause message sends and receives |
 | | `RELAYER_ROLE` | Execute trusted message delivery; retry failed messages |
 | **Rollup** | `DEFAULT_ADMIN_ROLE` | Authorize UUPS upgrades; rotate bridge/verifier addresses and timing parameters |
@@ -204,9 +204,9 @@ forge coverage --ir-minimum --report lcov
 
 - **Bridge pays value from its own balance.** On the trusted path, the relayer calls `receiveMessage` and the bridge forwards the message's `value` to the target — there is no explicit `msg.value == value` check. On the proof path (`receiveMessageWithProof`, `rollbackMessageWithProof`), the caller sends zero ETH and the bridge pays from locked funds. The bridge does not mint ETH; it only releases funds previously locked via `sendMessage`.
 
-- **Admin actions are timelocked at the infrastructure level.** The contracts themselves do not embed a timelock — all privileged roles (`DEFAULT_ADMIN_ROLE`, `PAUSER_ROLE`, etc.) are held by an OpenZeppelin `TimelockController` in production. This means parameter changes (`receiveMessageDeadline`, `l1BlockOracle`, `rollup`, `otherBridge`, etc.) are subject to the timelock's minimum delay before execution. The timelock contract is external to the bridge and rollup; it is not visible in the Solidity source but is enforced at the deployment/configuration layer.
+- **Admin actions are timelocked at the infrastructure level.** The contracts themselves do not embed a timelock — all privileged roles (`DEFAULT_ADMIN_ROLE`, `PAUSER_ROLE`, etc.) are held by an OpenZeppelin `TimelockController` in production. This means parameter changes (`receiveMessageDeadline` on L1, `l1BlockOracle` on L2, `rollup`, `otherBridge`, etc.) are subject to the timelock's minimum delay before execution. The timelock contract is external to the bridge and rollup; it is not visible in the Solidity source but is enforced at the deployment/configuration layer.
 
-- **Nonce consumed before deadline check.** In `receiveMessage()`, `_takeNextReceivedNonce()` runs before `_beforeReceiveMessage()` (the L2 deadline hook). If the deadline is expired, the nonce is already consumed and the message is marked `Failed`. Retry happens via `receiveFailedMessage` on the same consumed nonce — no new nonce is spent.
+- **Nonce consumed before expiry check.** In `receiveMessage()`, `_takeNextReceivedNonce()` runs before `_beforeReceiveMessage()` (the L2 committed-expiry hook). If the message is already past its committed `validUntilBlockNumber`, the nonce is already consumed and the message is marked `Failed`. Retry happens via `receiveFailedMessage` on the same consumed nonce — no new nonce is spent.
 
 - **Rollback transfers ETH only; `message` calldata is intentionally dropped.**
   `_receiveMessage` forwards `message` to `to` — a contract that explicitly opted into the bridge

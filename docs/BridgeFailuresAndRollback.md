@@ -15,7 +15,7 @@ The bridge stores **`MessageStatus`** per hash in `_receivedMessage`:
 | Status | Meaning |
 |--------|---------|
 | **`None`** | This hash has never been completed as a normal receive (success or failed execution). |
-| **`Failed`** | Recorded as failed: either L2 deadline path, or target call reverted / returned failure in `_receiveMessage`. |
+| **`Failed`** | Recorded as failed: either L2 committed-expiry path, or target call reverted / returned failure in `_receiveMessage`. |
 | **`Success`** | Target call succeeded. |
 
 **L1-only:** Rollback execution uses a **separate** mapping **`_rollbackMessages`** (not `_receivedMessage`). A successful rollback refund sets rollback status to **`Success`** or **`Failed`** depending on whether the refund call succeeded.
@@ -25,7 +25,7 @@ stateDiagram-v2
     direction LR
     [*] --> None : initial
     None --> Success : receive or proof receive OK
-    None --> Failed : L2 deadline OR target call failed
+    None --> Failed : L2 committed expiry OR target call failed
     Failed --> Success : receiveFailedMessage OK
     Failed --> Failed : receiveFailedMessage still fails
 ```
@@ -38,7 +38,7 @@ stateDiagram-v2
 
 **Who:** `RELAYER_ROLE` only (`FluentBridge.receiveMessage`).
 
-**Ordering:** The relayer must pass **`messageNonce == getReceivedNonce()`** before the call mutates state. The bridge then **`_takeNextReceivedNonce()`** — the nonce is **consumed even if the message is later skipped** (L2 deadline path below).
+**Ordering:** The relayer must pass **`messageNonce == getReceivedNonce()`** before the call mutates state. The bridge then **`_takeNextReceivedNonce()`** — the nonce is **consumed even if the message is later skipped** (L2 committed-expiry path below).
 
 **Value:** The function is **not payable**. For messages with **`value > 0`**, the bridge pays from its own **pooled balance** (ETH locked by prior `sendMessage` calls). On L2, the chain's consensus layer mints the required native ETH before execution.
 
@@ -60,19 +60,19 @@ flowchart TD
     H -->|no| J[Status = Failed]
 ```
 
-**L1 vs L2:** The base implementation of **`_beforeReceiveMessage`** always returns **`true`**. **`L2FluentBridge`** overrides it to enforce the **receive deadline** (next section). **`L1FluentBridge`** does not — L1 relayer receives do not use this timeout hook.
+**L1 vs L2:** The base implementation of **`_beforeReceiveMessage`** always returns **`true`**. **`L2FluentBridge`** overrides it to enforce the **committed expiry** (next section). **`L1FluentBridge`** does not — L1 relayer receives do not use this timeout hook.
 
 ---
 
-## 3. L1 → L2 timeout (deadline) on L2
+## 3. L1 → L2 committed expiry on L2
 
 **Where:** `L2FluentBridge._beforeReceiveMessage`.
 
-**Inputs:** `L1BlockOracle.getL1BlockNumber()` and admin-configured **`receiveMessageDeadline`** (L1 blocks).
+**Inputs:** `L1BlockOracle.getL1BlockNumber()` and the committed **`validUntilBlockNumber`** carried in the message hash. That value is snapshotted on L1 as `block.number + receiveMessageDeadline` when the message is sent.
 
-**Condition:** If the message’s source **`blockNumber`** is non-zero and:
+**Condition:** If the message’s committed **`validUntilBlockNumber`** is non-zero and:
 
-`l1BlockNumber >= blockNumber` **and** `l1BlockNumber - blockNumber >= receiveMessageDeadline`
+`l1BlockNumber >= validUntilBlockNumber`
 
 then the bridge:
 
@@ -90,19 +90,19 @@ sequenceDiagram
     participant Oracle as L1BlockOracle
     participant Target as to (gateway/user)
 
-    Relayer->>L2Bridge: receiveMessage(..., blockNumber from L1, ...)
+    Relayer->>L2Bridge: receiveMessage(..., validUntilBlockNumber, ...)
     Note over L2Bridge: nonce consumed
     L2Bridge->>Oracle: getL1BlockNumber()
-    alt Too late: l1Block - blockNumber >= deadline
+    alt Too late: l1BlockNumber >= validUntilBlockNumber
         L2Bridge->>L2Bridge: _receivedMessage[hash] = Failed
         L2Bridge-->>Relayer: RollbackMessage + ReceivedMessage(false)
         Note over Target: no call
-    else Within deadline
+    else Within validity window
         L2Bridge->>Target: execute message
     end
 ```
 
-**Operational note:** If the oracle is **stale** or misconfigured, deadline behavior is wrong (see `docs/SecurityModel.md`).
+**Operational note:** If the oracle is **stale** or misconfigured, the committed-expiry check is wrong (see `docs/SecurityModel.md`).
 
 ---
 
@@ -139,23 +139,23 @@ sequenceDiagram
 **Behavior:**
 
 - `receiveFailedMessage` calls **`_beforeReceiveMessage`** first.
-- On L2, **`_beforeReceiveMessage`** performs the deadline check (`l1BlockNumber - blockNumber >= receiveMessageDeadline`).
-- If the deadline is exceeded, **`_beforeReceiveMessage`** writes **`_receivedMessage[messageHash] = Failed`**, emits **`RollbackMessage`** and **`ReceivedMessage(messageHash, false, "")`**, and returns `false`.
+- On L2, **`_beforeReceiveMessage`** performs the committed-expiry check (`l1BlockNumber >= validUntilBlockNumber`).
+- If the committed expiry has been reached, **`_beforeReceiveMessage`** writes **`_receivedMessage[messageHash] = Failed`**, emits **`RollbackMessage`** and **`ReceivedMessage(messageHash, false, "")`**, and returns `false`.
 - When `_beforeReceiveMessage` returns `false`, **`receiveFailedMessage` returns early** and does not call **`_receiveMessage`**.
-- If `_beforeReceiveMessage` returns `true` (deadline not exceeded), `receiveFailedMessage` calls **`_receiveMessage(gasleft(), ...)`**, which executes the target and sets the final message status to **`Success`** or **`Failed`** in **`_receivedMessage`**.
+- If `_beforeReceiveMessage` returns `true` (committed expiry not reached), `receiveFailedMessage` calls **`_receiveMessage(gasleft(), ...)`**, which executes the target and sets the final message status to **`Success`** or **`Failed`** in **`_receivedMessage`**.
 
 **Value:** The function is **not payable**. For messages with **`value > 0`**, the bridge pays from its own **pooled balance** (same as relayer receive).
 
 **Nonce:** **`receiveFailedMessage` does not increment `receivedNonce`** — it only retries an existing hash.
 
-**L2 deadline on retry:** If **`_beforeReceiveMessage`** still sees an expired deadline, it writes **`Failed`**, emits **`RollbackMessage`** and **`ReceivedMessage(false, "")`**, returns **`false`**, and **`receiveFailedMessage` exits** without calling **`_receiveMessage`**. Wait until the oracle/deadline window allows delivery, then retry again.
+**L2 committed expiry on retry:** If **`_beforeReceiveMessage`** still sees the message past its committed `validUntilBlockNumber`, it writes **`Failed`**, emits **`RollbackMessage`** and **`ReceivedMessage(false, "")`**, returns **`false`**, and **`receiveFailedMessage` exits** without calling **`_receiveMessage`**. Once the expiry has been reached the message can never be delivered — proceed with `rollbackMessageWithProof` on L1 instead.
 
 ```mermaid
 flowchart TD
     A[receiveFailedMessage] --> B{status == Failed?}
     B -->|no| R1[revert MessageNotFailed]
     B -->|yes| C[_beforeReceiveMessage]
-    C -->|false L2 deadline| R2[return no target call]
+    C -->|false L2 expiry reached| R2[return no target call]
     C -->|true| D[_receiveMessage gasleft]
     D --> E[Success or Failed]
 ```
@@ -212,8 +212,8 @@ Both require a **finalized** batch and valid proofs.
 | Event | Typical meaning |
 |--------|------------------|
 | **`ReceivedMessage(hash, true, data)`** | Message execution succeeded. |
-| **`ReceivedMessage(hash, false, data)`** | Execution failed, **or** L2 deadline short-circuit (empty data on deadline). |
-| **`RollbackMessage(hash, l2Block)`** | L2 marked message as failed due to **deadline**; signals inclusion in withdrawal accounting. |
+| **`ReceivedMessage(hash, false, data)`** | Execution failed, **or** L2 committed-expiry short-circuit (empty data on expiry). |
+| **`RollbackMessage(hash, l2Block)`** | L2 marked message as failed because its committed `validUntilBlockNumber` was reached; signals inclusion in withdrawal accounting. |
 | **`ReceivedMessageRollback(hash, success, data)`** | L1 **rollback** refund to `from` completed or refund call failed. |
 
 ---
@@ -223,8 +223,8 @@ Both require a **finalized** batch and valid proofs.
 | Topic | Location |
 |--------|----------|
 | Core receive / retry | `contracts/bridge/FluentBridge.sol` |
-| L2 deadline | `contracts/bridge/L2/L2FluentBridge.sol` (`_beforeReceiveMessage`) |
+| L2 committed expiry | `contracts/bridge/L2/L2FluentBridge.sol` (`_beforeReceiveMessage`) |
 | Proof receive + rollback | `contracts/bridge/L1/L1FluentBridge.sol` |
 | Errors / events | `contracts/interfaces/bridge/IFluentBridge.sol` |
-| Tests (deadline, retry) | `test/Bridge/FluentBridge.t.sol` |
+| Tests (committed expiry, retry) | `test/Bridge/FluentBridge.t.sol` |
 | Roles / trust | `docs/SecurityModel.md` |

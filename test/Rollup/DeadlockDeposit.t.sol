@@ -16,8 +16,10 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 // Audited code (fd208df) had two conflicting deadline mechanisms:
 //   1. acceptDepositDeadline (Rollup): reverts acceptNextBatch if deposits sit
 //      in the L1 queue past this window — anti-censorship guard.
-//   2. receiveMessageDeadline (L2 Bridge): silently skipped expired L1→L2
-//      messages without dequeuing from the L1 queue or emitting ReceivedMessage.
+//   2. The bridge delivery-time timeout path: expired L1→L2 messages were
+//      silently skipped without dequeuing from the L1 queue or emitting
+//      ReceivedMessage. The old implementation sourced this timeout from L2
+//      config; the current design snapshots the expiry on L1 into the message.
 //
 // A rolled-back deposit stayed at the front of the FIFO queue forever.
 // The sequencer could not produce a valid batch referencing it, and eventually

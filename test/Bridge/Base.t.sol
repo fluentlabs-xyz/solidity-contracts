@@ -33,6 +33,8 @@ contract RejectEther {
 }
 
 abstract contract BridgeBase is Test {
+    uint256 internal constant RECEIVE_MESSAGE_DEADLINE = 100;
+
     address internal admin = makeAddr("admin");
     address internal pauser = makeAddr("pauser");
     address internal relayer = makeAddr("relayer");
@@ -52,7 +54,7 @@ abstract contract BridgeBase is Test {
         L1FluentBridge l1Impl = new L1FluentBridge();
         ERC1967Proxy l1Proxy = new ERC1967Proxy(
             address(l1Impl),
-            abi.encodeCall(L1FluentBridge.initialize, (abi.encode(cfg), makeAddr("rollupA")))
+            abi.encodeCall(L1FluentBridge.initialize, (abi.encode(cfg), makeAddr("rollupA"), RECEIVE_MESSAGE_DEADLINE))
         );
         l1Bridge = L1FluentBridge(payable(address(l1Proxy)));
 
@@ -66,7 +68,15 @@ abstract contract BridgeBase is Test {
             address(l2Impl),
             abi.encodeCall(
                 L2FluentBridge.initialize,
-                (abi.encode(cfg), 100, address(l1BlockOracle), address(l1GasOracle), 0, 0, 0, makeAddr("feeTreasury"))
+                (
+                    abi.encode(cfg),
+                    address(l1BlockOracle),
+                    address(l1GasOracle),
+                    0,
+                    0,
+                    0,
+                    makeAddr("feeTreasury")
+                )
             )
         );
         l2Bridge = L2FluentBridge(payable(address(l2Proxy)));

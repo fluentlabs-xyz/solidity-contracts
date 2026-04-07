@@ -7,7 +7,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 
 import {L2FluentBridge} from "../../contracts/bridge/L2/L2FluentBridge.sol";
 import {FluentBridgeStorageLayout} from "../../contracts/bridge/FluentBridgeStorageLayout.sol";
-import {IFluentBridgeEvents, IFluentBridgeErrors} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
+import {IFluentBridge, IFluentBridgeEvents, IFluentBridgeErrors} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {IL2FluentBridge} from "../../contracts/interfaces/bridge/IL2FluentBridge.sol";
 import {L1BlockOracle} from "../../contracts/oracles/L1BlockOracle.sol";
 import {L1GasOracle} from "../../contracts/oracles/L1GasOracle.sol";
@@ -59,7 +59,7 @@ abstract contract L2BridgeFeeBase is Test {
             address(impl),
             abi.encodeCall(
                 L2FluentBridge.initialize,
-                (abi.encode(cfg), RECEIVE_DEADLINE, address(blockOracle), address(gasOracle), overhead, scalar, L1_GAS_LIMIT, feeTreasury)
+                (abi.encode(cfg), address(blockOracle), address(gasOracle), overhead, scalar, L1_GAS_LIMIT, feeTreasury)
             )
         );
         bridge = L2FluentBridge(payable(address(proxy)));
@@ -80,6 +80,30 @@ abstract contract L2BridgeFeeBase is Test {
             }
         }
         revert("SentMessage event not found");
+    }
+
+    function _decodeSentMessageValidUntilBlockNumber(Vm.Log[] memory logs) internal pure returns (uint256 validUntilBlockNumber) {
+        bytes32 sentMessageTopic = keccak256("SentMessage(address,address,uint256,uint256,uint256,uint256,bytes32,bytes)");
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].topics[0] == sentMessageTopic) {
+                (, , validUntilBlockNumber, , , ) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, bytes32, bytes));
+                return validUntilBlockNumber;
+            }
+        }
+        revert("SentMessage event not found");
+    }
+}
+
+contract ObservingFeeTreasury {
+    IFluentBridge internal immutable bridge;
+    uint256 public observedNonce;
+
+    constructor(IFluentBridge bridge_) {
+        bridge = bridge_;
+    }
+
+    receive() external payable {
+        observedNonce = bridge.getNonce();
     }
 }
 
@@ -191,7 +215,7 @@ contract SendMessageFeeTest is L2BridgeFeeBase {
 
         vm.deal(user, fee - 1);
         vm.prank(user);
-        vm.expectRevert(); // arithmetic underflow: msg.value - fee
+        vm.expectRevert(IFluentBridgeErrors.InsufficientFee.selector);
         bridge.sendMessage{value: fee - 1}(recipient, "");
     }
 
@@ -220,6 +244,30 @@ contract SendMessageFeeTest is L2BridgeFeeBase {
 
         uint256 emittedValue = _decodeSentMessageValue(vm.getRecordedLogs());
         assertEq(emittedValue, 0, "cross-chain value should be zero when only fee is sent");
+    }
+
+    function test_sendMessage_commitsZeroValidUntilBlockNumber() public {
+        vm.deal(user, 1 ether);
+        vm.recordLogs();
+        vm.prank(user);
+        bridge.sendMessage{value: 1 ether}(recipient, "");
+
+        assertEq(_decodeSentMessageValidUntilBlockNumber(vm.getRecordedLogs()), 0, "L2 outbound messages should commit zero validUntil");
+    }
+
+    function test_sendMessage_snapshotsNonceBeforeFeeTreasuryCallback() public {
+        ObservingFeeTreasury treasury = new ObservingFeeTreasury(IFluentBridge(address(bridge)));
+        vm.prank(admin);
+        bridge.setFeeTreasury(address(treasury));
+
+        uint256 fee = bridge.getSentMessageFee();
+        vm.deal(user, fee + 1 ether);
+        vm.prank(user);
+        bridge.sendMessage{value: fee + 1 ether}(recipient, "");
+
+        // Before the fix, the treasury callback observed nonce 0 because fee collection happened
+        // before _takeNextNonce(). The bridge now snapshots the outbound message first.
+        assertEq(treasury.observedNonce(), 1, "fee callback should observe the incremented outbound nonce");
     }
 
     function testFuzz_sendMessage_feeDeductedCorrectly(uint96 rawGasPrice) public {
@@ -350,10 +398,11 @@ contract ReceiveMessageNoFeeTest is L2BridgeFeeBase {
         uint256 amount = 0.5 ether;
 
         address otherBridge = makeAddr("otherBridge");
+        uint256 validUntilBlockNumber = RECEIVE_DEADLINE + 1;
 
         vm.deal(address(bridge), amount);
         vm.prank(relayer);
-        bridge.receiveMessage(otherBridge, recipient, amount, block.chainid + 1, 1, 0, "");
+        bridge.receiveMessage(otherBridge, recipient, amount, block.chainid + 1, validUntilBlockNumber, 0, "");
 
         assertEq(feeTreasury.balance, treasuryBefore, "treasury should not receive anything on inbound");
         assertEq(recipient.balance, amount, "recipient should receive full amount");
@@ -401,11 +450,11 @@ contract L2FluentBridgeTest is L2BridgeFeeBase {
         bridge.sendMessage{value: fee + 1 ether}(recipient, "");
     }
 
-    function test_RevertIf_beforeReceiveMessage_zeroBlockNumber() public {
+    function test_RevertIf_beforeReceiveMessage_zeroValidUntilBlockNumber() public {
         address otherBridge = makeAddr("otherBridge");
         vm.deal(address(bridge), 1 ether);
         vm.prank(relayer);
-        vm.expectRevert(abi.encodeWithSelector(IFluentBridgeErrors.ZeroValueNotAllowed.selector, "blockNumber"));
+        vm.expectRevert(abi.encodeWithSelector(IFluentBridgeErrors.ZeroValueNotAllowed.selector, "validUntilBlockNumber"));
         bridge.receiveMessage(otherBridge, recipient, 0, block.chainid + 1, 0, 0, "");
     }
 
@@ -415,23 +464,20 @@ contract L2FluentBridgeTest is L2BridgeFeeBase {
         bridge.setL1GasPriceOracle(address(0));
     }
 
-    function test_RevertIf_setReceiveMessageDeadline_zero() public {
-        vm.prank(admin);
-        vm.expectRevert(
-            abi.encodeWithSelector(IFluentBridgeErrors.InvalidWindowConfig.selector, "receiveMessageDeadline must be greater than 0")
+    function test_receiveMessage_atExactValidUntil_marksFailed() public {
+        address otherBridge = makeAddr("otherBridge");
+        uint256 validUntilBlockNumber = RECEIVE_DEADLINE + 1;
+
+        vm.prank(relayer);
+        blockOracle.updateL1BlockNumber(validUntilBlockNumber);
+
+        bytes32 messageHash = keccak256(
+            abi.encode(otherBridge, recipient, uint256(0), block.chainid + 1, validUntilBlockNumber, uint256(0), bytes(""))
         );
-        bridge.setReceiveMessageDeadline(0);
-    }
 
-    function test_setL1BlockOracle_allowsZeroWhenDeadlineDisabled() public {
-        // _setReceiveMessageDeadline requires > 0, so we bypass via vm.store
-        // L2FluentBridgeStorage._receiveMessageDeadline is at slot offset 0 in the L2 storage
-        bytes32 l2StorageSlot = 0x87bc3410b506da535d5d599e04bd2f08b89897a5d89e1855acbd7567af23bd00;
-        vm.store(address(bridge), l2StorageSlot, bytes32(0));
-        assertEq(bridge.getReceiveMessageDeadline(), 0, "deadline should be zero");
+        vm.prank(relayer);
+        bridge.receiveMessage(otherBridge, recipient, 0, block.chainid + 1, validUntilBlockNumber, 0, "");
 
-        vm.prank(admin);
-        bridge.setL1BlockOracle(address(0));
-        assertEq(bridge.getL1BlockOracle(), address(0), "oracle should be zero");
+        assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed), "status should be Failed");
     }
 }

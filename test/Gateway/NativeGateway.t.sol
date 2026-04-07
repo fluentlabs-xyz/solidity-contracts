@@ -82,12 +82,13 @@ contract NativeGatewayTest is GatewayBase {
         bytes memory message = abi.encodeCall(NativeGateway.receiveNativeTokens, (user, recipient, amount));
         uint256 beforeRecipient = recipient.balance;
         uint256 nonce = bridge.getReceivedNonce();
-        uint256 sourceBlock = nextSourceBlock++;
-        bytes32 messageHash = _bridgeMessageHash(remoteGateway, address(nativeGateway), amount, sourceChainId, sourceBlock, nonce, message);
+        uint256 validUntilBlockNumber = _takeNextValidUntilBlockNumber();
+        bytes32 messageHash =
+            _bridgeMessageHash(remoteGateway, address(nativeGateway), amount, sourceChainId, validUntilBlockNumber, nonce, message);
         vm.deal(address(bridge), amount);
 
         vm.prank(relayer);
-        bridge.receiveMessage(remoteGateway, address(nativeGateway), amount, sourceChainId, sourceBlock, nonce, message);
+        bridge.receiveMessage(remoteGateway, address(nativeGateway), amount, sourceChainId, validUntilBlockNumber, nonce, message);
 
         assertEq(recipient.balance - beforeRecipient, amount);
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Success));
@@ -97,12 +98,14 @@ contract NativeGatewayTest is GatewayBase {
         RejectEther rejector = new RejectEther();
         bytes memory message = abi.encodeCall(NativeGateway.receiveNativeTokens, (user, address(rejector), 1 ether));
         uint256 nonce = bridge.getReceivedNonce();
-        uint256 sourceBlock = nextSourceBlock++;
-        bytes32 messageHash = _bridgeMessageHash(remoteGateway, address(nativeGateway), 1 ether, sourceChainId, sourceBlock, nonce, message);
+        uint256 validUntilBlockNumber = _takeNextValidUntilBlockNumber();
+        bytes32 messageHash = _bridgeMessageHash(
+            remoteGateway, address(nativeGateway), 1 ether, sourceChainId, validUntilBlockNumber, nonce, message
+        );
         vm.deal(address(bridge), 1 ether);
 
         vm.prank(relayer);
-        bridge.receiveMessage(remoteGateway, address(nativeGateway), 1 ether, sourceChainId, sourceBlock, nonce, message);
+        bridge.receiveMessage(remoteGateway, address(nativeGateway), 1 ether, sourceChainId, validUntilBlockNumber, nonce, message);
 
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
     }
@@ -110,12 +113,14 @@ contract NativeGatewayTest is GatewayBase {
     function test_receiveNativeTokens_withZeroRecipient_marksFailed() public {
         bytes memory message = abi.encodeCall(NativeGateway.receiveNativeTokens, (user, address(0), 1 ether));
         uint256 nonce = bridge.getReceivedNonce();
-        uint256 sourceBlock = nextSourceBlock++;
-        bytes32 messageHash = _bridgeMessageHash(remoteGateway, address(nativeGateway), 1 ether, sourceChainId, sourceBlock, nonce, message);
+        uint256 validUntilBlockNumber = _takeNextValidUntilBlockNumber();
+        bytes32 messageHash = _bridgeMessageHash(
+            remoteGateway, address(nativeGateway), 1 ether, sourceChainId, validUntilBlockNumber, nonce, message
+        );
         vm.deal(address(bridge), 1 ether);
 
         vm.prank(relayer);
-        bridge.receiveMessage(remoteGateway, address(nativeGateway), 1 ether, sourceChainId, sourceBlock, nonce, message);
+        bridge.receiveMessage(remoteGateway, address(nativeGateway), 1 ether, sourceChainId, validUntilBlockNumber, nonce, message);
 
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
     }
@@ -125,12 +130,14 @@ contract NativeGatewayTest is GatewayBase {
         uint256 payloadAmount = 2 ether;
         bytes memory message = abi.encodeCall(NativeGateway.receiveNativeTokens, (user, recipient, payloadAmount));
         uint256 nonce = bridge.getReceivedNonce();
-        uint256 sourceBlock = nextSourceBlock++;
-        bytes32 messageHash = _bridgeMessageHash(remoteGateway, address(nativeGateway), bridgeValue, sourceChainId, sourceBlock, nonce, message);
+        uint256 validUntilBlockNumber = _takeNextValidUntilBlockNumber();
+        bytes32 messageHash = _bridgeMessageHash(
+            remoteGateway, address(nativeGateway), bridgeValue, sourceChainId, validUntilBlockNumber, nonce, message
+        );
         vm.deal(address(bridge), bridgeValue);
 
         vm.prank(relayer);
-        bridge.receiveMessage(remoteGateway, address(nativeGateway), bridgeValue, sourceChainId, sourceBlock, nonce, message);
+        bridge.receiveMessage(remoteGateway, address(nativeGateway), bridgeValue, sourceChainId, validUntilBlockNumber, nonce, message);
 
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
     }
@@ -139,20 +146,22 @@ contract NativeGatewayTest is GatewayBase {
         bytes memory message = abi.encodeCall(NativeGateway.receiveNativeTokens, (user, recipient, 1 ether));
         address wrongRemoteGateway = makeAddr("wrongRemoteGateway");
         uint256 nonce = bridge.getReceivedNonce();
-        uint256 sourceBlock = nextSourceBlock++;
+        uint256 validUntilBlockNumber = _takeNextValidUntilBlockNumber();
         bytes32 messageHash = _bridgeMessageHash(
             wrongRemoteGateway,
             address(nativeGateway),
             1 ether,
             sourceChainId,
-            sourceBlock,
+            validUntilBlockNumber,
             nonce,
             message
         );
         vm.deal(address(bridge), 1 ether);
 
         vm.prank(relayer);
-        bridge.receiveMessage(wrongRemoteGateway, address(nativeGateway), 1 ether, sourceChainId, sourceBlock, nonce, message);
+        bridge.receiveMessage(
+            wrongRemoteGateway, address(nativeGateway), 1 ether, sourceChainId, validUntilBlockNumber, nonce, message
+        );
 
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
     }
@@ -196,14 +205,14 @@ contract NativeGatewayTest is GatewayBase {
         uint256 amount = 1 ether;
         bytes memory message = abi.encodeCall(NativeGateway.receiveNativeTokens, (user, recipient, amount));
         uint256 nonce = bridge.getReceivedNonce();
-        uint256 sourceBlock = nextSourceBlock++;
+        uint256 validUntilBlockNumber = _takeNextValidUntilBlockNumber();
         vm.deal(address(bridge), amount);
 
         vm.expectEmit(true, true, false, true, address(nativeGateway));
         emit IGatewayBaseEvents.ReceivedTokens(user, recipient, amount);
 
         vm.prank(relayer);
-        bridge.receiveMessage(remoteGateway, address(nativeGateway), amount, sourceChainId, sourceBlock, nonce, message);
+        bridge.receiveMessage(remoteGateway, address(nativeGateway), amount, sourceChainId, validUntilBlockNumber, nonce, message);
     }
 
     function test_twoStepOwnership_transferAndAccept() public {
@@ -269,10 +278,10 @@ contract NativeGatewayTest is GatewayBase {
 
         bytes memory message = abi.encodeCall(NativeGateway.receiveNativeTokens, (user, recipient, 1 ether));
         uint256 nonce = bridge.getReceivedNonce();
-        uint256 sourceBlock = nextSourceBlock++;
+        uint256 validUntilBlockNumber = _takeNextValidUntilBlockNumber();
         vm.deal(address(bridge), 1 ether);
         vm.prank(relayer);
         vm.expectRevert(bytes4(keccak256("EnforcedPause()")));
-        bridge.receiveMessage(remoteGateway, address(nativeGateway), 1 ether, sourceChainId, sourceBlock, nonce, message);
+        bridge.receiveMessage(remoteGateway, address(nativeGateway), 1 ether, sourceChainId, validUntilBlockNumber, nonce, message);
     }
 }

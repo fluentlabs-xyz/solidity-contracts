@@ -24,6 +24,7 @@ abstract contract GatewayBase is Test {
 
     uint256 internal sourceChainId;
     uint256 internal nextSourceBlock = 1;
+    uint256 internal configuredReceiveMessageDeadline;
 
     IFluentBridge internal bridge;
     L1BlockOracle internal oracle;
@@ -50,14 +51,15 @@ abstract contract GatewayBase is Test {
             otherBridge: remoteBridge
         });
 
-        // Gateway tests rely on the trusted relayer path (receiveMessage),
-        // which exists on L2 bridge and needs a deadline + oracle config.
+        // Gateway tests rely on the trusted relayer path (receiveMessage).
+        // The test helper still tracks a local deadline so it can reconstruct committed message hashes.
         uint256 deadline = receiveMessageDeadline == 0 ? 1 : receiveMessageDeadline;
+        configuredReceiveMessageDeadline = deadline;
         ERC1967Proxy proxy = new ERC1967Proxy(
             address(impl),
             abi.encodeCall(
                 L2FluentBridge.initialize,
-                (abi.encode(params), deadline, address(oracle), address(gasOracle), 0, 0, 0, makeAddr("feeTreasury"))
+                (abi.encode(params), address(oracle), address(gasOracle), 0, 0, 0, makeAddr("feeTreasury"))
             )
         );
         bridge = IFluentBridge(payable(address(proxy)));
@@ -98,11 +100,16 @@ abstract contract GatewayBase is Test {
         address to,
         uint256 value,
         uint256 chainId,
-        uint256 blockNumber,
+        uint256 validUntilBlockNumber,
         uint256 nonce,
         bytes memory message
     ) internal pure returns (bytes32) {
-        return keccak256(abi.encode(from, to, value, chainId, blockNumber, nonce, message));
+        return keccak256(abi.encode(from, to, value, chainId, validUntilBlockNumber, nonce, message));
+    }
+
+    function _takeNextValidUntilBlockNumber() internal returns (uint256 validUntilBlockNumber) {
+        uint256 sourceBlock = nextSourceBlock++;
+        validUntilBlockNumber = sourceBlock + configuredReceiveMessageDeadline;
     }
 
     function _relayMessage(
@@ -110,20 +117,27 @@ abstract contract GatewayBase is Test {
         address to,
         uint256 value,
         bytes memory message
-    ) internal returns (bytes32 messageHash, uint256 nonce, uint256 sourceBlock) {
+    ) internal returns (bytes32 messageHash, uint256 nonce, uint256 validUntilBlockNumber) {
         nonce = bridge.getReceivedNonce();
-        sourceBlock = nextSourceBlock++;
-        messageHash = _bridgeMessageHash(from, to, value, sourceChainId, sourceBlock, nonce, message);
+        validUntilBlockNumber = _takeNextValidUntilBlockNumber();
+        messageHash = _bridgeMessageHash(from, to, value, sourceChainId, validUntilBlockNumber, nonce, message);
 
         vm.deal(address(bridge), address(bridge).balance + value);
         vm.prank(relayer);
-        bridge.receiveMessage(from, to, value, sourceChainId, sourceBlock, nonce, message);
+        bridge.receiveMessage(from, to, value, sourceChainId, validUntilBlockNumber, nonce, message);
     }
 
-    function _retryFailedMessage(address from, address to, uint256 value, uint256 blockNumber, uint256 nonce, bytes memory message) internal {
+    function _retryFailedMessage(
+        address from,
+        address to,
+        uint256 value,
+        uint256 validUntilBlockNumber,
+        uint256 nonce,
+        bytes memory message
+    ) internal {
         vm.deal(address(bridge), address(bridge).balance + value);
         vm.prank(relayer);
-        bridge.receiveFailedMessage(from, to, value, sourceChainId, blockNumber, nonce, message);
+        bridge.receiveFailedMessage(from, to, value, sourceChainId, validUntilBlockNumber, nonce, message);
     }
 
     function _predictedPegged() internal view returns (address) {

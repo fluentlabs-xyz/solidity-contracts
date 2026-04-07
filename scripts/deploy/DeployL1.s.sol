@@ -35,13 +35,16 @@ contract DeployL1 is DeployRollup, DeployL1Bridge, DeployERC20Factory, DeployERC
         require(pauserRole != address(0), "PAUSER_ROLE required");
         address relayerRole = vm.envOr("RELAYER_ROLE", json.readAddress(".roles.relayer"));
         require(relayerRole != address(0), "RELAYER_ROLE required");
+        uint256 receiveMessageDeadline = vm.envOr("RECEIVE_MSG_DEADLINE", json.readUint(".bridge.receiveMessageDeadline"));
+        require(receiveMessageDeadline > 0, "RECEIVE_MSG_DEADLINE required");
 
         vm.startBroadcast();
         require(vm.getNonce(msg.sender) == 0, "deployer nonce must be 0 for deterministic addresses");
 
         // ── Phase 1: Matched contracts (nonce 0–8) ──
         // Bridge with rollup placeholder (nonce 0: impl, nonce 1: proxy)
-        L1BridgeResult memory bridge = _deployL1Bridge(adminRole, pauserRole, relayerRole, address(0x1), address(0x1));
+        L1BridgeResult memory bridge =
+            _deployL1Bridge(adminRole, pauserRole, relayerRole, address(0x1), address(0x1), receiveMessageDeadline);
 
         // Factory prerequisite: ERC20PeggedToken impl (nonce 2)
         // Factory impl (nonce 3), Factory proxy (nonce 4)

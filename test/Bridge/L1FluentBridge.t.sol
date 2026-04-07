@@ -2,6 +2,7 @@
 pragma solidity 0.8.30;
 
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {Vm} from "forge-std/Vm.sol";
 
 import {L1FluentBridge} from "../../contracts/bridge/L1/L1FluentBridge.sol";
 import {FluentBridgeStorageLayout} from "../../contracts/bridge/FluentBridgeStorageLayout.sol";
@@ -15,6 +16,8 @@ import {MockRollup} from "../mocks/MockRollup.sol";
 import {BridgeBase, NoopReceiver} from "./Base.t.sol";
 
 contract L1FluentBridgeTest is BridgeBase {
+    bytes32 internal constant SENT_MESSAGE_SIG = keccak256("SentMessage(address,address,uint256,uint256,uint256,uint256,bytes32,bytes)");
+
     address internal otherBridge = makeAddr("otherBridge");
     address internal user = makeAddr("user");
     address internal receiver = makeAddr("receiver");
@@ -33,7 +36,10 @@ contract L1FluentBridgeTest is BridgeBase {
         });
 
         L1FluentBridge impl = new L1FluentBridge();
-        ERC1967Proxy proxy = new ERC1967Proxy(address(impl), abi.encodeCall(L1FluentBridge.initialize, (abi.encode(cfg), address(rollup))));
+        ERC1967Proxy proxy = new ERC1967Proxy(
+            address(impl),
+            abi.encodeCall(L1FluentBridge.initialize, (abi.encode(cfg), address(rollup), RECEIVE_MESSAGE_DEADLINE))
+        );
         l1Bridge = L1FluentBridge(payable(address(proxy)));
     }
 
@@ -44,6 +50,22 @@ contract L1FluentBridgeTest is BridgeBase {
         (bytes32 msgHash, ) = l1Bridge.popSentMessage();
 
         assertTrue(msgHash != bytes32(0), "message hash should be queued");
+    }
+
+    function test_sendMessage_commitsConfiguredValidUntilBlockNumber() public {
+        vm.recordLogs();
+        l1Bridge.sendMessage(receiver, hex"0102");
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        for (uint256 i = 0; i < logs.length; i++) {
+            if (logs[i].topics[0] != SENT_MESSAGE_SIG) continue;
+
+            (, , uint256 validUntilBlockNumber, , , ) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, bytes32, bytes));
+            assertEq(validUntilBlockNumber, block.number + RECEIVE_MESSAGE_DEADLINE, "unexpected validUntilBlockNumber");
+            return;
+        }
+
+        fail("SentMessage log not found");
     }
 
     function test_RevertIf_popSentMessage_queueEmpty() public {

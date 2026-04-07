@@ -32,8 +32,10 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         Rollup _rollup;
         /// @dev FIFO queue of sent messages consumed by the rollup during batch acceptance.
         Queue.QueueStorage _sentMessageQueue;
+        /// @dev L1-owned receive-message deadline used to snapshot L1->L2 message expiries at send time.
+        uint256 _receiveMessageDeadline;
         /// @dev Reserved for future storage fields.
-        uint256[50] __gap;
+        uint256[49] __gap;
     }
 
     // ============ Storage accessor ============
@@ -69,14 +71,16 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     // ============ Initializer ============
 
     /**
-     * @notice Initializes the L1 bridge with base config and rollup address.
+     * @notice Initializes the L1 bridge with base config, rollup address, and receive-message deadline.
      */
-    function initialize(bytes calldata data, address newRollup) external initializer {
+    function initialize(bytes calldata data, address newRollup, uint256 receiveMessageDeadline) external initializer {
         // Decode and apply base bridge config (roles, other bridge, gas limit)
         __FluentBridgeStorage_init(data);
 
         // Bind the rollup contract used for finalization and proof verification
         _setRollup(newRollup);
+        // Snapshot source for future L1->L2 message expiries.
+        _setReceiveMessageDeadline(receiveMessageDeadline);
         // Prepare the FIFO queue that the rollup drains during batch acceptance
         Queue.initialize(_getL1FluentBridgeStorage()._sentMessageQueue);
     }
@@ -89,7 +93,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         address /** to */,
         uint256 value,
         uint256 /** chainId */,
-        uint256 /** blockNumber */,
+        uint256 /** validUntilBlockNumber */,
         uint256 /** messageNonce */,
         bytes calldata /** message */
     ) internal view override returns (bool) {
@@ -107,6 +111,13 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         Queue.enqueue(_getL1FluentBridgeStorage()._sentMessageQueue, messageHash);
     }
 
+    /**
+     * @dev Returns the L1-owned receive-message deadline used for new L1->L2 messages.
+     */
+    function _getReceiveMessageDeadline() internal view override returns (uint256) {
+        return getReceiveMessageDeadline();
+    }
+
     // ============ Receive with proof ============
 
     /// @inheritdoc IL1FluentBridge
@@ -117,7 +128,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         address payable to,
         uint256 value,
         uint256 chainId,
-        uint256 blockNumber,
+        uint256 validUntilBlockNumber,
         uint256 messageNonce,
         bytes calldata message,
         MerkleTree.MerkleProof calldata withdrawalProof,
@@ -132,7 +143,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
 
         // Reconstruct the message hash used as the Merkle leaf in the withdrawal tree
         // All fields are deterministic — anyone can call this function permissionlessly
-        bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, blockNumber, messageNonce, message));
+        bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, validUntilBlockNumber, messageNonce, message));
         // Prevent double-spend: each message can only be claimed once
         require(getReceivedMessage(messageHash) == IFluentBridge.MessageStatus.None, MessageAlreadyReceived());
 
@@ -141,7 +152,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         // Prevent re-entrant calls back into the bridge itself
         require(to != address(this), ForbiddenSelfCall());
         // Hook for subclass logic (e.g. deadline checks on L2); false = silently skip
-        if (!_beforeReceiveMessage(from, to, value, chainId, blockNumber, messageNonce, message)) return;
+        if (!_beforeReceiveMessage(from, to, value, chainId, validUntilBlockNumber, messageNonce, message)) return;
 
         // Execute the cross-chain message with gasleft(), forwarding remaining gas
         // _receiveMessage records the outcome (Success/Failed) in storage
@@ -160,7 +171,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         address to,
         uint256 value,
         uint256 chainId,
-        uint256 blockNumber,
+        uint256 validUntilBlockNumber,
         uint256 messageNonce,
         bytes calldata message,
         MerkleTree.MerkleProof calldata withdrawalProof,
@@ -178,7 +189,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
 
         // Reconstruct the same hash that was included in the L2 withdrawal root
         // Encoding is deterministic so the hash is reproducible by anyone
-        bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, blockNumber, messageNonce, message));
+        bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, validUntilBlockNumber, messageNonce, message));
         // Guard against replaying a message that was already successfully received
         require(getReceivedMessage(messageHash) == IFluentBridge.MessageStatus.None, MessageAlreadyReceived());
         // Guard against double-claiming the same rollback refund
@@ -187,7 +198,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         // Verify two Merkle proofs: block inclusion in batch, message inclusion in block
         _verifyWithdrawal(batchIndex, blockHeader, withdrawalProof, blockProof, messageHash);
         // Execute the refund transfer back to the original sender
-        _rollbackMessage(gasleft(), from, to, value, blockNumber, messageNonce, message, messageHash);
+        _rollbackMessage(gasleft(), from, to, value, validUntilBlockNumber, messageNonce, message, messageHash);
     }
 
     /**
@@ -240,7 +251,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         address from,
         address /*to*/,
         uint256 value,
-        uint256 /*blockNumber*/,
+        uint256 /*validUntilBlockNumber*/,
         uint256 /*messageNonce*/,
         bytes calldata /*message*/,
         bytes32 messageHash
@@ -304,6 +315,11 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     }
 
     /// @inheritdoc IL1FluentBridge
+    function getReceiveMessageDeadline() public view returns (uint256) {
+        return _getL1FluentBridgeStorage()._receiveMessageDeadline;
+    }
+
+    /// @inheritdoc IL1FluentBridge
     function sentMessageQueueFront() public view returns (uint256) {
         return _getL1FluentBridgeStorage()._sentMessageQueue.front;
     }
@@ -327,6 +343,11 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         _setRollup(newRollup);
     }
 
+    /// @inheritdoc IL1FluentBridge
+    function setReceiveMessageDeadline(uint256 newReceiveMessageDeadline) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setReceiveMessageDeadline(newReceiveMessageDeadline);
+    }
+
     /**
      * @dev Validates and stores the rollup address. Reverts on zero address or non-empty queue.
      */
@@ -341,5 +362,14 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         emit RollupUpdated(getRollup(), newRollup);
         // Store the typed Rollup reference to avoid casting on every call
         $._rollup = Rollup(newRollup);
+    }
+
+    /**
+     * @dev Stores the L1-owned receive-message deadline. Reverts on zero value.
+     */
+    function _setReceiveMessageDeadline(uint256 newReceiveMessageDeadline) internal {
+        require(newReceiveMessageDeadline > 0, InvalidWindowConfig("receiveMessageDeadline must be greater than 0"));
+        emit ReceiveMessageDeadlineUpdated(getReceiveMessageDeadline(), newReceiveMessageDeadline);
+        _getL1FluentBridgeStorage()._receiveMessageDeadline = newReceiveMessageDeadline;
     }
 }
