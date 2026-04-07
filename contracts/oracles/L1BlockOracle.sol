@@ -42,15 +42,10 @@ contract L1BlockOracle is Ownable, IL1BlockOracle {
     // ============ Submitter ============
 
     /// @inheritdoc IL1BlockOracle
-    function updateL1BlockNumber(
-        uint256 blockNumber
-    ) external override onlySubmitter {
+    function updateL1BlockNumber(uint256 blockNumber) external override onlySubmitter {
         _validateL1BlockNumber(blockNumber);
         // enforce strict monotonicity to prevent stale or replayed block numbers
-        require(
-            blockNumber > _l1BlockNumber,
-            BlockNotMonotonic(_l1BlockNumber, blockNumber)
-        );
+        require(blockNumber > _l1BlockNumber, BlockNotMonotonic(_l1BlockNumber, blockNumber));
 
         _l1BlockNumber = blockNumber;
         emit L1BlockNumberUpdated(blockNumber);
@@ -84,10 +79,7 @@ contract L1BlockOracle is Ownable, IL1BlockOracle {
     /** @dev Shared bounds for {updateL1BlockNumber} and owner {setL1BlockNumber}. */
     function _validateL1BlockNumber(uint256 blockNumber) internal pure {
         require(blockNumber != 0, L1BlockNumberZeroNotAllowed());
-        require(
-            blockNumber <= MAX_L1_BLOCK_NUMBER,
-            L1BlockNumberTooLarge(blockNumber, MAX_L1_BLOCK_NUMBER)
-        );
+        require(blockNumber <= MAX_L1_BLOCK_NUMBER, L1BlockNumberTooLarge(blockNumber, MAX_L1_BLOCK_NUMBER));
     }
 
     // ============ Views ============
