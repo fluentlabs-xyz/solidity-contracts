@@ -83,7 +83,6 @@ abstract contract BaseDeployNative is Test {
         cfg.finalizationDelay = FINALIZATION_DELAY;
         cfg.incentiveFee = 0;
         cfg.submitBlobsWindow = 0;
-        cfg.preconfirmWindow = 1;
         cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
 
         Rollup rollupImpl = new Rollup();
@@ -206,7 +205,6 @@ abstract contract BaseDeployERC20 is Test {
         cfg.finalizationDelay = FINALIZATION_DELAY;
         cfg.incentiveFee = 0;
         cfg.submitBlobsWindow = 0;
-        cfg.preconfirmWindow = 1;
         cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
 
         Rollup rollupImpl = new Rollup();

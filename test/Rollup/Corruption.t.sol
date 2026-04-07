@@ -13,7 +13,7 @@ contract CorruptionTest is RollupAssertions {
     // ============ DA deadline ============
 
     function test_corrupt_daDeadlineExceeded() public {
-        Rollup r = _deployRollupWithConfig(50, 0);
+        Rollup r = _deployRollupWithConfig(50);
 
         L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
         vm.prank(sequencer);
@@ -25,7 +25,7 @@ contract CorruptionTest is RollupAssertions {
     }
 
     function test_corrupt_daDeadlineDisabled_zeroMeansDisabled() public {
-        Rollup r = _deployRollupWithConfig(0, 0);
+        Rollup r = _deployRollupWithConfig(0);
 
         L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
         vm.prank(sequencer);
@@ -37,7 +37,7 @@ contract CorruptionTest is RollupAssertions {
     }
 
     function test_healthy_daDeadlineAtBoundary() public {
-        Rollup r = _deployRollupWithConfig(50, 0);
+        Rollup r = _deployRollupWithConfig(50);
 
         L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
         vm.prank(sequencer);
@@ -45,65 +45,6 @@ contract CorruptionTest is RollupAssertions {
 
         // DA corruption uses strict `>`; boundary block must remain healthy.
         vm.roll(block.number + 50);
-        assertFalse(r.isRollupCorrupted());
-    }
-
-    // ============ Preconfirm deadline ============
-
-    function test_corrupt_preconfirmDeadlineExceeded() public {
-        Rollup r = _deployRollupWithConfig(0, 50);
-
-        uint256 batchIndex = r.nextBatchIndex();
-        L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
-        vm.prank(sequencer);
-        r.acceptNextBatch(batch, 1);
-
-        bytes32[] memory h1 = new bytes32[](1);
-        h1[0] = keccak256(abi.encode("blob", batchIndex, uint256(0)));
-        vm.blobhashes(h1);
-        vm.prank(sequencer);
-        r.submitBlobs(batchIndex, 1);
-
-        vm.roll(block.number + 51);
-
-        assertTrue(r.isRollupCorrupted());
-    }
-
-    function test_healthy_preconfirmDeadlineAtBoundary() public {
-        Rollup r = _deployRollupWithConfig(0, 50);
-
-        uint256 batchIndex = r.nextBatchIndex();
-        L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
-        vm.prank(sequencer);
-        r.acceptNextBatch(batch, 1);
-
-        bytes32[] memory h = new bytes32[](1);
-        h[0] = keccak256(abi.encode("blob", batchIndex, uint256(0)));
-        vm.blobhashes(h);
-        vm.prank(sequencer);
-        r.submitBlobs(batchIndex, 1);
-
-        // Preconfirm corruption uses strict `>`; boundary block must remain healthy.
-        vm.roll(block.number + 50);
-        assertFalse(r.isRollupCorrupted());
-    }
-
-    function test_corrupt_preconfirmDeadlineDisabled_zeroMeansDisabled() public {
-        Rollup r = _deployRollupWithConfig(0, 0);
-
-        uint256 batchIndex = r.nextBatchIndex();
-        L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
-        vm.prank(sequencer);
-        r.acceptNextBatch(batch, 1);
-
-        bytes32[] memory h2 = new bytes32[](1);
-        h2[0] = keccak256(abi.encode("blob", batchIndex, uint256(0)));
-        vm.blobhashes(h2);
-        vm.prank(sequencer);
-        r.submitBlobs(batchIndex, 1);
-
-        vm.roll(block.number + 1000);
-
         assertFalse(r.isRollupCorrupted());
     }
 
@@ -227,15 +168,6 @@ contract CorruptionTest is RollupAssertions {
         rollup.acceptNextBatch(batch, 1);
     }
 
-    function test_preconfirmDeadlineCorruption() public {
-        uint256 batch1 = _acceptBatch(GENESIS_HASH, 0);
-        _submitBlobs(batch1, 0);
-
-        vm.roll(block.number + PRECONFIRM_WINDOW + 1);
-
-        _assertRollupCorrupted();
-    }
-
     function test_submitBlobs_revertsAfterDeadline() public {
         uint256 batch1 = _acceptBatch(GENESIS_HASH, 0);
         uint256 acceptedBlock = rollup.getBatch(batch1).acceptedAtBlock;
@@ -299,7 +231,7 @@ contract CorruptionTest is RollupAssertions {
 
     // ============ Helpers ============
 
-    function _deployRollupWithConfig(uint64 daDeadline, uint64 preconfirmDeadline) private returns (Rollup) {
+    function _deployRollupWithConfig(uint64 daDeadline) private returns (Rollup) {
         MockSp1Verifier sp1 = new MockSp1Verifier();
         InitConfiguration memory cfg;
         cfg.admin = admin;
@@ -318,7 +250,6 @@ contract CorruptionTest is RollupAssertions {
         cfg.finalizationDelay = FINALIZATION_DELAY;
         cfg.incentiveFee = 0.1 ether;
         cfg.submitBlobsWindow = daDeadline;
-        cfg.preconfirmWindow = preconfirmDeadline;
         cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
         Rollup impl = new Rollup();
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));

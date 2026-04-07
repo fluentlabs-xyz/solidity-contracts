@@ -148,12 +148,6 @@ interface IRollupErrors {
     error SubmitBlobsWindowExceeded(uint256 deadline, uint256 currentBlock);
 
     /**
-     * @notice Batch was not preconfirmed within the `preconfirmWindow`.
-     * @dev selector: 0x915afa97
-     */
-    error PreconfirmWindowExceeded(uint256 deadline, uint256 currentBlock);
-
-    /**
      * @notice Number of submitted blob hashes exceeds the expected count for this batch.
      * @dev selector: 0x756c086a
      */
@@ -203,8 +197,7 @@ interface IRollupErrors {
     error InvalidDepositRootWithNonZeroCount(uint256 depositCount);
 
     /**
-     * @notice preconfirmWindow must exceed submitBlobsWindow — both are measured from
-     *         acceptedAtBlock, so preconfirmation cannot be required before blob submission completes.
+     * @notice Rollup window configuration parameter is outside its allowed range.
      * @dev selector: 0x14bef653
      */
     error InvalidWindowConfig(string reason);
@@ -281,11 +274,6 @@ interface IRollupEvents {
      * @notice Emitted when the submit blobs window is updated.
      */
     event SubmitBlobsWindowUpdated(uint64 previousSubmitBlobsWindow, uint64 newSubmitBlobsWindow);
-
-    /**
-     * @notice Emitted when the preconfirm window is updated.
-     */
-    event PreconfirmWindowUpdated(uint64 previousPreconfirmWindow, uint64 newPreconfirmWindow);
 
     /**
      * @notice Emitted when the challenge window is updated.
@@ -414,11 +402,6 @@ interface IRollupConfig {
      * @notice Max L1 blocks after batch acceptance for blob submission.
      */
     function submitBlobsWindow() external view returns (uint256);
-
-    /**
-     * @notice Max L1 blocks after batch acceptance for preconfirmation.
-     */
-    function preconfirmWindow() external view returns (uint256);
 }
 
 /**
@@ -653,12 +636,6 @@ interface IRollupAdmin {
      * @notice Set the maximum L1 blocks after batch acceptance for batch blob submission.
      */
     function setSubmitBlobsWindow(uint64 newSubmitBlobsWindow) external;
-
-    /**
-     * @notice Set the maximum L1 blocks after batch acceptance for batch preconfirmation
-     *         (measured from acceptedAtBlock).
-     */
-    function setPreconfirmWindow(uint64 newPreconfirmWindow) external;
 
     /**
      * @notice Set the maximum L1 blocks after batch acceptance for challenge submission.

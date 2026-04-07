@@ -38,14 +38,18 @@ struct L2BlockHeader {
 }
 
 /**
- * @dev Packed per-batch state record.
+ * @dev Packed per-batch state record. All batch-lifecycle timing windows are
+ *      snapshotted at {IRollupWrite-acceptNextBatch} so later admin updates do
+ *      not retroactively affect in-flight batches.
  */
 struct BatchRecord {
     /// @dev Merkle root of L2 block headers for this batch.
     bytes32 batchRoot;
-    // ─── Slot 2: 8 + 4 + 1 + 8 = 21 bytes used, 11 bytes free ───
+    // ─── Slot 2: 6 + 4 + 1 + 8 + 3×4 = 31 bytes used, 1 byte free ───
     /// @dev L1 block number recorded when {IRollupWrite-acceptNextBatch} is called (status becomes HeadersSubmitted).
-    uint64 acceptedAtBlock;
+    ///      Stored as uint48 to keep the whole record in two storage slots — covers ~2.8e14 blocks,
+    ///      far beyond any realistic L1 lifetime.
+    uint48 acceptedAtBlock;
     /// @dev Number of blobs the sequencer committed to at acceptance time.
     uint32 expectedBlobs;
     /// @dev Current lifecycle state of this batch.
@@ -54,6 +58,12 @@ struct BatchRecord {
     ///      Used by {Rollup-forceRevertBatch} to rewind the bridge consume cursor exactly
     ///      to the position it held before this batch consumed any deposits.
     uint64 sentMessageCursorStart;
+    /// @dev Blob-submission window snapshotted from rollup config at acceptance time; 0 disables the deadline.
+    uint32 submitBlobsWindowSnapshot;
+    /// @dev Challenge window snapshotted from rollup config at acceptance time.
+    uint32 challengeWindowSnapshot;
+    /// @dev Finalization delay snapshotted from rollup config at acceptance time.
+    uint32 finalizationDelaySnapshot;
 }
 
 /**
@@ -110,8 +120,6 @@ struct InitConfiguration {
     uint256 incentiveFee;
     /// @dev Max L1 blocks after acceptance for blob submission; 0 = disabled
     uint256 submitBlobsWindow;
-    /// @dev Max L1 blocks after acceptance for preconfirmation; 0 = disabled
-    uint256 preconfirmWindow;
     /// @dev Max batch size to revert at once
     uint256 maxForceRevertBatchSize;
 }

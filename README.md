@@ -73,10 +73,9 @@ None → HeadersSubmitted → Accepted → Preconfirmed → Finalized
 | `finalizeWithProofs` | `PROVER_ROLE` | Immediate finalization if all blocks have SP1 proofs |
 | `challengeBlock` | `CHALLENGER_ROLE` | Disputes a specific block; requires ETH deposit |
 
-Three deadline mechanisms protect liveness:
+Two deadline mechanisms protect liveness:
 
 - **`submitBlobsWindow`** — max L1 blocks for blob submission after header acceptance (0 = disabled)
-- **`preconfirmWindow`** — max L1 blocks for preconfirmation after acceptance (0 = disabled)
 - **`challengeWindow`** — L1 blocks a prover has to resolve a challenge
 
 Exceeding any active deadline triggers the **corrupted** state. All state-changing functions revert until the corrupted batch is cleared via `forceRevertBatch` (`EMERGENCY_ROLE`).

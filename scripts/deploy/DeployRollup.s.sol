@@ -12,7 +12,6 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 /// `acceptNextBatch` was called). Ethereum mainnet: 1 block ≈ 12 seconds.
 ///
 ///   submitBlobsWindow  =  7200 blocks (~24 hours) — sequencer must submit all blob hashes
-///   preconfirmWindow   =  7200 blocks (~24 hours) — preconfirmer must confirm the batch
 ///   challengeWindow    = 10800 blocks (~36 hours) — challenge must be resolved by this block
 ///   finalizationDelay  = 14400 blocks (~48 hours) — earliest block a batch can be finalized
 
@@ -51,14 +50,11 @@ contract DeployRollup is Script {
         // acceptNextBatch was called. Each window defines a deadline independently.
         //
         // submitBlobsWindow: sequencer must submit all blob hashes before this deadline.
-        // preconfirmWindow:  preconfirmer must call preconfirmBatch before this deadline.
-        //                    Must be > submitBlobsWindow.
         // challengeWindow:   open challenge must be resolved before acceptedAtBlock + challengeWindow.
         //                    Measured from acceptedAtBlock, not from challenge creation time.
         // finalizationDelay: batch cannot be finalized before acceptedAtBlock + finalizationDelay.
         //                    Must exceed challengeWindow so challengers always have time to act.
         params.submitBlobsWindow = vm.envOr("ROLLUP_SUBMIT_BLOBS_WINDOW", uint256(BLOCKS_PER_DAY)); // 24 h
-        params.preconfirmWindow = vm.envOr("ROLLUP_PRECONFIRM_WINDOW", uint256(BLOCKS_PER_DAY + 1)); // 24 h + 1 block
         params.challengeWindow = vm.envOr("ROLLUP_CHALLENGE_WINDOW", uint256(BLOCKS_PER_DAY + BLOCKS_PER_HOUR * 12)); // 36 h
         params.finalizationDelay = vm.envOr("ROLLUP_FINALIZATION_DELAY", uint256(BLOCKS_PER_DAY * 2)); // 48 h
 

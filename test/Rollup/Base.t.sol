@@ -54,7 +54,6 @@ abstract contract RollupBase is Test, IRollupEvents {
     uint256 internal constant BATCH_SIZE = 4;
     uint256 internal constant CHALLENGE_DEPOSIT = 1 ether;
     uint256 internal constant SUBMIT_BLOBS_WINDOW = 50;
-    uint256 internal constant PRECONFIRM_WINDOW = 100;
     uint256 internal constant FINALIZATION_DELAY = 200;
     uint256 internal constant CHALLENGE_WINDOW = 150;
     uint256 internal constant MAX_FORCE_REVERT_BATCH_SIZE = 10;
@@ -87,7 +86,6 @@ abstract contract RollupBase is Test, IRollupEvents {
         cfg.finalizationDelay = FINALIZATION_DELAY;
         cfg.incentiveFee = 0.1 ether;
         cfg.submitBlobsWindow = SUBMIT_BLOBS_WINDOW;
-        cfg.preconfirmWindow = PRECONFIRM_WINDOW;
         cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
     }
 

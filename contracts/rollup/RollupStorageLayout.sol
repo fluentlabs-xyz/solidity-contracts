@@ -98,7 +98,7 @@ contract RollupStorageLayout is
          * @dev SP1 program verification key; binds proofs to the current rollup program
          */
         bytes32 _programVKey;
-        // ─── Slot 4: 4 × uint64 = 32 ───
+        // ─── Slot 4: 3 × uint64 = 24 bytes used, 8 free ───
         /**
          * @dev Number of L1 blocks after batch acceptance during which challenges can be submitted
          *          and proofs verified. After this window elapses, the batch becomes eligible for
@@ -119,13 +119,6 @@ contract RollupStorageLayout is
          *      completing DA submission triggers the corrupted state. Set to 0 to disable.
          */
         uint64 _submitBlobsWindow;
-        /**
-         * @dev Maximum number of L1 blocks after batch acceptance for the preconfirmation service
-         *      to call `preconfirmBatch`. Both `submitBlobsWindow` and this deadline are measured
-         *      from `acceptedAtBlock`, so this value must exceed `submitBlobsWindow` to give the
-         *      preconfirmation service time to act after DA submission completes. Set to 0 to disable.
-         */
-        uint64 _preconfirmWindow;
         // ─── Slot 5: uint256(32) ───
         /**
          * @dev ETH deposit required to open a challenge; awarded to prover on resolution
@@ -225,20 +218,14 @@ contract RollupStorageLayout is
         InitConfiguration memory params = abi.decode(data, (InitConfiguration));
 
         // ─── Deadline invariants ───
-        // all window values are stored as uint64/uint32; reject values that would silently truncate
-        require(params.submitBlobsWindow <= type(uint64).max, InvalidWindowConfig("submitBlobsWindow out of range"));
-        require(params.preconfirmWindow <= type(uint64).max, InvalidWindowConfig("preconfirmWindow out of range"));
-        require(params.challengeWindow <= type(uint64).max, InvalidWindowConfig("challengeWindow out of range"));
-        require(params.finalizationDelay <= type(uint64).max, InvalidWindowConfig("finalizationDelay out of range"));
+        // Window values are snapshotted into {BatchRecord} as uint32 so the record fits
+        // in two storage slots; bound config inputs to the same range to keep narrowing
+        // casts safe. uint32 ≈ 4.3B blocks, ≈1633 years at 12s/block.
+        require(params.submitBlobsWindow <= type(uint32).max, InvalidWindowConfig("submitBlobsWindow out of range"));
+        require(params.challengeWindow <= type(uint32).max, InvalidWindowConfig("challengeWindow out of range"));
+        require(params.finalizationDelay <= type(uint32).max, InvalidWindowConfig("finalizationDelay out of range"));
         require(params.maxForceRevertBatchSize <= type(uint32).max, InvalidWindowConfig("maxForceRevertBatchSize out of range"));
-        // preconfirmation must happen after blob submission completes (when both are enabled)
-        if (params.submitBlobsWindow != 0 && params.preconfirmWindow != 0) {
-            require(params.preconfirmWindow > params.submitBlobsWindow, InvalidWindowConfig("preconfirmWindow must exceed submitBlobsWindow"));
-        }
-        // set blob submission and preconfirmation windows before challenge/finalization
-        // because the setters cross-validate against each other
         _setSubmitBlobsWindow(uint64(params.submitBlobsWindow));
-        _setPreconfirmWindow(uint64(params.preconfirmWindow));
         // challenge window must be strictly less to guarantee full finalization delay
         require(params.challengeWindow < params.finalizationDelay, InvalidWindowConfig("challengeWindow must be less than finalizationDelay"));
         _setChallengeWindow(uint64(params.challengeWindow));
@@ -331,12 +318,6 @@ contract RollupStorageLayout is
     function submitBlobsWindow() public view returns (uint256) {
         // zero means the DA submission deadline is disabled
         return uint256(_getRollupStorage()._submitBlobsWindow);
-    }
-
-    /// @inheritdoc IRollupConfig
-    function preconfirmWindow() public view returns (uint256) {
-        // zero means the preconfirmation deadline is disabled
-        return uint256(_getRollupStorage()._preconfirmWindow);
     }
 
     // ============ IRollupRead ============
@@ -528,31 +509,14 @@ contract RollupStorageLayout is
         _setSubmitBlobsWindow(newSubmitBlobsWindow);
     }
 
-    /** @dev Stores the blob submission window in L1 blocks. */
+    /** @dev Stores the blob submission window in L1 blocks. Bounded by uint32 to keep
+     *       {BatchRecord} packed in two storage slots after the snapshot.
+     */
     function _setSubmitBlobsWindow(uint64 newSubmitBlobsWindow) internal {
         RollupStorage storage $ = _getRollupStorage();
-        // blob submission must complete before preconfirmation can start
-        if ($._preconfirmWindow != 0) {
-            require(newSubmitBlobsWindow < $._preconfirmWindow, InvalidWindowConfig("submitBlobsWindow >= preconfirmWindow"));
-        }
+        require(newSubmitBlobsWindow <= type(uint32).max, InvalidWindowConfig("submitBlobsWindow out of range"));
         emit SubmitBlobsWindowUpdated($._submitBlobsWindow, newSubmitBlobsWindow);
         $._submitBlobsWindow = newSubmitBlobsWindow;
-    }
-
-    /// @inheritdoc IRollupAdmin
-    function setPreconfirmWindow(uint64 newPreconfirmWindow) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        _setPreconfirmWindow(newPreconfirmWindow);
-    }
-
-    /** @dev Stores the preconfirmation window. Must not exceed submitBlobsWindow. */
-    function _setPreconfirmWindow(uint64 newPreconfirmWindow) internal {
-        RollupStorage storage $ = _getRollupStorage();
-        // preconfirmation must allow time for blob submission to complete first
-        if (newPreconfirmWindow != 0 && $._submitBlobsWindow != 0) {
-            require(newPreconfirmWindow > $._submitBlobsWindow, InvalidWindowConfig("preconfirmWindow <= submitBlobsWindow"));
-        }
-        emit PreconfirmWindowUpdated($._preconfirmWindow, newPreconfirmWindow);
-        $._preconfirmWindow = newPreconfirmWindow;
     }
 
     /// @inheritdoc IRollupAdmin
@@ -560,9 +524,12 @@ contract RollupStorageLayout is
         _setChallengeWindow(newChallengeWindow);
     }
 
-    /** @dev Stores the challenge window. Must not exceed preconfirmWindow. */
+    /** @dev Stores the challenge window. Must be strictly less than finalizationDelay and
+     *       fit in uint32 to keep {BatchRecord} packed in two storage slots after the snapshot.
+     */
     function _setChallengeWindow(uint64 newChallengeWindow) internal {
         RollupStorage storage $ = _getRollupStorage();
+        require(newChallengeWindow <= type(uint32).max, InvalidWindowConfig("challengeWindow out of range"));
         // challenge window must end before finalization to give challengers full response time
         if ($._finalizationDelay != 0) {
             require(newChallengeWindow < $._finalizationDelay, InvalidWindowConfig("challengeWindow >= finalizationDelay"));
@@ -576,9 +543,12 @@ contract RollupStorageLayout is
         _setFinalizationDelay(newFinalizationDelay);
     }
 
-    /** @dev Stores the finalization delay. Must exceed challengeWindow. */
+    /** @dev Stores the finalization delay. Must exceed challengeWindow and fit in uint32
+     *       to keep {BatchRecord} packed in two storage slots after the snapshot.
+     */
     function _setFinalizationDelay(uint64 newFinalizationDelay) internal {
         RollupStorage storage $ = _getRollupStorage();
+        require(newFinalizationDelay <= type(uint32).max, InvalidWindowConfig("finalizationDelay out of range"));
         // strict ordering ensures challenges always have time to be submitted and resolved
         require(newFinalizationDelay > $._challengeWindow, InvalidWindowConfig("finalizationDelay <= challengeWindow"));
         emit FinalizationDelayUpdated($._finalizationDelay, newFinalizationDelay);

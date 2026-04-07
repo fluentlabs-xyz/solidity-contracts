@@ -24,9 +24,11 @@ import {L2BlockHeader, BatchStatus, BatchRecord, ChallengeRecord} from "../inter
  * All timing windows are measured from the block in which `acceptNextBatch` was called
  * ({BatchRecord-acceptedAtBlock}). The windows are:
  * - {RollupStorage-submitBlobsWindow}: deadline for the sequencer to submit blob hashes.
- * - {RollupStorage-preconfirmWindow}: deadline for the preconfirmation service to confirm.
  * - {RollupStorage-challengeWindow}: deadline by which open challenges must be resolved.
  * - {RollupStorage-finalizationDelay}: minimum wait before a batch can be finalized.
+ *
+ * Preconfirmation via {preconfirmBatch} has no deadline — it can happen at any time
+ * after blob submission.
  *
  * If any deadline is exceeded, {isRollupCorrupted} returns true and all state-changing
  * functions revert with {RollupCorrupted} until the corrupted batch is cleared via
@@ -272,8 +274,10 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         // --- Effects: write all storage before any external calls (CEI pattern) ---
         BatchRecord storage batch = $._batches[batchIndex];
         batch.batchRoot = batchRoot;
-        // Record the L1 block number — all timing windows are measured from this anchor
-        batch.acceptedAtBlock = uint64(block.number);
+        // Record the L1 block number — all timing windows are measured from this anchor.
+        // uint48 covers ~2.8e14 blocks, far beyond any realistic L1 lifetime.
+        // forge-lint: disable-next-line(unsafe-typecast)
+        batch.acceptedAtBlock = uint48(block.number);
         // Store expected blob count so submitBlobs can validate completeness
         require(expectedBlobsCount <= type(uint32).max, ExpectedBlobsCountOverflow(expectedBlobsCount));
         // casting to 'uint32' is safe because we validate the bounds above.
@@ -286,6 +290,15 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         // casting to 'uint64' is safe because we validate the bounds above.
         // forge-lint: disable-next-line(unsafe-typecast)
         batch.sentMessageCursorStart = uint64(cursorBefore);
+        // Snapshot all batch-lifecycle windows so later admin updates do not retroactively
+        // change the deadlines of already-accepted batches. Windows are bounded to uint32
+        // by the admin setters and init validator.
+        // forge-lint: disable-next-line(unsafe-typecast)
+        batch.submitBlobsWindowSnapshot = uint32($._submitBlobsWindow);
+        // forge-lint: disable-next-line(unsafe-typecast)
+        batch.challengeWindowSnapshot = uint32($._challengeWindow);
+        // forge-lint: disable-next-line(unsafe-typecast)
+        batch.finalizationDelaySnapshot = uint32($._finalizationDelay);
         // Persist the last block hash for chain-linkage with the next batch
         $._lastBlockHashInBatch[batchIndex] = blockHeaders[batchSize - 1].blockHash;
         // Overflow protection: _nextBatchIndex is uint96, ensure increment stays in range
@@ -323,12 +336,12 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         // Blobs can only be submitted while the batch is in HeadersSubmitted state
         require(batch.status == BatchStatus.HeadersSubmitted, InvalidBatchStatus(batchIndex, uint8(batch.status)));
 
-        // If the submit-blobs deadline is enabled (non-zero), enforce the time window
-        if ($._submitBlobsWindow != 0) {
-            require(
-                block.number <= uint256(batch.acceptedAtBlock) + $._submitBlobsWindow,
-                SubmitBlobsWindowExceeded(uint256(batch.acceptedAtBlock) + $._submitBlobsWindow, block.number)
-            );
+        // If the submit-blobs deadline is enabled (non-zero), enforce the time window.
+        // Window is read from the snapshot captured at acceptance time so later admin
+        // updates do not retroactively affect this batch.
+        if (batch.submitBlobsWindowSnapshot != 0) {
+            uint256 deadline = uint256(batch.acceptedAtBlock) + uint256(batch.submitBlobsWindowSnapshot);
+            require(block.number <= deadline, SubmitBlobsWindowExceeded(deadline, block.number));
         }
 
         // Read EIP-4844 versioned blob hashes from this transaction via the BLOBHASH opcode
@@ -398,8 +411,11 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         // Exact deposit required — overpayment is not refunded, underpayment is rejected;
         // this deposit is forfeited to the prover if the challenge is resolved
         require(msg.value == $._challengeDepositAmount, IncorrectChallengeDeposit($._challengeDepositAmount, msg.value));
-        // Challenge must be submitted before the challenge window closes (strict less-than)
-        require(block.number < uint256(batch.acceptedAtBlock) + $._challengeWindow, ChallengeTooLate(batchIndex));
+        // Challenge must be submitted before the challenge window closes (strict less-than).
+        // Window is read from the snapshot captured at acceptance time so later admin
+        // updates do not retroactively affect this batch.
+        uint256 challengeDeadline = uint256(batch.acceptedAtBlock) + uint256(batch.challengeWindowSnapshot);
+        require(block.number < challengeDeadline, ChallengeTooLate(batchIndex));
 
         // Compute the keccak commitment of the challenged block header
         bytes32 commitment = _computeCommitment(blockHeader);
@@ -416,7 +432,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         $._batchChallengedBlocks[batchIndex].push(commitment);
 
         // Create the challenge record with the resolution deadline derived from the challenge window
-        uint256 deadline = uint256(batch.acceptedAtBlock) + $._challengeWindow;
+        uint256 deadline = challengeDeadline;
         $._challenges[commitment] = ChallengeRecord({deposit: msg.value, challenger: _msgSender(), deadline: deadline, batchIndex: batchIndex});
         // Insert into the min-heap priority queue ordered by deadline — _rollupCorrupted()
         // peeks at the earliest deadline to detect expiry
@@ -572,7 +588,6 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
      * @dev Checks if the rollup is corrupted by examining the oldest non-finalized batch.
      *      Corruption occurs when any of the following deadlines are exceeded:
      *      - `submitBlobsWindow`: blob hashes not submitted in time (HeadersSubmitted).
-     *      - `preconfirmWindow`: batch not preconfirmed in time (Accepted).
      *      - `challengeWindow`: open challenge not resolved before its deadline (Challenged).
      */
     function _rollupCorrupted() internal view returns (bool) {
@@ -587,12 +602,13 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         // Cache the L1 block at which this batch was accepted — all deadlines anchor here
         uint256 accepted = uint256(batch.acceptedAtBlock);
 
-        // Deadline 1: sequencer failed to submit blobs within the allowed window
-        // (window value of 0 means this deadline is disabled)
-        if (status == BatchStatus.HeadersSubmitted && $._submitBlobsWindow != 0 && block.number > accepted + $._submitBlobsWindow) return true;
-        // Deadline 2: preconfirmation service failed to confirm within the allowed window
-        if (status == BatchStatus.Accepted && $._preconfirmWindow != 0 && block.number > accepted + $._preconfirmWindow) return true;
-        // Deadline 3: a challenge exists whose resolution deadline has passed
+        // Deadline 1: sequencer failed to submit blobs within the allowed window.
+        // Window is read from the snapshot captured at acceptance time so admin updates
+        // do not retroactively corrupt in-flight batches. (zero disables the deadline)
+        if (status == BatchStatus.HeadersSubmitted && batch.submitBlobsWindowSnapshot != 0) {
+            return block.number > accepted + uint256(batch.submitBlobsWindowSnapshot);
+        }
+        // Deadline 2: a challenge exists whose resolution deadline has passed
         // Peek at the min-heap root — the challenge with the earliest deadline
         if (status == BatchStatus.Challenged && !$._challengeQueue.isEmpty()) {
             return $._challenges[$._challengeQueue.peek()].deadline < block.number;
@@ -616,9 +632,11 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         if (batch.status != BatchStatus.Preconfirmed) return false;
         // Batches must finalize in order — gap means a predecessor is not ready yet
         if (batchIndex != uint256($._lastFinalizedBatchIndex) + 1) return false;
-        // Delay not elapsed — batch needs to age before finalization is allowed
-        // This gives challengers time to dispute before the batch becomes irreversible
-        if (block.number - uint256(batch.acceptedAtBlock) <= $._finalizationDelay) return false;
+        // Delay not elapsed — batch needs to age before finalization is allowed.
+        // This gives challengers time to dispute before the batch becomes irreversible.
+        // Delay is read from the snapshot captured at acceptance time so admin updates
+        // do not retroactively make already-accepted batches finalizable earlier.
+        if (block.number - uint256(batch.acceptedAtBlock) <= uint256(batch.finalizationDelaySnapshot)) return false;
 
         // State transition: Preconfirmed → Finalized (irreversible)
         batch.status = BatchStatus.Finalized;
