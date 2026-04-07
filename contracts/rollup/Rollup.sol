@@ -284,10 +284,14 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         // Record the L1 block number — all timing windows are measured from this anchor
         batch.acceptedAtBlock = uint64(block.number);
         // Snapshot all batch-lifecycle windows so later admin updates do not retroactively
-        // change the deadlines of already-accepted batches.
-        batch.submitBlobsWindowSnapshot = $._submitBlobsWindow;
-        batch.challengeWindowSnapshot = $._challengeWindow;
-        batch.finalizationDelaySnapshot = $._finalizationDelay;
+        // change the deadlines of already-accepted batches. Casts are safe because admin
+        // setters enforce that every window value fits in uint48.
+        // forge-lint: disable-next-line(unsafe-typecast)
+        batch.submitBlobsWindowSnapshot = uint48($._submitBlobsWindow);
+        // forge-lint: disable-next-line(unsafe-typecast)
+        batch.challengeWindowSnapshot = uint48($._challengeWindow);
+        // forge-lint: disable-next-line(unsafe-typecast)
+        batch.finalizationDelaySnapshot = uint48($._finalizationDelay);
         // Store expected blob count so submitBlobs can validate completeness
         require(expectedBlobsCount <= type(uint32).max, ExpectedBlobsCountOverflow(expectedBlobsCount));
         // casting to 'uint32' is safe because we validate the bounds above.

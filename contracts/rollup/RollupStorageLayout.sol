@@ -136,7 +136,7 @@ contract RollupStorageLayout is
          * @dev ETH reward paid to challengers during force revert (on top of deposit refund)
          */
         uint256 _incentiveFee;
-        // ─── Slot 7: uint64(8) + uint64(8) + uint32(4) + uint32(4) + uint32(4) = 28 bytes ───
+        // ─── Slot 7: uint64(8) + uint64(8) + uint32(4) + uint32(4) = 24 bytes ───
         /**
          * @dev highest batch index with Finalized status; enforces sequential finalization
          */
@@ -239,9 +239,11 @@ contract RollupStorageLayout is
 
         // ─── Deadline invariants ───
         // all window values are stored as uint64/uint32; reject values that would silently truncate
-        require(params.submitBlobsWindow <= type(uint64).max, InvalidWindowConfig("submitBlobsWindow out of range"));
-        require(params.challengeWindow <= type(uint64).max, InvalidWindowConfig("challengeWindow out of range"));
-        require(params.finalizationDelay <= type(uint64).max, InvalidWindowConfig("finalizationDelay out of range"));
+        // Window snapshots are stored as uint48 in {BatchRecord} so the record fits in two
+        // storage slots; bound config inputs to the same range to keep narrowing casts safe.
+        require(params.submitBlobsWindow <= type(uint48).max, InvalidWindowConfig("submitBlobsWindow out of range"));
+        require(params.challengeWindow <= type(uint48).max, InvalidWindowConfig("challengeWindow out of range"));
+        require(params.finalizationDelay <= type(uint48).max, InvalidWindowConfig("finalizationDelay out of range"));
         require(params.maxDepositsPerBatch <= type(uint64).max, InvalidWindowConfig("maxDepositsPerBatch out of range"));
         require(params.maxForceRevertBatchSize <= type(uint32).max, InvalidWindowConfig("maxForceRevertBatchSize out of range"));
 
@@ -542,9 +544,12 @@ contract RollupStorageLayout is
         _setSubmitBlobsWindow(newSubmitBlobsWindow);
     }
 
-    /** @dev Stores the blob submission window in L1 blocks. */
+    /** @dev Stores the blob submission window in L1 blocks. Bounded by uint48 to keep
+     *       {BatchRecord} packed in two storage slots after the snapshot.
+     */
     function _setSubmitBlobsWindow(uint64 newSubmitBlobsWindow) internal {
         RollupStorage storage $ = _getRollupStorage();
+        require(newSubmitBlobsWindow <= type(uint48).max, InvalidWindowConfig("submitBlobsWindow out of range"));
         emit SubmitBlobsWindowUpdated($._submitBlobsWindow, newSubmitBlobsWindow);
         $._submitBlobsWindow = newSubmitBlobsWindow;
     }
@@ -568,9 +573,12 @@ contract RollupStorageLayout is
         _setChallengeWindow(newChallengeWindow);
     }
 
-    /** @dev Stores the challenge window. Must be strictly less than finalizationDelay. */
+    /** @dev Stores the challenge window. Must be strictly less than finalizationDelay and
+     *       fit in uint48 to keep {BatchRecord} packed in two storage slots after the snapshot.
+     */
     function _setChallengeWindow(uint64 newChallengeWindow) internal {
         RollupStorage storage $ = _getRollupStorage();
+        require(newChallengeWindow <= type(uint48).max, InvalidWindowConfig("challengeWindow out of range"));
         // challenge window must end before finalization to give challengers full response time
         if ($._finalizationDelay != 0) {
             require(newChallengeWindow < $._finalizationDelay, InvalidWindowConfig("challengeWindow >= finalizationDelay"));
@@ -584,9 +592,12 @@ contract RollupStorageLayout is
         _setFinalizationDelay(newFinalizationDelay);
     }
 
-    /** @dev Stores the finalization delay. Must exceed challengeWindow. */
+    /** @dev Stores the finalization delay. Must exceed challengeWindow and fit in uint48
+     *       to keep {BatchRecord} packed in two storage slots after the snapshot.
+     */
     function _setFinalizationDelay(uint64 newFinalizationDelay) internal {
         RollupStorage storage $ = _getRollupStorage();
+        require(newFinalizationDelay <= type(uint48).max, InvalidWindowConfig("finalizationDelay out of range"));
         // strict ordering ensures challenges always have time to be submitted and resolved
         require(newFinalizationDelay > $._challengeWindow, InvalidWindowConfig("finalizationDelay <= challengeWindow"));
         emit FinalizationDelayUpdated($._finalizationDelay, newFinalizationDelay);

@@ -38,9 +38,15 @@ struct L2BlockHeader {
 }
 
 /**
- * @dev Packed per-batch state record.
+ * @dev Packed per-batch state record. Layout (2 storage slots):
+ *      - Slot 1: bytes32 batchRoot (32)
+ *      - Slot 2: uint64 acceptedAtBlock (8) + uint32 expectedBlobs (4) + uint8 status (1)
+ *                + 3 × uint48 window snapshots (18) = 31 bytes
+ *
  *      All batch-level timing windows are snapshotted at {IRollupWrite-acceptNextBatch}
- *      so later admin updates do not retroactively affect in-flight batches.
+ *      so later admin updates do not retroactively affect in-flight batches. The window
+ *      snapshots are stored as uint48 (max ≈ 2.8e14 blocks) to keep the whole record in
+ *      two storage slots — the rollup admin setters enforce the same upper bound.
  */
 struct BatchRecord {
     /// @dev Merkle root of L2 block headers for this batch.
@@ -52,11 +58,11 @@ struct BatchRecord {
     /// @dev Current lifecycle state of this batch.
     BatchStatus status;
     /// @dev Blob-submission window snapshotted from rollup config at acceptance time; 0 disables the deadline.
-    uint64 submitBlobsWindowSnapshot;
+    uint48 submitBlobsWindowSnapshot;
     /// @dev Challenge window snapshotted from rollup config at acceptance time.
-    uint64 challengeWindowSnapshot;
+    uint48 challengeWindowSnapshot;
     /// @dev Finalization delay snapshotted from rollup config at acceptance time.
-    uint64 finalizationDelaySnapshot;
+    uint48 finalizationDelaySnapshot;
 }
 
 /**
