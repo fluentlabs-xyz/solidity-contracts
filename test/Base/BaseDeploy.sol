@@ -99,7 +99,7 @@ abstract contract BaseDeployNative is Test {
         L1FluentBridge bridgeImpl = new L1FluentBridge();
         ERC1967Proxy bridgeProxy = new ERC1967Proxy(
             address(bridgeImpl),
-            abi.encodeCall(L1FluentBridge.initialize, (abi.encode(params), address(l1Rollup)))
+            abi.encodeCall(L1FluentBridge.initialize, (abi.encode(params), address(l1Rollup), RECEIVE_DEADLINE))
         );
         l1Bridge = L1FluentBridge(payable(address(bridgeProxy)));
 
@@ -127,7 +127,7 @@ abstract contract BaseDeployNative is Test {
             address(bridgeImpl),
             abi.encodeCall(
                 L2FluentBridge.initialize,
-                (abi.encode(params), RECEIVE_DEADLINE, address(l2BlockOracle), address(l2GasOracle), 0, 0, 0, makeAddr("feeTreasury"))
+                (abi.encode(params), address(l2BlockOracle), address(l2GasOracle), 0, 0, 0, makeAddr("feeTreasury"))
             )
         );
         l2Bridge = L2FluentBridge(payable(address(bridgeProxy)));
@@ -221,7 +221,7 @@ abstract contract BaseDeployERC20 is Test {
         L1FluentBridge bridgeImpl = new L1FluentBridge();
         ERC1967Proxy bridgeProxy = new ERC1967Proxy(
             address(bridgeImpl),
-            abi.encodeCall(L1FluentBridge.initialize, (abi.encode(params), address(l1Rollup)))
+            abi.encodeCall(L1FluentBridge.initialize, (abi.encode(params), address(l1Rollup), RECEIVE_DEADLINE))
         );
         l1Bridge = L1FluentBridge(payable(address(bridgeProxy)));
         l1Bridge.setExecuteGasLimit(2_000_000);
@@ -263,7 +263,7 @@ abstract contract BaseDeployERC20 is Test {
             address(bridgeImpl),
             abi.encodeCall(
                 L2FluentBridge.initialize,
-                (abi.encode(params), RECEIVE_DEADLINE, address(l1BlockOracle), address(l1GasOracle), 0, 0, 0, makeAddr("feeTreasury"))
+                (abi.encode(params), address(l1BlockOracle), address(l1GasOracle), 0, 0, 0, makeAddr("feeTreasury"))
             )
         );
         l2Bridge = L2FluentBridge(payable(address(bridgeProxy)));

@@ -75,6 +75,11 @@ interface IL1FluentBridge {
      */
     event RollupUpdated(address indexed prevValue, address indexed newValue);
 
+    /**
+     * @notice Emitted when the L1-owned receive-message deadline is updated.
+     */
+    event ReceiveMessageDeadlineUpdated(uint256 indexed prevValue, uint256 indexed newValue);
+
     // ========== Functions ==========
 
     /**
@@ -89,6 +94,18 @@ interface IL1FluentBridge {
      * @param newRollup The address of the rollup contract.
      */
     function setRollup(address newRollup) external;
+
+    /**
+     * @notice Returns the L1-owned receive-message deadline snapshotted into outbound L1->L2 messages at send time.
+     *         0 disables the deadline.
+     */
+    function getReceiveMessageDeadline() external view returns (uint256);
+
+    /**
+     * @notice Updates the L1-owned receive-message deadline used as the snapshot source for new L1->L2 messages.
+     * @dev Existing in-flight messages are never affected — the deadline is frozen at send time via the message hash.
+     */
+    function setReceiveMessageDeadline(uint256 newReceiveMessageDeadline) external;
     /**
      * @notice Get the status of a rollback message by its hash.
      * @param key The hash of the rollback message.
@@ -138,7 +155,7 @@ interface IL1FluentBridge {
      * @param to Destination on this chain.
      * @param value Value to forward.
      * @param chainId Source chain id.
-     * @param blockNumber Block number on source chain.
+     * @param validUntilBlockNumber Absolute L1 block number committed in the message hash (0 = no deadline).
      * @param nonce Message nonce.
      * @param message Message payload.
      * @param withdrawalProof Merkle proof for the withdrawal (message hash) against withdrawalRoot.
@@ -151,7 +168,7 @@ interface IL1FluentBridge {
         address payable to,
         uint256 value,
         uint256 chainId,
-        uint256 blockNumber,
+        uint256 validUntilBlockNumber,
         uint256 nonce,
         bytes calldata message,
         MerkleTree.MerkleProof calldata withdrawalProof,
@@ -167,7 +184,7 @@ interface IL1FluentBridge {
      * @param to Original destination (unused for refund).
      * @param value Value to refund.
      * @param chainId Source chain id.
-     * @param blockNumber Block number on source chain.
+     * @param validUntilBlockNumber Absolute L1 block number committed in the message hash (0 = no deadline).
      * @param nonce Message nonce.
      * @param message Message payload (for hash).
      * @param withdrawalProof Merkle proof for the rollback leaf against withdrawalRoot.
@@ -180,7 +197,7 @@ interface IL1FluentBridge {
         address to,
         uint256 value,
         uint256 chainId,
-        uint256 blockNumber,
+        uint256 validUntilBlockNumber,
         uint256 nonce,
         bytes calldata message,
         MerkleTree.MerkleProof calldata withdrawalProof,

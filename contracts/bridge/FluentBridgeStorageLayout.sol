@@ -269,6 +269,15 @@ contract FluentBridgeStorageLayout is
     }
 
     /**
+     * @dev Returns the receive-message deadline to snapshot into newly sent outbound messages.
+     *      Base bridge uses 0 as the sentinel for directions without a receive deadline.
+     *      L1 overrides this to return the value stored in {L1FluentBridge} storage.
+     */
+    function _getReceiveMessageDeadline() internal view virtual returns (uint256) {
+        return 0;
+    }
+
+    /**
      * @dev ABI-encodes a cross-chain message for hashing.
      */
     function _encodeMessage(
@@ -276,13 +285,13 @@ contract FluentBridgeStorageLayout is
         address to,
         uint256 value,
         uint256 chainId,
-        uint256 blockNumber,
+        uint256 validUntilBlockNumber,
         uint256 nonce,
         bytes calldata message
     ) internal pure returns (bytes memory) {
         // ABI-encode all message fields into a deterministic byte sequence
         // The keccak256 of this encoding is used as the Merkle leaf and status key
-        return abi.encode(from, to, value, chainId, blockNumber, nonce, message);
+        return abi.encode(from, to, value, chainId, validUntilBlockNumber, nonce, message);
     }
 
     /// @inheritdoc UUPSUpgradeable

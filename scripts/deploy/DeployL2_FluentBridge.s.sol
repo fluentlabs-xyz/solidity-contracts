@@ -12,12 +12,14 @@ import {DeployLib} from "./DeployLib.s.sol";
  * - RELAYER_ROLE (address, optional; defaults to BRIDGE_AUTHORITY/ADMIN_ROLE)
  * - BRIDGE_AUTHORITY (address, optional; legacy fallback for RELAYER_ROLE)
  * - OTHER_BRIDGE_PLACEHOLDER (address, optional; default 0x1)
- * - RECEIVE_MSG_DEADLINE (uint256, required, non-zero)
  * - L1_BLOCK_ORACLE (address, required)
  * - L1 gas price oracle: {DeployLib} auto-deploys {L1GasOracle} (submitter = RELAYER_ROLE) and wires it into {L2FluentBridge}.
  *   For custom gas scalar/overhead/treasury, call the 11-argument {DeployLib._deployFluentBridge} from a dedicated script.
  * - OUTPUT_PATH (string, optional; default empty)
  * - ALLOW_UNSAFE_UPGRADES=true (required)
+ *
+ * @dev The receive-message deadline is owned by the L1 bridge and snapshotted into each
+ *      outbound L1->L2 message at send time. L2 deployment no longer takes a deadline.
  */
 contract DeployL2FluentBridge is DeployLib {
     function run() external returns (address bridgeProxy) {
@@ -28,8 +30,6 @@ contract DeployL2FluentBridge is DeployLib {
         address pauserRole = vm.envOr("PAUSER_ROLE", adminRole);
         address relayerRole = vm.envOr("RELAYER_ROLE", vm.envOr("BRIDGE_AUTHORITY", adminRole));
         address otherBridgePlaceholder = vm.envOr("OTHER_BRIDGE_PLACEHOLDER", address(0x1));
-        uint256 receiveMessageDeadline = vm.envUint("RECEIVE_MSG_DEADLINE");
-        require(receiveMessageDeadline != 0, "RECEIVE_MSG_DEADLINE required");
         address l1BlockOracle = vm.envAddress("L1_BLOCK_ORACLE");
         address rollup = address(0);
         string memory outputPath = vm.envOr("OUTPUT_PATH", string(""));
@@ -40,7 +40,7 @@ contract DeployL2FluentBridge is DeployLib {
             adminRole,
             pauserRole,
             relayerRole,
-            receiveMessageDeadline,
+            0,
             otherBridgePlaceholder,
             l1BlockOracle,
             rollup

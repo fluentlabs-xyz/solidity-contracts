@@ -12,7 +12,7 @@ import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol
  *      - PAUSER_ROLE (address, optional; defaults to ADMIN_ROLE/INITIAL_OWNER)
  *      - RELAYER_ROLE (address, optional; defaults to BRIDGE_AUTHORITY/ADMIN_ROLE/INITIAL_OWNER)
  *      - BRIDGE_AUTHORITY (address, optional; legacy fallback for RELAYER_ROLE)
- *      - RECEIVE_MSG_DEADLINE (uint256, optional; default 0)
+ *      - RECEIVE_MSG_DEADLINE (uint256, required, non-zero) — snapshotted into each L1->L2 message at send time
  *      - OTHER_BRIDGE_PLACEHOLDER (address, optional; default 0x1)
  *      - L1_BLOCK_ORACLE (address, optional; default 0)
  *      - MOCK_ERC20_NAME (string, optional; default "Mock Deposit Token")
@@ -41,7 +41,8 @@ contract DeployL1 is DeployLib {
         address adminRole = vm.envOr("ADMIN_ROLE", initialOwner);
         address pauserRole = vm.envOr("PAUSER_ROLE", adminRole);
         address relayerRole = vm.envOr("RELAYER_ROLE", vm.envOr("BRIDGE_AUTHORITY", adminRole));
-        uint256 receiveMessageDeadline = vm.envOr("RECEIVE_MSG_DEADLINE", uint256(0));
+        uint256 receiveMessageDeadline = vm.envUint("RECEIVE_MSG_DEADLINE");
+        require(receiveMessageDeadline > 0, "RECEIVE_MSG_DEADLINE required and must be > 0");
         address otherBridgePlaceholder = vm.envOr("OTHER_BRIDGE_PLACEHOLDER", address(0x1));
         address l1BlockOracle = vm.envOr("L1_BLOCK_ORACLE", address(0));
         address rollup = vm.envOr("ROLLUP", vm.envOr("ROLLUP_ADDRESS", address(0)));

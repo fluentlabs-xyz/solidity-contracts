@@ -32,7 +32,10 @@ contract L1FluentBridgeTest is BridgeBase {
         });
 
         L1FluentBridge impl = new L1FluentBridge();
-        ERC1967Proxy proxy = new ERC1967Proxy(address(impl), abi.encodeCall(L1FluentBridge.initialize, (abi.encode(cfg), address(rollup))));
+        ERC1967Proxy proxy = new ERC1967Proxy(
+            address(impl),
+            abi.encodeCall(L1FluentBridge.initialize, (abi.encode(cfg), address(rollup), 100))
+        );
         l1Bridge = L1FluentBridge(payable(address(proxy)));
     }
 

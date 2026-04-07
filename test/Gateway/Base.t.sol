@@ -23,7 +23,10 @@ abstract contract GatewayBase is Test {
     address internal remoteGateway = makeAddr("remoteGateway");
 
     uint256 internal sourceChainId;
-    uint256 internal nextSourceBlock = 1;
+    /// @dev Starts at 2 so the first test-relayed message has a `validUntilBlockNumber` strictly
+    ///      greater than the default L1 block oracle value (1). Tests that exercise the
+    ///      past-deadline branch advance the oracle past this value instead of shrinking it.
+    uint256 internal nextSourceBlock = 2;
 
     IFluentBridge internal bridge;
     L1BlockOracle internal oracle;
@@ -36,7 +39,7 @@ abstract contract GatewayBase is Test {
         sourceChainId = block.chainid + 1;
     }
 
-    function _deployBridge(uint256 receiveMessageDeadline) internal {
+    function _deployBridge(uint256 /* receiveMessageDeadline */) internal {
         oracle = new L1BlockOracle(admin);
         vm.prank(admin);
         oracle.updateL1BlockNumber(1);
@@ -51,13 +54,13 @@ abstract contract GatewayBase is Test {
         });
 
         // Gateway tests rely on the trusted relayer path (receiveMessage),
-        // which exists on L2 bridge and needs a deadline + oracle config.
-        uint256 deadline = receiveMessageDeadline == 0 ? 1 : receiveMessageDeadline;
+        // which exists on L2 bridge. The receive-message deadline is now L1-owned and
+        // committed per-message as validUntilBlockNumber, so L2 init no longer takes it.
         ERC1967Proxy proxy = new ERC1967Proxy(
             address(impl),
             abi.encodeCall(
                 L2FluentBridge.initialize,
-                (abi.encode(params), deadline, address(oracle), address(gasOracle), 0, 0, 0, makeAddr("feeTreasury"))
+                (abi.encode(params), address(oracle), address(gasOracle), 0, 0, 0, makeAddr("feeTreasury"))
             )
         );
         bridge = IFluentBridge(payable(address(proxy)));

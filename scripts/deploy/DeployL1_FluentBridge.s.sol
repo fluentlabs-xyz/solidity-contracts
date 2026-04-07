@@ -13,6 +13,7 @@ import {DeployLib} from "./DeployLib.s.sol";
  * - BRIDGE_AUTHORITY (address, optional; legacy fallback for RELAYER_ROLE)
  * - OTHER_BRIDGE_PLACEHOLDER (address, optional; default 0x1)
  * - ROLLUP (address, required) (or ROLLUP_ADDRESS as fallback)
+ * - RECEIVE_MSG_DEADLINE (uint, required, non-zero) — snapshotted into each L1->L2 message at send time
  * - OUTPUT_PATH (string, optional; default empty)
  * - ALLOW_UNSAFE_UPGRADES=true (required)
  */
@@ -27,11 +28,21 @@ contract DeployL1FluentBridge is DeployLib {
         address otherBridgePlaceholder = vm.envOr("OTHER_BRIDGE_PLACEHOLDER", address(0x1));
         address l1BlockOracle = address(0);
         address rollup = vm.envOr("ROLLUP", vm.envOr("ROLLUP_ADDRESS", address(0)));
+        uint256 receiveMessageDeadline = vm.envUint("RECEIVE_MSG_DEADLINE");
+        require(receiveMessageDeadline > 0, "RECEIVE_MSG_DEADLINE required and must be > 0");
         string memory outputPath = vm.envOr("OUTPUT_PATH", string(""));
 
         vm.startBroadcast();
         address bridgeImpl;
-        (bridgeProxy, bridgeImpl) = _deployFluentBridge(adminRole, pauserRole, relayerRole, 0, otherBridgePlaceholder, l1BlockOracle, rollup);
+        (bridgeProxy, bridgeImpl) = _deployFluentBridge(
+            adminRole,
+            pauserRole,
+            relayerRole,
+            receiveMessageDeadline,
+            otherBridgePlaceholder,
+            l1BlockOracle,
+            rollup
+        );
         vm.stopBroadcast();
 
         if (bytes(outputPath).length != 0) {

@@ -124,7 +124,7 @@ interface IFluentBridgeEvents {
         address indexed to,
         uint256 value,
         uint256 chainId,
-        uint256 blockNumber,
+        uint256 validUntilBlockNumber,
         uint256 nonce,
         bytes32 messageHash,
         bytes data
@@ -136,7 +136,7 @@ interface IFluentBridgeEvents {
      */
     event ReceivedMessage(bytes32 messageHash, bool successfulCall, bytes returnData);
     /**
-     * @notice Emitted when a rollback is triggered (message not received on L2 within deadline).
+     * @notice Emitted when a rollback is triggered (message reached its committed expiry on L2).
      */
     event RollbackMessage(bytes32 messageHash, uint256 blockNumber);
     /**
@@ -224,7 +224,7 @@ interface IFluentBridge is IFluentBridgeErrors, IFluentBridgeEvents {
      * @param to Destination on this chain.
      * @param value Value to forward.
      * @param chainId Source chain id.
-     * @param blockNumber Block number on source chain.
+     * @param validUntilBlockNumber Absolute L1 block number by which the message must be received (0 = no deadline).
      * @param nonce Message nonce (must match receivedNonce).
      * @param message Message payload.
      */
@@ -233,7 +233,7 @@ interface IFluentBridge is IFluentBridgeErrors, IFluentBridgeEvents {
         address to,
         uint256 value,
         uint256 chainId,
-        uint256 blockNumber,
+        uint256 validUntilBlockNumber,
         uint256 nonce,
         bytes calldata message
     ) external;
@@ -246,7 +246,7 @@ interface IFluentBridge is IFluentBridgeErrors, IFluentBridgeEvents {
      * @param to Destination on this chain.
      * @param value Value to forward.
      * @param chainId Source chain id.
-     * @param blockNumber Block number on source chain.
+     * @param validUntilBlockNumber Absolute L1 block number by which the message must be received (0 = no deadline).
      * @param nonce Message nonce.
      * @param message Message payload.
      */
@@ -255,7 +255,7 @@ interface IFluentBridge is IFluentBridgeErrors, IFluentBridgeEvents {
         address to,
         uint256 value,
         uint256 chainId,
-        uint256 blockNumber,
+        uint256 validUntilBlockNumber,
         uint256 nonce,
         bytes calldata message
     ) external;

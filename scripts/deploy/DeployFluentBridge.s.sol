@@ -11,7 +11,7 @@ import {DeployLib} from "./DeployLib.s.sol";
  * - PAUSER_ROLE (address): pauser; defaults to ADMIN_ROLE/INITIAL_OWNER
  * - RELAYER_ROLE (address): relayer; defaults to BRIDGE_AUTHORITY/ADMIN_ROLE/INITIAL_OWNER
  * - BRIDGE_AUTHORITY (address): legacy fallback for RELAYER_ROLE
- * - RECEIVE_MSG_DEADLINE (uint256): deadline for receiving messages; default 0
+ * - RECEIVE_MSG_DEADLINE (uint256): L1-owned receive-message deadline; required (non-zero) when deploying the L1 bridge, ignored for L2
  * - OTHER_BRIDGE_PLACEHOLDER (address): placeholder for the other bridge; default 0x1
  * - L1_BLOCK_ORACLE (address): L1 block oracle; default 0
  * - OUTPUT_PATH (string): path to write deployment JSON; default empty

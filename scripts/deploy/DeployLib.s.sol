@@ -104,14 +104,15 @@ abstract contract DeployLib is Script {
         bytes memory initData = abi.encode(params);
 
         _requireUnsafeUpgradeApproval();
-        if (receiveMessageDeadline == 0) {
-            require(rollup != address(0), "ROLLUP required when RECEIVE_MSG_DEADLINE == 0 (L1 deploy)");
+        // Rollup presence selects the L1 bridge. L1 owns the receive-message deadline now
+        // and snapshots it into each outbound L1->L2 message hash at send time.
+        if (rollup != address(0)) {
             L1FluentBridge impl = new L1FluentBridge();
             bridgeImpl = address(impl);
-            bytes memory initializerData = abi.encodeCall(L1FluentBridge.initialize, (initData, rollup));
+            bytes memory initializerData = abi.encodeCall(L1FluentBridge.initialize, (initData, rollup, receiveMessageDeadline));
             bridgeProxy = UnsafeUpgrades.deployUUPSProxy(bridgeImpl, initializerData);
         } else {
-            require(l1BlockOracle != address(0), "L1_BLOCK_ORACLE required when RECEIVE_MSG_DEADLINE != 0");
+            require(l1BlockOracle != address(0), "L1_BLOCK_ORACLE required for L2 bridge");
             address gasOracleAddr = l1GasOracle;
             if (gasOracleAddr == address(0)) {
                 gasOracleAddr = address(new L1GasOracle(relayerRole));
@@ -121,7 +122,7 @@ abstract contract DeployLib is Script {
             bridgeImpl = address(impl);
             bytes memory initializerData = abi.encodeCall(
                 L2FluentBridge.initialize,
-                (initData, receiveMessageDeadline, l1BlockOracle, gasOracleAddr, l2GasOverhead, l2GasScalar, l1GasLimit, treasury)
+                (initData, l1BlockOracle, gasOracleAddr, l2GasOverhead, l2GasScalar, l1GasLimit, treasury)
             );
             bridgeProxy = UnsafeUpgrades.deployUUPSProxy(bridgeImpl, initializerData);
         }

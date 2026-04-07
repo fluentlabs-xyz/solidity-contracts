@@ -59,7 +59,7 @@ abstract contract L2BridgeFeeBase is Test {
             address(impl),
             abi.encodeCall(
                 L2FluentBridge.initialize,
-                (abi.encode(cfg), RECEIVE_DEADLINE, address(blockOracle), address(gasOracle), overhead, scalar, L1_GAS_LIMIT, feeTreasury)
+                (abi.encode(cfg), address(blockOracle), address(gasOracle), overhead, scalar, L1_GAS_LIMIT, feeTreasury)
             )
         );
         bridge = L2FluentBridge(payable(address(proxy)));
@@ -353,7 +353,8 @@ contract ReceiveMessageNoFeeTest is L2BridgeFeeBase {
 
         vm.deal(address(bridge), amount);
         vm.prank(relayer);
-        bridge.receiveMessage(otherBridge, recipient, amount, block.chainid + 1, 1, 0, "");
+        // validUntilBlockNumber well beyond the L1 block oracle value so the committed expiry is not reached
+        bridge.receiveMessage(otherBridge, recipient, amount, block.chainid + 1, type(uint64).max, 0, "");
 
         assertEq(feeTreasury.balance, treasuryBefore, "treasury should not receive anything on inbound");
         assertEq(recipient.balance, amount, "recipient should receive full amount");
@@ -401,11 +402,11 @@ contract L2FluentBridgeTest is L2BridgeFeeBase {
         bridge.sendMessage{value: fee + 1 ether}(recipient, "");
     }
 
-    function test_RevertIf_beforeReceiveMessage_zeroBlockNumber() public {
+    function test_RevertIf_beforeReceiveMessage_zeroValidUntilBlockNumber() public {
         address otherBridge = makeAddr("otherBridge");
         vm.deal(address(bridge), 1 ether);
         vm.prank(relayer);
-        vm.expectRevert(abi.encodeWithSelector(IFluentBridgeErrors.ZeroValueNotAllowed.selector, "blockNumber"));
+        vm.expectRevert(abi.encodeWithSelector(IFluentBridgeErrors.ZeroValueNotAllowed.selector, "validUntilBlockNumber"));
         bridge.receiveMessage(otherBridge, recipient, 0, block.chainid + 1, 0, 0, "");
     }
 
@@ -415,23 +416,4 @@ contract L2FluentBridgeTest is L2BridgeFeeBase {
         bridge.setL1GasPriceOracle(address(0));
     }
 
-    function test_RevertIf_setReceiveMessageDeadline_zero() public {
-        vm.prank(admin);
-        vm.expectRevert(
-            abi.encodeWithSelector(IFluentBridgeErrors.InvalidWindowConfig.selector, "receiveMessageDeadline must be greater than 0")
-        );
-        bridge.setReceiveMessageDeadline(0);
-    }
-
-    function test_setL1BlockOracle_allowsZeroWhenDeadlineDisabled() public {
-        // _setReceiveMessageDeadline requires > 0, so we bypass via vm.store
-        // L2FluentBridgeStorage._receiveMessageDeadline is at slot offset 0 in the L2 storage
-        bytes32 l2StorageSlot = 0x87bc3410b506da535d5d599e04bd2f08b89897a5d89e1855acbd7567af23bd00;
-        vm.store(address(bridge), l2StorageSlot, bytes32(0));
-        assertEq(bridge.getReceiveMessageDeadline(), 0, "deadline should be zero");
-
-        vm.prank(admin);
-        bridge.setL1BlockOracle(address(0));
-        assertEq(bridge.getL1BlockOracle(), address(0), "oracle should be zero");
-    }
 }

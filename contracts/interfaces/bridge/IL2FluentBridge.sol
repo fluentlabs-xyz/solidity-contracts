@@ -48,10 +48,6 @@ interface IL2FluentBridge {
      * @param newValue The new address of the L1 block oracle.
      */
     event L1BlockOracleUpdated(address indexed prevValue, address indexed newValue);
-    /**
-     * @notice Emitted when the number of L1 blocks after which a message becomes eligible for rollback is updated.
-     */
-    event ReceiveMessageDeadlineUpdated(uint256 indexed prevValue, uint256 indexed newValue);
 
     /**
      * @notice Emitted when the L1 gas limit is updated.
@@ -74,14 +70,4 @@ interface IL2FluentBridge {
      * @return The address of the L1 block oracle.
      */
     function getL1BlockOracle() external view returns (address);
-    /**
-     * @notice Get the number of L1 blocks after which a message becomes eligible for rollback.
-     * @return The number of L1 blocks after which a message becomes eligible for rollback.
-     */
-    function getReceiveMessageDeadline() external view returns (uint256);
-    /**
-     * @notice Sets the number of L1 blocks after which a message becomes eligible for rollback.
-     * @param newReceiveMessageDeadline The number of L1 blocks after which a message becomes eligible for rollback.
-     */
-    function setReceiveMessageDeadline(uint256 newReceiveMessageDeadline) external;
 }

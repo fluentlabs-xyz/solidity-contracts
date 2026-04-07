@@ -38,8 +38,12 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         /// @dev Index of the next slot the rollup will consume; advances on consume,
         ///      moves backward on {rewindSentMessageCursor} during {Rollup-forceRevertBatch}.
         uint256 _sentMessageFront;
+        /// @dev L1-owned receive-message deadline snapshotted into outbound L1->L2 messages at send time.
+        ///      0 disables the deadline. Owned by L1 so admin updates never retroactively expire messages
+        ///      that were already sent under the previous deadline.
+        uint256 _receiveMessageDeadline;
         /// @dev Reserved for future storage fields.
-        uint256[50] __gap;
+        uint256[49] __gap;
     }
 
     // ============ Storage accessor ============
@@ -75,14 +79,17 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     // ============ Initializer ============
 
     /**
-     * @notice Initializes the L1 bridge with base config and rollup address.
+     * @notice Initializes the L1 bridge with base config, rollup address, and the L1-owned
+     *         receive-message deadline snapshotted into outbound L1->L2 messages at send time.
      */
-    function initialize(bytes calldata data, address newRollup) external initializer {
+    function initialize(bytes calldata data, address newRollup, uint256 receiveMessageDeadline) external initializer {
         // Decode and apply base bridge config (roles, other bridge, gas limit)
         __FluentBridgeStorage_init(data);
 
         // Bind the rollup contract used for finalization and proof verification
         _setRollup(newRollup);
+        // Snapshot source for future L1->L2 message expiries
+        _setReceiveMessageDeadline(receiveMessageDeadline);
         // Sent-message cursors are zero-initialized by default — no explicit init required
     }
 
@@ -94,7 +101,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         address /** to */,
         uint256 value,
         uint256 /** chainId */,
-        uint256 /** blockNumber */,
+        uint256 /** validUntilBlockNumber */,
         uint256 /** messageNonce */,
         bytes calldata /** message */
     ) internal view override returns (bool) {
@@ -102,6 +109,14 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         if (value > 0) require(address(this).balance >= value, InsufficientBridgeBalance(value));
 
         return true;
+    }
+
+    /**
+     * @dev Returns the L1-owned receive-message deadline snapshotted into new outbound
+     *      L1->L2 messages. Overrides the base {FluentBridgeStorageLayout} default of 0.
+     */
+    function _getReceiveMessageDeadline() internal view override returns (uint256) {
+        return _getL1FluentBridgeStorage()._receiveMessageDeadline;
     }
 
     /// @inheritdoc FluentBridge
@@ -125,7 +140,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         address payable to,
         uint256 value,
         uint256 chainId,
-        uint256 blockNumber,
+        uint256 validUntilBlockNumber,
         uint256 messageNonce,
         bytes calldata message,
         MerkleTree.MerkleProof calldata withdrawalProof,
@@ -140,7 +155,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
 
         // Reconstruct the message hash used as the Merkle leaf in the withdrawal tree
         // All fields are deterministic — anyone can call this function permissionlessly
-        bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, blockNumber, messageNonce, message));
+        bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, validUntilBlockNumber, messageNonce, message));
         // Prevent double-spend: each message can only be claimed once
         require(getReceivedMessage(messageHash) == IFluentBridge.MessageStatus.None, MessageAlreadyReceived());
 
@@ -148,8 +163,8 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         _verifyWithdrawal(batchIndex, blockHeader, withdrawalProof, blockProof, messageHash);
         // Prevent re-entrant calls back into the bridge itself
         require(to != address(this), ForbiddenSelfCall());
-        // Hook for subclass logic (e.g. deadline checks on L2); false = silently skip
-        if (!_beforeReceiveMessage(from, to, value, chainId, blockNumber, messageNonce, message)) return;
+        // Hook for subclass logic (e.g. committed expiry check on L2); false = silently skip
+        if (!_beforeReceiveMessage(from, to, value, chainId, validUntilBlockNumber, messageNonce, message)) return;
 
         // Execute the cross-chain message with gasleft(), forwarding remaining gas
         // _receiveMessage records the outcome (Success/Failed) in storage
@@ -168,7 +183,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         address to,
         uint256 value,
         uint256 chainId,
-        uint256 blockNumber,
+        uint256 validUntilBlockNumber,
         uint256 messageNonce,
         bytes calldata message,
         MerkleTree.MerkleProof calldata withdrawalProof,
@@ -186,7 +201,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
 
         // Reconstruct the same hash that was included in the L2 withdrawal root
         // Encoding is deterministic so the hash is reproducible by anyone
-        bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, blockNumber, messageNonce, message));
+        bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, validUntilBlockNumber, messageNonce, message));
         // Guard against replaying a message that was already successfully received
         require(getReceivedMessage(messageHash) == IFluentBridge.MessageStatus.None, MessageAlreadyReceived());
         // Guard against double-claiming the same rollback refund
@@ -195,7 +210,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         // Verify two Merkle proofs: block inclusion in batch, message inclusion in block
         _verifyWithdrawal(batchIndex, blockHeader, withdrawalProof, blockProof, messageHash);
         // Execute the refund transfer back to the original sender
-        _rollbackMessage(gasleft(), from, to, value, blockNumber, messageNonce, message, messageHash);
+        _rollbackMessage(gasleft(), from, to, value, validUntilBlockNumber, messageNonce, message, messageHash);
     }
 
     /**
@@ -346,12 +361,22 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         return address(_getL1FluentBridgeStorage()._rollup);
     }
 
+    /// @inheritdoc IL1FluentBridge
+    function getReceiveMessageDeadline() public view returns (uint256) {
+        return _getReceiveMessageDeadline();
+    }
+
     // ============ Admin ============
 
     /// @inheritdoc IL1FluentBridge
     function setRollup(address newRollup) external onlyRole(DEFAULT_ADMIN_ROLE) {
         // Admin-gated: only the multi-sig can rebind the rollup contract
         _setRollup(newRollup);
+    }
+
+    /// @inheritdoc IL1FluentBridge
+    function setReceiveMessageDeadline(uint256 newReceiveMessageDeadline) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setReceiveMessageDeadline(newReceiveMessageDeadline);
     }
 
     /**
@@ -368,5 +393,21 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         emit RollupUpdated(getRollup(), newRollup);
         // Store the typed Rollup reference to avoid casting on every call
         $._rollup = Rollup(newRollup);
+    }
+
+    /**
+     * @dev Stores the L1-owned receive-message deadline used as the snapshot source
+     *      for future outbound L1->L2 messages. The value is encoded into each message
+     *      hash at send time, so existing in-flight messages are never affected by changes.
+     *
+     *      Must be strictly greater than 0. A zero deadline would make {sendMessage}
+     *      produce `validUntilBlockNumber = 0`, which the L2 bridge rejects in
+     *      `_beforeReceiveMessage`, silently stranding user funds with no rollback path.
+     */
+    function _setReceiveMessageDeadline(uint256 newReceiveMessageDeadline) internal {
+        require(newReceiveMessageDeadline > 0, InvalidWindowConfig("receiveMessageDeadline must be greater than 0"));
+        L1FluentBridgeStorage storage $ = _getL1FluentBridgeStorage();
+        emit ReceiveMessageDeadlineUpdated($._receiveMessageDeadline, newReceiveMessageDeadline);
+        $._receiveMessageDeadline = newReceiveMessageDeadline;
     }
 }
