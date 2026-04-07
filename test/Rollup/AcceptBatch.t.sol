@@ -136,6 +136,15 @@ contract AcceptBatchTest is RollupAssertions {
         rollup.acceptNextBatch(batch, 1);
     }
 
+    function test_RevertIf_acceptNextBatch_interiorZeroDepositRootWithNonZeroCount() public {
+        L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
+        batch[0].depositCount = 7;
+
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidDepositRootWithNonZeroCount.selector, uint256(7)));
+        vm.prank(sequencer);
+        rollup.acceptNextBatch(batch, 1);
+    }
+
     function test_RevertIf_acceptNextBatch_wrongPreviousBlockHash() public {
         L2BlockHeader[] memory batch = _makeBatch(keccak256("not-genesis"));
 

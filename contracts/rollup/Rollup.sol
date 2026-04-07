@@ -145,7 +145,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         // Refund any overpayment back to the caller (underflow safe: require on L115 guarantees msg.value >= totalIncentiveFees)
         uint256 refund = msg.value - totalIncentiveFees;
         if (refund > 0) {
-            (bool ok,) = msg.sender.call{value: refund}("");
+            (bool ok, ) = msg.sender.call{value: refund}("");
             require(ok, EthTransferFailed(msg.sender, refund));
         }
 
@@ -230,21 +230,26 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         // Cache gas floor to prevent an out-of-gas DoS in the validation loop below
         uint256 gasLeft = $._gasLeft;
 
-        // Phase 1: validate header chain linkage (adjacent block hash pairs; single-block batches skip).
-        // Each header's blockHash must equal the next header's previousBlockHash
+        // Phase 1: validate header chain linkage (adjacent block hash pairs; single-block batches skip)
+        // and deposit metadata (zero deposit root => zero count). One gas floor check per iteration —
+        // same pattern as historically used so callers get InsufficientGas instead of opaque OOG deep in the loop.
         for (uint256 i = 0; i < batchSize - 1; ++i) {
-            // Ensure enough gas remains for each iteration to prevent partial execution
             require(gasleft() >= gasLeft, InsufficientGas());
-            // Verify the sequential block hash chain — any break means corrupted or misordered headers
+            if (blockHeaders[i].depositRoot == ZERO_BYTES_HASH) {
+                require(blockHeaders[i].depositCount == 0, InvalidDepositRootWithNonZeroCount(blockHeaders[i].depositCount));
+            }
             require(
                 blockHeaders[i].blockHash == blockHeaders[i + 1].previousBlockHash,
                 InvalidBlockSequence(i, blockHeaders[i].blockHash, blockHeaders[i + 1].previousBlockHash)
             );
         }
-
-        // Sanity check: a zero deposit root must have zero deposit count (no phantom deposits)
-        if (blockHeaders[batchSize - 1].depositRoot == ZERO_BYTES_HASH) {
-            require(blockHeaders[batchSize - 1].depositCount == 0, InvalidDepositRootWithNonZeroCount(blockHeaders[batchSize - 1].depositCount));
+        if (batchSize != 0) {
+            if (blockHeaders[batchSize - 1].depositRoot == ZERO_BYTES_HASH) {
+                require(
+                    blockHeaders[batchSize - 1].depositCount == 0,
+                    InvalidDepositRootWithNonZeroCount(blockHeaders[batchSize - 1].depositCount)
+                );
+            }
         }
 
         // Build the Merkle root from all block header commitments — used for proofs later
@@ -704,7 +709,9 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
     // ============ Internal — helpers ============
 
     /**
-     * @dev Verifies that L1 deposits match the depositRoot in the block header.
+     * @dev Verifies that L1 deposits match the depositRoot in the block header and records
+     *      the popped deposit IDs against `batchIndex` so they can be restored by
+     *      {_cleanupForceRevertBatch} on force-revert.
      *      Called after all state writes in acceptNextBatch (CEI pattern) and within
      *      a nonReentrant guard — reentrancy warning is a false positive.
      */
@@ -712,7 +719,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         RollupStorage storage $ = _getRollupStorage();
         // Cache the deposit freshness deadline to avoid repeated storage reads in the loop
         uint256 deadline = $._acceptDepositDeadline;
-        // Allocate array to collect deposit IDs for root verification
+        // Allocate in-memory array for the root verification at the end of the loop
         bytes32[] memory depositIds = new bytes32[](header.depositCount);
         for (uint256 i = 0; i < header.depositCount; ++i) {
             // External call to the bridge: pops the next deposit from the FIFO queue
