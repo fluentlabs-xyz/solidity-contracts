@@ -97,6 +97,7 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
     /// @inheritdoc IERC20Gateway
     /// @dev Callable by anyone. Nonreentrant guard prevents callbacks from token hooks re-entering.
     function sendTokens(address token, address to, uint256 amount) external payable nonReentrant {
+        address sender = msg.sender;
         // Ensure the remote gateway has been configured — cannot route messages without a destination
         require(getOtherSideGateway() != address(0), ZeroAddressNotAllowed("getOtherSideGateway"));
         // Prevent accidental burns to the zero address on the destination chain
@@ -107,9 +108,10 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         // functions (receivePeggedTokens/receiveOriginTokens) are not payable, so delivery
         // would permanently fail and lock both the ETH and the bridged tokens
         require(msg.value == FluentBridge(getBridgeContract()).getSentMessageFee(), ExactFeeRequired());
+        // Prevent sending tokens to/from blacklisted accounts
+        _requireAccountNotBlacklisted(sender);
+        _requireAccountNotBlacklisted(to);
 
-        // Cache msg.sender to pass as both the protocol-level sender and the token source
-        address sender = msg.sender;
         bytes memory message;
 
         // Determine token mode by checking whether a pegged-to-origin mapping exists.

@@ -41,6 +41,11 @@ interface IGatewayBaseErrors {
      * @dev selector: 0x629e9f8b
      */
     error ExactFeeRequired();
+
+    /**
+     * @notice Outbound deposit rejected because the account is on the configured blacklist registry.
+     */
+    error AddressBlacklisted(address account);
 }
 
 /**
@@ -96,6 +101,11 @@ interface IGatewayBaseEvents {
      * @notice Emitted when the other side chain id is updated.
      */
     event OtherSideChainIdUpdated(uint256 indexed prevValue, uint256 indexed newValue);
+
+    /**
+     * @notice Emitted when the blacklist registry address is updated.
+     */
+    event BlacklistRegistryUpdated(address indexed prevValue, address indexed newValue);
 }
 
 /**
@@ -144,4 +154,14 @@ interface IGatewayBase is IGatewayBaseErrors, IGatewayBaseEvents {
      * @dev Emits OtherSideChainIdUpdated
      */
     function setOtherSideChainId(uint256 newOtherSideChainId) external;
+
+    /**
+     * @notice Returns the optional {IBlacklist} registry consulted before outbound deposits; zero when disabled.
+     */
+    function getBlacklistRegistry() external view returns (address);
+
+    /**
+     * @notice Sets the blacklist registry for outbound deposit checks (zero disables enforcement).
+     */
+    function setBlacklistRegistry(address newBlacklistRegistry) external;
 }

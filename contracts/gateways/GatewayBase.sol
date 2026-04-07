@@ -6,6 +6,7 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 
+import {IBlacklist} from "../interfaces/blacklist/IBlacklist.sol";
 import {IGatewayBase} from "../interfaces/gateways/IGatewayBase.sol";
 
 /**
@@ -16,6 +17,7 @@ import {IGatewayBase} from "../interfaces/gateways/IGatewayBase.sol";
  * @dev UUPS-upgradeable base that centralizes:
  *      - common access control (`onlyOwner`, bridge-caller checks),
  *      - shared bridge routing config (`_bridgeContract`, `_otherSide`, `_otherSideChainId`),
+ *      - optional outbound deposit blacklist (`_blacklistRegistry` + {_requireSenderNotBlacklisted}),
  *      - common admin setters for bridge and remote gateway addresses.
  * @dev Storage is namespaced under ERC-7201 (`GatewayBaseStorage`) and consumed by derived gateways
  *      such as `NativeGateway` and `ERC20Gateway`.
@@ -31,8 +33,10 @@ abstract contract GatewayBase is Initializable, UUPSUpgradeable, Ownable2StepUpg
         address _otherSideGateway;
         /// @dev Chain ID of the remote chain.
         uint256 _otherSideChainId;
+        /// @dev Optional {IBlacklist}; address(0) disables deposit blacklist checks.
+        address _blacklistRegistry;
         /// @dev Reserved for future storage fields.
-        uint256[50] __gap;
+        uint256[49] __gap;
     }
 
     /// @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.GatewayBaseStorage")) - 1)) & ~bytes32(uint256(0xff))
@@ -92,6 +96,11 @@ abstract contract GatewayBase is Initializable, UUPSUpgradeable, Ownable2StepUpg
         return _getGatewayBaseStorage()._otherSideChainId;
     }
 
+    /// @inheritdoc IGatewayBase
+    function getBlacklistRegistry() public view returns (address) {
+        return _getGatewayBaseStorage()._blacklistRegistry;
+    }
+
     // ============ Admin functions ============
 
     /// @inheritdoc IGatewayBase
@@ -139,6 +148,29 @@ abstract contract GatewayBase is Initializable, UUPSUpgradeable, Ownable2StepUpg
         // emit before write so the event captures the previous value
         emit OtherSideChainIdUpdated($._otherSideChainId, newOtherSideChainId);
         $._otherSideChainId = newOtherSideChainId;
+    }
+
+    /// @inheritdoc IGatewayBase
+    function setBlacklistRegistry(address newBlacklistRegistry) external onlyOwner {
+        _setBlacklistRegistry(newBlacklistRegistry);
+    }
+
+    /**
+     * @dev Persists the blacklist registry. Zero address disables enforcement.
+     */
+    function _setBlacklistRegistry(address newBlacklistRegistry) internal {
+        GatewayBaseStorage storage $ = _getGatewayBaseStorage();
+        emit BlacklistRegistryUpdated($._blacklistRegistry, newBlacklistRegistry);
+        $._blacklistRegistry = newBlacklistRegistry;
+    }
+
+    /**
+     * @dev Reverts with {AddressBlacklisted} if `account` is listed when a registry is configured.
+     */
+    function _requireAccountNotBlacklisted(address account) internal view {
+        address registry = _getGatewayBaseStorage()._blacklistRegistry;
+        if (registry == address(0)) return;
+        require(!IBlacklist(registry).isBlacklisted(account), AddressBlacklisted(account));
     }
 
     /// @inheritdoc UUPSUpgradeable
