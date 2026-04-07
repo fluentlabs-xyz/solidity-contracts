@@ -316,7 +316,6 @@ contract CorruptionTest is RollupAssertions {
         cfg.challengeDepositAmount = CHALLENGE_DEPOSIT;
         cfg.challengeWindow = CHALLENGE_WINDOW;
         cfg.finalizationDelay = FINALIZATION_DELAY;
-        cfg.acceptDepositDeadline = 1000;
         cfg.incentiveFee = 0.1 ether;
         cfg.submitBlobsWindow = daDeadline;
         cfg.preconfirmWindow = preconfirmDeadline;

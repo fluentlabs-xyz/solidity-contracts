@@ -26,7 +26,6 @@ contract AdminTest is RollupAssertions {
         cfg.challengeDepositAmount = CHALLENGE_DEPOSIT;
         cfg.challengeWindow = CHALLENGE_WINDOW;
         cfg.finalizationDelay = FINALIZATION_DELAY;
-        cfg.acceptDepositDeadline = 1000;
         cfg.incentiveFee = 0.1 ether;
         cfg.submitBlobsWindow = SUBMIT_BLOBS_WINDOW;
         cfg.preconfirmWindow = PRECONFIRM_WINDOW;
@@ -55,7 +54,6 @@ contract AdminTest is RollupAssertions {
         cfg.challengeDepositAmount = CHALLENGE_DEPOSIT;
         cfg.challengeWindow = CHALLENGE_WINDOW;
         cfg.finalizationDelay = FINALIZATION_DELAY;
-        cfg.acceptDepositDeadline = 1000;
         cfg.incentiveFee = 0.1 ether;
         cfg.submitBlobsWindow = SUBMIT_BLOBS_WINDOW;
         cfg.preconfirmWindow = PRECONFIRM_WINDOW;
@@ -138,7 +136,6 @@ contract AdminTest is RollupAssertions {
         cfg.challengeDepositAmount = CHALLENGE_DEPOSIT;
         cfg.challengeWindow = 300;
         cfg.finalizationDelay = 200;
-        cfg.acceptDepositDeadline = 1000;
         cfg.incentiveFee = 0.1 ether;
         cfg.submitBlobsWindow = SUBMIT_BLOBS_WINDOW;
         cfg.preconfirmWindow = PRECONFIRM_WINDOW;
@@ -167,7 +164,6 @@ contract AdminTest is RollupAssertions {
         cfg.challengeDepositAmount = CHALLENGE_DEPOSIT;
         cfg.challengeWindow = CHALLENGE_WINDOW;
         cfg.finalizationDelay = FINALIZATION_DELAY;
-        cfg.acceptDepositDeadline = 1000;
         cfg.incentiveFee = 0.1 ether;
         cfg.submitBlobsWindow = 100;
         cfg.preconfirmWindow = 50;
@@ -249,18 +245,6 @@ contract AdminTest is RollupAssertions {
         rollup.setSp1Verifier(address(newVerifier));
 
         assertEq(rollup.sp1Verifier(), address(newVerifier));
-    }
-
-    function test_setAcceptDepositDeadline_updatesAndEmits() public {
-        uint32 newDeadline = 777;
-        uint32 prev = uint32(rollup.acceptDepositDeadline());
-
-        vm.expectEmit(true, false, false, true, address(rollup));
-        emit AcceptDepositDeadlineUpdated(prev, newDeadline);
-        vm.prank(admin);
-        rollup.setAcceptDepositDeadline(newDeadline);
-
-        assertEq(rollup.acceptDepositDeadline(), newDeadline);
     }
 
     function test_setSubmitBlobsWindow_updatesAndEmits() public {
@@ -407,12 +391,6 @@ contract AdminTest is RollupAssertions {
         vm.prank(admin);
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "challengeDepositAmount"));
         rollup.setChallengeDepositAmount(0);
-    }
-
-    function test_RevertIf_setAcceptDepositDeadline_zero() public {
-        vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "acceptDepositDeadline"));
-        rollup.setAcceptDepositDeadline(0);
     }
 
     function test_RevertIf_initialize_zeroGenesisHash() public {

@@ -9,6 +9,7 @@ import {IRollupEvents} from "../../contracts/interfaces/IRollup.sol";
 import {L2BlockHeader, BatchStatus, BatchRecord, InitConfiguration} from "../../contracts/interfaces/IRollupTypes.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 
+import {MockDepositBridge} from "../mocks/MockDepositBridge.sol";
 import {MockNitroVerifier} from "../mocks/MockNitroVerifier.sol";
 import {MockSp1Verifier} from "../mocks/MockSp1Verifier.sol";
 
@@ -61,7 +62,9 @@ abstract contract RollupBase is Test, IRollupEvents {
     // ============ Setup ============
 
     function setUp() public virtual {
-        bridgeAddr = makeAddr("bridge");
+        // A real mock bridge is required because acceptNextBatch reads the bridge cursor
+        // unconditionally — an EOA address would revert on the external call.
+        bridgeAddr = address(new MockDepositBridge());
         nitroVerifier = new MockNitroVerifier();
         rollup = _deployRollup(bridgeAddr);
     }
@@ -82,7 +85,6 @@ abstract contract RollupBase is Test, IRollupEvents {
         cfg.challengeDepositAmount = CHALLENGE_DEPOSIT;
         cfg.challengeWindow = CHALLENGE_WINDOW;
         cfg.finalizationDelay = FINALIZATION_DELAY;
-        cfg.acceptDepositDeadline = 1000;
         cfg.incentiveFee = 0.1 ether;
         cfg.submitBlobsWindow = SUBMIT_BLOBS_WINDOW;
         cfg.preconfirmWindow = PRECONFIRM_WINDOW;

@@ -10,7 +10,6 @@ import {IL1FluentBridge} from "../../contracts/interfaces/bridge/IL1FluentBridge
 import {IFluentBridgeErrors} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 import {L2BlockHeader} from "../../contracts/interfaces/IRollupTypes.sol";
-import {Queue} from "../../contracts/libraries/Queue.sol";
 import {MockRollup} from "../mocks/MockRollup.sol";
 import {BridgeBase, NoopReceiver} from "./Base.t.sol";
 
@@ -41,21 +40,79 @@ contract L1FluentBridgeTest is BridgeBase {
         l1Bridge.sendMessage(receiver, hex"0102");
 
         vm.prank(address(rollup));
-        (bytes32 msgHash, ) = l1Bridge.popSentMessage();
+        bytes32 msgHash = l1Bridge.consumeNextSentMessage();
 
         assertTrue(msgHash != bytes32(0), "message hash should be queued");
     }
 
-    function test_RevertIf_popSentMessage_queueEmpty() public {
+    function test_RevertIf_consumeNextSentMessage_queueEmpty() public {
         vm.prank(address(rollup));
-        vm.expectRevert(Queue.QueueEmpty.selector);
-        l1Bridge.popSentMessage();
+        vm.expectRevert(IL1FluentBridge.SentMessageQueueEmpty.selector);
+        l1Bridge.consumeNextSentMessage();
     }
 
-    function test_RevertIf_popSentMessage_callerNotRollup() public {
+    function test_RevertIf_consumeNextSentMessage_callerNotRollup() public {
         vm.prank(nonRollup);
         vm.expectRevert(IL1FluentBridge.OnlyRollup.selector);
-        l1Bridge.popSentMessage();
+        l1Bridge.consumeNextSentMessage();
+    }
+
+    function test_consumeNextSentMessage_advancesCursor() public {
+        l1Bridge.sendMessage(receiver, hex"01");
+        l1Bridge.sendMessage(receiver, hex"02");
+
+        assertEq(l1Bridge.getSentMessageCursor(), 0);
+        assertEq(l1Bridge.getSentMessageQueueSize(), 2);
+
+        vm.prank(address(rollup));
+        l1Bridge.consumeNextSentMessage();
+        assertEq(l1Bridge.getSentMessageCursor(), 1);
+        assertEq(l1Bridge.getSentMessageQueueSize(), 1);
+
+        vm.prank(address(rollup));
+        l1Bridge.consumeNextSentMessage();
+        assertEq(l1Bridge.getSentMessageCursor(), 2);
+        assertEq(l1Bridge.getSentMessageQueueSize(), 0);
+    }
+
+    function test_rewindSentMessageCursor_movesCursorBackward() public {
+        l1Bridge.sendMessage(receiver, hex"01");
+        l1Bridge.sendMessage(receiver, hex"02");
+
+        vm.prank(address(rollup));
+        bytes32 first = l1Bridge.consumeNextSentMessage();
+        vm.prank(address(rollup));
+        bytes32 second = l1Bridge.consumeNextSentMessage();
+
+        assertEq(l1Bridge.getSentMessageCursor(), 2);
+
+        vm.prank(address(rollup));
+        l1Bridge.rewindSentMessageCursor(0);
+
+        assertEq(l1Bridge.getSentMessageCursor(), 0);
+        assertEq(l1Bridge.getSentMessageQueueSize(), 2);
+
+        // Re-consume returns the same hashes
+        vm.prank(address(rollup));
+        assertEq(l1Bridge.consumeNextSentMessage(), first, "re-consumed first");
+        vm.prank(address(rollup));
+        assertEq(l1Bridge.consumeNextSentMessage(), second, "re-consumed second");
+    }
+
+    function test_RevertIf_rewindSentMessageCursor_targetGreaterThanCurrent() public {
+        l1Bridge.sendMessage(receiver, hex"01");
+        vm.prank(address(rollup));
+        l1Bridge.consumeNextSentMessage();
+        // currentFront = 1
+        vm.prank(address(rollup));
+        vm.expectRevert(abi.encodeWithSelector(IL1FluentBridge.InvalidRewindTarget.selector, uint256(2), uint256(1)));
+        l1Bridge.rewindSentMessageCursor(2);
+    }
+
+    function test_RevertIf_rewindSentMessageCursor_callerNotRollup() public {
+        vm.prank(nonRollup);
+        vm.expectRevert(IL1FluentBridge.OnlyRollup.selector);
+        l1Bridge.rewindSentMessageCursor(0);
     }
 
     function test_RevertIf_setRollup_queueNotEmpty() public {

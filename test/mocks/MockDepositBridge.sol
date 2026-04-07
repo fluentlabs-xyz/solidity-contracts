@@ -1,47 +1,44 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
-/// @dev Simulates L1FluentBridge.popSentMessage() / pushSentMessage() for testing
-///      deposit processing in Rollup._checkDeposits() and deposit restoration in
-///      Rollup._cleanupForceRevertBatch(). Uses a mapping-backed FIFO with front/back
-///      cursors to mirror the real Queue library semantics (including safe pushFront
-///      into slots previously cleared by pop).
+/// @dev Simulates {L1FluentBridge.consumeNextSentMessage} / {rewindSentMessageCursor}
+///      / {getSentMessageCursor} for testing deposit processing in {Rollup._checkDeposits}
+///      and the cursor-rewind path in {Rollup.forceRevertBatch}.
 contract MockDepositBridge {
-    struct Deposit {
-        bytes32 id;
-        uint256 blockNumber;
-    }
-
-    mapping(uint256 => Deposit) internal _q;
+    mapping(uint256 => bytes32) internal _hashes;
     uint256 internal _front;
     uint256 internal _back;
 
-    function enqueue(bytes32 id, uint256 blockNumber) external {
-        _q[_back] = Deposit(id, blockNumber);
-        _back++;
+    function enqueue(bytes32 hash) external {
+        _hashes[_back] = hash;
+        unchecked {
+            ++_back;
+        }
     }
 
-    function popSentMessage() external returns (bytes32, uint256) {
+    function consumeNextSentMessage() external returns (bytes32) {
         require(_front < _back, "queue empty");
-        Deposit memory d = _q[_front];
-        delete _q[_front];
-        _front++;
-        return (d.id, d.blockNumber);
+        bytes32 h = _hashes[_front];
+        unchecked {
+            ++_front;
+        }
+        return h;
     }
 
-    /// @dev Restores `messageHash` at the front of the queue with the current block
-    ///      number, mirroring Queue.pushFront semantics. Safe only when called for
-    ///      previously popped items (so _front > 0).
-    function pushSentMessage(bytes32 messageHash) external {
-        require(_front > 0, "queue front underflow");
-        _front--;
-        _q[_front] = Deposit(messageHash, block.number);
+    function rewindSentMessageCursor(uint256 newFront) external {
+        require(newFront <= _front, "invalid rewind");
+        _front = newFront;
     }
 
-    function queueSize() external view returns (uint256) {
+    function getSentMessageCursor() external view returns (uint256) {
+        return _front;
+    }
+
+    function getSentMessageQueueSize() external view returns (uint256) {
         return _back - _front;
     }
 
+    /// @dev Test helper used by {DepositsTest} to assert "all deposits consumed".
     function poppedCount() external view returns (uint256) {
         return _front;
     }

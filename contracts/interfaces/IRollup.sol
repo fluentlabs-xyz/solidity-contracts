@@ -28,16 +28,16 @@ interface IRollupErrors {
     error DepositRootMismatch(bytes32 blockHash);
 
     /**
-     * @notice L1 deposit was not consumed within the allowed window.
-     * @dev selector: 0x420ef0bc
-     */
-    error AcceptDepositDeadlineExceeded(uint256 deadline, uint256 currentBlock);
-
-    /**
      * @notice Batch has already been finalized and cannot be modified.
      * @dev selector: 0xa99bd781
      */
     error BatchAlreadyFinalized(uint256 batchIndex);
+
+    /**
+     * @notice Sent-message cursor would not fit into the uint64 BatchRecord field.
+     * @dev selector: 0xfe82d60f
+     */
+    error SentMessageCursorOverflow();
 
     /**
      * @notice Block commitment has already been proven.
@@ -278,11 +278,6 @@ interface IRollupEvents {
     event GasLeftUpdated(uint32 previousGasLeft, uint32 newGasLeft);
 
     /**
-     * @notice Emitted when the accept deposit deadline is updated.
-     */
-    event AcceptDepositDeadlineUpdated(uint32 previousAcceptDepositDeadline, uint32 newAcceptDepositDeadline);
-
-    /**
      * @notice Emitted when the submit blobs window is updated.
      */
     event SubmitBlobsWindowUpdated(uint64 previousSubmitBlobsWindow, uint64 newSubmitBlobsWindow);
@@ -416,11 +411,6 @@ interface IRollupConfig {
     function incentiveFee() external view returns (uint256);
 
     /**
-     * @notice Max L1 blocks between L1 deposit and L2 block acceptance.
-     */
-    function acceptDepositDeadline() external view returns (uint256);
-
-    /**
      * @notice Max L1 blocks after batch acceptance for blob submission.
      */
     function submitBlobsWindow() external view returns (uint256);
@@ -511,11 +501,6 @@ interface IRollupRead {
      * @notice Returns commitments of blocks that have been proven in a batch.
      */
     function batchProvenBlocks(uint256 batchIndex) external view returns (bytes32[] memory);
-
-    /**
-     * @notice Returns deposit message hashes consumed during acceptance of a batch, in the order they were popped from the bridge queue.
-     */
-    function batchDepositIds(uint256 batchIndex) external view returns (bytes32[] memory);
 
     /**
      * @notice Returns true if a block commitment has been proven.
@@ -663,11 +648,6 @@ interface IRollupAdmin {
      * @notice Set minimum gas threshold per block header iteration in acceptNextBatch.
      */
     function setGasLeft(uint32 newGasLeft) external;
-
-    /**
-     * @notice Set the maximum L1 blocks between deposit creation and batch inclusion.
-     */
-    function setAcceptDepositDeadline(uint32 newAcceptDepositDeadline) external;
 
     /**
      * @notice Set the maximum L1 blocks after batch acceptance for batch blob submission.

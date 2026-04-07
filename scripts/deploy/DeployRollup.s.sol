@@ -65,7 +65,6 @@ contract DeployRollup is Script {
         // ─── Economic parameters ───
         params.challengeDepositAmount = vm.envOr("ROLLUP_CHALLENGE_DEPOSIT_AMOUNT", uint256(0.01 ether));
         params.incentiveFee = vm.envOr("ROLLUP_INCENTIVE_FEE", uint256(0.001 ether));
-        params.acceptDepositDeadline = vm.envOr("ROLLUP_ACCEPT_DEPOSIT_DEADLINE", uint256(10_000));
 
         string memory outputPath = vm.envOr("ROLLUP_OUTPUT_PATH", string(""));
 

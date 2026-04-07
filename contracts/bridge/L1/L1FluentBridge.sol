@@ -5,7 +5,6 @@ import {FluentBridge} from "../FluentBridge.sol";
 import {Rollup} from "../../rollup/Rollup.sol";
 
 import {MerkleTree} from "../../libraries/MerkleTree.sol";
-import {Queue} from "../../libraries/Queue.sol";
 import {ExcessivelySafeCall} from "../../libraries/ExcessivelySafeCall.sol";
 
 import {L2BlockHeader} from "../../interfaces/IRollupTypes.sol";
@@ -30,8 +29,15 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         mapping(bytes32 => IFluentBridge.MessageStatus) _rollbackMessages;
         /// @dev Rollup contract used for batch finalization and proof verification.
         Rollup _rollup;
-        /// @dev FIFO queue of sent messages consumed by the rollup during batch acceptance.
-        Queue.QueueStorage _sentMessageQueue;
+        /// @dev Append-only mapping of sent message hashes indexed by sequence number.
+        ///      The rollup consumes them in order during {Rollup-acceptNextBatch} via
+        ///      {consumeNextSentMessage}; consumed slots are NOT deleted, only the cursor advances.
+        mapping(uint256 => bytes32) _sentMessageHashes;
+        /// @dev Index of the next slot the bridge will write on send (sequence high water mark).
+        uint256 _sentMessageBack;
+        /// @dev Index of the next slot the rollup will consume; advances on consume,
+        ///      moves backward on {rewindSentMessageCursor} during {Rollup-forceRevertBatch}.
+        uint256 _sentMessageFront;
         /// @dev Reserved for future storage fields.
         uint256[50] __gap;
     }
@@ -77,8 +83,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
 
         // Bind the rollup contract used for finalization and proof verification
         _setRollup(newRollup);
-        // Prepare the FIFO queue that the rollup drains during batch acceptance
-        Queue.initialize(_getL1FluentBridgeStorage()._sentMessageQueue);
+        // Sent-message cursors are zero-initialized by default — no explicit init required
     }
 
     // ============ Send hooks ============
@@ -100,11 +105,14 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     }
 
     /// @inheritdoc FluentBridge
-    /// @dev Enqueues the message hash into the sent-message queue for rollup consumption.
+    /// @dev Records the message hash in the sent-message storage and advances the back cursor.
     function _afterSendMessage(bytes32 messageHash) internal override {
-        // Enqueue the hash so the rollup can consume it during batch acceptance
-        // The queue preserves FIFO ordering to match the deposit root construction
-        Queue.enqueue(_getL1FluentBridgeStorage()._sentMessageQueue, messageHash);
+        L1FluentBridgeStorage storage $ = _getL1FluentBridgeStorage();
+        // Append at the current back position; cursor advances to the next free slot
+        $._sentMessageHashes[$._sentMessageBack] = messageHash;
+        unchecked {
+            ++$._sentMessageBack;
+        }
     }
 
     // ============ Receive with proof ============
@@ -266,22 +274,29 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         emit ReceivedMessageRollback(messageHash, success, data);
     }
 
-    // ============ Queue ============
+    // ============ Sent-message cursor ============
 
     /// @inheritdoc IL1FluentBridge
-    function popSentMessage() public onlyRollup returns (bytes32, uint256) {
-        // Dequeue the oldest message hash — rollup consumes these during batch acceptance
-        // to build the deposit root that binds L1→L2 messages to a specific batch
-        Queue.QueueItem memory item = Queue.dequeue(_getL1FluentBridgeStorage()._sentMessageQueue);
-        return (item.value, item.blockNumber);
+    function consumeNextSentMessage() public onlyRollup returns (bytes32 hash) {
+        L1FluentBridgeStorage storage $ = _getL1FluentBridgeStorage();
+        // Reverts when the rollup tries to consume more deposits than have been sent
+        require($._sentMessageFront < $._sentMessageBack, SentMessageQueueEmpty());
+        hash = $._sentMessageHashes[$._sentMessageFront];
+        // Persistent semantics: the slot is NOT deleted — only the cursor advances.
+        // {Rollup-forceRevertBatch} relies on this to rewind without re-sending the data.
+        unchecked {
+            ++$._sentMessageFront;
+        }
     }
 
     /// @inheritdoc IL1FluentBridge
-    function pushSentMessage(bytes32 messageHash) public onlyRollup {
-        // Restore at the front of the queue so sequencer-side matching (which walks
-        // L2 ReceivedMessage events against queue entries in FIFO order) still succeeds
-        // after the rollup re-submits the previously-reverted L2 blocks.
-        Queue.pushFront(_getL1FluentBridgeStorage()._sentMessageQueue, messageHash);
+    function rewindSentMessageCursor(uint256 newFront) public onlyRollup {
+        L1FluentBridgeStorage storage $ = _getL1FluentBridgeStorage();
+        // Monotonically backward only — the rollup is responsible for ensuring the
+        // target stays at or above any finalized boundary, since finalized batches
+        // cannot be reverted by {Rollup-forceRevertBatch}.
+        require(newFront <= $._sentMessageFront, InvalidRewindTarget(newFront, $._sentMessageFront));
+        $._sentMessageFront = newFront;
     }
 
     // ============ Views ============
@@ -294,8 +309,16 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
 
     /// @inheritdoc IL1FluentBridge
     function getSentMessageQueueSize() public view returns (uint256) {
+        L1FluentBridgeStorage storage $ = _getL1FluentBridgeStorage();
         // Number of L1→L2 messages waiting to be consumed by the rollup
-        return Queue.size(_getL1FluentBridgeStorage()._sentMessageQueue);
+        return $._sentMessageBack - $._sentMessageFront;
+    }
+
+    /// @inheritdoc IL1FluentBridge
+    function getSentMessageCursor() public view returns (uint256) {
+        // Current consume cursor — the rollup snapshots this at acceptNextBatch
+        // and rewinds to a saved snapshot during forceRevertBatch
+        return _getL1FluentBridgeStorage()._sentMessageFront;
     }
 
     /// @inheritdoc IL1FluentBridge
@@ -321,7 +344,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         require(newRollup != address(0), ZeroAddressNotAllowed("rollup"));
         // Changing the rollup while messages are queued would orphan them
         // because the new rollup would not know about pending messages
-        require(Queue.size($._sentMessageQueue) == 0, QueueNotEmpty());
+        require($._sentMessageBack == $._sentMessageFront, QueueNotEmpty());
         // Emit old and new addresses for off-chain monitoring before writing
         emit RollupUpdated(getRollup(), newRollup);
         // Store the typed Rollup reference to avoid casting on every call

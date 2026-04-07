@@ -51,6 +51,16 @@ interface IL1FluentBridge {
      * @dev selector: 0x83f48206
      */
     error QueueNotEmpty();
+    /**
+     * @notice Sent-message cursor cannot advance — no unconsumed messages remain.
+     * @dev selector: 0x4875ecb8
+     */
+    error SentMessageQueueEmpty();
+    /**
+     * @notice Rewind target is greater than the current sent-message consume cursor.
+     * @dev selector: 0x3df1aff3
+     */
+    error InvalidRewindTarget(uint256 newFront, uint256 currentFront);
     // ========== Events ==========
 
     /**
@@ -79,19 +89,22 @@ interface IL1FluentBridge {
      */
     function getRollbackMessage(bytes32 key) external view returns (IFluentBridge.MessageStatus);
     /**
-     * @notice Dequeues the next sent message hash for rollup processing. Callable only by the rollup contract.
-     * @return messageHash The next message hash in the queue.
-     * @return blockNumber The block number when the message was sent and enqueued.
+     * @notice Reads the next sent-message hash for rollup consumption and advances the consume cursor.
+     *         Callable only by the rollup contract.
+     * @dev Persistent semantics: the underlying slot is not deleted, only the cursor moves forward.
+     *      This allows {rewindSentMessageCursor} to undo a consume without re-sending the hash.
+     * @return hash The next message hash in send order.
      */
-    function popSentMessage() external returns (bytes32, uint256);
+    function consumeNextSentMessage() external returns (bytes32 hash);
 
     /**
-     * @notice Re-enqueues a message hash at the front of the sent-message queue. Callable only by the rollup contract.
-     * @dev Used during {Rollup-forceRevertBatch} to restore deposits that were consumed by a batch which is being reverted.
-     *      The restored entry receives a fresh block number so the freshness deadline is reset.
-     * @param messageHash The message hash to restore.
+     * @notice Moves the sent-message consume cursor backward to `newFront`. Callable only by the rollup contract.
+     * @dev Used during {Rollup-forceRevertBatch} to undo all consumes that belonged to reverted batches.
+     *      The rollup is responsible for ensuring `newFront` does not cross any finalized batch boundary —
+     *      `forceRevertBatch` already prevents reverting finalized batches, so this is upheld by construction.
+     * @param newFront New consume cursor value. Must be `<=` the current cursor.
      */
-    function pushSentMessage(bytes32 messageHash) external;
+    function rewindSentMessageCursor(uint256 newFront) external;
 
     /**
      * @notice Receives and executes a message with Merkle proofs (L1 only; messages from L2 to L1).
@@ -151,8 +164,15 @@ interface IL1FluentBridge {
     ) external;
 
     /**
-     * @notice Number of messages in the L1 sent-message queue awaiting rollup consumption.
-     * @return The current queue depth.
+     * @notice Number of L1→L2 messages waiting to be consumed by the rollup.
+     * @return The number of unconsumed messages: `back - front`.
      */
     function getSentMessageQueueSize() external view returns (uint256);
+
+    /**
+     * @notice Current sent-message consume cursor (the index of the next message the rollup will consume).
+     * @dev The rollup snapshots this value at the start of {Rollup-acceptNextBatch} and rewinds to it
+     *      during {Rollup-forceRevertBatch}.
+     */
+    function getSentMessageCursor() external view returns (uint256);
 }

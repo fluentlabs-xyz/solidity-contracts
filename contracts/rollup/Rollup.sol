@@ -128,10 +128,21 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         // Cache the per-challenge incentive fee to avoid repeated storage reads in the loop
         uint256 fee = $._incentiveFee;
 
-        // Process each batch in reverse order: refund challengers and wipe batch storage
-        for (uint256 i = lastAcceptedBatchIndex; i > toBatchIndex; i--) {
-            totalIncentiveFees += _processForceRevertChallenged($._batchChallengedBlocks[i], fee);
-            _cleanupForceRevertBatch(i);
+        // Only rewind the bridge cursor when there is at least one batch in the revert range.
+        // Capturing the snapshot before the cleanup loop deletes the BatchRecord.
+        if (lastAcceptedBatchIndex > toBatchIndex) {
+            uint256 rewindTarget = uint256($._batches[toBatchIndex + 1].sentMessageCursorStart);
+
+            // Process each batch in reverse order: refund challengers and wipe batch storage
+            for (uint256 i = lastAcceptedBatchIndex; i > toBatchIndex; i--) {
+                totalIncentiveFees += _processForceRevertChallenged($._batchChallengedBlocks[i], fee);
+                _cleanupForceRevertBatch(i);
+            }
+
+            // Single bridge call to rewind the consume cursor — replaces the per-deposit
+            // pushSentMessage loop that the previous fix used. Safe under nonReentrant
+            // (forceRevertBatch is nonReentrant) and against the trusted bridge.
+            IL1FluentBridge($._bridge).rewindSentMessageCursor(rewindTarget); // wake-disable-line reentrancy
         }
 
         // Caller must send enough ETH to cover all incentive fees owed to challengers
@@ -145,7 +156,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         // Refund any overpayment back to the caller (underflow safe: require on L115 guarantees msg.value >= totalIncentiveFees)
         uint256 refund = msg.value - totalIncentiveFees;
         if (refund > 0) {
-            (bool ok,) = msg.sender.call{value: refund}("");
+            (bool ok, ) = msg.sender.call{value: refund}("");
             require(ok, EthTransferFailed(msg.sender, refund));
         }
 
@@ -187,34 +198,20 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
     }
 
     /**
-     * @dev Deletes all storage associated with `batchIndex` during force-revert and restores
-     *      the deposits that were popped by this batch back to the front of the bridge queue.
+     * @dev Deletes all storage associated with `batchIndex` during force-revert: blob hashes,
+     *      challenged blocks, proven blocks, batch record, and last block hash.
      *
-     *      Restoration order matters: {forceRevertBatch}'s outer loop processes batches
-     *      newest-to-oldest. Within each batch we iterate popped deposits in reverse so each
-     *      `pushSentMessage` places the item at the new front. Combined, the final queue
-     *      state has the deposits in their original nonce-ascending order — which the
-     *      off-chain sequencer requires to re-match its L2 ReceivedMessage events.
-     *
-     *      External call to the bridge is safe here: {forceRevertBatch} holds the
-     *      nonReentrant guard, and the bridge is trusted.
+     *      Bridge cursor rewind happens once at the end of {forceRevertBatch}, not per-batch,
+     *      so this function no longer touches the bridge.
      */
     function _cleanupForceRevertBatch(uint256 batchIndex) internal {
         RollupStorage storage $ = _getRollupStorage();
-        // Restore deposits in reverse so the final queue order matches the original pop order.
-        bytes32[] storage depositIds = $._batchDepositIds[batchIndex];
-        uint256 depositCount = depositIds.length;
-        address bridgeAddr = $._bridge;
-        for (uint256 i = depositCount; i > 0; --i) {
-            IL1FluentBridge(bridgeAddr).pushSentMessage(depositIds[i - 1]); // wake-disable-line reentrancy
-        }
         // Delete all storage slots associated with this batch to reclaim gas
         // and ensure reverted batches leave no residual state
         delete $._batches[batchIndex];
         delete $._batchProvenBlocks[batchIndex];
         delete $._batchChallengedBlocks[batchIndex];
         delete $._batchBlobHashes[batchIndex];
-        delete $._batchDepositIds[batchIndex];
         // Remove the chain-linkage hash so re-submitted batches don't collide
         delete $._lastBlockHashInBatch[batchIndex];
     }
@@ -267,6 +264,11 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         // Build the Merkle root from all block header commitments — used for proofs later
         bytes32 batchRoot = _calculateBatchRoot(blockHeaders);
 
+        // --- Checks (last): snapshot the bridge consume cursor as part of the checks phase
+        //     so all state writes below sit between the read and the consume loop. ---
+        uint256 cursorBefore = IL1FluentBridge($._bridge).getSentMessageCursor(); // wake-disable-line reentrancy
+        require(cursorBefore <= type(uint64).max, SentMessageCursorOverflow());
+
         // --- Effects: write all storage before any external calls (CEI pattern) ---
         BatchRecord storage batch = $._batches[batchIndex];
         batch.batchRoot = batchRoot;
@@ -279,6 +281,11 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         batch.expectedBlobs = uint32(expectedBlobsCount);
         // Initial status: blobs have not been submitted yet
         batch.status = BatchStatus.HeadersSubmitted;
+        // {forceRevertBatch} reads this back via {BatchRecord-sentMessageCursorStart}
+        // and rewinds the bridge cursor to it if this batch is reverted.
+        // casting to 'uint64' is safe because we validate the bounds above.
+        // forge-lint: disable-next-line(unsafe-typecast)
+        batch.sentMessageCursorStart = uint64(cursorBefore);
         // Persist the last block hash for chain-linkage with the next batch
         $._lastBlockHashInBatch[batchIndex] = blockHeaders[batchSize - 1].blockHash;
         // Overflow protection: _nextBatchIndex is uint96, ensure increment stays in range
@@ -291,7 +298,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         // Pop deposits from the L1 bridge queue and verify they match the header's depositRoot
         for (uint256 i = 0; i < batchSize; ++i) {
             // Only check blocks that claim deposits — skip blocks with empty deposit roots
-            if (blockHeaders[i].depositRoot != ZERO_BYTES_HASH) _checkDeposits(batchIndex, blockHeaders[i]);
+            if (blockHeaders[i].depositRoot != ZERO_BYTES_HASH) _checkDeposits(blockHeaders[i]);
         }
 
         // Notify indexers of the new batch — includes the Merkle root for off-chain verification
@@ -721,29 +728,18 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
     // ============ Internal — helpers ============
 
     /**
-     * @dev Verifies that L1 deposits match the depositRoot in the block header and records
-     *      the popped deposit IDs against `batchIndex` so they can be restored by
-     *      {_cleanupForceRevertBatch} on force-revert.
+     * @dev Verifies that L1 deposits match the depositRoot in the block header.
      *      Called after all state writes in acceptNextBatch (CEI pattern) and within
      *      a nonReentrant guard — reentrancy warning is a false positive.
      */
-    function _checkDeposits(uint256 batchIndex, L2BlockHeader calldata header) private {
+    function _checkDeposits(L2BlockHeader calldata header) private {
         RollupStorage storage $ = _getRollupStorage();
-        // Cache the deposit freshness deadline to avoid repeated storage reads in the loop
-        uint256 deadline = $._acceptDepositDeadline;
         // Allocate in-memory array for the root verification at the end of the loop
         bytes32[] memory depositIds = new bytes32[](header.depositCount);
-        // Storage array to append popped IDs for force-revert restoration
-        bytes32[] storage persisted = $._batchDepositIds[batchIndex];
         for (uint256 i = 0; i < header.depositCount; ++i) {
-            // External call to the bridge: pops the next deposit from the FIFO queue
+            // External call to the bridge: advances the consume cursor and returns the next hash.
             // Called after all state writes in acceptNextBatch (CEI) under nonReentrant guard
-            (bytes32 depositId, uint256 depositBlockNumber) = IL1FluentBridge($._bridge).popSentMessage(); // wake-disable-line reentrancy
-            // Ensure the deposit is not stale — prevents sequencers from including very old deposits
-            require(block.number <= depositBlockNumber + deadline, AcceptDepositDeadlineExceeded(depositBlockNumber + deadline, block.number));
-            depositIds[i] = depositId;
-            // Persist so force-revert can restore this exact hash back to the queue front
-            persisted.push(depositId);
+            depositIds[i] = IL1FluentBridge($._bridge).consumeNextSentMessage(); // wake-disable-line reentrancy
         }
         // Final integrity check: the hash of all popped deposit IDs must match the header's
         // depositRoot — ensures the sequencer included exactly these deposits in the L2 block

@@ -81,7 +81,6 @@ abstract contract BaseDeployNative is Test {
         cfg.challengeDepositAmount = 1 ether;
         cfg.challengeWindow = 0;
         cfg.finalizationDelay = FINALIZATION_DELAY;
-        cfg.acceptDepositDeadline = 1000;
         cfg.incentiveFee = 0;
         cfg.submitBlobsWindow = 0;
         cfg.preconfirmWindow = 1;
@@ -205,7 +204,6 @@ abstract contract BaseDeployERC20 is Test {
         cfg.challengeDepositAmount = 1 ether;
         cfg.challengeWindow = 0;
         cfg.finalizationDelay = FINALIZATION_DELAY;
-        cfg.acceptDepositDeadline = 1000;
         cfg.incentiveFee = 0;
         cfg.submitBlobsWindow = 0;
         cfg.preconfirmWindow = 1;

@@ -22,7 +22,7 @@ contract DepositsTest is RollupAssertions {
     function setUp() public override {
         depositsBridge = new MockDepositBridge();
         for (uint256 i = 0; i < 3; i++) {
-            depositsBridge.enqueue(_depositIds[i], block.number);
+            depositsBridge.enqueue(_depositIds[i]);
         }
         bridgeAddr = address(depositsBridge);
         nitroVerifier = new MockNitroVerifier();

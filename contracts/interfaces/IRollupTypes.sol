@@ -43,12 +43,17 @@ struct L2BlockHeader {
 struct BatchRecord {
     /// @dev Merkle root of L2 block headers for this batch.
     bytes32 batchRoot;
+    // ─── Slot 2: 8 + 4 + 1 + 8 = 21 bytes used, 11 bytes free ───
     /// @dev L1 block number recorded when {IRollupWrite-acceptNextBatch} is called (status becomes HeadersSubmitted).
     uint64 acceptedAtBlock;
     /// @dev Number of blobs the sequencer committed to at acceptance time.
     uint32 expectedBlobs;
     /// @dev Current lifecycle state of this batch.
     BatchStatus status;
+    /// @dev Snapshot of {L1FluentBridge-getSentMessageCursor} at the start of acceptance.
+    ///      Used by {Rollup-forceRevertBatch} to rewind the bridge consume cursor exactly
+    ///      to the position it held before this batch consumed any deposits.
+    uint64 sentMessageCursorStart;
 }
 
 /**
@@ -101,8 +106,6 @@ struct InitConfiguration {
     uint256 challengeWindow;
     /// @dev Minimum L1 blocks after acceptance before finalization
     uint256 finalizationDelay;
-    /// @dev Max L1 blocks between deposit creation and batch inclusion
-    uint256 acceptDepositDeadline;
     /// @dev ETH reward paid to challengers during force revert
     uint256 incentiveFee;
     /// @dev Max L1 blocks after acceptance for blob submission; 0 = disabled

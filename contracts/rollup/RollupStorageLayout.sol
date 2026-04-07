@@ -136,23 +136,15 @@ contract RollupStorageLayout is
          * @dev ETH reward paid to challengers during force revert (on top of deposit refund)
          */
         uint256 _incentiveFee;
-        // ─── Slot 7: uint64(8) + uint64(8) + uint32(4) + uint32(4) + uint32(4) = 28 bytes ───
+        // ─── Slot 7: uint64(8) + uint32(4) + uint32(4) = 16 bytes used, 16 bytes free ───
         /**
          * @dev highest batch index with Finalized status; enforces sequential finalization
          */
         uint64 _lastFinalizedBatchIndex;
         /**
-         * @dev Reserved for future deposit-tracking upgrades. Kept in storage to avoid layout churn.
-         */
-        uint64 _lastDepositAcceptedBlockNumber;
-        /**
          * @dev minimum gasleft() required per block header iteration in acceptNextBatch
          */
         uint32 _gasLeft;
-        /**
-         * @dev max L1 blocks between deposit creation and its inclusion in a batch
-         */
-        uint32 _acceptDepositDeadline;
         // ============ Emergency revert pagination ============
         /**
          * @dev Max batch size to prevent OOG during paginated force revert. Should be >= 1.
@@ -215,12 +207,6 @@ contract RollupStorageLayout is
          * @dev whitelist of Nitro enclave verifier contracts allowed for preconfirmation
          */
         mapping(address => bool) _enabledNitroVerifiers;
-        // ============ Deposit tracking for force-revert restoration ============
-        /**
-         * @dev deposit message hashes consumed per batch during acceptNextBatch; restored to
-         *      the bridge queue on force-revert via {L1FluentBridge-pushSentMessage}
-         */
-        mapping(uint256 => bytes32[]) _batchDepositIds;
         // ============ Upgrade gap ============
         /// @dev Reserved storage slots for future upgrades.
         uint256[25] __gap;
@@ -244,7 +230,6 @@ contract RollupStorageLayout is
         require(params.preconfirmWindow <= type(uint64).max, InvalidWindowConfig("preconfirmWindow out of range"));
         require(params.challengeWindow <= type(uint64).max, InvalidWindowConfig("challengeWindow out of range"));
         require(params.finalizationDelay <= type(uint64).max, InvalidWindowConfig("finalizationDelay out of range"));
-        require(params.acceptDepositDeadline <= type(uint32).max, InvalidWindowConfig("acceptDepositDeadline out of range"));
         require(params.maxForceRevertBatchSize <= type(uint32).max, InvalidWindowConfig("maxForceRevertBatchSize out of range"));
         // preconfirmation must happen after blob submission completes (when both are enabled)
         if (params.submitBlobsWindow != 0 && params.preconfirmWindow != 0) {
@@ -258,8 +243,6 @@ contract RollupStorageLayout is
         require(params.challengeWindow < params.finalizationDelay, InvalidWindowConfig("challengeWindow must be less than finalizationDelay"));
         _setChallengeWindow(uint64(params.challengeWindow));
         _setFinalizationDelay(uint64(params.finalizationDelay));
-
-        _setAcceptDepositDeadline(uint32(params.acceptDepositDeadline));
 
         // ─── Role setup ───
         // admin is the only required address; other roles fall back to admin if unset
@@ -342,12 +325,6 @@ contract RollupStorageLayout is
     function incentiveFee() public view returns (uint256) {
         // bonus ETH paid on top of deposit refund during force revert
         return _getRollupStorage()._incentiveFee;
-    }
-
-    /// @inheritdoc IRollupConfig
-    function acceptDepositDeadline() public view returns (uint256) {
-        // widened to uint256; stored as uint32 since L1 block counts fit in 32 bits
-        return uint256(_getRollupStorage()._acceptDepositDeadline);
     }
 
     /// @inheritdoc IRollupConfig
@@ -437,11 +414,6 @@ contract RollupStorageLayout is
     /// @inheritdoc IRollupRead
     function batchProvenBlocks(uint256 batchIndex) public view returns (bytes32[] memory) {
         return _getRollupStorage()._batchProvenBlocks[batchIndex];
-    }
-
-    /// @inheritdoc IRollupRead
-    function batchDepositIds(uint256 batchIndex) public view returns (bytes32[] memory) {
-        return _getRollupStorage()._batchDepositIds[batchIndex];
     }
 
     /// @inheritdoc IRollupRead
@@ -549,20 +521,6 @@ contract RollupStorageLayout is
         require(newGasLeft != 0, ZeroValueNotAllowed("gasLeft"));
         emit GasLeftUpdated($._gasLeft, newGasLeft);
         $._gasLeft = newGasLeft;
-    }
-
-    /// @inheritdoc IRollupAdmin
-    function setAcceptDepositDeadline(uint32 newAcceptDepositDeadline) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        _setAcceptDepositDeadline(newAcceptDepositDeadline);
-    }
-
-    /** @dev Stores the deposit acceptance deadline in L1 blocks. */
-    function _setAcceptDepositDeadline(uint32 newAcceptDepositDeadline) internal {
-        RollupStorage storage $ = _getRollupStorage();
-        // zero deadline would allow deposits to remain unincluded indefinitely
-        require(newAcceptDepositDeadline != 0, ZeroValueNotAllowed("acceptDepositDeadline"));
-        emit AcceptDepositDeadlineUpdated($._acceptDepositDeadline, newAcceptDepositDeadline);
-        $._acceptDepositDeadline = newAcceptDepositDeadline;
     }
 
     /// @inheritdoc IRollupAdmin
