@@ -133,7 +133,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         // Only rewind the bridge cursor when there is at least one batch in the revert range.
         // Capturing the snapshot before the cleanup loop deletes the BatchRecord.
         if (lastAcceptedBatchIndex > toBatchIndex) {
-            uint256 rewindTarget = uint256($._batches[toBatchIndex + 1].sentMessageCursorStart);
+            uint64 rewindTarget = $._batches[toBatchIndex + 1].sentMessageCursorStart;
 
             // Process each batch in reverse order: refund challengers and wipe batch storage
             for (uint256 i = lastAcceptedBatchIndex; i > toBatchIndex; i--) {
@@ -765,7 +765,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
             }
         }
 
-        IL1FluentBridge($._bridge).advanceSentMessageCursor(header.depositCount); // wake-disable-line reentrancy
+        IL1FluentBridge($._bridge).advanceSentMessageCursor(uint64(header.depositCount)); // wake-disable-line reentrancy
         // Final integrity check: the hash of all popped deposit IDs must match the header's
         // depositRoot — ensures the sequencer included exactly these deposits in the L2 block
         require(keccak256(abi.encodePacked(depositIds)) == header.depositRoot, DepositRootMismatch(header.blockHash));
