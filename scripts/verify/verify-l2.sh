@@ -9,7 +9,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-cd "$PROJECT_ROOT"
+#cd "$PROJECT_ROOT"
 
 if [[ -f .env ]]; then set -a; source .env; set +a; fi
 
@@ -17,7 +17,7 @@ ENV="${ENV:-testnet}"
 MANIFEST="deployments/${ENV}/l2.json"
 CONFIG="scripts/config/${ENV}/l2.json"
 RPC="${L2_RPC:?L2_RPC required}"
-VERIFIER_URL="${VERIFIER_URL:-https://testnet.fluentscan.xyz/api}"
+VERIFIER_URL="${VERIFIER_URL:-https://fluentscan.xyz/api}"
 
 [ -f "$MANIFEST" ] || { echo "$MANIFEST not found"; exit 1; }
 [ -f "$CONFIG" ] || { echo "$CONFIG not found"; exit 1; }

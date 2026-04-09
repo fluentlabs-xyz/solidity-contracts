@@ -56,22 +56,23 @@ contract DeployL2 is DeployL2Bridge, DeployUniversalFactory, DeployERC20Gateway,
         ERC20GatewayResult memory erc20Gw = _deployERC20Gateway(initialOwner, bridge.proxy, factory.factory);
         console2.log("ERC20 Gateway deployed at:", erc20Gw.gateway);
         // ── Phase 2: L2-specific contracts (nonce 7) ──
-        address gasOracle = address(new L1GasOracle(relayerRole));
+        UniversalTokenFactory(factory.factory).setPaymentGateway(erc20Gw.gateway);
         // NativeGateway (nonce 8: impl, nonce 9: proxy)
         NativeGatewayResult memory nativeGw = _deployNativeGateway(initialOwner, bridge.proxy);
         console2.log("Native Gateway deployed at:", nativeGw.gateway);
+        // Gas Oracle: Nonce 10
+        address gasOracle = address(new L1GasOracle(relayerRole));
 
         // ── Phase 3: Configure (nonce 10–14) ──
-        L2FluentBridge l2Bridge = L2FluentBridge(payable(bridge.proxy));
-        l2Bridge.setL1BlockOracle(l1BlockOracle);
-        l2Bridge.setL1GasPriceOracle(gasOracle);
-        l2Bridge.setGasPriceConfig(
-            json.readUint(".bridge.gasPriceConfig.overheadGasPrice"),
-            json.readUint(".bridge.gasPriceConfig.scalarGasPrice"),
-            json.readUint(".bridge.gasPriceConfig.l1GasLimit")
-        );
-        l2Bridge.setFeeTreasury(vm.envOr("FEE_TREASURY", json.readAddress(".bridge.feeTreasury")));
-        UniversalTokenFactory(factory.factory).setPaymentGateway(erc20Gw.gateway);
+//        L2FluentBridge l2Bridge = L2FluentBridge(payable(bridge.proxy));
+//        l2Bridge.setL1BlockOracle(l1BlockOracle);
+//        l2Bridge.setL1GasPriceOracle(gasOracle);
+//        l2Bridge.setGasPriceConfig(
+//            json.readUint(".bridge.gasPriceConfig.overheadGasPrice"),
+//            json.readUint(".bridge.gasPriceConfig.scalarGasPrice"),
+//            json.readUint(".bridge.gasPriceConfig.l1GasLimit")
+//        );
+//        l2Bridge.setFeeTreasury(vm.envOr("FEE_TREASURY", json.readAddress(".bridge.feeTreasury")));
 
         vm.stopBroadcast();
 

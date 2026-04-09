@@ -7,7 +7,7 @@
 /forge-out
 /out
 /forge-cache
-/broadcast
+/broadcast/**/dry-run
 .env
 /coverage
 lcov.info
