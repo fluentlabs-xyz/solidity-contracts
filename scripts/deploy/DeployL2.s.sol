@@ -2,6 +2,7 @@
 pragma solidity 0.8.30;
 
 import {stdJson} from "forge-std/StdJson.sol";
+import {console2} from "forge-std/console2.sol";
 
 import {DeployL2Bridge} from "./DeployL2Bridge.s.sol";
 import {DeployUniversalFactory} from "./DeployUniversalFactory.s.sol";
@@ -41,28 +42,22 @@ contract DeployL2 is DeployL2Bridge, DeployUniversalFactory, DeployERC20Gateway,
 
         // ── Phase 1: Matched contracts (nonce 0–8) ──
         // Bridge with placeholders (nonce 0: impl, nonce 1: proxy)
-        L2BridgeResult memory bridge = _deployL2Bridge(
-            adminRole,
-            pauserRole,
-            relayerRole,
-            address(0x1),
-            address(0x1),
-            address(0x1),
-            adminRole
-        );
+        L2BridgeResult memory bridge = _deployL2Bridge(adminRole, pauserRole, relayerRole, address(0x1), address(0x1), address(0x1), adminRole);
+        console2.log("L2 Bridge deployed at:", bridge.proxy);
 
         // L1BlockOracle — nonce alignment slot (nonce 2)
         address l1BlockOracle = address(new L1BlockOracle(relayerRole));
 
         // UniversalTokenFactory (nonce 3: impl, nonce 4: proxy)
         UniversalFactoryResult memory factory = _deployUniversalFactory(initialOwner);
+        console2.log("Universal Factory deployed at:", factory.factory);
 
         // ERC20Gateway (nonce 5: impl, nonce 6: proxy)
         ERC20GatewayResult memory erc20Gw = _deployERC20Gateway(initialOwner, bridge.proxy, factory.factory);
-
+        console2.log("ERC20 Gateway deployed at:", erc20Gw.gateway);
         // NativeGateway (nonce 7: impl, nonce 8: proxy)
         NativeGatewayResult memory nativeGw = _deployNativeGateway(initialOwner, bridge.proxy);
-
+        console2.log("Native Gateway deployed at:", nativeGw.gateway);
         // ── Phase 2: L2-specific contracts (nonce 9) ──
         address gasOracle = address(new L1GasOracle(relayerRole));
 

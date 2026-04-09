@@ -1,10 +1,10 @@
 {
     "chainId": 11155111,
     "roles": {
-        "initialOwner": "0x216E8270B9887110548F6B70CAAA453f455c2bAf",
-        "admin": "0x216E8270B9887110548F6B70CAAA453f455c2bAf",
-        "pauser": "0x216E8270B9887110548F6B70CAAA453f455c2bAf",
-        "relayer": "0x216E8270B9887110548F6B70CAAA453f455c2bAf"
+        "initialOwner": "0x2514A64E11aC5fa5d996561CF5b80cE56dC992E2",
+        "admin": "0x2514A64E11aC5fa5d996561CF5b80cE56dC992E2",
+        "pauser": "0x2514A64E11aC5fa5d996561CF5b80cE56dC992E2",
+        "relayer": "0x2514A64E11aC5fa5d996561CF5b80cE56dC992E2"
     },
     "bridge": {
         "otherBridge": "0x0000000000000000000000000000000000000001",
@@ -13,11 +13,11 @@
         "executeGasLimit": 1000000
     },
     "rollup": {
-        "sequencer": "0x216E8270B9887110548F6B70CAAA453f455c2bAf",
-        "challenger": "0x216E8270B9887110548F6B70CAAA453f455c2bAf",
-        "prover": "0x216E8270B9887110548F6B70CAAA453f455c2bAf",
-        "emergency": "0x216E8270B9887110548F6B70CAAA453f455c2bAf",
-        "preconfirmation": "0x216E8270B9887110548F6B70CAAA453f455c2bAf",
+        "sequencer": "0x2514A64E11aC5fa5d996561CF5b80cE56dC992E2",
+        "challenger": "0x2514A64E11aC5fa5d996561CF5b80cE56dC992E2",
+        "prover": "0x2514A64E11aC5fa5d996561CF5b80cE56dC992E2",
+        "emergency": "0x2514A64E11aC5fa5d996561CF5b80cE56dC992E2",
+        "preconfirmation": "0x2514A64E11aC5fa5d996561CF5b80cE56dC992E2",
         "sp1Verifier": "0x397A5f7f3dBd538f23DE225B51f532c34448dA9B",
         "programVKey": "0x00e34107e4c5284bd4ecc4269c650671038c1e85d9dacb931b534e984f607334",
         "genesisHash": "0x4fd032b3f5730f5a581b27220bedfda176dc7005072a158eac84c9c4206c9f4e",

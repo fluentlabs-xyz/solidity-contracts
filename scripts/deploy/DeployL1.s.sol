@@ -2,6 +2,7 @@
 pragma solidity 0.8.30;
 
 import {stdJson} from "forge-std/StdJson.sol";
+import {console2} from "forge-std/console2.sol";
 
 import {DeployRollup} from "./DeployRollup.s.sol";
 import {DeployL1Bridge} from "./DeployL1Bridge.s.sol";
@@ -52,38 +53,42 @@ contract DeployL1 is DeployRollup, DeployL1Bridge, DeployERC20Factory, DeployERC
             receiveMessageDeadline,
             depositProcessingWindow
         );
+        console2.log("L1 Bridge deployed at:", bridge.proxy);
 
         // Factory prerequisite: ERC20PeggedToken impl (nonce 2)
         // Factory impl (nonce 3), Factory proxy (nonce 4)
         ERC20FactoryResult memory factory = _deployERC20Factory(initialOwner);
+        console2.log("ERC20 Factory deployed at:", factory.factory);
 
         // ERC20Gateway (nonce 5: impl, nonce 6: proxy)
         ERC20GatewayResult memory erc20Gw = _deployERC20Gateway(initialOwner, bridge.proxy, factory.factory);
-
+        console2.log("ERC20 Gateway deployed at:", erc20Gw.gateway);
         // NativeGateway (nonce 7: impl, nonce 8: proxy)
         NativeGatewayResult memory nativeGw = _deployNativeGateway(initialOwner, bridge.proxy);
+        console2.log("Native Gateway deployed at:", nativeGw.gateway);
+        // Wire factory payment gateway (nonce 9)
+        ERC20TokenFactory(factory.factory).setPaymentGateway(erc20Gw.gateway);
 
-        // ── Phase 2: L1-specific contracts (nonce 9+) ──
-        // NitroVerifier (nonce 9)
-        address nitroVerifier = address(new NitroVerifier(vm.envOr("SP1_VERIFIER", json.readAddress(".rollup.sp1Verifier")), adminRole));
+        // // ── Phase 2: L1-specific contracts (nonce 9+) ──
+        // // NitroVerifier (nonce 9)
+        // address nitroVerifier = address(new NitroVerifier(vm.envOr("SP1_VERIFIER", json.readAddress(".rollup.sp1Verifier")), adminRole));
 
-        // Rollup with real bridge address (nonce 10: impl, nonce 11: proxy)
-        InitConfiguration memory rollupParams = _readRollupParams(json, adminRole, nitroVerifier);
-        rollupParams.bridge = bridge.proxy;
-        RollupResult memory rollup = _deployRollup(rollupParams);
+        // // Rollup with real bridge address (nonce 10: impl, nonce 11: proxy)
+        // InitConfiguration memory rollupParams = _readRollupParams(json, adminRole, nitroVerifier);
+        // rollupParams.bridge = bridge.proxy;
+        // RollupResult memory rollup = _deployRollup(rollupParams);
 
-        // MockERC20Token — testnet only (nonce 12)
-        address mockToken = _deployMock(initialOwner);
+        // // MockERC20Token — testnet only (nonce 12)
+        // address mockToken = _deployMock(initialOwner);
 
         // ── Phase 3: Configure ──
         // Close bridge↔rollup circular dependency (nonce 13)
-        L1FluentBridge(payable(bridge.proxy)).setRollup(rollup.proxy);
+        // L1FluentBridge(payable(bridge.proxy)).setRollup(rollup.proxy);
         // Wire factory payment gateway (nonce 14)
-        ERC20TokenFactory(factory.factory).setPaymentGateway(erc20Gw.gateway);
 
         vm.stopBroadcast();
 
-        _writeL1Manifest(outputPath, nitroVerifier, rollup, bridge, factory, erc20Gw, nativeGw, mockToken);
+        // _writeL1Manifest(outputPath, nitroVerifier, rollup, bridge, factory, erc20Gw, nativeGw, mockToken);
     }
 
     function _deployMock(address initialOwner) internal returns (address) {
