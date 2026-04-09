@@ -21,7 +21,7 @@ import {INativeGateway} from "../interfaces/gateways/INativeGateway.sol";
  *      No gateway-level gas cap is needed.
  * @dev Flows:
  *      1) Source chain: user calls `sendNativeTokens(to, amount)` and ETH is forwarded into
- *         `FluentBridge.sendMessage{value: amount}(otherSide, payload)`.
+ *         `FluentBridge.sendMessage{value: ...}(otherSide, payload)` after a gateway blacklist check.
  *      2) Destination chain: relayer executes bridge delivery; gateway validates origin and transfers ETH to `to`.
  * @dev Admin functions: `rescueNative`.
  */
@@ -43,6 +43,9 @@ contract NativeGateway is GatewayBase, INativeGateway {
     /// @inheritdoc INativeGateway
     function sendNativeTokens(address to) external payable nonReentrant {
         require(to != address(0), InvalidRecipient());
+        address sender = msg.sender;
+        _requireAccountNotBlacklisted(sender);
+        _requireAccountNotBlacklisted(to);
 
         // deduct the bridge relay fee; remainder is the actual bridged amount
         uint256 fee = FluentBridge(getBridgeContract()).getSentMessageFee();
@@ -52,7 +55,7 @@ contract NativeGateway is GatewayBase, INativeGateway {
         // forward full msg.value (amount + fee) so the bridge can retain the fee portion
         FluentBridge(getBridgeContract()).sendMessage{value: msg.value}(
             getOtherSideGateway(),
-            abi.encodeCall(NativeGateway.receiveNativeTokens, (msg.sender, to, amount))
+            abi.encodeCall(NativeGateway.receiveNativeTokens, (sender, to, amount))
         );
     }
 
