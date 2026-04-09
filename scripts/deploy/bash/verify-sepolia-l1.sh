@@ -1,39 +1,34 @@
 #!/usr/bin/env bash
 # Verify all L1 contracts (including proxies) on Sepolia Etherscan.
-# Reads deployments/sepolia-l1-bridge.json and deployments/sepolia-l1-stack.json.
+# Reads deployments/sepolia-l1-bridge.json and deployments/sepolia-l1-bridge.json.
 # Uses: forge verify-contract --watch --chain sepolia <addr> <contract> --verifier etherscan --etherscan-api-key <key>
 # Requires: ETHERSCAN_API_KEY. Optional: INITIAL_OWNER, RELAYER_ADDRESS, etc. (must match deploy).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-cd "$PROJECT_ROOT"
+#cd "$PROJECT_ROOT"
 
 command -v forge >/dev/null || { echo "forge required"; exit 1; }
 command -v cast >/dev/null || { echo "cast required"; exit 1; }
 command -v python3 >/dev/null || { echo "python3 required"; exit 1; }
 
 [ -f deployments/sepolia-l1-bridge.json ] || { echo "deployments/sepolia-l1-bridge.json not found"; exit 1; }
-[ -f deployments/sepolia-l1-stack.json ] || { echo "deployments/sepolia-l1-stack.json not found"; exit 1; }
 [ -n "${ETHERSCAN_API_KEY:-}" ] || { echo "ETHERSCAN_API_KEY required for Etherscan verification"; exit 1; }
 
 read_json_key() {
-  python3 - "$1" "$2" <<'PY'
-import json, sys
-with open(sys.argv[1], "r", encoding="utf-8") as f:
-    print(json.load(f).get(sys.argv[2], "") or "")
-PY
+  cat $1 | jq -r .deployment.$2
 }
 
 BRIDGE_IMPL=$(read_json_key deployments/sepolia-l1-bridge.json bridge_impl)
 BRIDGE=$(read_json_key deployments/sepolia-l1-bridge.json bridge)
-PEGGED_IMPL=$(read_json_key deployments/sepolia-l1-stack.json pegged_impl)
-FACTORY_IMPL=$(read_json_key deployments/sepolia-l1-stack.json factory_impl)
-FACTORY=$(read_json_key deployments/sepolia-l1-stack.json factory)
-BEACON=$(read_json_key deployments/sepolia-l1-stack.json factory_beacon)
-GATEWAY_IMPL=$(read_json_key deployments/sepolia-l1-stack.json gateway_impl)
-GATEWAY=$(read_json_key deployments/sepolia-l1-stack.json gateway)
-MOCK_TOKEN=$(read_json_key deployments/sepolia-l1-stack.json mock_token)
+PEGGED_IMPL=$(read_json_key deployments/sepolia-l1-bridge.json pegged_impl)
+FACTORY_IMPL=$(read_json_key deployments/sepolia-l1-bridge.json factory_impl)
+FACTORY=$(read_json_key deployments/sepolia-l1-bridge.json factory)
+BEACON=$(read_json_key deployments/sepolia-l1-bridge.json factory_beacon)
+GATEWAY_IMPL=$(read_json_key deployments/sepolia-l1-bridge.json gateway_impl)
+GATEWAY=$(read_json_key deployments/sepolia-l1-bridge.json gateway)
+MOCK_TOKEN=$(read_json_key deployments/sepolia-l1-bridge.json mock_token)
 
 DEPLOYER_ADDRESS="${INITIAL_OWNER:-$(cast wallet address --private-key "${PRIVATE_KEY:-}")}"
 INITIAL_OWNER="${INITIAL_OWNER:-$DEPLOYER_ADDRESS}"
@@ -52,7 +47,7 @@ echo "Using: --verifier etherscan --etherscan-api-key <key> --watch"
 echo ""
 
 # 1) FluentBridge implementation (no constructor args)
-echo "[1/9] FluentBridge implementation..."
+echo "[1/9] FluentBridge implementation... $BRIDGE_IMPL"
 forge verify-contract --watch --chain "$CHAIN" "$BRIDGE_IMPL" contracts/FluentBridge.sol:FluentBridge \
   --rpc-url "$RPC" --verifier etherscan --etherscan-api-key "$ETHERSCAN_API_KEY" || true
 
