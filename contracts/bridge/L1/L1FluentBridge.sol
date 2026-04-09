@@ -30,20 +30,30 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         /// @dev Rollup contract used for batch finalization and proof verification.
         Rollup _rollup;
         /// @dev Append-only mapping of sent message hashes indexed by sequence number.
-        ///      The rollup consumes them in order during {Rollup-acceptNextBatch} via
+        ///      The rollup consumes them in order during {Rollup-submitBatch} via
         ///      {consumeNextSentMessage}; consumed slots are NOT deleted, only the cursor advances.
         mapping(uint256 => bytes32) _sentMessageHashes;
         /// @dev Index of the next slot the bridge will write on send (sequence high water mark).
-        uint256 _sentMessageBack;
+        uint64 _sentMessageBack;
         /// @dev Index of the next slot the rollup will consume; advances on consume,
-        ///      moves backward on {rewindSentMessageCursor} during {Rollup-forceRevertBatch}.
-        uint256 _sentMessageFront;
+        ///      moves backward on {rewindSentMessageCursor} during {Rollup-revertBatches}.
+        uint64 _sentMessageFront;
         /// @dev L1-owned receive-message deadline snapshotted into outbound L1->L2 messages at send time.
         ///      0 disables the deadline. Owned by L1 so admin updates never retroactively expire messages
         ///      that were already sent under the previous deadline.
         uint256 _receiveMessageDeadline;
+        /// @dev L1-owned window: max L1 blocks the rollup is allowed to take to consume a sent
+        ///      message before being considered corrupted. Snapshotted into
+        ///      {_sentMessageProcessByBlock} at send time so admin updates never retroactively
+        ///      shorten in-flight messages. Same lifecycle pattern as {_receiveMessageDeadline}
+        ///      (commit `7ee9271`). MUST be > 0 — strict liveness invariant enforced at the setter.
+        uint64 _depositProcessingWindow;
+        /// @dev Per-message frozen deadline: absolute L1 block by which this slot MUST be
+        ///      consumed by the rollup. Computed at send as
+        ///      `block.number + _depositProcessingWindow` and never modified.
+        mapping(uint64 => uint64) _sentMessageProcessByBlock;
         /// @dev Reserved for future storage fields.
-        uint256[49] __gap;
+        uint256[47] __gap;
     }
 
     // ============ Storage accessor ============
@@ -79,10 +89,17 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     // ============ Initializer ============
 
     /**
-     * @notice Initializes the L1 bridge with base config, rollup address, and the L1-owned
-     *         receive-message deadline snapshotted into outbound L1->L2 messages at send time.
+     * @notice Initializes the L1 bridge with base config, rollup address, the L1-owned
+     *         receive-message deadline snapshotted into outbound L1->L2 messages at send time,
+     *         and the L1-owned deposit processing window snapshotted into per-message
+     *         processing deadlines at send time.
      */
-    function initialize(bytes calldata data, address newRollup, uint256 receiveMessageDeadline) external initializer {
+    function initialize(
+        bytes calldata data,
+        address newRollup,
+        uint256 receiveMessageDeadline,
+        uint256 depositProcessingWindow
+    ) external initializer {
         // Decode and apply base bridge config (roles, other bridge, gas limit)
         __FluentBridgeStorage_init(data);
 
@@ -90,6 +107,8 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         _setRollup(newRollup);
         // Snapshot source for future L1->L2 message expiries
         _setReceiveMessageDeadline(receiveMessageDeadline);
+        // Snapshot source for future per-message processing deadlines (rollup liveness)
+        _setDepositProcessingWindow(depositProcessingWindow);
         // Sent-message cursors are zero-initialized by default — no explicit init required
     }
 
@@ -120,11 +139,17 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     }
 
     /// @inheritdoc FluentBridge
-    /// @dev Records the message hash in the sent-message storage and advances the back cursor.
+    /// @dev Records the message hash in the sent-message storage, freezes the per-message
+    ///      processing deadline at send time, and advances the back cursor. Admin updates to
+    ///      {_depositProcessingWindow} never affect this slot after this point — same
+    ///      frozen-at-send invariant as {_receiveMessageDeadline} (commit `7ee9271`).
     function _afterSendMessage(bytes32 messageHash) internal override {
         L1FluentBridgeStorage storage $ = _getL1FluentBridgeStorage();
+        uint64 back = $._sentMessageBack;
         // Append at the current back position; cursor advances to the next free slot
-        $._sentMessageHashes[$._sentMessageBack] = messageHash;
+        $._sentMessageHashes[back] = messageHash;
+        // Freeze per-message processing deadline at send time
+        $._sentMessageProcessByBlock[back] = uint64(block.number) + $._depositProcessingWindow;
         unchecked {
             ++$._sentMessageBack;
         }
@@ -298,7 +323,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         require($._sentMessageFront < $._sentMessageBack, SentMessageQueueEmpty());
         hash = $._sentMessageHashes[$._sentMessageFront];
         // Persistent semantics: the slot is NOT deleted — only the cursor advances.
-        // {Rollup-forceRevertBatch} relies on this to rewind without re-sending the data.
+        // {Rollup-revertBatches} relies on this to rewind without re-sending the data.
         unchecked {
             ++$._sentMessageFront;
         }
@@ -312,23 +337,46 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     }
 
     /// @inheritdoc IL1FluentBridge
-    function advanceSentMessageCursor(uint256 count) public onlyRollup {
+    function getMessageHashesRange(uint64 from, uint64 to) external view returns (bytes32[] memory hashes) {
+        L1FluentBridgeStorage storage $ = _getL1FluentBridgeStorage();
+        require(from <= to, InvalidRange(from, to));
+        require(to <= $._sentMessageBack, RangeOutOfBounds(to, $._sentMessageBack));
+        uint256 len;
+        unchecked {
+            len = uint256(to - from);
+        }
+        hashes = new bytes32[](len);
+        for (uint256 i = 0; i < len; ++i) {
+            hashes[i] = $._sentMessageHashes[uint256(from) + i];
+        }
+    }
+
+    /// @inheritdoc IL1FluentBridge
+    function isOldestUnconsumedExpired() external view returns (bool) {
+        L1FluentBridgeStorage storage $ = _getL1FluentBridgeStorage();
+        uint64 front = $._sentMessageFront;
+        if (front == $._sentMessageBack) return false;
+        return block.number > $._sentMessageProcessByBlock[front];
+    }
+
+    /// @inheritdoc IL1FluentBridge
+    function advanceSentMessageCursor(uint64 count) public onlyRollup {
         L1FluentBridgeStorage storage $ = _getL1FluentBridgeStorage();
         // Reverts if advancing the cursor would exceed the number of unconsumed messages
         require($._sentMessageFront + count <= $._sentMessageBack, InvalidAdvanceCount(count, getSentMessageQueueSize()));
         // Persistent semantics: the slots are NOT deleted — only the cursor advances.
-        // {Rollup-forceRevertBatch} relies on this to rewind without re-sending the data.
+        // {Rollup-revertBatches} relies on this to rewind without re-sending the data.
         unchecked {
             $._sentMessageFront += count;
         }
     }
 
     /// @inheritdoc IL1FluentBridge
-    function rewindSentMessageCursor(uint256 newFront) public onlyRollup {
+    function rewindSentMessageCursor(uint64 newFront) public onlyRollup {
         L1FluentBridgeStorage storage $ = _getL1FluentBridgeStorage();
         // Monotonically backward only — the rollup is responsible for ensuring the
         // target stays at or above any finalized boundary, since finalized batches
-        // cannot be reverted by {Rollup-forceRevertBatch}.
+        // cannot be reverted by {Rollup-revertBatches}.
         require(newFront <= $._sentMessageFront, InvalidRewindTarget(newFront, $._sentMessageFront));
         $._sentMessageFront = newFront;
     }
@@ -342,16 +390,16 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     }
 
     /// @inheritdoc IL1FluentBridge
-    function getSentMessageQueueSize() public view returns (uint256) {
+    function getSentMessageQueueSize() public view returns (uint64) {
         L1FluentBridgeStorage storage $ = _getL1FluentBridgeStorage();
         // Number of L1→L2 messages waiting to be consumed by the rollup
         return $._sentMessageBack - $._sentMessageFront;
     }
 
     /// @inheritdoc IL1FluentBridge
-    function getSentMessageCursor() public view returns (uint256) {
-        // Current consume cursor — the rollup snapshots this at acceptNextBatch
-        // and rewinds to a saved snapshot during forceRevertBatch
+    function getSentMessageCursor() public view returns (uint64) {
+        // Current consume cursor — the rollup snapshots this at submitBatch
+        // and rewinds to a saved snapshot during revertBatches
         return _getL1FluentBridgeStorage()._sentMessageFront;
     }
 
@@ -366,6 +414,11 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         return _getReceiveMessageDeadline();
     }
 
+    /// @inheritdoc IL1FluentBridge
+    function getDepositProcessingWindow() external view returns (uint64) {
+        return _getL1FluentBridgeStorage()._depositProcessingWindow;
+    }
+
     // ============ Admin ============
 
     /// @inheritdoc IL1FluentBridge
@@ -377,6 +430,11 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     /// @inheritdoc IL1FluentBridge
     function setReceiveMessageDeadline(uint256 newReceiveMessageDeadline) external onlyRole(DEFAULT_ADMIN_ROLE) {
         _setReceiveMessageDeadline(newReceiveMessageDeadline);
+    }
+
+    /// @inheritdoc IL1FluentBridge
+    function setDepositProcessingWindow(uint256 newDepositProcessingWindow) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setDepositProcessingWindow(newDepositProcessingWindow);
     }
 
     /**
@@ -409,5 +467,23 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         L1FluentBridgeStorage storage $ = _getL1FluentBridgeStorage();
         emit ReceiveMessageDeadlineUpdated($._receiveMessageDeadline, newReceiveMessageDeadline);
         $._receiveMessageDeadline = newReceiveMessageDeadline;
+    }
+
+    /**
+     * @dev Stores the L1-owned deposit processing window used as the snapshot source for
+     *      future outbound L1->L2 messages. Each new sent message snapshots
+     *      `block.number + window` into {_sentMessageProcessByBlock} at send time and never
+     *      re-reads this field afterward, so admin updates affect future messages only.
+     *      Same lifecycle pattern as {_setReceiveMessageDeadline} (commit `7ee9271`).
+     *
+     *      Must be strictly greater than 0. A zero window would make every freshly sent
+     *      message instantly expired in the rollup's view.
+     */
+    function _setDepositProcessingWindow(uint256 newDepositProcessingWindow) internal {
+        require(newDepositProcessingWindow > 0, InvalidWindowConfig("depositProcessingWindow must be greater than 0"));
+        require(newDepositProcessingWindow <= type(uint64).max, InvalidWindowConfig("depositProcessingWindow overflow"));
+        L1FluentBridgeStorage storage $ = _getL1FluentBridgeStorage();
+        emit DepositProcessingWindowUpdated($._depositProcessingWindow, newDepositProcessingWindow);
+        $._depositProcessingWindow = uint64(newDepositProcessingWindow);
     }
 }

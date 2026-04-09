@@ -68,6 +68,16 @@ interface IL1FluentBridge {
      * @dev selector: 0x3df1aff3
      */
     error InvalidRewindTarget(uint256 newFront, uint256 currentFront);
+
+    /**
+     * @notice {getMessageHashesRange} called with `from > to`.
+     */
+    error InvalidRange(uint64 from, uint64 to);
+
+    /**
+     * @notice {getMessageHashesRange} end index exceeds the queue back cursor.
+     */
+    error RangeOutOfBounds(uint64 to, uint64 back);
     // ========== Events ==========
 
     /**
@@ -79,6 +89,11 @@ interface IL1FluentBridge {
      * @notice Emitted when the L1-owned receive-message deadline is updated.
      */
     event ReceiveMessageDeadlineUpdated(uint256 indexed prevValue, uint256 indexed newValue);
+
+    /**
+     * @notice Emitted when the L1-owned deposit processing window is updated.
+     */
+    event DepositProcessingWindowUpdated(uint256 indexed prevValue, uint256 indexed newValue);
 
     // ========== Functions ==========
 
@@ -106,6 +121,23 @@ interface IL1FluentBridge {
      * @dev Existing in-flight messages are never affected — the deadline is frozen at send time via the message hash.
      */
     function setReceiveMessageDeadline(uint256 newReceiveMessageDeadline) external;
+
+    /**
+     * @notice Returns the L1-owned deposit processing window snapshotted into outbound
+     *         L1->L2 messages at send time. The bridge enforces this as a strict liveness
+     *         invariant on the rollup's consume cursor — see {isOldestUnconsumedExpired}.
+     *         Always > 0.
+     */
+    function getDepositProcessingWindow() external view returns (uint64);
+
+    /**
+     * @notice Updates the L1-owned deposit processing window used as the snapshot source for
+     *         new outbound L1->L2 messages.
+     * @dev Existing in-flight messages are never affected — the per-message deadline is frozen
+     *      at send time via {_sentMessageProcessByBlock}, mirroring the
+     *      {setReceiveMessageDeadline} pattern (commit `7ee9271`).
+     */
+    function setDepositProcessingWindow(uint256 newDepositProcessingWindow) external;
     /**
      * @notice Get the status of a rollback message by its hash.
      * @param key The hash of the rollback message.
@@ -121,13 +153,32 @@ interface IL1FluentBridge {
     function getMessageAt(uint256 index) external view returns (bytes32 hash);
 
     /**
+     * @notice Reads `to - from` consecutive sent-message hashes in a single call.
+     * @dev Used by {Rollup-_checkDeposits} to fetch all deposits in a batch with one external
+     *      call instead of N per-deposit reads. Saves the external-call overhead per deposit
+     *      while preserving the per-deposit SLOAD cost (the bridge does the same SLOAD work
+     *      internally — only the call frame is amortized).
+     * @param from First slot to read (inclusive).
+     * @param to End slot (exclusive). Must be `<=` the current back cursor.
+     */
+    function getMessageHashesRange(uint64 from, uint64 to) external view returns (bytes32[] memory hashes);
+
+    /**
+     * @notice True if the oldest unconsumed sent message has missed its frozen processing
+     *         deadline. False if the queue is empty.
+     * @dev Used by {Rollup-_rollupCorrupted} as the deposit-liveness corruption signal.
+     *      The bridge owns the timing parameter and snapshots; the rollup is a thin consumer.
+     */
+    function isOldestUnconsumedExpired() external view returns (bool);
+
+    /**
      * @notice Moves the sent-message consume cursor forward by `count`. Callable only by the rollup contract.
      * @dev Used during {Rollup-acceptNextBatch} to pop messages that are included in the accepted batch.
      *      The rollup is responsible for ensuring `count` does not exceed the number of unconsumed messages —
      *      `acceptNextBatch` already prevents over-consuming, so this is upheld by construction.
      * @param count Number of messages to consume (advance the cursor by).
      */
-    function advanceSentMessageCursor(uint256 count) external;
+    function advanceSentMessageCursor(uint64 count) external;
 
     /**
      * @notice Reads the next sent-message hash for rollup consumption and advances the consume cursor.
@@ -140,12 +191,12 @@ interface IL1FluentBridge {
 
     /**
      * @notice Moves the sent-message consume cursor backward to `newFront`. Callable only by the rollup contract.
-     * @dev Used during {Rollup-forceRevertBatch} to undo all consumes that belonged to reverted batches.
+     * @dev Used during {Rollup-revertBatches} to undo all consumes that belonged to reverted batches.
      *      The rollup is responsible for ensuring `newFront` does not cross any finalized batch boundary —
-     *      `forceRevertBatch` already prevents reverting finalized batches, so this is upheld by construction.
+     *      `revertBatches` already prevents reverting finalized batches, so this is upheld by construction.
      * @param newFront New consume cursor value. Must be `<=` the current cursor.
      */
-    function rewindSentMessageCursor(uint256 newFront) external;
+    function rewindSentMessageCursor(uint64 newFront) external;
 
     /**
      * @notice Receives and executes a message with Merkle proofs (L1 only; messages from L2 to L1).
@@ -208,12 +259,12 @@ interface IL1FluentBridge {
      * @notice Number of L1→L2 messages waiting to be consumed by the rollup.
      * @return The number of unconsumed messages: `back - front`.
      */
-    function getSentMessageQueueSize() external view returns (uint256);
+    function getSentMessageQueueSize() external view returns (uint64);
 
     /**
      * @notice Current sent-message consume cursor (the index of the next message the rollup will consume).
-     * @dev The rollup snapshots this value at the start of {Rollup-acceptNextBatch} and rewinds to it
-     *      during {Rollup-forceRevertBatch}.
+     * @dev The rollup snapshots this value at the start of {Rollup-submitBatch} and rewinds to it
+     *      during {Rollup-revertBatches}.
      */
-    function getSentMessageCursor() external view returns (uint256);
+    function getSentMessageCursor() external view returns (uint64);
 }
