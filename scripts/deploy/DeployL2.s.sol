@@ -55,11 +55,11 @@ contract DeployL2 is DeployL2Bridge, DeployUniversalFactory, DeployERC20Gateway,
         // ERC20Gateway (nonce 5: impl, nonce 6: proxy)
         ERC20GatewayResult memory erc20Gw = _deployERC20Gateway(initialOwner, bridge.proxy, factory.factory);
         console2.log("ERC20 Gateway deployed at:", erc20Gw.gateway);
-        // NativeGateway (nonce 7: impl, nonce 8: proxy)
+        // ── Phase 2: L2-specific contracts (nonce 7) ──
+        address gasOracle = address(new L1GasOracle(relayerRole));
+        // NativeGateway (nonce 8: impl, nonce 9: proxy)
         NativeGatewayResult memory nativeGw = _deployNativeGateway(initialOwner, bridge.proxy);
         console2.log("Native Gateway deployed at:", nativeGw.gateway);
-        // ── Phase 2: L2-specific contracts (nonce 9) ──
-        address gasOracle = address(new L1GasOracle(relayerRole));
 
         // ── Phase 3: Configure (nonce 10–14) ──
         L2FluentBridge l2Bridge = L2FluentBridge(payable(bridge.proxy));
