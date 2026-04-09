@@ -594,6 +594,17 @@ contract RollupStorageLayout is
         $._maxForceRevertBatchSize = newMaxForceRevertBatchSize;
     }
 
+    // ============ Emergency role management ============
+
+    /// @inheritdoc IRollupAdmin
+    function emergencyRevokeRole(bytes32 role, address account) external onlyRole(EMERGENCY_ROLE) {
+        require(
+            role == SEQUENCER_ROLE || role == PRECONFIRMATION_ROLE || role == CHALLENGER_ROLE || role == PROVER_ROLE,
+            InvalidOperationalRole(role)
+        );
+        _revokeRole(role, account);
+    }
+
     // ============ Internal helpers ============
 
     /// @inheritdoc UUPSUpgradeable
