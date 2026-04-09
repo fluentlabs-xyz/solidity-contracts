@@ -99,11 +99,7 @@ contract UniversalTokenFactory is GenericTokenFactory {
     // ============ Internal ============
 
     /// @inheritdoc GenericTokenFactory
-    function _computeTokenAddress(
-        address gateway,
-        address originToken,
-        bytes calldata deployArgs
-    ) internal view override returns (address) {
+    function _computeTokenAddress(address gateway, address originToken, bytes calldata deployArgs) internal view override returns (address) {
         // Decode the same args that _deployToken would use
         (string memory name, string memory symbol, uint8 decimals, uint256 initialSupply, address minter, address pauser) = _decodeDeployArgs(
             deployArgs
@@ -138,8 +134,21 @@ contract UniversalTokenFactory is GenericTokenFactory {
         address pauser
     ) internal pure returns (bytes memory deploymentData) {
         // 0x45524320 ("ERC ") is the magic prefix the L2 precompile at 0x520008
-        // expects as the first 4 bytes of deployment bytecode to identify ERC20 tokens
-        // The remaining bytes are the ABI-encoded constructor arguments
-        return abi.encodePacked(bytes4(0x45524320), abi.encode(name, symbol, decimals, initialSupply, minter, pauser));
+        // expects as the first 4 bytes of deployment bytecode to identify ERC20 tokens.
+        // The remaining bytes must be abi.encode(bytes32, bytes32, uint8, uint256, address, address)
+        // — fixed-size encoding matching the Rust InitialSettings struct layout.
+        // Using string types here would produce dynamic ABI encoding which the precompile cannot decode.
+        return
+            abi.encodePacked(
+                bytes4(0x45524320),
+                abi.encode(_stringToBytes32(name), _stringToBytes32(symbol), decimals, initialSupply, minter, pauser)
+            );
+    }
+
+    function _stringToBytes32(string memory str) internal pure returns (bytes32 result) {
+        bytes memory b = bytes(str);
+        assembly {
+            result := mload(add(b, 32))
+        }
     }
 }
