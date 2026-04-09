@@ -11,4 +11,7 @@
 .env
 /coverage
 lcov.info
+tasks/
+
+# Claude Code
 .claude/

@@ -132,7 +132,7 @@ forge install
 forge build
 ```
 
-Compiles without errors; artifacts under `forge-out/`. Configuration: `via_ir = true`, Cancun EVM, optimizer on (200 runs).
+Compiles without errors; artifacts under `out/`. Configuration: `via_ir = true`, Prague EVM, optimizer on (200 runs).
 
 ### Test
 
