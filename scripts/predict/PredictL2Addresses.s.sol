@@ -66,12 +66,24 @@ contract PredictL2Addresses is Script {
     // ============ Token List ============
 
     function _tokenList() internal pure returns (TokenConfig[] memory tokens) {
-        tokens = new TokenConfig[](1);
+        tokens = new TokenConfig[](3);
         tokens[0] = TokenConfig({
             l1Address: 0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599,
             name: "Wrapped BTC",
-            symbol: "wBTC",
+            symbol: "WBTC",
             decimals: 8
+        });
+        tokens[1] = TokenConfig({
+            l1Address: 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48,
+            name: "USD Coin",
+            symbol: "USDC",
+            decimals: 6
+        });
+        tokens[2] = TokenConfig({
+            l1Address: 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2,
+            name: "Wrapped Ether",
+            symbol: "WETH",
+            decimals: 18
         });
     }
 
