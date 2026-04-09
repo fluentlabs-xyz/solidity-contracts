@@ -21,6 +21,7 @@ import {MockSp1Verifier} from "../mocks/MockSp1Verifier.sol";
 
 abstract contract BaseDeployNative is Test {
     uint256 internal constant RECEIVE_DEADLINE = 100;
+    uint256 internal constant DEPOSIT_PROCESSING_WINDOW = 100;
     bytes32 internal constant GENESIS_HASH = keccak256("genesis");
     bytes32 internal constant PROGRAM_VKEY = keccak256("vkey");
     bytes internal constant DUMMY_SIGNATURE = abi.encodePacked(keccak256("r"), keccak256("s"), uint8(27));
@@ -99,7 +100,7 @@ abstract contract BaseDeployNative is Test {
         L1FluentBridge bridgeImpl = new L1FluentBridge();
         ERC1967Proxy bridgeProxy = new ERC1967Proxy(
             address(bridgeImpl),
-            abi.encodeCall(L1FluentBridge.initialize, (abi.encode(params), address(l1Rollup), RECEIVE_DEADLINE))
+            abi.encodeCall(L1FluentBridge.initialize, (abi.encode(params), address(l1Rollup), RECEIVE_DEADLINE, DEPOSIT_PROCESSING_WINDOW))
         );
         l1Bridge = L1FluentBridge(payable(address(bridgeProxy)));
 
@@ -140,6 +141,7 @@ abstract contract BaseDeployNative is Test {
 
 abstract contract BaseDeployERC20 is Test {
     uint256 internal constant RECEIVE_DEADLINE = 100;
+    uint256 internal constant DEPOSIT_PROCESSING_WINDOW = 100;
     bytes32 internal constant GENESIS_HASH = keccak256("genesis");
     bytes32 internal constant PROGRAM_VKEY = keccak256("vkey");
     bytes internal constant DUMMY_SIGNATURE = abi.encodePacked(keccak256("r"), keccak256("s"), uint8(27));
@@ -221,11 +223,9 @@ abstract contract BaseDeployERC20 is Test {
         L1FluentBridge bridgeImpl = new L1FluentBridge();
         ERC1967Proxy bridgeProxy = new ERC1967Proxy(
             address(bridgeImpl),
-            abi.encodeCall(L1FluentBridge.initialize, (abi.encode(params), address(l1Rollup), RECEIVE_DEADLINE))
+            abi.encodeCall(L1FluentBridge.initialize, (abi.encode(params), address(l1Rollup), RECEIVE_DEADLINE, DEPOSIT_PROCESSING_WINDOW))
         );
         l1Bridge = L1FluentBridge(payable(address(bridgeProxy)));
-        l1Bridge.setExecuteGasLimit(2_000_000);
-        l1Rollup.setBridge(address(l1Bridge));
 
         peggedImplL1 = new ERC20PeggedToken();
         ERC20TokenFactory fImpl = new ERC20TokenFactory();

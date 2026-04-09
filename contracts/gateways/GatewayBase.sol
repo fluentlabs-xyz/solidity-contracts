@@ -36,7 +36,7 @@ abstract contract GatewayBase is Initializable, UUPSUpgradeable, Ownable2StepUpg
         /// @dev Optional {IBlacklist}; address(0) disables deposit blacklist checks.
         address _blacklistRegistry;
         /// @dev Reserved for future storage fields.
-        uint256[49] __gap;
+        uint256[50] __gap;
     }
 
     /// @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.GatewayBaseStorage")) - 1)) & ~bytes32(uint256(0xff))

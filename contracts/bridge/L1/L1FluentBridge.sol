@@ -53,7 +53,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         ///      `block.number + _depositProcessingWindow` and never modified.
         mapping(uint64 => uint64) _sentMessageProcessByBlock;
         /// @dev Reserved for future storage fields.
-        uint256[47] __gap;
+        uint256[50] __gap;
     }
 
     // ============ Storage accessor ============
