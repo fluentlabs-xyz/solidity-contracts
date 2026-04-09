@@ -63,11 +63,12 @@ contract DeployL1 is DeployRollup, DeployL1Bridge, DeployERC20Factory, DeployERC
         // ERC20Gateway (nonce 5: impl, nonce 6: proxy)
         ERC20GatewayResult memory erc20Gw = _deployERC20Gateway(initialOwner, bridge.proxy, factory.factory);
         console2.log("ERC20 Gateway deployed at:", erc20Gw.gateway);
-        // NativeGateway (nonce 7: impl, nonce 8: proxy)
+        // Wire factory payment gateway (nonce 7)
+        ERC20TokenFactory(factory.factory).setPaymentGateway(erc20Gw.gateway);
+
+        // NativeGateway (nonce 8: impl, nonce 9: proxy)
         NativeGatewayResult memory nativeGw = _deployNativeGateway(initialOwner, bridge.proxy);
         console2.log("Native Gateway deployed at:", nativeGw.gateway);
-        // Wire factory payment gateway (nonce 9)
-        ERC20TokenFactory(factory.factory).setPaymentGateway(erc20Gw.gateway);
 
         // // ── Phase 2: L1-specific contracts (nonce 9+) ──
         // // NitroVerifier (nonce 9)
