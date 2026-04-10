@@ -17,6 +17,7 @@ contract RollupSnapshotTest is RollupAssertions {
         assertEq(batch.submitBlobsWindowSnapshot, SUBMIT_BLOBS_WINDOW, "submitBlobs window snapshot mismatch");
         assertEq(batch.challengeWindowSnapshot, CHALLENGE_WINDOW, "challenge window snapshot mismatch");
         assertEq(batch.finalizationDelaySnapshot, FINALIZATION_DELAY, "finalization delay snapshot mismatch");
+        assertEq(batch.preconfirmationWindowSnapshot, PRECONFIRM_WINDOW, "preconfirm window snapshot mismatch");
     }
 
     // ============ submitBlobsWindow ============
@@ -112,6 +113,23 @@ contract RollupSnapshotTest is RollupAssertions {
         vm.prank(challenger);
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ChallengeTooLate.selector, batchIndex));
         rollup.challengeBlock{value: CHALLENGE_DEPOSIT}(batchIndex, headers[0], _buildMerkleProof(headers, 0));
+    }
+
+    // ============ preconfirmWindow ============
+
+    function test_preconfirmWindow_snapshotIgnoresLaterShorterWindow() public {
+        uint256 batchIndex = _acceptBatch(GENESIS_HASH, 0);
+        _submitBlobs(batchIndex, 0);
+        uint256 acceptedAt = rollup.getBatch(batchIndex).acceptedAtBlock;
+
+        vm.prank(admin);
+        rollup.setPreconfirmWindow(3750);
+
+        vm.roll(acceptedAt + 3760);
+        assertFalse(rollup.isRollupCorrupted(), "old batch should keep original preconfirm snapshot");
+
+        _preconfirmBatch(batchIndex);
+        assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Preconfirmed));
     }
 
     // ============ finalizationDelay ============

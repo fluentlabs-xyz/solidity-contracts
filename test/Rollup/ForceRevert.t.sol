@@ -21,7 +21,7 @@ contract ForceRevertTest is RollupAssertions {
 
     function test_forceRevert_cleansUpBlobHashes() public {
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
-        bytes32 lastHash = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch1);
+        bytes32 lastHash = _lastBlockHash(GENESIS_HASH);
         uint256 batch2 = _acceptBatch(lastHash, 0);
         _submitBlobs(batch2, 0);
 
@@ -34,9 +34,9 @@ contract ForceRevertTest is RollupAssertions {
 
     function test_forceRevert_cleansUpLastBlockHash() public {
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
-        bytes32 batch1LastHash = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch1);
+        bytes32 batch1LastHash = _lastBlockHash(GENESIS_HASH);
 
-        bytes32 lastHash1 = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch1);
+        bytes32 lastHash1 = _lastBlockHash(GENESIS_HASH);
         L2BlockHeader[] memory batch2Headers = _makeBatch(lastHash1);
         uint256 batch2 = rollup.nextBatchIndex();
         _commitBatch(batch2Headers, new BlockDeposit[](0));
@@ -48,7 +48,7 @@ contract ForceRevertTest is RollupAssertions {
 
     function test_forceRevert_cleansUpProvenBlocks() public {
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
-        bytes32 lastHash = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch1);
+        bytes32 lastHash = _lastBlockHash(GENESIS_HASH);
         L2BlockHeader[] memory batch2Commits = _makeBatch(lastHash);
         _commitBatch(batch2Commits, new BlockDeposit[](0));
         uint256 batch2 = batch1 + 1;
@@ -58,7 +58,7 @@ contract ForceRevertTest is RollupAssertions {
         MerkleTree.MerkleProof memory proof = _buildMerkleProof(batch2Commits, 0);
         _challengeBlock(batch2, batch2Commits[0], proof);
         vm.prank(prover);
-        rollup.resolveBlockChallenge(batch2, batch2Commits[0], proof, address(nitroVerifier), DUMMY_SIGNATURE, "");
+        rollup.resolveBlockChallenge(batch2, batch2Commits[0], proof, "");
 
         bytes32 commitment = _computeCommitment(batch2Commits[0]);
         assertTrue(rollup.isBlockProven(commitment), "should be proven before revert");
@@ -73,12 +73,12 @@ contract ForceRevertTest is RollupAssertions {
     function test_forceRevert_multipleBatches_cleansAll() public {
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
 
-        bytes32 lastHash1 = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch1);
+        bytes32 lastHash1 = _lastBlockHash(GENESIS_HASH);
         uint256 batch2 = _acceptBatch(lastHash1, 0);
         _submitBlobs(batch2, 0);
         _preconfirmBatch(batch2);
 
-        bytes32 lastHash2 = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch2);
+        bytes32 lastHash2 = _lastBlockHash(GENESIS_HASH);
         uint256 batch3 = _acceptBatch(lastHash2, 0);
         _submitBlobs(batch3, 0);
         _preconfirmBatch(batch3);
@@ -101,7 +101,7 @@ contract ForceRevertTest is RollupAssertions {
 
     function test_forceRevert_resubmissionChainsCorrectly() public {
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
-        bytes32 batch1LastHash = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch1);
+        bytes32 batch1LastHash = _lastBlockHash(GENESIS_HASH);
 
         uint256 batch2 = _acceptBatch(batch1LastHash, 0);
 
@@ -117,7 +117,7 @@ contract ForceRevertTest is RollupAssertions {
     function test_forceRevert_allowsReChallengeAfterResubmit() public {
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
 
-        bytes32 lastHash1 = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch1);
+        bytes32 lastHash1 = _lastBlockHash(GENESIS_HASH);
         L2BlockHeader[] memory batch2Commits = _makeBatch(lastHash1);
         _commitBatch(batch2Commits, new BlockDeposit[](0));
         uint256 batch2 = batch1 + 1;
@@ -148,10 +148,10 @@ contract ForceRevertTest is RollupAssertions {
     function test_forceRevert_cannotRevertRangeContainingFinalized() public {
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
 
-        bytes32 lastHash1 = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch1);
+        bytes32 lastHash1 = _lastBlockHash(GENESIS_HASH);
         uint256 batch2 = _acceptBatch(lastHash1, 0);
 
-        bytes32 lastHash2 = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch2);
+        bytes32 lastHash2 = _lastBlockHash(GENESIS_HASH);
         uint256 batch3 = _acceptBatch(lastHash2, 0);
         _submitBlobs(batch2, 0);
         _preconfirmBatch(batch2);
@@ -162,7 +162,7 @@ contract ForceRevertTest is RollupAssertions {
         assertTrue(_finalizeBatch(batch2));
         assertTrue(_finalizeBatch(batch3));
 
-        bytes32 lastHash3 = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch3);
+        bytes32 lastHash3 = _lastBlockHash(GENESIS_HASH);
         uint256 batch4 = _acceptBatch(lastHash3, 0);
 
         // Trying to revert from batch1 (which would include finalized batch2) should fail
@@ -182,7 +182,7 @@ contract ForceRevertTest is RollupAssertions {
     function test_corruptedRecoveryViaForceRevert() public {
         // Finalize batch1 first so we have a valid toBatchIndex > 0
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
-        bytes32 lastHash = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch1);
+        bytes32 lastHash = _lastBlockHash(GENESIS_HASH);
 
         uint256 batch2 = _acceptBatch(lastHash, 0);
 
@@ -204,7 +204,7 @@ contract ForceRevertTest is RollupAssertions {
     function test_forceRevert_refundsChallenger() public {
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
 
-        bytes32 lastHash1 = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch1);
+        bytes32 lastHash1 = _lastBlockHash(GENESIS_HASH);
         L2BlockHeader[] memory batch2Commits = _makeBatch(lastHash1);
         _commitBatch(batch2Commits, new BlockDeposit[](0));
         uint256 batch2 = batch1 + 1;
@@ -227,7 +227,7 @@ contract ForceRevertTest is RollupAssertions {
     function test_forceRevert_multipleChallengers_allRewarded() public {
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
 
-        bytes32 lastHash1 = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch1);
+        bytes32 lastHash1 = _lastBlockHash(GENESIS_HASH);
         L2BlockHeader[] memory batch2Commits = _makeBatch(lastHash1);
         _commitBatch(batch2Commits, new BlockDeposit[](0));
         uint256 batch2 = batch1 + 1;
@@ -270,25 +270,9 @@ contract ForceRevertTest is RollupAssertions {
         rollup.revertBatches(0);
     }
 
-    function test_RevertIf_revertBatches_invalidBatchIndex() public {
-        // Accept MAX_FORCE_REVERT_BATCH_SIZE + 2 batches so reverting from batch 1
-        // exceeds the max revert batch size
-        bytes32 lastHash = GENESIS_HASH;
-        for (uint256 i = 0; i < MAX_FORCE_REVERT_BATCH_SIZE + 2; i++) {
-            _acceptBatch(lastHash, 0);
-            lastHash = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(rollup.nextBatchIndex() - 1);
-        }
-
-        uint256 lastAccepted = rollup.nextBatchIndex() - 1;
-
-        vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidBatchIndex.selector, uint256(1), lastAccepted));
-        rollup.revertBatches(1);
-    }
-
     function test_RevertIf_revertBatches_insufficientIncentiveFee() public {
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
-        bytes32 lastHash = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch1);
+        bytes32 lastHash = _lastBlockHash(GENESIS_HASH);
         L2BlockHeader[] memory batch2Commits = _makeBatch(lastHash);
         _commitBatch(batch2Commits, new BlockDeposit[](0));
         uint256 batch2 = batch1 + 1;
@@ -318,7 +302,7 @@ contract ForceRevertTest is RollupAssertions {
     ///      NOT shift the original ones.
     function test_forceRevert_restoresDepositsToQueueInOriginalOrder() public {
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
-        bytes32 lastHash = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch1);
+        bytes32 lastHash = _lastBlockHash(GENESIS_HASH);
 
         // Two deposits arrive and are consumed by batch2
         bytes32 depositA = keccak256("deposit-A");
@@ -326,7 +310,7 @@ contract ForceRevertTest is RollupAssertions {
         depositBridge.enqueue(depositA);
         depositBridge.enqueue(depositB);
 
-        (L2BlockHeader[] memory batch2Headers, BlockDeposit[] memory deps) = _makeBatchWithDeposits(lastHash, 0, depositA, depositB);
+        (L2BlockHeader[] memory batch2Headers, BlockDeposit[] memory deps) = _makeBatchWithDeposits(lastHash, depositA, depositB);
         _commitBatch(batch2Headers, deps);
 
         assertEq(depositBridge.getSentMessageQueueSize(), 0, "both deposits consumed by commitBatch");
@@ -376,8 +360,8 @@ contract ForceRevertTest is RollupAssertions {
         depositBridge.enqueue(d2);
         depositBridge.enqueue(d3);
 
-        bytes32 lastHash = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch1);
-        (L2BlockHeader[] memory batch2Headers, BlockDeposit[] memory deps3) = _makeBatchWithDeposits3(lastHash, 0, d1, d2, d3);
+        bytes32 lastHash = _lastBlockHash(GENESIS_HASH);
+        (L2BlockHeader[] memory batch2Headers, BlockDeposit[] memory deps3) = _makeBatchWithDeposits3(lastHash, d1, d2, d3);
         _commitBatch(batch2Headers, deps3);
         uint256 batch2 = batch1 + 1;
 
@@ -385,7 +369,7 @@ contract ForceRevertTest is RollupAssertions {
         assertEq(rollup.getBatch(batch2).sentMessageCursorStart, 0, "snapshot taken before consumes");
 
         // Batch 3: snapshot must be 3 (the cursor after batch2 consumed all 3)
-        bytes32 lastHash2 = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch2);
+        bytes32 lastHash2 = _lastBlockHash(GENESIS_HASH);
         uint256 batch3 = _acceptBatch(lastHash2, 0);
         assertEq(rollup.getBatch(batch3).sentMessageCursorStart, 3, "snapshot reflects accumulated cursor");
     }
@@ -394,14 +378,14 @@ contract ForceRevertTest is RollupAssertions {
     ///      OLDEST reverted batch, not the most recent.
     function test_forceRevert_multipleBatches_rewindsCursorToOldestSnapshot() public {
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
-        bytes32 lastHash1 = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch1);
+        bytes32 lastHash1 = _lastBlockHash(GENESIS_HASH);
 
         // batch2 consumes 2 deposits
         bytes32 a = keccak256("a");
         bytes32 b = keccak256("b");
         depositBridge.enqueue(a);
         depositBridge.enqueue(b);
-        (L2BlockHeader[] memory batch2Headers, BlockDeposit[] memory deps2) = _makeBatchWithDeposits(lastHash1, 0, a, b);
+        (L2BlockHeader[] memory batch2Headers, BlockDeposit[] memory deps2) = _makeBatchWithDeposits(lastHash1, a, b);
         _commitBatch(batch2Headers, deps2);
         uint256 batch2 = batch1 + 1;
         _submitBlobs(batch2, 0);
@@ -410,8 +394,8 @@ contract ForceRevertTest is RollupAssertions {
         // batch3 consumes 1 more deposit
         bytes32 c = keccak256("c");
         depositBridge.enqueue(c);
-        bytes32 lastHash2 = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch2);
-        (L2BlockHeader[] memory batch3Headers, BlockDeposit[] memory deps3b) = _makeBatchWithDeposits1(lastHash2, 0, c);
+        bytes32 lastHash2 = _lastBlockHash(GENESIS_HASH);
+        (L2BlockHeader[] memory batch3Headers, BlockDeposit[] memory deps3b) = _makeBatchWithDeposits1(lastHash2, c);
         _commitBatch(batch3Headers, deps3b);
 
         // After both accepts: cursor at 3, queue size 0
@@ -470,7 +454,6 @@ contract ForceRevertTest is RollupAssertions {
 
     function _makeBatchWithDeposits(
         bytes32 parentHash,
-        uint256,
         bytes32 depositA,
         bytes32 depositB
     ) internal pure returns (L2BlockHeader[] memory batch, BlockDeposit[] memory deposits) {
@@ -483,7 +466,6 @@ contract ForceRevertTest is RollupAssertions {
 
     function _makeBatchWithDeposits1(
         bytes32 parentHash,
-        uint256,
         bytes32 deposit
     ) internal pure returns (L2BlockHeader[] memory batch, BlockDeposit[] memory deposits) {
         batch = _makeBatch(parentHash);
@@ -494,7 +476,6 @@ contract ForceRevertTest is RollupAssertions {
 
     function _makeBatchWithDeposits3(
         bytes32 parentHash,
-        uint256,
         bytes32 d1,
         bytes32 d2,
         bytes32 d3

@@ -42,7 +42,7 @@ contract RollupGettersTest is RollupAssertions {
         vm.prank(challenger);
         rollup.challengeBlock{value: CHALLENGE_DEPOSIT}(batchIndex, headers[0], proof);
 
-        assertEq(rollup.challengeQueueLength(), 1, "challengeQueueLength");
-        assertEq(rollup.challengeQueueAt(0), commitment, "challengeQueueAt");
+        assertEq(rollup.blockChallengeQueueLength(), 1, "blockChallengeQueueLength");
+        assertEq(rollup.blockChallengeQueueAt(0), commitment, "blockChallengeQueueAt");
     }
 }

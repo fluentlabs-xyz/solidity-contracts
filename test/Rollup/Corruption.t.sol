@@ -40,7 +40,7 @@ contract CorruptionTest is RollupAssertions {
 
     function test_corrupt_challengeDeadlineExceeded() public {
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
-        bytes32 lastHash = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch1);
+        bytes32 lastHash = _lastBlockHash(GENESIS_HASH);
 
         uint256 batchIndex = rollup.nextBatchIndex();
         L2BlockHeader[] memory headers = _makeBatch(lastHash);
@@ -59,7 +59,7 @@ contract CorruptionTest is RollupAssertions {
 
     function test_healthy_challengeDeadlineAtBoundary() public {
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
-        bytes32 lastHash = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch1);
+        bytes32 lastHash = _lastBlockHash(GENESIS_HASH);
 
         uint256 batchIndex = rollup.nextBatchIndex();
         L2BlockHeader[] memory headers = _makeBatch(lastHash);
@@ -79,7 +79,7 @@ contract CorruptionTest is RollupAssertions {
 
     function test_healthy_afterChallengeResolved() public {
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
-        bytes32 lastHash = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch1);
+        bytes32 lastHash = _lastBlockHash(GENESIS_HASH);
 
         uint256 batchIndex = rollup.nextBatchIndex();
         L2BlockHeader[] memory headers = _makeBatch(lastHash);
@@ -92,7 +92,7 @@ contract CorruptionTest is RollupAssertions {
         _challengeBlock(batchIndex, headers[0], proof);
 
         vm.prank(prover);
-        rollup.resolveBlockChallenge(batchIndex, headers[0], proof, address(nitroVerifier), DUMMY_SIGNATURE, "");
+        rollup.resolveBlockChallenge(batchIndex, headers[0], proof, "");
 
         vm.roll(block.number + CHALLENGE_WINDOW + 1);
 
@@ -101,7 +101,7 @@ contract CorruptionTest is RollupAssertions {
 
     function test_healthy_preconfirmedWithoutChallenges_afterLongDelay() public {
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
-        bytes32 lastHash = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch1);
+        bytes32 lastHash = _lastBlockHash(GENESIS_HASH);
 
         uint256 batchIndex = rollup.nextBatchIndex();
         L2BlockHeader[] memory headers = _makeBatch(lastHash);
@@ -120,7 +120,7 @@ contract CorruptionTest is RollupAssertions {
     function test_corrupt_checksOldestNonFinalizedBatch() public {
         // Finalize batch 1 so lastFinalizedBatchIndex = 1
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
-        bytes32 lastHash = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch1);
+        bytes32 lastHash = _lastBlockHash(GENESIS_HASH);
 
         // Accept batch 2 — Committed, submit blobs window will expire
         uint256 batchIndex = rollup.nextBatchIndex();
@@ -129,7 +129,7 @@ contract CorruptionTest is RollupAssertions {
         rollup.commitBatch(_computeBatchRoot(headers), uint24(headers.length), new BlockDeposit[](0), 1);
 
         // batch 3 also accepted — but corruption should trigger on batch 2
-        bytes32 lastHash2 = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batchIndex);
+        bytes32 lastHash2 = _lastBlockHash(GENESIS_HASH);
         L2BlockHeader[] memory headers3 = _makeBatch(lastHash2);
         vm.prank(sequencer);
         rollup.commitBatch(_computeBatchRoot(headers3), uint24(headers3.length), new BlockDeposit[](0), 1);
@@ -149,7 +149,7 @@ contract CorruptionTest is RollupAssertions {
         vm.roll(block.number + SUBMIT_BLOBS_WINDOW + 1);
         _assertRollupCorrupted();
 
-        bytes32 lastHash = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch1);
+        bytes32 lastHash = _lastBlockHash(GENESIS_HASH);
         L2BlockHeader[] memory batch = _makeBatch(lastHash);
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.RollupCorrupted.selector));
         vm.prank(sequencer);
@@ -163,28 +163,26 @@ contract CorruptionTest is RollupAssertions {
         vm.roll(acceptedBlock + SUBMIT_BLOBS_WINDOW + 1);
 
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.RollupCorrupted.selector));
-        vm.prank(sequencer);
-        rollup.submitBlobs(batch1, 0);
+        _submitBlobs(batch1, 0);
     }
 
     function test_submitBlobs_revertsWhenCorrupted() public {
         uint256 batch1 = _acceptBatch(GENESIS_HASH, 0);
 
-        bytes32 lastHash1 = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch1);
+        bytes32 lastHash1 = _lastBlockHash(GENESIS_HASH);
         uint256 batch2 = _acceptBatch(lastHash1, 0);
 
         vm.roll(block.number + SUBMIT_BLOBS_WINDOW + 1);
         _assertRollupCorrupted();
 
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.RollupCorrupted.selector));
-        vm.prank(sequencer);
-        rollup.submitBlobs(batch2, 0);
+        _submitBlobs(batch2, 0);
     }
 
     function test_preconfirmBatch_revertsWhenCorrupted() public {
         uint256 batch1 = _acceptBatch(GENESIS_HASH, 0);
 
-        bytes32 lastHash1 = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch1);
+        bytes32 lastHash1 = _lastBlockHash(GENESIS_HASH);
         uint256 batch2 = _acceptBatch(lastHash1, 0);
         _submitBlobs(batch2, 0);
 
@@ -199,7 +197,7 @@ contract CorruptionTest is RollupAssertions {
     function test_challengeBlock_revertsWhenCorrupted() public {
         uint256 batch1 = _acceptBatch(GENESIS_HASH, 0);
 
-        bytes32 lastHash1 = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch1);
+        bytes32 lastHash1 = _lastBlockHash(GENESIS_HASH);
         L2BlockHeader[] memory batch2Commits = _makeBatch(lastHash1);
         vm.prank(sequencer);
         rollup.commitBatch(_computeBatchRoot(batch2Commits), uint24(batch2Commits.length), new BlockDeposit[](0), 1);
@@ -217,6 +215,36 @@ contract CorruptionTest is RollupAssertions {
         rollup.challengeBlock{value: CHALLENGE_DEPOSIT}(batch2, batch2Commits[0], proof);
     }
 
+    // ============ Preconfirm deadline ============
+
+    function test_corrupt_preconfirmDeadlineExceeded() public {
+        uint256 batchIndex = _acceptBatch(GENESIS_HASH, 0);
+        _submitBlobs(batchIndex, 0);
+
+        vm.roll(block.number + PRECONFIRM_WINDOW + 1);
+
+        assertTrue(rollup.isRollupCorrupted());
+    }
+
+    function test_healthy_preconfirmDeadlineAtBoundary() public {
+        uint256 batchIndex = _acceptBatch(GENESIS_HASH, 0);
+        _submitBlobs(batchIndex, 0);
+
+        vm.roll(block.number + PRECONFIRM_WINDOW);
+        assertFalse(rollup.isRollupCorrupted());
+    }
+
+    function test_healthy_preconfirmedBeforeDeadline() public {
+        uint256 batchIndex = _acceptBatch(GENESIS_HASH, 0);
+        _submitBlobs(batchIndex, 0);
+
+        vm.roll(block.number + PRECONFIRM_WINDOW - 1);
+        _preconfirmBatch(batchIndex);
+
+        vm.roll(block.number + 100);
+        assertFalse(rollup.isRollupCorrupted());
+    }
+
     // ============ Helpers ============
 
     function _deployRollupWithConfig(uint256 daDeadline) private returns (Rollup) {
@@ -229,7 +257,7 @@ contract CorruptionTest is RollupAssertions {
         cfg.prover = prover;
         cfg.preconfirmationRole = preconfirmer;
         cfg.sp1Verifier = address(sp1);
-        cfg.nitroVerifier = address(0);
+        cfg.nitroVerifier = address(nitroVerifier);
         cfg.bridge = bridgeAddr;
         cfg.programVKey = PROGRAM_VKEY;
         cfg.challengeDepositAmount = CHALLENGE_DEPOSIT;
@@ -238,7 +266,6 @@ contract CorruptionTest is RollupAssertions {
         cfg.preconfirmWindow = daDeadline + 3700;
         cfg.challengeWindow = daDeadline + 7400;
         cfg.finalizationDelay = daDeadline + 14700;
-        cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
         Rollup impl = new Rollup();
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
         return Rollup(address(proxy));

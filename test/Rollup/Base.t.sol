@@ -57,7 +57,6 @@ abstract contract RollupBase is Test, IRollupEvents {
     uint256 internal constant PRECONFIRM_WINDOW = 3800;
     uint256 internal constant CHALLENGE_WINDOW = 7500;
     uint256 internal constant FINALIZATION_DELAY = 14800;
-    uint256 internal constant MAX_FORCE_REVERT_BATCH_SIZE = 10;
 
     // ============ Setup ============
 
@@ -78,7 +77,7 @@ abstract contract RollupBase is Test, IRollupEvents {
         cfg.prover = prover;
         cfg.preconfirmationRole = preconfirmer;
         cfg.sp1Verifier = address(sp1);
-        cfg.nitroVerifier = address(0);
+        cfg.nitroVerifier = address(nitroVerifier);
         cfg.bridge = _bridge;
         cfg.programVKey = PROGRAM_VKEY;
         cfg.challengeDepositAmount = CHALLENGE_DEPOSIT;
@@ -87,17 +86,13 @@ abstract contract RollupBase is Test, IRollupEvents {
         cfg.incentiveFee = 0.1 ether;
         cfg.submitBlobsWindow = SUBMIT_BLOBS_WINDOW;
         cfg.preconfirmWindow = PRECONFIRM_WINDOW;
-        cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
     }
 
     function _deployRollup(address _bridge) internal returns (Rollup) {
         InitConfiguration memory cfg = _defaultInitConfig(_bridge);
         Rollup impl = new Rollup();
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
-        Rollup r = Rollup(address(proxy));
-        vm.prank(admin);
-        r.enableNitroVerifier(address(nitroVerifier));
-        return r;
+        return Rollup(address(proxy));
     }
 }
 
@@ -143,7 +138,7 @@ abstract contract RollupActions is RollupBase {
         bytes32 batchRoot = _computeBatchRoot(batch);
         BlockDeposit[] memory emptyDeposits = new BlockDeposit[](0);
         vm.prank(sequencer);
-        rollup.commitBatch(batchRoot, uint24(batch.length), emptyDeposits, uint32(normalizedExpectedBlobs));
+        rollup.commitBatch(batchRoot, uint24(batch.length), emptyDeposits, uint8(normalizedExpectedBlobs));
     }
 
     function _submitBlobs(uint256 batchIndex, uint256 numBlobs) internal {
