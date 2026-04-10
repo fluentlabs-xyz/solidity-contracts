@@ -54,10 +54,34 @@ contract DeployRollup is DeployBase {
         InitConfiguration memory p = _readRollupParams(json, adminRole, nitroVerifier);
         p.bridge = bridge;
 
-        console2.log("Deploying Rollup");
-        console2.log("  admin:", p.admin);
-        console2.log("  bridge:", p.bridge);
-        console2.log("  nitroVerifier:", p.nitroVerifier);
+        /// @dev We are using existing SP1 Verifier - https://docs.succinct.xyz/docs/sp1/verification/contract-addresses
+        /// https://sepolia.etherscan.io/address/0x397A5f7f3dBd538f23DE225B51f532c34448dA9B
+        params.sp1Verifier = vm.envOr("SP1_VERIFIER", address(0x397A5f7f3dBd538f23DE225B51f532c34448dA9B));
+
+        // ─── Infrastructure ───
+        params.bridge = vm.envAddress("ROLLUP_BRIDGE");
+        params.programVKey = bytes32(vm.envOr("ROLLUP_PROGRAM_VKEY", uint256(0)));
+
+        // ─── Timing parameters ───
+        // All windows are measured from acceptedAtBlock — the block where
+        // commitBatch was called. Each window defines a deadline independently.
+        //
+        // submitBlobsWindow: sequencer must submit all blob hashes before this deadline.
+        // challengeWindow:   open challenge must be resolved before acceptedAtBlock + challengeWindow.
+        //                    Measured from acceptedAtBlock, not from challenge creation time.
+        // finalizationDelay: batch cannot be finalized before acceptedAtBlock + finalizationDelay.
+        //                    Must exceed challengeWindow so challengers always have time to act.
+        params.submitBlobsWindow = vm.envOr("ROLLUP_SUBMIT_BLOBS_WINDOW", uint256(BLOCKS_PER_DAY)); // 24 h
+        params.preconfirmWindow = vm.envOr("ROLLUP_PRECONFIRM_WINDOW", uint256(BLOCKS_PER_DAY + BLOCKS_PER_HOUR * 6)); // 30 h
+        params.challengeWindow = vm.envOr("ROLLUP_CHALLENGE_WINDOW", uint256(BLOCKS_PER_DAY + BLOCKS_PER_HOUR * 12)); // 36 h
+        params.finalizationDelay = vm.envOr("ROLLUP_FINALIZATION_DELAY", uint256(BLOCKS_PER_DAY * 2)); // 48 h
+
+        // ─── Economic parameters ───
+        params.challengeDepositAmount = vm.envOr("ROLLUP_CHALLENGE_DEPOSIT_AMOUNT", uint256(0.01 ether));
+        params.incentiveFee = vm.envOr("ROLLUP_INCENTIVE_FEE", uint256(0.001 ether));
+        params.maxForceRevertBatchSize = vm.envOr("ROLLUP_MAX_FORCE_REVERT_BATCH_SIZE", uint256(10));
+
+        string memory outputPath = vm.envOr("ROLLUP_OUTPUT_PATH", string(""));
 
         vm.startBroadcast();
         RollupResult memory r = _deployRollup(p);
