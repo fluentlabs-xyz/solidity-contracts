@@ -63,6 +63,26 @@ contract RollupStorageLayout is
      */
     uint32 public constant DEFAULT_GAS_LEFT = 1_000_000;
 
+    /**
+     * @dev Maximum incentive fee to prevent overflow in `challenge.deposit + fee` during forceRevertBatch.
+     */
+    uint256 public constant MAX_INCENTIVE_FEE = 100 ether;
+
+    /**
+     * @dev Minimum challenge deposit to maintain an economic barrier against spam challenges.
+     */
+    uint256 public constant MIN_CHALLENGE_DEPOSIT_AMOUNT = 0.001 ether;
+
+    /**
+     * @dev Maximum gas-left threshold; above the L1 block gas limit, `gasleft() >= _gasLeft` is never true.
+     */
+    uint32 public constant MAX_GAS_LEFT = 30_000_000;
+
+    /**
+     * @dev Maximum deposit acceptance deadline in L1 blocks (~7 days at 12 s/block).
+     */
+    uint32 public constant MAX_ACCEPT_DEPOSIT_DEADLINE = 50_400;
+
     /// @dev keccak256 of empty bytes — used to detect zero-message roots.
     bytes32 public constant ZERO_BYTES_HASH = 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
 
@@ -531,11 +551,12 @@ contract RollupStorageLayout is
         _setGasLeft(newGasLeft);
     }
 
-    /** @dev Stores the minimum gasleft threshold. Reverts on zero value. */
+    /** @dev Stores the minimum gasleft threshold. Reverts on zero value or above block gas limit. */
     function _setGasLeft(uint32 newGasLeft) internal {
         RollupStorage storage $ = _getRollupStorage();
         // zero would allow unbounded iteration in acceptNextBatch, risking OOG
         require(newGasLeft != 0, ZeroValueNotAllowed("gasLeft"));
+        require(newGasLeft <= MAX_GAS_LEFT, ValueOutOfBounds("gasLeft"));
         emit GasLeftUpdated($._gasLeft, newGasLeft);
         $._gasLeft = newGasLeft;
     }
@@ -550,6 +571,7 @@ contract RollupStorageLayout is
         RollupStorage storage $ = _getRollupStorage();
         // zero deadline would allow deposits to remain unincluded indefinitely
         require(newAcceptDepositDeadline != 0, ZeroValueNotAllowed("acceptDepositDeadline"));
+        require(newAcceptDepositDeadline <= MAX_ACCEPT_DEPOSIT_DEADLINE, ValueOutOfBounds("acceptDepositDeadline"));
         emit AcceptDepositDeadlineUpdated($._acceptDepositDeadline, newAcceptDepositDeadline);
         $._acceptDepositDeadline = newAcceptDepositDeadline;
     }
@@ -624,8 +646,7 @@ contract RollupStorageLayout is
     /** @dev Stores the ETH deposit required per challenge. */
     function _setChallengeDepositAmount(uint256 newChallengeDepositAmount) internal {
         RollupStorage storage $ = _getRollupStorage();
-        // non-zero deposit required to prevent spam challenges
-        require(newChallengeDepositAmount > 0, ZeroValueNotAllowed("challengeDepositAmount"));
+        require(newChallengeDepositAmount >= MIN_CHALLENGE_DEPOSIT_AMOUNT, ValueOutOfBounds("challengeDepositAmount"));
         emit ChallengeDepositAmountUpdated($._challengeDepositAmount, newChallengeDepositAmount);
         $._challengeDepositAmount = newChallengeDepositAmount;
     }
@@ -638,6 +659,7 @@ contract RollupStorageLayout is
     /** @dev Stores the incentive fee paid to force-revert callers. */
     function _setIncentiveFee(uint256 newIncentiveFee) internal {
         RollupStorage storage $ = _getRollupStorage();
+        require(newIncentiveFee <= MAX_INCENTIVE_FEE, ValueOutOfBounds("incentiveFee"));
         emit IncentiveFeeUpdated($._incentiveFee, newIncentiveFee);
         $._incentiveFee = newIncentiveFee;
     }

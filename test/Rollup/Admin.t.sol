@@ -337,16 +337,20 @@ contract AdminTest is RollupAssertions {
 
     function test_setGasLeft_updatesValue() public {
         vm.prank(admin);
-        rollup.setGasLeft(type(uint32).max);
+        rollup.setGasLeft(30_000_000);
     }
 
     function test_RevertIf_acceptNextBatch_insufficientGasLeft() public {
         vm.prank(admin);
-        rollup.setGasLeft(type(uint32).max);
+        rollup.setGasLeft(30_000_000);
         L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InsufficientGas.selector));
         vm.prank(sequencer);
-        rollup.acceptNextBatch(batch, 0);
+        // cap the call gas below the gasLeft threshold so gasleft() < _gasLeft triggers InsufficientGas
+        (bool ok, bytes memory ret) = address(rollup).call{gas: 1_000_000}(
+            abi.encodeCall(rollup.acceptNextBatch, (batch, 0))
+        );
+        assertFalse(ok, "call should revert");
+        assertEq(bytes4(ret), IRollupErrors.InsufficientGas.selector, "expected InsufficientGas");
     }
 
     // ============ Additional admin revert tests ============
@@ -403,9 +407,9 @@ contract AdminTest is RollupAssertions {
         rollup.setFinalizationDelay(uint64(CHALLENGE_WINDOW));
     }
 
-    function test_RevertIf_setChallengeDepositAmount_zero() public {
+    function test_RevertIf_setChallengeDepositAmount_belowMin() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "challengeDepositAmount"));
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ValueOutOfBounds.selector, "challengeDepositAmount"));
         rollup.setChallengeDepositAmount(0);
     }
 
@@ -431,6 +435,24 @@ contract AdminTest is RollupAssertions {
 
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "maxForceRevertBatchSize"));
         new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
+    }
+
+    function test_RevertIf_setIncentiveFee_aboveMax() public {
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ValueOutOfBounds.selector, "incentiveFee"));
+        rollup.setIncentiveFee(101 ether);
+    }
+
+    function test_RevertIf_setGasLeft_aboveMax() public {
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ValueOutOfBounds.selector, "gasLeft"));
+        rollup.setGasLeft(30_000_001);
+    }
+
+    function test_RevertIf_setAcceptDepositDeadline_aboveMax() public {
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ValueOutOfBounds.selector, "acceptDepositDeadline"));
+        rollup.setAcceptDepositDeadline(50_401);
     }
 
     function test_RevertIf_initialize_submitBlobsWindowRange() public {

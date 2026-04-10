@@ -118,6 +118,12 @@ interface IRollupErrors {
     error ZeroValueNotAllowed(string field);
 
     /**
+     * @notice Value exceeds the allowed range for this parameter.
+     * @dev selector: 0x01a7e693
+     */
+    error ValueOutOfBounds(string field);
+
+    /**
      * @notice Nitro enclave signature verification failed.
      * @dev selector: 0xb50f2b0e
      */
