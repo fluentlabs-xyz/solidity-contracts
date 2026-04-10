@@ -617,6 +617,8 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         ChallengeRecord storage challenged = $._challenges[commitment];
         // A batchIndex of 0 means no challenge record exists (index 0 is reserved for genesis)
         require(challenged.batchIndex != 0, BlockNotChallenged(commitment));
+        // Caller must reference the same batch the challenge was opened against
+        require(challenged.batchIndex == batchIndex, InvalidBatchIndex(batchIndex, challenged.batchIndex));
         // Cannot re-prove a block that has already been proven — prevents double reward
         require(!$._provenBlocks[commitment], BlockAlreadyProven(commitment));
         // Verify the challenged block is actually part of the batch's Merkle tree
