@@ -143,7 +143,7 @@ contract RollupStorageLayout is
          */
         uint64 _lastFinalizedBatchIndex;
         /**
-         * @dev minimum gasleft() required per block header iteration in commitBatch
+         * @dev minimum gasleft() required per block header iteration in resolveBatchRootChallenge
          */
         uint32 _gasLeft;
         /**
@@ -518,7 +518,7 @@ contract RollupStorageLayout is
     /** @dev Stores the minimum gasleft threshold. Reverts on zero value. */
     function _setGasLeft(uint32 newGasLeft) internal {
         RollupStorage storage $ = _getRollupStorage();
-        // zero would allow unbounded iteration in commitBatch, risking OOG
+        // zero would allow unbounded iteration in resolveBatchRootChallenge, risking OOG
         require(newGasLeft != 0, ZeroValueNotAllowed("gasLeft"));
         emit GasLeftUpdated($._gasLeft, newGasLeft);
         $._gasLeft = newGasLeft;

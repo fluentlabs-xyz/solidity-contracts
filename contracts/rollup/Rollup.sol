@@ -14,42 +14,46 @@ import {L2BlockHeader, BatchStatus, BatchRecord, ChallengeRecord, BlockDeposit} 
 /**
  * @title Rollup
  * @author Fluent Labs
- * @dev Optimistic Rollup contract paired with FluentBridge with two verifier paths:
- *      AWS Nitro Enclave for preconfirmation and SP1 for ZK proof-based challenge resolution.
+ * @dev Rollup contract serves as an Optimistic Rollup in a relation with FluentBridge with two verifier paths: AWS Nitro Enclave for preconfirmation
+ * and SP1 for ZK proof-based challenge resolution.
  *
- *      Batches progress through five statuses: Committed → Submitted → Preconfirmed
- *      → Finalized, with Challenged as a transient branch from any post-DA status that
- *      restores back to {BatchRecord-statusBeforeChallenge} once all disputes resolve.
+ * Batches progress through five statuses: Committed → Submitted → Preconfirmed →
+ * Finalized, with Challenged as a transient branch from Preconfirmed that resolves back
+ * to Preconfirmed once all disputes are settled.
  *
- *      Two challenge families are supported:
- *      - Block challenges (challengeBlock + resolveBlockChallenge): SP1+Nitro verification.
- *      - Batch-root challenges (challengeBatchRoot + resolveBatchRootChallenge): header
- *        re-derivation to confirm the committed batchRoot.
+ * All timing windows are measured from the block in which {commitBatch} was called
+ * ({BatchRecord-acceptedAtBlock}). The windows are:
+ * - {RollupStorage-submitBlobsWindow}: deadline for the sequencer to submit blob hashes.
+ * - {RollupStorage-preconfirmWindow}: deadline for the preconfirmation service to confirm.
+ * - {RollupStorage-challengeWindow}: deadline by which open challenges must be resolved.
+ * - {RollupStorage-finalizationDelay}: minimum wait before a batch can be finalized.
  *
- *      All timing windows are snapshotted into BatchRecord at commitBatch and never re-read
- *      live — admin updates only affect future batches (Q7 single-source-of-truth + the
- *      `7ee9271` invariant).
- *
- *      Two corruption signals:
- *      - Batch staleness (DA / preconfirm / challenge deadline expired on the oldest
- *        non-finalized batch).
- *      - Deposit liveness (oldest unconsumed bridge message past its frozen processing
- *        deadline). The bridge owns this parameter; the rollup is a thin consumer.
- *
- *      If either signal fires, isRollupCorrupted() returns true and all state-changing
- *      functions revert with RollupCorrupted until the corrupted batch is cleared via
- *      revertBatches.
+ * If any deadline is exceeded, {isRollupCorrupted} returns true and all state-changing
+ * functions revert with {RollupCorrupted} until the corrupted batch is cleared via
+ * {revertBatches}.
  *
  * == Security: challenge timing and finalization ==
  *
- * The invariant `challengeWindow < finalizationDelay` (enforced at initialization and on
- * every admin update) guarantees that the challenge window closes strictly before any
- * batch becomes eligible for finalization. A challenge submitted near the end of the
- * window leaves the prover very little wall-clock time to respond, because the resolution
- * deadline is always `acceptedAtBlock + challengeWindow` regardless of when the challenge
- * was created. If the prover cannot resolve in time, the rollup enters the corrupted
- * (safety-halt) state and EMERGENCY_ROLE calls revertBatches to roll back the affected
- * batches; challenger deposits and incentive fees are credited via the pull pattern.
+ * The invariant `challengeWindow < finalizationDelay` (enforced at initialization and
+ * on every admin update) guarantees that the challenge window closes strictly before any
+ * batch becomes eligible for finalization. With the reference deployment parameters
+ * (`challengeWindow = 36 h`, `finalizationDelay = 48 h`) the gap is 12 hours, so a
+ * batch can never be finalized while challenges are still accepted.
+ *
+ * A challenge submitted near the end of the window leaves the prover very little wall-clock
+ * time to respond, because the resolution deadline is always `acceptedAtBlock + challengeWindow`
+ * regardless of when the challenge was created. If the prover cannot submit both a Nitro
+ * attestation and an SP1 proof before that deadline, the rollup enters the corrupted
+ * (safety-halt) state. This is by design:
+ *
+ * - *No funds are at risk* — the corrupted state blocks all mutations until
+ *   {EMERGENCY_ROLE} calls {revertBatches} to roll back the affected batch.
+ * - The challenger's deposit remains locked in the reverted challenge record and is not
+ *   returned, disincentivizing frivolous last-moment challenges.
+ * - The sequencer can re-submit the batch after the corrupted state is cleared.
+ *
+ * Operators should therefore ensure the prover infrastructure can generate dual proofs
+ * well within the `challengeWindow` and monitor {BlockChallenged} events in real time.
  */
 contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
     // Attach min-heap operations to the HeapStorage type for the challenge priority queue
