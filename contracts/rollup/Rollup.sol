@@ -115,11 +115,11 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         uint256 lastAcceptedBatchIndex = $._nextBatchIndex - 1;
         // Index 0 holds the genesis hash and must never be reverted
         require(toBatchIndex > 0, ZeroValueNotAllowed("toBatchIndex"));
-        // Cap the number of batches that can be reverted in one call to bound gas usage
-        require(lastAcceptedBatchIndex - toBatchIndex <= $._maxForceRevertBatchSize, InvalidBatchIndex(toBatchIndex, lastAcceptedBatchIndex));
 
+        uint256 gasLeft = $._gasLeft;
         // Safety check: finalized batches are immutable and must never be rolled back
         for (uint256 i = lastAcceptedBatchIndex; i > toBatchIndex; i--) {
+            require(gasleft() >= gasLeft, InsufficientGas());
             require($._batches[i].status != BatchStatus.Finalized, BatchAlreadyFinalized(i));
         }
 
@@ -149,10 +149,10 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         // Caller must send enough ETH to cover all incentive fees owed to challengers
         require(msg.value >= totalIncentiveFees, NotEnoughValueIncentiveFee(msg.value, totalIncentiveFees));
         // Reset the batch counter so the next batch starts right after the revert target
-        require(toBatchIndex + 1 <= type(uint96).max, NextBatchIndexOverflow());
-        // casting to 'uint96' is safe because we validate the bounds above.
+        require(toBatchIndex + 1 <= type(uint64).max, NextBatchIndexOverflow());
+        // casting to 'uint64' is safe because we validate the bounds above.
         // forge-lint: disable-next-line(unsafe-typecast)
-        $._nextBatchIndex = uint96(toBatchIndex + 1);
+        $._nextBatchIndex = uint64(toBatchIndex + 1);
 
         // Refund any overpayment back to the caller (underflow safe: require on L115 guarantees msg.value >= totalIncentiveFees)
         uint256 refund = msg.value - totalIncentiveFees;
@@ -207,12 +207,11 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
      */
     function _processRevertBatchRootChallenge(uint256 batchIndex, uint256 fee) internal returns (uint256 totalFees) {
         RollupStorage storage $ = _getRollupStorage();
-        if ($._challengedBatchRoots[batchIndex]) {
+        if ($._batchRootChallenges[batchIndex].challenger != address(0)) {
             ChallengeRecord storage rec = $._batchRootChallenges[batchIndex];
             $._challengerRewards[rec.challenger] += uint256(rec.deposit) + fee;
             totalFees += fee;
             delete $._batchRootChallenges[batchIndex];
-            delete $._challengedBatchRoots[batchIndex];
             delete $._provenBatchRoots[batchIndex];
         }
     }
@@ -233,6 +232,15 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         delete $._batchBlobHashes[batchIndex];
     }
 
+    /// @inheritdoc IRollupEmergency
+    function emergencyRevokeRole(bytes32 role, address account) external onlyRole(EMERGENCY_ROLE) {
+        require(
+            role == SEQUENCER_ROLE || role == PRECONFIRMATION_ROLE || role == CHALLENGER_ROLE || role == PROVER_ROLE,
+            InvalidOperationalRole(role)
+        );
+        _revokeRole(role, account);
+    }
+
     // ============ Sequencer ============
 
     /// @inheritdoc IRollupWrite
@@ -240,7 +248,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         bytes32 batchRoot,
         uint24 numberOfBlocks,
         BlockDeposit[] calldata blockDeposits,
-        uint32 expectedBlobsCount
+        uint8 expectedBlobsCount
     ) external onlyRole(SEQUENCER_ROLE) whenNotPaused nonReentrant {
         RollupStorage storage $ = _getRollupStorage();
         require(batchRoot != bytes32(0), InvalidBatchRoot(batchRoot, bytes32(0)));
@@ -248,19 +256,14 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         require(!_rollupCorrupted(), RollupCorrupted());
 
         uint256 batchIndex = $._nextBatchIndex;
-
-        // Snapshot the bridge consume cursor at submission time. The bridge cursor is uint64
-        // natively but the BatchRecord stores it as uint32 — bound it explicitly to avoid
-        // silent narrowing if the bridge ever produces a value above 4.3B.
         uint64 cursor = IL1FluentBridge($._bridge).getSentMessageCursor();
-        require(cursor <= type(uint32).max, InvalidWindowConfig("sentMessageCursor overflow"));
-
         $._batches[batchIndex] = BatchRecord({
             batchRoot: batchRoot,
             status: BatchStatus.Committed,
             acceptedAtBlock: uint32(block.number),
-            expectedBlobs: uint8(expectedBlobsCount),
-            sentMessageCursorStart: uint32(cursor),
+            expectedBlobs: expectedBlobsCount,
+            // Snapshot the bridge consume cursor at submission time.
+            sentMessageCursorStart: cursor,
             submitBlobsWindowSnapshot: $._submitBlobsWindow,
             preconfirmationWindowSnapshot: $._preconfirmWindow,
             challengeWindowSnapshot: $._challengeWindow,
@@ -268,13 +271,15 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
             numberOfBlocks: numberOfBlocks
         });
 
-        require(batchIndex + 1 <= type(uint96).max, NextBatchIndexOverflow());
+        require(batchIndex + 1 <= type(uint64).max, NextBatchIndexOverflow());
         // forge-lint: disable-next-line(unsafe-typecast)
-        $._nextBatchIndex = uint96(batchIndex + 1);
+        $._nextBatchIndex = uint64(batchIndex + 1);
 
         uint256 numberOfBlocksWithDeposits = blockDeposits.length;
+        uint256 gasLeft = $._gasLeft;
         for (uint256 i = 0; i < numberOfBlocksWithDeposits; ++i) {
-            _checkDeposits(blockDeposits[i]);
+            require(gasleft() >= gasLeft, InsufficientGas());
+            _checkDeposits(cursor, blockDeposits[i]);
         }
 
         emit BatchCommitted(batchIndex, batchRoot, numberOfBlocks, expectedBlobsCount);
@@ -330,7 +335,6 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         uint256 batchIndex,
         bytes calldata signature
     ) external onlyRole(PRECONFIRMATION_ROLE) whenNotPaused nonReentrant {
-        // Access control: PRECONFIRMATION_ROLE (typically the TEE preconfirmation service)
         // Ensure the Nitro verifier contract is on the admin-maintained whitelist
         _validateNitroVerifier(nitroVerifier);
 
@@ -352,10 +356,14 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
 
     // ============ Challenger ============
 
+    /// TODO: revert lastBlockInBatch map for the verification of the batch with index 1
     /// @inheritdoc IRollupWrite
     function challengeBatchRoot(uint256 batchIndex) external payable nonReentrant whenNotPaused onlyRole(CHALLENGER_ROLE) {
         RollupStorage storage $ = _getRollupStorage();
         require(!_rollupCorrupted(), RollupCorrupted());
+
+        /// ======== TODO: revert lastBlockInBatch map for the verification of the batch with index 1 =========
+
         // Genesis batch (index 1) cannot be batch-root challenged — resolveBatchRootChallenge
         // requires a Merkle proof against the previous batch's headers, which don't exist for genesis.
         require(batchIndex > 1, InvalidBatchIndex(batchIndex, 2));
@@ -370,19 +378,16 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         );
 
         // Mutual exclusion: one batch-root challenge at a time, and not after it has been proven.
-        require(!$._challengedBatchRoots[batchIndex], BatchAlreadyChallenged(batchIndex));
+        require($._batchRootChallenges[batchIndex].challenger == address(0), BatchAlreadyChallenged(batchIndex));
         require(!$._provenBatchRoots[batchIndex], BatchRootAlreadyProven(batchIndex));
-
         // Exact deposit required — overpayment is not refunded, underpayment is rejected.
         require(msg.value == $._challengeDepositAmount, IncorrectChallengeDeposit($._challengeDepositAmount, msg.value));
 
         // Deadline from the snapshot captured at commit time; admin updates never affect in-flight batches.
         uint256 deadline = batch.acceptedAtBlock + batch.challengeWindowSnapshot;
         require(block.number < deadline, ChallengeTooLate(batchIndex));
-        require(!$._provenBatchRoots[batchIndex], BatchRootAlreadyChallenged(batchIndex));
 
         // Create the challenge record with the resolution deadline derived from the challenge window
-        $._challengedBatchRoots[batchIndex] = true;
         $._batchRootChallenges[batchIndex] = ChallengeRecord({
             batchIndex: batchIndex,
             deposit: msg.value,
@@ -410,7 +415,6 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
 
         BatchRecord storage batch = $._batches[batchIndex];
         require(batch.status == BatchStatus.Challenged, InvalidBatchStatus(batchIndex, uint8(batch.status)));
-        require($._challengedBatchRoots[batchIndex], BatchRootNotChallenged(batchIndex));
 
         ChallengeRecord storage challenged = $._batchRootChallenges[batchIndex];
         require(challenged.challenger != address(0), BatchRootNotChallenged(batchIndex));
@@ -420,6 +424,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
             InvalidLastBlockHash(lastBlockHeaderInPreviousBatch.blockHash, blockHeaders[0].previousBlockHash)
         );
         bytes32 previousBatchRoot = $._batches[batchIndex - 1].batchRoot;
+        // previousBatchNumberOfBlocks - 1 <-- last block number in the previous batch
         uint32 previousBatchNumberOfBlocks = $._batches[batchIndex - 1].numberOfBlocks;
         bytes32 lastBlockCommitment = _computeCommitment(lastBlockHeaderInPreviousBatch);
         // Verify the block is actually part of this batch via Merkle inclusion proof
@@ -455,11 +460,8 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         uint256 deposit = challenged.deposit;
         $._proverRewards[_msgSender()] += deposit;
 
-        // challenges batch root
-        delete $._challengedBatchRoots[batchIndex];
-        // challenges
-        delete $._batchRootChallenges[batchIndex];
         $._provenBatchRoots[batchIndex] = true;
+        delete $._batchRootChallenges[batchIndex];
         batch.status = challenged.previousStatus;
 
         emit BatchRootChallengeResolved(batchIndex, _msgSender());
@@ -471,24 +473,27 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         L2BlockHeader calldata blockHeader,
         MerkleTree.MerkleProof calldata blockProof
     ) external payable nonReentrant whenNotPaused onlyRole(CHALLENGER_ROLE) {
-        // Access control: CHALLENGER_ROLE + payable (must attach exact deposit amount)
         RollupStorage storage $ = _getRollupStorage();
         // Cannot challenge when the rollup is already in a corrupted/halted state
         require(!_rollupCorrupted(), RollupCorrupted());
         BatchRecord storage batch = $._batches[batchIndex];
 
         // Challenges can only target Preconfirmed batches — not earlier or finalized ones
+        // Note: We can't challenge a batch if its root has been challenged already
         require(batch.status == BatchStatus.Preconfirmed, InvalidBatchStatus(batchIndex, uint8(batch.status)));
-        require(!$._challengedBatchRoots[batchIndex], BatchRootChallengeOpen(batchIndex));
+        require($._batchRootChallenges[batchIndex].challenger == address(0), BatchRootChallengeOpen(batchIndex));
         // Exact deposit required — overpayment is not refunded, underpayment is rejected;
         // this deposit is forfeited to the prover if the challenge is resolved
         require(msg.value == $._challengeDepositAmount, IncorrectChallengeDeposit($._challengeDepositAmount, msg.value));
         // Challenge must be submitted before the challenge window closes (strict less-than)
-        require(block.number < uint256(batch.acceptedAtBlock) + batch.challengeWindowSnapshot, ChallengeTooLate(batchIndex));
+        uint256 deadline = uint256(batch.acceptedAtBlock) + batch.challengeWindowSnapshot;
+        // This is safe, since ChallengeWindowSnapshot is always less then (FinalizationDelay - MIN_CHALLENGE_RESOLUTION_WINDOW),
+        // see `_setChallengeWindow` in RollupStorageLayout.sol
+        require(block.number < deadline, ChallengeTooLate(batchIndex));
 
         // Compute the keccak commitment of the challenged block header
         bytes32 commitment = _computeCommitment(blockHeader);
-        // Verify the block is actually part of this batch via Merkle inclusion proof
+        // Verify the block is actually part of this b`atch via Merkle inclusion proof
         require(MerkleTree.verifyMerkleProof(batch.batchRoot, commitment, blockProof.nonce, blockProof.proof), InvalidBlockProof());
         // A block that has already been proven correct cannot be challenged again
         require(!$._provenBlocks[commitment], BlockAlreadyProven(commitment));
@@ -499,7 +504,6 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         $._batchChallengedBlocks[batchIndex].push(commitment);
 
         // Create the challenge record with the resolution deadline derived from the challenge window
-        uint256 deadline = uint256(batch.acceptedAtBlock) + batch.challengeWindowSnapshot;
         $._blockChallenges[commitment] = ChallengeRecord({
             deposit: msg.value,
             challenger: _msgSender(),
@@ -511,8 +515,8 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         batch.status = BatchStatus.Challenged;
         // Insert into the min-heap priority queue ordered by deadline — _rollupCorrupted()
         // peeks at the earliest deadline to detect expiry
-        $._challengePriority[commitment] = deadline;
-        $._challengeQueue.push($._challengePriority, $._challengeQueueIndex, commitment);
+        $._blockChallengePriority[commitment] = deadline;
+        $._blockChallengeQueue.push($._blockChallengePriority, $._blockChallengeQueueIndex, commitment);
 
         // Notify off-chain watchers — provers monitor this event to begin generating proofs
         emit BlockChallenged(batchIndex, commitment, _msgSender());
@@ -525,11 +529,8 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         uint256 batchIndex,
         L2BlockHeader calldata blockHeader,
         MerkleTree.MerkleProof calldata blockProof,
-        address nitroVerifier,
-        bytes calldata nitroSignature,
         bytes calldata sp1Proof
     ) external nonReentrant whenNotPaused onlyRole(PROVER_ROLE) {
-        // Access control: PROVER_ROLE — only authorized provers can resolve challenges
         RollupStorage storage $ = _getRollupStorage();
         // Cannot resolve challenges when the rollup is corrupted (must force-revert first)
         require(!_rollupCorrupted(), RollupCorrupted());
@@ -539,13 +540,10 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
 
         // Validate: challenge exists, not yet proven, and block is in the batch Merkle tree
         _validateChallenge(batchIndex, commitment, blockProof);
-        // Dual verification: both Nitro enclave attestation AND SP1 ZK proof must pass
-        _verifyNitroAndSp1(batchIndex, blockHeader, nitroVerifier, nitroSignature, sp1Proof);
+        // Verification: SP1 ZK proof must pass
+        _proveBlockWithSp1(sp1Verifier(), $._batchBlobHashes[batchIndex], blockHeader, sp1Proof);
 
         ChallengeRecord storage challenged = $._blockChallenges[commitment];
-        // Cache the deposit amount before deleting the challenge record
-        uint256 deposit = challenged.deposit;
-
         // Effects before interactions (CEI): credit reward before deleting challenge state
         // Mark the block as proven so it cannot be challenged again
         $._provenBlocks[commitment] = true;
@@ -553,17 +551,18 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         $._batchProvenBlocks[batchIndex].push(commitment);
         // Transfer the challenger's deposit to the prover as a reward
         // (credited, not transferred — prover withdraws via withdrawProofReward)
-        $._proverRewards[_msgSender()] += deposit;
+        $._proverRewards[_msgSender()] += challenged.deposit;
+
+        // When every challenged block in the batch has been proven, restore to Preconfirmed
+        // so the batch can proceed toward finalization
+        if ($._batchChallengedBlocks[batchIndex].length == $._batchProvenBlocks[batchIndex].length) {
+            $._batches[batchIndex].status = challenged.previousStatus;
+        }
 
         // Clean up: delete the challenge record and remove from the priority queue
         delete $._blockChallenges[commitment];
         _removeChallengeFromQueue(commitment);
 
-        // When every challenged block in the batch has been proven, restore to Preconfirmed
-        // so the batch can proceed toward finalization
-        if ($._batchChallengedBlocks[batchIndex].length == $._batchProvenBlocks[batchIndex].length) {
-            $._batches[batchIndex].status = BatchStatus.Preconfirmed;
-        }
         // Log resolution — off-chain systems track this to update batch confidence scores
         emit ChallengeResolved(batchIndex, commitment, _msgSender());
     }
@@ -572,15 +571,16 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
 
     /// @inheritdoc IRollupWrite
     function finalizeBatches(uint256 toBatchIndex) external whenNotPaused returns (uint256 finalized) {
-        // Permissionless — anyone can call to finalize eligible batches
         RollupStorage storage $ = _getRollupStorage();
         // Target batch must exist (have been accepted at some point)
         require(toBatchIndex < $._nextBatchIndex, InvalidBatchIndex(toBatchIndex, $._nextBatchIndex));
 
         // Start from the batch right after the last finalized one (sequential finalization)
         uint256 from = uint256($._lastFinalizedBatchIndex) + 1;
+        uint256 gasLeft = $._gasLeft;
         // Attempt to finalize each batch in order; stop at the first ineligible batch
         for (uint256 i = from; i <= toBatchIndex; ++i) {
+            require(gasleft() >= gasLeft, InsufficientGas());
             // _tryFinalizeBatch returns false if the batch is not yet eligible (delay not met)
             if (!_tryFinalizeBatch(i)) break;
             ++finalized;
@@ -589,7 +589,6 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
 
     /// @inheritdoc IRollupWrite
     function finalizeWithProofs(uint256 batchIndex, L2BlockHeader[] calldata blockHeaders) external whenNotPaused {
-        // Permissionless: bypasses finalizationDelay if every block in the batch has been SP1-proven
         RollupStorage storage $ = _getRollupStorage();
         BatchRecord storage batch = $._batches[batchIndex];
 
@@ -761,33 +760,33 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
     /**
      * @dev Verifies both Nitro and SP1 proofs for an L2 block.
      */
-    function _verifyNitroAndSp1(
-        uint256 batchIndex,
-        L2BlockHeader calldata blockHeader,
-        address nitroVerifier,
-        bytes calldata nitroSignature,
-        bytes calldata sp1Proof
-    ) private view {
-        // First verify the Nitro verifier is on the admin whitelist
-        _validateNitroVerifier(nitroVerifier);
-        RollupStorage storage $ = _getRollupStorage();
-        // Copy blob hashes to memory — passed to both verifiers to bind proofs to on-chain DA
-        bytes32[] memory blobHashes = $._batchBlobHashes[batchIndex];
+    // function _verifyNitroAndSp1(
+    //     uint256 batchIndex,
+    //     L2BlockHeader calldata blockHeader,
+    //     address nitroVerifier,
+    //     bytes calldata nitroSignature,
+    //     bytes calldata sp1Proof
+    // ) private view {
+    //     // First verify the Nitro verifier is on the admin whitelist
+    //     _validateNitroVerifier(nitroVerifier);
+    //     RollupStorage storage $ = _getRollupStorage();
+    //     // Copy blob hashes to memory — passed to both verifiers to bind proofs to on-chain DA
+    //     bytes32[] memory blobHashes = $._batchBlobHashes[batchIndex];
 
-        // Verification path 1: Nitro enclave attestation — proves the TEE processed this block
-        // External call to a trusted (whitelisted) verifier; reverts if signature is invalid
-        INitroVerifier(nitroVerifier).verifyBlock(
-            blockHeader.previousBlockHash,
-            blockHeader.blockHash,
-            blockHeader.withdrawalRoot,
-            blockHeader.depositRoot,
-            nitroSignature,
-            blobHashes
-        );
-        // Verification path 2: SP1 ZK proof — mathematically proves block execution correctness
-        // Both paths must succeed for a challenge to be resolved
-        _proveBlockWithSp1(sp1Verifier(), blobHashes, blockHeader, sp1Proof);
-    }
+    //     // // Verification path 1: Nitro enclave attestation — proves the TEE processed this block
+    //     // // External call to a trusted (whitelisted) verifier; reverts if signature is invalid
+    //     // INitroVerifier(nitroVerifier).verifyBlock(
+    //     //     blockHeader.previousBlockHash,
+    //     //     blockHeader.blockHash,
+    //     //     blockHeader.withdrawalRoot,
+    //     //     blockHeader.depositRoot,
+    //     //     nitroSignature,
+    //     //     blobHashes
+    //     // );
+    //     SP1 ZK proof — mathematically proves block execution correctness
+    //     // Both paths must succeed for a challenge to be resolved
+    //     _proveBlockWithSp1(sp1Verifier(), blobHashes, blockHeader, sp1Proof);
+    // }
 
     /**
      * @dev Validates that `verifier` is whitelisted.
@@ -835,18 +834,17 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
      *      Called after all state writes in commitBatch (CEI pattern) and within
      *      a nonReentrant guard — reentrancy warning is a false positive.
      */
-    function _checkDeposits(BlockDeposit memory blockDeposit) private {
+    function _checkDeposits(uint64 sentMessageCursor, BlockDeposit memory blockDeposit) private {
         RollupStorage storage $ = _getRollupStorage();
         // Allocate in-memory array for the root verification at the end of the loop
         bytes32[] memory depositIds = new bytes32[](blockDeposit.depositCount);
-        uint256 id = IL1FluentBridge($._bridge).getSentMessageCursor();
 
         for (uint256 i = 0; i < blockDeposit.depositCount; ++i) {
             // External call to the bridge: advances the consume cursor and returns the next hash.
             // Called after all state writes in commitBatch (CEI) under nonReentrant guard
-            depositIds[i] = IL1FluentBridge($._bridge).getMessageAt(id);
+            depositIds[i] = IL1FluentBridge($._bridge).getMessageAt(sentMessageCursor);
             unchecked {
-                id++;
+                sentMessageCursor++;
             }
         }
 
@@ -866,8 +864,8 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         RollupStorage storage $ = _getRollupStorage();
         // Remove from the min-heap; returns true if the element was found and removed
         // If removal succeeds, also clean up the priority mapping to avoid stale entries
-        if ($._challengeQueue.remove($._challengePriority, $._challengeQueueIndex, commitment)) {
-            delete $._challengePriority[commitment];
+        if ($._blockChallengeQueue.remove($._blockChallengePriority, $._blockChallengeQueueIndex, commitment)) {
+            delete $._blockChallengePriority[commitment];
         }
     }
 

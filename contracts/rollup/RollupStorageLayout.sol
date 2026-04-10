@@ -7,7 +7,7 @@ import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/Pau
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 
-import {IRollupEvents, IRollupErrors, IRollupRead, IRollupConfig, IRollupAdmin} from "../interfaces/IRollup.sol";
+import {IRollupEvents, IRollupErrors, IRollupRead, IRollupConfig, IRollupAdmin, IRollupEmergency} from "../interfaces/IRollup.sol";
 import {BatchStatus, BatchRecord, ChallengeRecord, InitConfiguration} from "../interfaces/IRollupTypes.sol";
 import {Heap} from "../libraries/Heap.sol";
 
@@ -63,26 +63,26 @@ contract RollupStorageLayout is
      */
     uint32 public constant DEFAULT_GAS_LEFT = 1_000_000;
 
-    /// @dev keccak256 of empty bytes — used to detect zero-message roots.
-    bytes32 public constant ZERO_BYTES_HASH = 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
-
     /**
      * @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.RollupStorage")) - 1)) & ~bytes32(uint256(0xff))
      */
     bytes32 private constant ROLLUP_STORAGE_LOCATION = 0x3c5cb8ff22ae9906a910cecced8ac84ef594b2ee1cab438e85f81b70bddcc700;
 
     /**
-     * @dev Minimum number of L1 blocks for the preconfirmation window to ensure challengers have time to respond before the challenge window elapses. (~12h)
+     * @dev Minimum number of L1 blocks for the preconfirmation window to ensure challengers have time to respond before the challenge window elapses.
+     *      ~12h
      */
     uint256 public constant MIN_PRECONFIRMATION_WINDOW = 3600;
 
     /**
-     * @dev Minimum number of L1 blocks for the challenge window to ensure provers have time to respond before the finalization delay elapses. (~12h)
+     * @dev Minimum number of L1 blocks for the challenge window to ensure provers have time to respond before the finalization delay elapses.
+     *      ~12h
      */
     uint256 public constant MIN_CHALLENGE_WINDOW = 3600;
 
     /**
-     * @dev Time buffer in blocks between challenge window end and finalization delay to guarantee provers have time to respond. (~24h)
+     * @dev Time buffer in blocks between challenge window end and finalization delay to guarantee provers have time to respond.
+     *      ~24h
      */
     uint256 public constant MIN_CHALLENGE_RESOLUTION_WINDOW = 7200;
 
@@ -94,7 +94,7 @@ contract RollupStorageLayout is
      */
     /// @custom:storage-location erc7201:fluent.storage.RollupStorage
     struct RollupStorage {
-        // ─── Slot 1: address(20) + uint96(12) = 32 ───
+        // ─── Slot 1: address(20) + uint64(8) = 28 ───
         /**
          * @dev L1 FluentBridge contract; source of deposit messages consumed during batch acceptance
          */
@@ -102,7 +102,7 @@ contract RollupStorageLayout is
         /**
          * @dev incremented on each commitBatch; starts at 1
          */
-        uint96 _nextBatchIndex;
+        uint64 _nextBatchIndex;
         // ─── Slot 2: address(20) + uint24(3) + uint24(3) + uint24(3) + uint24(3) = 32 ───
         /**
          * @dev SP1 verifier contract used for ZK proof validation during challenge resolution
@@ -152,7 +152,7 @@ contract RollupStorageLayout is
          *      uint128 caps at ~3.4e20 ETH — practically unbounded for incentive fees.
          */
         uint128 _incentiveFee;
-        // ─── Slot 5: uint64(8) + uint32(4) + uint32(4) = 16, 16 bytes free ───
+        // ─── Slot 5: uint64(8) + uint32(4) = 12, 20 bytes free ───
         /**
          * @dev highest batch index with Finalized status; enforces sequential finalization
          */
@@ -161,10 +161,6 @@ contract RollupStorageLayout is
          * @dev minimum gasleft() required per block header iteration in resolveBatchRootChallenge
          */
         uint32 _gasLeft;
-        /**
-         * @dev Max batch size to prevent OOG during paginated force revert. Should be >= 1.
-         */
-        uint32 _maxForceRevertBatchSize;
         // ============ Per-batch records ============
         /**
          * @dev packed per-batch state (root, accepted block, expected blobs, status)
@@ -191,7 +187,6 @@ contract RollupStorageLayout is
          * @dev tracks which batch roots have been challenged; prevents duplicate challenges
          */
         mapping(uint256 => bool) _provenBatchRoots;
-        mapping(uint256 => bool) _challengedBatchRoots;
         /**
          * @dev active block challenge records keyed by block commitment hash
          */
@@ -201,21 +196,21 @@ contract RollupStorageLayout is
          */
         mapping(uint256 => ChallengeRecord) _batchRootChallenges;
         /**
-         * @dev min-heap of challenged commitments ordered by deadline for corruption detection
+         * @dev min-heap of block commitments ordered by deadline for corruption detection
          */
-        Heap.HeapStorage _challengeQueue;
+        Heap.HeapStorage _blockChallengeQueue;
         /**
-         * @dev heap priority map: commitment → deadline (used by Heap for ordering)
+         * @dev heap priority map: block commitment → deadline (used by Heap for ordering)
          */
-        mapping(bytes32 => uint256) _challengePriority;
+        mapping(bytes32 => uint256) _blockChallengePriority;
         /**
-         * @dev Heap position map: commitment hash to 1-based index within {_challengeQueue}.
+         * @dev Heap position map: block commitment hash to 1-based index within {_blockChallengeQueue}.
          *      Zero means not in heap. Used by {Heap} for O(log n) removal.
          */
-        mapping(bytes32 => uint256) _challengeQueueIndex;
+        mapping(bytes32 => uint256) _blockChallengeQueueIndex;
         // ============ Reward balances ============
         /**
-         * @dev ETH balances claimable by challengers after force revert
+         * @dev ETH balances claimable by challengers after force revert of a block challenge
          */
         mapping(address => uint256) _challengerRewards;
         /**
@@ -250,8 +245,6 @@ contract RollupStorageLayout is
         require(params.preconfirmWindow <= type(uint24).max, InvalidWindowConfig("preconfirmWindow out of range"));
         require(params.challengeWindow <= type(uint24).max, InvalidWindowConfig("challengeWindow out of range"));
         require(params.finalizationDelay <= type(uint24).max, InvalidWindowConfig("finalizationDelay out of range"));
-        require(params.maxForceRevertBatchSize <= type(uint32).max, InvalidWindowConfig("maxForceRevertBatchSize out of range"));
-        require(params.preconfirmWindow > params.submitBlobsWindow, InvalidWindowConfig("preconfirmWindow must exceed submitBlobsWindow"));
         // Init order is dictated by setter cross-validation: each setter reads
         // previously-stored values, so dependencies must be initialized first.
         // preconfirmWindow → submitBlobsWindow → finalizationDelay → challengeWindow
@@ -280,14 +273,12 @@ contract RollupStorageLayout is
         // ─── Storage setup ───
         // first real batch starts at index 1
         $._nextBatchIndex = 1;
-        _setMaxForceRevertBatchSize(uint32(params.maxForceRevertBatchSize));
 
         // external dependency addresses validated within their respective setters
         _setBridge(params.bridge);
         _setSp1Verifier(params.sp1Verifier);
         _setProgramVKey(params.programVKey);
-        // nitro verifier is optional at init time; can be added later via admin
-        if (params.nitroVerifier != address(0)) _enableNitroVerifier(params.nitroVerifier);
+        _enableNitroVerifier(params.nitroVerifier);
 
         // economic parameters for the challenge/incentive mechanism
         _setChallengeDepositAmount(params.challengeDepositAmount);
@@ -383,29 +374,28 @@ contract RollupStorageLayout is
     function getChallenge(bytes32 commitment) public view returns (ChallengeRecord memory) {
         return _getRollupStorage()._blockChallenges[commitment];
     }
-    /// @inheritdoc IRollupRead
-    function challengeQueue() public view returns (bytes32[] memory) {
-        RollupStorage storage $ = _getRollupStorage();
-        uint256 size = $._challengeQueue.length();
-        if (size == 0) return new bytes32[](0);
 
+    /// @inheritdoc IRollupRead
+    function blockChallengeQueue() public view returns (bytes32[] memory) {
+        RollupStorage storage $ = _getRollupStorage();
+        uint256 size = $._blockChallengeQueue.length();
         // copy heap contents into a memory array for external consumption
         bytes32[] memory queue = new bytes32[](size);
         for (uint256 i = 0; i < size; ++i) {
-            queue[i] = $._challengeQueue.at(i);
+            queue[i] = $._blockChallengeQueue.at(i);
         }
 
         return queue;
     }
 
     /// @inheritdoc IRollupRead
-    function challengeQueueLength() public view returns (uint256) {
-        return _getRollupStorage()._challengeQueue.length();
+    function blockChallengeQueueLength() public view returns (uint256) {
+        return _getRollupStorage()._blockChallengeQueue.length();
     }
 
     /// @inheritdoc IRollupRead
-    function challengeQueueAt(uint256 index) public view returns (bytes32) {
-        return _getRollupStorage()._challengeQueue.at(index);
+    function blockChallengeQueueAt(uint256 index) public view returns (bytes32) {
+        return _getRollupStorage()._blockChallengeQueue.at(index);
     }
 
     /// @inheritdoc IRollupRead
@@ -584,7 +574,10 @@ contract RollupStorageLayout is
     function _setChallengeWindow(uint24 newChallengeWindow) internal {
         RollupStorage storage $ = _getRollupStorage();
         // strict ordering ensures challengers always have time to respond before finalization
-        require(newChallengeWindow > $._preconfirmWindow + MIN_CHALLENGE_WINDOW, InvalidWindowConfig("challengeWindow too close to preconfirmWindow"));
+        require(
+            newChallengeWindow > $._preconfirmWindow + MIN_CHALLENGE_WINDOW,
+            InvalidWindowConfig("challengeWindow too close to preconfirmWindow")
+        );
         // strict ordering ensures provers always have time to respond before finalization
         require(
             newChallengeWindow < $._finalizationDelay - MIN_CHALLENGE_RESOLUTION_WINDOW,

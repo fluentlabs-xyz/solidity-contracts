@@ -84,7 +84,7 @@ abstract contract BaseDeployNative is Test {
         cfg.challengeWindow = 7500;
         cfg.finalizationDelay = FINALIZATION_DELAY;
         cfg.incentiveFee = 0;
-        cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
+        //cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
 
         Rollup rollupImpl = new Rollup();
         ERC1967Proxy rollupProxy = new ERC1967Proxy(address(rollupImpl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
@@ -207,7 +207,7 @@ abstract contract BaseDeployERC20 is Test {
         cfg.challengeWindow = 7500;
         cfg.finalizationDelay = FINALIZATION_DELAY;
         cfg.incentiveFee = 0;
-        cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
+        //cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
 
         Rollup rollupImpl = new Rollup();
         ERC1967Proxy rollupProxy = new ERC1967Proxy(address(rollupImpl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));

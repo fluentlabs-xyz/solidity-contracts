@@ -281,6 +281,12 @@ interface IRollupErrors {
      * @dev selector: 0xdd278830
      */
     error NotAContract(string field);
+
+    /**
+     * @notice Role is not a valid operational role.
+     * @dev selector: TODO
+     */
+    error InvalidOperationalRole(bytes32 role);
 }
 
 /**
@@ -529,18 +535,18 @@ interface IRollupRead {
      *      This full-array snapshot can be expensive for large queues; prefer
      *      challengeQueueLength/challengeQueueAt for pagination-like iteration.
      */
-    function challengeQueue() external view returns (bytes32[] memory);
+    function blockChallengeQueue() external view returns (bytes32[] memory);
 
     /**
-     * @notice Returns the number of commitments in the challenge queue.
+     * @notice Returns the number of commitments in the block challenge queue.
      */
-    function challengeQueueLength() external view returns (uint256);
+    function blockChallengeQueueLength() external view returns (uint256);
 
     /**
      * @notice Returns the queue element at a heap index.
-     * @dev Heap-internal order; not sorted by deadline except that index 0 is the earliest.
+     * @dev Heap-internal order; not sorted by deadline except that index 0 is the earliest block commitment.
      */
-    function challengeQueueAt(uint256 index) external view returns (bytes32);
+    function blockChallengeQueueAt(uint256 index) external view returns (bytes32);
 
     /**
      * @notice Returns blob hashes submitted for a batch.
@@ -595,7 +601,7 @@ interface IRollupWrite {
      * @param expectedBlobsCount Number of EIP-4844 blobs the sequencer commits to submit
      *                           via subsequent {submitBlobs} calls.
      */
-    function commitBatch(bytes32 batchRoot, uint24 numberOfBlocks, BlockDeposit[] calldata blockDeposits, uint32 expectedBlobsCount) external;
+    function commitBatch(bytes32 batchRoot, uint24 numberOfBlocks, BlockDeposit[] calldata blockDeposits, uint8 expectedBlobsCount) external;
 
     /**
      * @notice Submit blob hashes for DA verification of an accepted batch.
@@ -645,20 +651,16 @@ interface IRollupWrite {
     ) external;
 
     /**
-     * @notice Resolve a block challenge by providing Nitro + SP1 proofs.
+     * @notice Resolve a block challenge by providing SP1 proof.
      * @param batchIndex Index of the batch containing the challenged block.
      * @param blockHeader L2 block header that was challenged.
      * @param blockProof Merkle proof of the block header against the batch root.
-     * @param nitroVerifier Address of the Nitro verifier contract to use.
-     * @param nitroSignature 65-byte ECDSA Nitro enclave signature over the block payload.
      * @param sp1Proof SP1 ZK proof validating the block execution.
      */
     function resolveBlockChallenge(
         uint256 batchIndex,
         L2BlockHeader calldata blockHeader,
         MerkleTree.MerkleProof calldata blockProof,
-        address nitroVerifier,
-        bytes calldata nitroSignature,
         bytes calldata sp1Proof
     ) external;
 
@@ -763,11 +765,6 @@ interface IRollupAdmin {
      * @notice Set the ETH reward paid to challengers who successfully challenged a batch.
      */
     function setIncentiveFee(uint256 newIncentiveFee) external;
-
-    /**
-     * @notice Set the maximum force revert batch size.
-     */
-    function setMaxForceRevertBatchSize(uint32 newMaxForceRevertBatchSize) external;
 }
 
 /**
@@ -802,6 +799,12 @@ interface IRollupEmergency {
      * @param toBatchIndex The last batch to keep. All batches above this index are reverted.
      */
     function revertBatches(uint256 toBatchIndex) external payable;
+
+    /**
+     * @notice Revoke a role from an account.
+     * @dev Only callable by EMERGENCY_ROLE.
+     */
+    function emergencyRevokeRole(bytes32 role, address account) external;
 }
 
 /**

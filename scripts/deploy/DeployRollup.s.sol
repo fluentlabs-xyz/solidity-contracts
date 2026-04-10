@@ -79,7 +79,7 @@ contract DeployRollup is DeployBase {
         // ─── Economic parameters ───
         params.challengeDepositAmount = vm.envOr("ROLLUP_CHALLENGE_DEPOSIT_AMOUNT", uint256(0.01 ether));
         params.incentiveFee = vm.envOr("ROLLUP_INCENTIVE_FEE", uint256(0.001 ether));
-        params.maxForceRevertBatchSize = vm.envOr("ROLLUP_MAX_FORCE_REVERT_BATCH_SIZE", uint256(10));
+        //params.maxForceRevertBatchSize = vm.envOr("ROLLUP_MAX_FORCE_REVERT_BATCH_SIZE", uint256(10));
 
         string memory outputPath = vm.envOr("ROLLUP_OUTPUT_PATH", string(""));
 

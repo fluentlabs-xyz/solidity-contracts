@@ -62,7 +62,7 @@ struct BlockDeposit {
 struct BatchRecord {
     /// @dev Merkle root of L2 block headers for this batch.
     bytes32 batchRoot;
-    // ─── Slot 2: 4 + 1 + 1 + 4 + 3 + 3 + 3 + 3 + 3 = 25 bytes used, 7 bytes free ───
+    // ─── Slot 2: 4 + 1 + 1 + 8 + 3 + 3 + 3 + 3 + 3 = 29 bytes used, 3 bytes free ───
     /// @dev L1 block number recorded when {Rollup-commitBatch} is called.
     uint32 acceptedAtBlock;
     /// @dev Number of blobs the sequencer committed to at submission time.
@@ -72,7 +72,7 @@ struct BatchRecord {
     /// @dev Snapshot of {L1FluentBridge-getSentMessageCursor} at the start of submission.
     ///      Used by {Rollup-revertBatches} to rewind the bridge consume cursor exactly
     ///      to the position it held before this batch consumed any deposits.
-    uint32 sentMessageCursorStart;
+    uint64 sentMessageCursorStart;
     /// @dev Blob-submission window snapshotted from rollup config at submission time. Always > 0.
     uint24 submitBlobsWindowSnapshot;
     /// @dev Preconfirmation window snapshotted from rollup config at submission time. Always > 0.
@@ -142,6 +142,4 @@ struct InitConfiguration {
     uint256 submitBlobsWindow;
     /// @dev Max L1 blocks after acceptance for preconfirmation; must be > 0
     uint256 preconfirmWindow;
-    /// @dev Max batch size to revert at once
-    uint256 maxForceRevertBatchSize;
 }
