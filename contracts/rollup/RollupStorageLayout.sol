@@ -85,7 +85,7 @@ contract RollupStorageLayout is
          */
         address _bridge;
         /**
-         * @dev incremented on each acceptNextBatch; starts at 1
+         * @dev incremented on each commitBatch; starts at 1
          */
         uint96 _nextBatchIndex;
         // ─── Slot 2: address(20) + uint24(3) + uint24(3) + uint24(3) + uint24(3) = 32 ───
@@ -143,7 +143,7 @@ contract RollupStorageLayout is
          */
         uint64 _lastFinalizedBatchIndex;
         /**
-         * @dev minimum gasleft() required per block header iteration in acceptNextBatch
+         * @dev minimum gasleft() required per block header iteration in commitBatch
          */
         uint32 _gasLeft;
         /**
@@ -518,7 +518,7 @@ contract RollupStorageLayout is
     /** @dev Stores the minimum gasleft threshold. Reverts on zero value. */
     function _setGasLeft(uint32 newGasLeft) internal {
         RollupStorage storage $ = _getRollupStorage();
-        // zero would allow unbounded iteration in acceptNextBatch, risking OOG
+        // zero would allow unbounded iteration in commitBatch, risking OOG
         require(newGasLeft != 0, ZeroValueNotAllowed("gasLeft"));
         emit GasLeftUpdated($._gasLeft, newGasLeft);
         $._gasLeft = newGasLeft;

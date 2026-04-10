@@ -352,6 +352,9 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
     function challengeBatchRoot(uint256 batchIndex) external payable nonReentrant whenNotPaused onlyRole(CHALLENGER_ROLE) {
         RollupStorage storage $ = _getRollupStorage();
         require(!_rollupCorrupted(), RollupCorrupted());
+        // Genesis batch (index 1) cannot be batch-root challenged — resolveBatchRootChallenge
+        // requires a Merkle proof against the previous batch's headers, which don't exist for genesis.
+        require(batchIndex > 1, InvalidBatchIndex(batchIndex, 2));
 
         BatchRecord storage batch = $._batches[batchIndex];
 
@@ -825,7 +828,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
 
     /**
      * @dev Verifies that L1 deposits match the depositRoot in the block header.
-     *      Called after all state writes in acceptNextBatch (CEI pattern) and within
+     *      Called after all state writes in commitBatch (CEI pattern) and within
      *      a nonReentrant guard — reentrancy warning is a false positive.
      */
     function _checkDeposits(BlockDeposit memory blockDeposit) private {
@@ -836,7 +839,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
 
         for (uint256 i = 0; i < blockDeposit.depositCount; ++i) {
             // External call to the bridge: advances the consume cursor and returns the next hash.
-            // Called after all state writes in acceptNextBatch (CEI) under nonReentrant guard
+            // Called after all state writes in commitBatch (CEI) under nonReentrant guard
             depositIds[i] = IL1FluentBridge($._bridge).getMessageAt(id);
             unchecked {
                 id++;

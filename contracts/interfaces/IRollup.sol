@@ -729,7 +729,7 @@ interface IRollupAdmin {
     function disableNitroVerifier(address verifier) external;
 
     /**
-     * @notice Set minimum gas threshold per block header iteration in acceptNextBatch.
+     * @notice Set minimum gas threshold per block header iteration in commitBatch.
      */
     function setGasLeft(uint32 newGasLeft) external;
 

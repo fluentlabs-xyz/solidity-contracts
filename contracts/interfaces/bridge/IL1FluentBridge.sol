@@ -173,9 +173,9 @@ interface IL1FluentBridge {
 
     /**
      * @notice Moves the sent-message consume cursor forward by `count`. Callable only by the rollup contract.
-     * @dev Used during {Rollup-acceptNextBatch} to pop messages that are included in the accepted batch.
+     * @dev Used during {Rollup-commitBatch} to pop messages that are included in the accepted batch.
      *      The rollup is responsible for ensuring `count` does not exceed the number of unconsumed messages —
-     *      `acceptNextBatch` already prevents over-consuming, so this is upheld by construction.
+     *      `commitBatch` already prevents over-consuming, so this is upheld by construction.
      * @param count Number of messages to consume (advance the cursor by).
      */
     function advanceSentMessageCursor(uint64 count) external;
