@@ -62,7 +62,7 @@ struct BlockDeposit {
 struct BatchRecord {
     /// @dev Merkle root of L2 block headers for this batch.
     bytes32 batchRoot;
-    // ─── Slot 2: 4 + 4 + 1 + 1 + 4 + 3 + 3 + 3 + 3 = 26 bytes used, 6 bytes free ───
+    // ─── Slot 2: 4 + 1 + 1 + 4 + 3 + 3 + 3 + 3 + 3 = 25 bytes used, 7 bytes free ───
     /// @dev L1 block number recorded when {Rollup-commitBatch} is called.
     uint32 acceptedAtBlock;
     /// @dev Number of blobs the sequencer committed to at submission time.
@@ -129,8 +129,6 @@ struct InitConfiguration {
     // ─── Keys ───
     /// @dev SP1 program verification key
     bytes32 programVKey;
-    /// @dev Genesis block hash stored at batch index 0
-    bytes32 genesisHash;
     // ─── Parameters ───
     /// @dev ETH deposit required to open a challenge
     uint256 challengeDepositAmount;

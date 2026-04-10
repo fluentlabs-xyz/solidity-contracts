@@ -247,8 +247,7 @@ interface IRollupErrors {
     error InvalidDepositRootWithNonZeroCount(uint256 depositCount);
 
     /**
-     * @notice preconfirmWindow must exceed submitBlobsWindow — both are measured from
-     *         acceptedAtBlock, so preconfirmation cannot be required before blob submission completes.
+     * @notice Rollup window configuration parameter is outside its allowed range.
      * @dev selector: 0x14bef653
      */
     error InvalidWindowConfig(string reason);
@@ -522,6 +521,7 @@ interface IRollupRead {
      *         Returns a zero record if no active challenge exists.
      */
     function getBatchRootChallenge(uint256 batchIndex) external view returns (ChallengeRecord memory);
+
     /**
      * @notice Returns all commitments currently in the challenge queue.
      * @dev Heap-internal order — only index 0 is guaranteed to be the earliest deadline.
