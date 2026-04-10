@@ -71,6 +71,21 @@ contract RollupStorageLayout is
      */
     bytes32 private constant ROLLUP_STORAGE_LOCATION = 0x3c5cb8ff22ae9906a910cecced8ac84ef594b2ee1cab438e85f81b70bddcc700;
 
+    /**
+     * @dev Minimum number of L1 blocks for the preconfirmation window to ensure challengers have time to respond before the challenge window elapses. (~12h)
+     */
+    uint256 public constant MIN_PRECONFIRMATION_WINDOW = 3600;
+
+    /**
+     * @dev Minimum number of L1 blocks for the challenge window to ensure provers have time to respond before the finalization delay elapses. (~12h)
+     */
+    uint256 public constant MIN_CHALLENGE_WINDOW = 3600;
+
+    /**
+     * @dev Time buffer in blocks between challenge window end and finalization delay to guarantee provers have time to respond. (~24h)
+     */
+    uint256 public constant MIN_CHALLENGE_RESOLUTION_WINDOW = 7200;
+
     // ============ Storage ============
 
     /**
@@ -240,18 +255,14 @@ contract RollupStorageLayout is
         require(params.finalizationDelay <= type(uint64).max, InvalidWindowConfig("finalizationDelay out of range"));
         require(params.acceptDepositDeadline <= type(uint32).max, InvalidWindowConfig("acceptDepositDeadline out of range"));
         require(params.maxForceRevertBatchSize <= type(uint32).max, InvalidWindowConfig("maxForceRevertBatchSize out of range"));
-        // preconfirmation must happen after blob submission completes (when both are enabled)
-        if (params.submitBlobsWindow != 0 && params.preconfirmWindow != 0) {
-            require(params.preconfirmWindow > params.submitBlobsWindow, InvalidWindowConfig("preconfirmWindow must exceed submitBlobsWindow"));
-        }
-        // set blob submission and preconfirmation windows before challenge/finalization
-        // because the setters cross-validate against each other
-        _setSubmitBlobsWindow(uint64(params.submitBlobsWindow));
+        require(params.preconfirmWindow > params.submitBlobsWindow, InvalidWindowConfig("preconfirmWindow must exceed submitBlobsWindow"));
+        // Init order is dictated by setter cross-validation: each setter reads
+        // previously-stored values, so dependencies must be initialized first.
+        // preconfirmWindow → submitBlobsWindow → finalizationDelay → challengeWindow
         _setPreconfirmWindow(uint64(params.preconfirmWindow));
-        // challenge window must be strictly less to guarantee full finalization delay
-        require(params.challengeWindow < params.finalizationDelay, InvalidWindowConfig("challengeWindow must be less than finalizationDelay"));
-        _setChallengeWindow(uint64(params.challengeWindow));
+        _setSubmitBlobsWindow(uint64(params.submitBlobsWindow));
         _setFinalizationDelay(uint64(params.finalizationDelay));
+        _setChallengeWindow(uint64(params.challengeWindow));
 
         _setAcceptDepositDeadline(uint32(params.acceptDepositDeadline));
 
@@ -562,10 +573,11 @@ contract RollupStorageLayout is
     /** @dev Stores the blob submission window in L1 blocks. */
     function _setSubmitBlobsWindow(uint64 newSubmitBlobsWindow) internal {
         RollupStorage storage $ = _getRollupStorage();
+
+        require(newSubmitBlobsWindow > 0, InvalidWindowConfig("submitBlobsWindow must be greater than 0"));
         // blob submission must complete before preconfirmation can start
-        if ($._preconfirmWindow != 0) {
-            require(newSubmitBlobsWindow < $._preconfirmWindow, InvalidWindowConfig("submitBlobsWindow >= preconfirmWindow"));
-        }
+        require(newSubmitBlobsWindow < $._preconfirmWindow, InvalidWindowConfig("submitBlobsWindow >= preconfirmWindow"));
+
         emit SubmitBlobsWindowUpdated($._submitBlobsWindow, newSubmitBlobsWindow);
         $._submitBlobsWindow = newSubmitBlobsWindow;
     }
@@ -579,9 +591,12 @@ contract RollupStorageLayout is
     function _setPreconfirmWindow(uint64 newPreconfirmWindow) internal {
         RollupStorage storage $ = _getRollupStorage();
         // preconfirmation must allow time for blob submission to complete first
-        if (newPreconfirmWindow != 0 && $._submitBlobsWindow != 0) {
-            require(newPreconfirmWindow > $._submitBlobsWindow, InvalidWindowConfig("preconfirmWindow <= submitBlobsWindow"));
-        }
+
+        require(
+            newPreconfirmWindow > $._submitBlobsWindow + MIN_PRECONFIRMATION_WINDOW,
+            InvalidWindowConfig("preconfirmWindow too close to submitBlobsWindow")
+        );
+
         emit PreconfirmWindowUpdated($._preconfirmWindow, newPreconfirmWindow);
         $._preconfirmWindow = newPreconfirmWindow;
     }
@@ -591,13 +606,17 @@ contract RollupStorageLayout is
         _setChallengeWindow(newChallengeWindow);
     }
 
-    /** @dev Stores the challenge window. Must not exceed preconfirmWindow. */
+    /** @dev Stores the challenge window. Must exceed preconfirmWindow + MIN_CHALLENGE_WINDOW and stay below finalizationDelay - MIN_CHALLENGE_RESOLUTION_WINDOW. */
     function _setChallengeWindow(uint64 newChallengeWindow) internal {
         RollupStorage storage $ = _getRollupStorage();
-        // challenge window must end before finalization to give challengers full response time
-        if ($._finalizationDelay != 0) {
-            require(newChallengeWindow < $._finalizationDelay, InvalidWindowConfig("challengeWindow >= finalizationDelay"));
-        }
+        // strict ordering ensures challengers always have time to respond before finalization
+        require(newChallengeWindow > $._preconfirmWindow + MIN_CHALLENGE_WINDOW, InvalidWindowConfig("challengeWindow too close to preconfirmWindow"));
+        // strict ordering ensures provers always have time to respond before finalization
+        require(
+            newChallengeWindow < $._finalizationDelay - MIN_CHALLENGE_RESOLUTION_WINDOW,
+            InvalidWindowConfig("challengeWindow too close to finalizationDelay")
+        );
+
         emit ChallengeWindowUpdated($._challengeWindow, newChallengeWindow);
         $._challengeWindow = newChallengeWindow;
     }
@@ -611,7 +630,10 @@ contract RollupStorageLayout is
     function _setFinalizationDelay(uint64 newFinalizationDelay) internal {
         RollupStorage storage $ = _getRollupStorage();
         // strict ordering ensures challenges always have time to be submitted and resolved
-        require(newFinalizationDelay > $._challengeWindow, InvalidWindowConfig("finalizationDelay <= challengeWindow"));
+        require(
+            newFinalizationDelay > $._challengeWindow + MIN_CHALLENGE_RESOLUTION_WINDOW,
+            InvalidWindowConfig("finalizationDelay too close to challengeWindow")
+        );
         emit FinalizationDelayUpdated($._finalizationDelay, newFinalizationDelay);
         $._finalizationDelay = newFinalizationDelay;
     }

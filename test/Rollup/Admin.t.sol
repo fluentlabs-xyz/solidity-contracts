@@ -136,8 +136,8 @@ contract AdminTest is RollupAssertions {
         cfg.programVKey = PROGRAM_VKEY;
         cfg.genesisHash = GENESIS_HASH;
         cfg.challengeDepositAmount = CHALLENGE_DEPOSIT;
-        cfg.challengeWindow = 300;
-        cfg.finalizationDelay = 200;
+        cfg.challengeWindow = 14000;
+        cfg.finalizationDelay = 14600;
         cfg.acceptDepositDeadline = 1000;
         cfg.incentiveFee = 0.1 ether;
         cfg.submitBlobsWindow = SUBMIT_BLOBS_WINDOW;
@@ -145,7 +145,7 @@ contract AdminTest is RollupAssertions {
         cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
         Rollup impl = new Rollup();
         vm.expectRevert(
-            abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "challengeWindow must be less than finalizationDelay")
+            abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "challengeWindow too close to finalizationDelay")
         );
         new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
     }
@@ -276,7 +276,7 @@ contract AdminTest is RollupAssertions {
     }
 
     function test_setPreconfirmWindow_updatesAndEmits() public {
-        uint64 newWindow = 120;
+        uint64 newWindow = 3800;
         uint64 prev = uint64(rollup.preconfirmWindow());
 
         vm.expectEmit(true, false, false, true, address(rollup));
@@ -288,7 +288,7 @@ contract AdminTest is RollupAssertions {
     }
 
     function test_setChallengeWindow_updatesAndEmits() public {
-        uint64 newWindow = 100;
+        uint64 newWindow = 7401;
         uint64 prev = uint64(rollup.challengeWindow());
 
         vm.expectEmit(true, false, false, true, address(rollup));
@@ -300,7 +300,7 @@ contract AdminTest is RollupAssertions {
     }
 
     function test_setFinalizationDelay_updatesAndEmits() public {
-        uint64 newDelay = 300;
+        uint64 newDelay = 14800;
         uint64 prev = uint64(rollup.finalizationDelay());
 
         vm.expectEmit(true, false, false, true, address(rollup));
@@ -380,25 +380,25 @@ contract AdminTest is RollupAssertions {
     }
 
     function test_RevertIf_setPreconfirmWindow_belowSubmitBlobs() public {
-        // submitBlobsWindow is 50, so setting preconfirmWindow <= 50 should fail
+        // submitBlobsWindow is 50, so setting preconfirmWindow too close should fail
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "preconfirmWindow <= submitBlobsWindow"));
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "preconfirmWindow too close to submitBlobsWindow"));
         // forge-lint: disable-next-line(unsafe-typecast)
         rollup.setPreconfirmWindow(uint64(SUBMIT_BLOBS_WINDOW));
     }
 
     function test_RevertIf_setChallengeWindow_exceedsFinalization() public {
-        // finalizationDelay is 200, so setting challengeWindow >= 200 should fail
+        // challengeWindow too close to finalizationDelay should fail
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "challengeWindow >= finalizationDelay"));
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "challengeWindow too close to finalizationDelay"));
         // forge-lint: disable-next-line(unsafe-typecast)
         rollup.setChallengeWindow(uint64(FINALIZATION_DELAY));
     }
 
     function test_RevertIf_setFinalizationDelay_belowChallenge() public {
-        // challengeWindow is 150, so setting finalizationDelay <= 150 should fail
+        // finalizationDelay too close to challengeWindow should fail
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "finalizationDelay <= challengeWindow"));
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "finalizationDelay too close to challengeWindow"));
         // forge-lint: disable-next-line(unsafe-typecast)
         rollup.setFinalizationDelay(uint64(CHALLENGE_WINDOW));
     }
