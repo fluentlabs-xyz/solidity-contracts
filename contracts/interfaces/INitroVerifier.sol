@@ -7,7 +7,9 @@ pragma solidity ^0.8.30;
  *      block/batch payloads. Supports multiple attested pubkeys simultaneously —
  *      use {AttestationVerified} and {AttestationRevoked} events for off-chain enumeration.
  *
- *      Replay protection (blockHash / batchRoot deduplication) is the caller's responsibility.
+ *      Same-chain replay protection (blockHash / batchRoot deduplication) is the caller's
+ *      responsibility. Cross-chain and cross-deployment replay is prevented by domain
+ *      separation: payloads include `block.chainid` and `address(this)`.
  */
 interface INitroVerifier {
     // ============ Errors ============

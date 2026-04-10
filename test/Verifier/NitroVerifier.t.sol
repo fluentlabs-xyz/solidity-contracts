@@ -60,7 +60,7 @@ contract NitroVerifierTest is Test {
         bytes32 withdrawalHash = keccak256("withdrawal");
         bytes32 depositHash = keccak256("deposit");
         bytes32[] memory blobHashes = new bytes32[](0);
-        bytes32 digest = sha256(abi.encode(parentHash, blockHash, withdrawalHash, depositHash, blobHashes));
+        bytes32 digest = sha256(abi.encode(block.chainid, address(verifier), parentHash, blockHash, withdrawalHash, depositHash, blobHashes));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, digest);
         bytes memory signature = abi.encodePacked(r, s, v);
 
@@ -79,7 +79,7 @@ contract NitroVerifierTest is Test {
         blobHashes[0] = keccak256("blob0");
         blobHashes[1] = keccak256("blob1");
 
-        bytes32 digest = sha256(abi.encode(batchRoot, blobHashes));
+        bytes32 digest = sha256(abi.encode(block.chainid, address(verifier), batchRoot, blobHashes));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, digest);
         bytes memory signature = abi.encodePacked(r, s, v);
 
@@ -99,7 +99,7 @@ contract NitroVerifierTest is Test {
         bytes32[] memory blobHashes = new bytes32[](1);
         blobHashes[0] = keccak256("blob0");
 
-        bytes32 digest = sha256(abi.encode(batchRoot, blobHashes));
+        bytes32 digest = sha256(abi.encode(block.chainid, address(verifier), batchRoot, blobHashes));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, digest);
         bytes memory signature = abi.encodePacked(r, s, v);
 
