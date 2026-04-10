@@ -5,7 +5,7 @@ pragma solidity 0.8.30;
 ///      {consumeNextSentMessage}, {getMessageAt}, {advanceSentMessageCursor},
 ///      {rewindSentMessageCursor}, and the associated views — for testing deposit
 ///      processing in {Rollup._checkDeposits} and the cursor-rewind path in
-///      {Rollup.forceRevertBatch}.
+///      {Rollup.revertBatches}.
 contract MockDepositBridge {
     mapping(uint256 => bytes32) internal _hashes;
     uint256 internal _front;
@@ -31,20 +31,24 @@ contract MockDepositBridge {
         return _hashes[index];
     }
 
-    function advanceSentMessageCursor(uint256 count) external {
+    function advanceSentMessageCursor(uint64 count) external {
         require(_front + count <= _back, "insufficient messages");
         unchecked {
             _front += count;
         }
     }
 
-    function rewindSentMessageCursor(uint256 newFront) external {
+    function rewindSentMessageCursor(uint64 newFront) external {
         require(newFront <= _front, "invalid rewind");
         _front = newFront;
     }
 
-    function getSentMessageCursor() external view returns (uint256) {
-        return _front;
+    function isOldestUnconsumedExpired() external pure returns (bool) {
+        return false;
+    }
+
+    function getSentMessageCursor() external view returns (uint64) {
+        return uint64(_front);
     }
 
     function getSentMessageQueueSize() external view returns (uint256) {

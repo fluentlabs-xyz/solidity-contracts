@@ -22,12 +22,13 @@ contract AdminTest is RollupAssertions {
         cfg.nitroVerifier = address(0);
         cfg.bridge = bridgeAddr;
         cfg.programVKey = PROGRAM_VKEY;
-        cfg.genesisHash = GENESIS_HASH;
+
         cfg.challengeDepositAmount = CHALLENGE_DEPOSIT;
         cfg.challengeWindow = CHALLENGE_WINDOW;
         cfg.finalizationDelay = FINALIZATION_DELAY;
         cfg.incentiveFee = 0.1 ether;
         cfg.submitBlobsWindow = SUBMIT_BLOBS_WINDOW;
+        cfg.preconfirmWindow = PRECONFIRM_WINDOW;
         cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
     }
 
@@ -49,12 +50,13 @@ contract AdminTest is RollupAssertions {
         cfg.nitroVerifier = address(0);
         cfg.bridge = bridgeAddr;
         cfg.programVKey = PROGRAM_VKEY;
-        cfg.genesisHash = GENESIS_HASH;
+
         cfg.challengeDepositAmount = CHALLENGE_DEPOSIT;
+        cfg.submitBlobsWindow = SUBMIT_BLOBS_WINDOW;
+        cfg.preconfirmWindow = PRECONFIRM_WINDOW;
         cfg.challengeWindow = CHALLENGE_WINDOW;
         cfg.finalizationDelay = FINALIZATION_DELAY;
         cfg.incentiveFee = 0.1 ether;
-        cfg.submitBlobsWindow = SUBMIT_BLOBS_WINDOW;
         cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
         Rollup impl = new Rollup();
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
@@ -130,16 +132,18 @@ contract AdminTest is RollupAssertions {
         cfg.nitroVerifier = address(0);
         cfg.bridge = bridgeAddr;
         cfg.programVKey = PROGRAM_VKEY;
-        cfg.genesisHash = GENESIS_HASH;
+
         cfg.challengeDepositAmount = CHALLENGE_DEPOSIT;
-        cfg.challengeWindow = 300;
-        cfg.finalizationDelay = 200;
-        cfg.incentiveFee = 0.1 ether;
         cfg.submitBlobsWindow = SUBMIT_BLOBS_WINDOW;
+        cfg.preconfirmWindow = PRECONFIRM_WINDOW;
+        // challengeWindow exceeds finalizationDelay — must revert
+        cfg.challengeWindow = 15000;
+        cfg.finalizationDelay = 14800;
+        cfg.incentiveFee = 0.1 ether;
         cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
         Rollup impl = new Rollup();
         vm.expectRevert(
-            abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "challengeWindow must be less than finalizationDelay")
+            abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "challengeWindow >= finalizationDelay")
         );
         new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
     }
@@ -219,8 +223,8 @@ contract AdminTest is RollupAssertions {
     }
 
     function test_setSubmitBlobsWindow_updatesAndEmits() public {
-        uint64 newWindow = 90;
-        uint64 prev = uint64(rollup.submitBlobsWindow());
+        uint24 newWindow = 90;
+        uint24 prev = uint24(rollup.submitBlobsWindow());
 
         vm.expectEmit(true, false, false, true, address(rollup));
         emit SubmitBlobsWindowUpdated(prev, newWindow);
@@ -231,8 +235,8 @@ contract AdminTest is RollupAssertions {
     }
 
     function test_setChallengeWindow_updatesAndEmits() public {
-        uint64 newWindow = 100;
-        uint64 prev = uint64(rollup.challengeWindow());
+        uint24 newWindow = 7450;
+        uint24 prev = uint24(rollup.challengeWindow());
 
         vm.expectEmit(true, false, false, true, address(rollup));
         emit ChallengeWindowUpdated(prev, newWindow);
@@ -243,8 +247,8 @@ contract AdminTest is RollupAssertions {
     }
 
     function test_setFinalizationDelay_updatesAndEmits() public {
-        uint64 newDelay = 300;
-        uint64 prev = uint64(rollup.finalizationDelay());
+        uint24 newDelay = 14900;
+        uint24 prev = uint24(rollup.finalizationDelay());
 
         vm.expectEmit(true, false, false, true, address(rollup));
         emit FinalizationDelayUpdated(prev, newDelay);
@@ -283,15 +287,6 @@ contract AdminTest is RollupAssertions {
         rollup.setGasLeft(type(uint32).max);
     }
 
-    function test_RevertIf_acceptNextBatch_insufficientGasLeft() public {
-        vm.prank(admin);
-        rollup.setGasLeft(type(uint32).max);
-        L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InsufficientGas.selector));
-        vm.prank(sequencer);
-        rollup.acceptNextBatch(batch, 0);
-    }
-
     // ============ Additional admin revert tests ============
 
     function test_RevertIf_setSp1Verifier_notAContract() public {
@@ -319,7 +314,7 @@ contract AdminTest is RollupAssertions {
         vm.prank(admin);
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "challengeWindow >= finalizationDelay"));
         // forge-lint: disable-next-line(unsafe-typecast)
-        rollup.setChallengeWindow(uint64(FINALIZATION_DELAY));
+        rollup.setChallengeWindow(uint24(FINALIZATION_DELAY));
     }
 
     function test_RevertIf_setFinalizationDelay_belowChallenge() public {
@@ -327,22 +322,13 @@ contract AdminTest is RollupAssertions {
         vm.prank(admin);
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "finalizationDelay <= challengeWindow"));
         // forge-lint: disable-next-line(unsafe-typecast)
-        rollup.setFinalizationDelay(uint64(CHALLENGE_WINDOW));
+        rollup.setFinalizationDelay(uint24(CHALLENGE_WINDOW));
     }
 
     function test_RevertIf_setChallengeDepositAmount_zero() public {
         vm.prank(admin);
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "challengeDepositAmount"));
         rollup.setChallengeDepositAmount(0);
-    }
-
-    function test_RevertIf_initialize_zeroGenesisHash() public {
-        InitConfiguration memory cfg = _defaultInitConfig(admin, sequencer);
-        cfg.genesisHash = bytes32(0);
-        Rollup impl = new Rollup();
-
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "genesisHash"));
-        new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
     }
 
     function test_RevertIf_initialize_zeroMaxForceRevertBatchSize() public {

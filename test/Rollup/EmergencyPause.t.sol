@@ -2,6 +2,7 @@
 pragma solidity 0.8.30;
 
 import {RollupAssertions} from "./Base.t.sol";
+import {BlockDeposit} from "../../contracts/interfaces/IRollupTypes.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 
@@ -16,13 +17,13 @@ contract EmergencyPauseTest is RollupAssertions {
         assertFalse(rollup.paused());
     }
 
-    function test_pausedBlocksAcceptNextBatch() public {
+    function test_pausedBlockscommitBatch() public {
         vm.prank(admin);
         rollup.pause();
 
         vm.expectRevert(abi.encodeWithSelector(PausableUpgradeable.EnforcedPause.selector));
         vm.prank(sequencer);
-        rollup.acceptNextBatch(_makeBatch(GENESIS_HASH), 1);
+        rollup.commitBatch(keccak256("root"), 1, new BlockDeposit[](0), 1);
     }
 
     function test_RevertIf_pause_callerNotEmergencyRole() public {

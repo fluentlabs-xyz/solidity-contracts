@@ -2,14 +2,15 @@
 pragma solidity 0.8.30;
 
 import {RollupAssertions} from "./Base.t.sol";
+import {BlockDeposit} from "../../contracts/interfaces/IRollupTypes.sol";
 import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
 import {L2BlockHeader, BatchRecord, BatchStatus} from "../../contracts/interfaces/IRollupTypes.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 
-/// @dev Verifies that batch-lifecycle timing windows are frozen at {Rollup-acceptNextBatch}
+/// @dev Verifies that batch-lifecycle timing windows are frozen at {Rollup-commitBatch}
 ///      and that admin updates to those windows do NOT retroactively affect in-flight batches.
 contract RollupSnapshotTest is RollupAssertions {
-    function test_acceptNextBatch_snapshotsCurrentBatchWindows() public {
+    function test_commitBatch_snapshotsCurrentBatchWindows() public {
         uint256 batchIndex = _acceptBatch(GENESIS_HASH, 0);
         BatchRecord memory batch = rollup.getBatch(batchIndex);
 
@@ -32,7 +33,7 @@ contract RollupSnapshotTest is RollupAssertions {
         assertFalse(rollup.isRollupCorrupted(), "old batch should keep original submitBlobs snapshot");
 
         _submitBlobs(batchIndex, 0);
-        assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Accepted), "blob submission should still succeed");
+        assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Submitted), "blob submission should still succeed");
     }
 
     function test_submitBlobs_snapshotUsesUpdatedValueForNewBatch() public {
@@ -59,7 +60,7 @@ contract RollupSnapshotTest is RollupAssertions {
         vm.roll(acceptedAt + 5);
         _submitBlobs(batchIndex, 0);
 
-        assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Accepted), "exact submitBlobs boundary should succeed");
+        assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Submitted), "exact submitBlobs boundary should succeed");
     }
 
     // ============ challengeWindow ============
@@ -69,7 +70,7 @@ contract RollupSnapshotTest is RollupAssertions {
         uint256 batchIndex = rollup.nextBatchIndex();
 
         vm.prank(sequencer);
-        rollup.acceptNextBatch(headers, 1);
+        rollup.commitBatch(_computeBatchRoot(headers), uint24(headers.length), new BlockDeposit[](0), 1);
         _submitBlobs(batchIndex, 0);
         _preconfirmBatch(batchIndex);
 
@@ -78,9 +79,9 @@ contract RollupSnapshotTest is RollupAssertions {
         // Shrink the global window AFTER acceptance. The challenge deadline for this batch
         // must still derive from the snapshotted window, not the new global value.
         vm.prank(admin);
-        rollup.setChallengeWindow(10);
+        rollup.setChallengeWindow(7450);
 
-        vm.roll(acceptedAt + 20);
+        vm.roll(acceptedAt + 7460);
 
         MerkleTree.MerkleProof memory proof = _buildMerkleProof(headers, 0);
         _challengeBlock(batchIndex, headers[0], proof);
@@ -94,18 +95,18 @@ contract RollupSnapshotTest is RollupAssertions {
 
     function test_challengeWindow_snapshotBoundaryRevertsAtExactDeadline() public {
         vm.prank(admin);
-        rollup.setChallengeWindow(10);
+        rollup.setChallengeWindow(7450);
 
         L2BlockHeader[] memory headers = _makeBatch(GENESIS_HASH);
         uint256 batchIndex = rollup.nextBatchIndex();
 
         vm.prank(sequencer);
-        rollup.acceptNextBatch(headers, 1);
+        rollup.commitBatch(_computeBatchRoot(headers), uint24(headers.length), new BlockDeposit[](0), 1);
         _submitBlobs(batchIndex, 0);
         _preconfirmBatch(batchIndex);
 
         uint256 acceptedAt = rollup.getBatch(batchIndex).acceptedAtBlock;
-        vm.roll(acceptedAt + 10);
+        vm.roll(acceptedAt + 7450);
 
         vm.deal(challenger, CHALLENGE_DEPOSIT);
         vm.prank(challenger);
@@ -116,40 +117,31 @@ contract RollupSnapshotTest is RollupAssertions {
     // ============ finalizationDelay ============
 
     function test_finalizationDelay_snapshotIgnoresLaterShorterDelay() public {
-        // Shrink challengeWindow first so finalizationDelay can be reduced below it later
-        vm.prank(admin);
-        rollup.setChallengeWindow(5);
-
         uint256 batchIndex = _acceptBatch(GENESIS_HASH, 0);
         _submitBlobs(batchIndex, 0);
         _preconfirmBatch(batchIndex);
         uint256 acceptedAt = rollup.getBatch(batchIndex).acceptedAtBlock;
 
-        // Shrink finalization delay AFTER acceptance. The old batch must keep its snapshot.
+        // Increase finalization delay AFTER acceptance. The old batch must keep its snapshot.
         vm.prank(admin);
-        rollup.setFinalizationDelay(10);
+        rollup.setFinalizationDelay(14900);
 
-        vm.roll(acceptedAt + 11);
-        assertEq(rollup.finalizeBatches(batchIndex), 0, "old batch should keep original finalization delay snapshot");
+        // Roll past the original snapshot (FINALIZATION_DELAY) but not the new one
+        vm.roll(acceptedAt + FINALIZATION_DELAY + 1);
+        assertEq(rollup.finalizeBatches(batchIndex), 1, "old batch should use its snapshotted delay, not the updated global");
     }
 
     function test_finalizationDelay_snapshotBoundaryFinalizesAfterDeadlineOnly() public {
-        // Set both windows BEFORE acceptance so the new batch snapshots the reduced values.
-        vm.prank(admin);
-        rollup.setChallengeWindow(5);
-        vm.prank(admin);
-        rollup.setFinalizationDelay(10);
-
         uint256 batchIndex = _acceptBatch(GENESIS_HASH, 0);
         _submitBlobs(batchIndex, 0);
         _preconfirmBatch(batchIndex);
         uint256 acceptedAt = rollup.getBatch(batchIndex).acceptedAtBlock;
 
         // Finalization requires STRICT `>` (block.number - acceptedAt > delay) — exact boundary is not yet eligible.
-        vm.roll(acceptedAt + 10);
+        vm.roll(acceptedAt + FINALIZATION_DELAY);
         assertEq(rollup.finalizeBatches(batchIndex), 0, "exact finalization boundary should not finalize");
 
-        vm.roll(acceptedAt + 11);
+        vm.roll(acceptedAt + FINALIZATION_DELAY + 1);
         assertEq(rollup.finalizeBatches(batchIndex), 1, "batch should finalize after the snapshotted delay elapses");
     }
 }

@@ -52,7 +52,7 @@ abstract contract BridgeBase is Test {
         L1FluentBridge l1Impl = new L1FluentBridge();
         ERC1967Proxy l1Proxy = new ERC1967Proxy(
             address(l1Impl),
-            abi.encodeCall(L1FluentBridge.initialize, (abi.encode(cfg), makeAddr("rollupA"), 100))
+            abi.encodeCall(L1FluentBridge.initialize, (abi.encode(cfg), makeAddr("rollupA"), 100, 100))
         );
         l1Bridge = L1FluentBridge(payable(address(l1Proxy)));
 

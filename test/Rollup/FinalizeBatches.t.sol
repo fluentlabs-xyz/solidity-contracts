@@ -2,7 +2,7 @@
 pragma solidity 0.8.30;
 
 import {RollupAssertions} from "./Base.t.sol";
-import {L2BlockHeader, BatchStatus} from "../../contracts/interfaces/IRollupTypes.sol";
+import {L2BlockHeader, BlockDeposit, BatchStatus} from "../../contracts/interfaces/IRollupTypes.sol";
 import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 
@@ -25,12 +25,12 @@ contract FinalizeBatchesTest is RollupAssertions {
         _submitBlobs(batch1, 0);
         _preconfirmBatch(batch1);
 
-        bytes32 lastHash1 = rollup.lastBlockHashInBatch(batch1);
+        bytes32 lastHash1 = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch1);
         uint256 batch2 = _acceptBatch(lastHash1, 0);
         _submitBlobs(batch2, 0);
         _preconfirmBatch(batch2);
 
-        bytes32 lastHash2 = rollup.lastBlockHashInBatch(batch2);
+        bytes32 lastHash2 = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch2);
         uint256 batch3 = _acceptBatch(lastHash2, 0);
         _submitBlobs(batch3, 0);
         _preconfirmBatch(batch3);
@@ -49,12 +49,12 @@ contract FinalizeBatchesTest is RollupAssertions {
         _submitBlobs(batch1, 0);
         _preconfirmBatch(batch1);
 
-        bytes32 lastHash1 = rollup.lastBlockHashInBatch(batch1);
+        bytes32 lastHash1 = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch1);
         uint256 batch2 = _acceptBatch(lastHash1, 0);
         _submitBlobs(batch2, 0);
         _preconfirmBatch(batch2);
 
-        bytes32 lastHash2 = rollup.lastBlockHashInBatch(batch2);
+        bytes32 lastHash2 = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch2);
         uint256 batch3 = _acceptBatch(lastHash2, 0);
         _submitBlobs(batch3, 0);
         _preconfirmBatch(batch3);
@@ -100,14 +100,14 @@ contract FinalizeBatchesTest is RollupAssertions {
         _submitBlobs(batch1, 0);
         _preconfirmBatch(batch1);
 
-        bytes32 lastHash1 = rollup.lastBlockHashInBatch(batch1);
+        bytes32 lastHash1 = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch1);
         uint256 batch2 = _acceptBatch(lastHash1, 0);
         _submitBlobs(batch2, 0);
         _preconfirmBatch(batch2);
 
         vm.roll(block.number + FINALIZATION_DELAY + 1);
 
-        bytes32 lastHash2 = rollup.lastBlockHashInBatch(batch2);
+        bytes32 lastHash2 = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch2);
         uint256 batch3 = _acceptBatch(lastHash2, 0);
         _submitBlobs(batch3, 0);
         _preconfirmBatch(batch3);
@@ -125,7 +125,7 @@ contract FinalizeBatchesTest is RollupAssertions {
         _submitBlobs(batch1, 0);
         // batch1 left in Accepted status intentionally — not preconfirmed
 
-        bytes32 lastHash1 = rollup.lastBlockHashInBatch(batch1);
+        bytes32 lastHash1 = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch1);
         uint256 batch2 = _acceptBatch(lastHash1, 0);
         _submitBlobs(batch2, 0);
         _preconfirmBatch(batch2);
@@ -152,12 +152,12 @@ contract FinalizeBatchesTest is RollupAssertions {
 
     function test_finalizeWithProofs_allBlocksProven() public {
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
-        bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);
+        bytes32 lastHash = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch1);
 
         L2BlockHeader[] memory headers = _makeBatch(lastHash);
         uint256 batchIndex = rollup.nextBatchIndex();
         vm.prank(sequencer);
-        rollup.acceptNextBatch(headers, 1);
+        rollup.commitBatch(_computeBatchRoot(headers), uint24(headers.length), new BlockDeposit[](0), 1);
         _submitBlobs(batchIndex, 0);
         _preconfirmBatch(batchIndex);
 
@@ -172,7 +172,7 @@ contract FinalizeBatchesTest is RollupAssertions {
             rollup.challengeBlock{value: CHALLENGE_DEPOSIT}(batchIndex, headers[i], proof);
 
             vm.prank(prover);
-            rollup.resolveChallenge(batchIndex, headers[i], proof, address(nitroVerifier), DUMMY_SIGNATURE, "");
+            rollup.resolveBlockChallenge(batchIndex, headers[i], proof, address(nitroVerifier), DUMMY_SIGNATURE, "");
         }
 
         assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Preconfirmed));
@@ -187,9 +187,9 @@ contract FinalizeBatchesTest is RollupAssertions {
         L2BlockHeader[] memory headers = _makeBatch(GENESIS_HASH);
         uint256 batchIndex = rollup.nextBatchIndex();
         vm.prank(sequencer);
-        rollup.acceptNextBatch(headers, 1);
+        rollup.commitBatch(_computeBatchRoot(headers), uint24(headers.length), new BlockDeposit[](0), 1);
 
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidBatchStatus.selector, batchIndex, uint8(BatchStatus.HeadersSubmitted)));
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidBatchStatus.selector, batchIndex, uint8(BatchStatus.Committed)));
         rollup.finalizeWithProofs(batchIndex, headers);
     }
 
@@ -198,7 +198,7 @@ contract FinalizeBatchesTest is RollupAssertions {
         _submitBlobs(batch1, 0);
         _preconfirmBatch(batch1);
 
-        bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);
+        bytes32 lastHash = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch1);
         uint256 batch2 = _acceptBatch(lastHash, 0);
         _submitBlobs(batch2, 0);
         _preconfirmBatch(batch2);
@@ -215,7 +215,7 @@ contract FinalizeBatchesTest is RollupAssertions {
 
     function test_RevertIf_finalizeWithProofs_wrongHeaders() public {
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
-        bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);
+        bytes32 lastHash = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch1);
         uint256 batchIndex = _acceptBatch(lastHash, 0);
         _submitBlobs(batchIndex, 0);
         _preconfirmBatch(batchIndex);
@@ -244,7 +244,7 @@ contract FinalizeBatchesTest is RollupAssertions {
 
     function test_RevertIf_preconfirmBatch_rollupCorrupted() public {
         uint256 batch1 = _acceptBatch(GENESIS_HASH, 0);
-        bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);
+        bytes32 lastHash = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch1);
         uint256 batch2 = _acceptBatch(lastHash, 0);
         _submitBlobs(batch2, 0);
 
@@ -260,20 +260,20 @@ contract FinalizeBatchesTest is RollupAssertions {
     function test_RevertIf_preconfirmBatch_wrongBatchStatus() public {
         uint256 batch1 = _acceptBatch(GENESIS_HASH, 0);
 
-        // batch1 is in HeadersSubmitted status (blobs not submitted)
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidBatchStatus.selector, batch1, uint8(BatchStatus.HeadersSubmitted)));
+        // batch1 is in Committed status (blobs not submitted)
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidBatchStatus.selector, batch1, uint8(BatchStatus.Committed)));
         vm.prank(preconfirmer);
         rollup.preconfirmBatch(address(nitroVerifier), batch1, DUMMY_SIGNATURE);
     }
 
     function test_RevertIf_finalizeWithProofs_blockNotProven() public {
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
-        bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);
+        bytes32 lastHash = _lastBlockHash(GENESIS_HASH); // was rollup.lastBlockHashInBatch(batch1);
 
         L2BlockHeader[] memory headers = _makeBatch(lastHash);
         uint256 batchIndex = rollup.nextBatchIndex();
         vm.prank(sequencer);
-        rollup.acceptNextBatch(headers, 1);
+        rollup.commitBatch(_computeBatchRoot(headers), uint24(headers.length), new BlockDeposit[](0), 1);
         _submitBlobs(batchIndex, 0);
         _preconfirmBatch(batchIndex);
 
