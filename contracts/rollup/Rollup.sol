@@ -256,6 +256,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         // Record the L1 block number — all timing windows are measured from this anchor
         batch.acceptedAtBlock = uint64(block.number);
         // Store expected blob count so submitBlobs can validate completeness
+        require(expectedBlobsCount > 0, ZeroValueNotAllowed("expectedBlobsCount"));
         require(expectedBlobsCount <= type(uint32).max, ExpectedBlobsCountOverflow(expectedBlobsCount));
         // casting to 'uint32' is safe because we validate the bounds above.
         // forge-lint: disable-next-line(unsafe-typecast)

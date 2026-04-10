@@ -62,7 +62,7 @@ contract DepositsTest is RollupAssertions {
     function test_acceptNextBatch_zeroDepositsSkipsCheck() public {
         L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
         vm.prank(sequencer);
-        rollup.acceptNextBatch(batch, 0);
+        rollup.acceptNextBatch(batch, 1);
         assertEq(uint8(rollup.getBatch(1).status), uint8(BatchStatus.HeadersSubmitted), "should accept without deposits");
         assertEq(depositsBridge.poppedCount(), 0, "no deposits should be popped");
     }

@@ -172,4 +172,12 @@ contract AcceptBatchTest is RollupAssertions {
         vm.prank(sequencer);
         rollup.acceptNextBatch(batch, 1);
     }
+
+    function test_RevertIf_acceptNextBatch_zeroExpectedBlobsCount() public {
+        L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
+
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "expectedBlobsCount"));
+        vm.prank(sequencer);
+        rollup.acceptNextBatch(batch, 0);
+    }
 }
