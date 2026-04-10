@@ -63,7 +63,7 @@ contract SubmitBlobsTest is RollupAssertions {
         h1[0] = keccak256("b1");
         vm.blobhashes(h1);
         vm.expectEmit(true, false, false, true, address(rollup));
-        emit BatchBlobsSubmitted(batchIndex, 1, 1);
+        emit BatchSubmitted(batchIndex, 1, 1);
         vm.prank(sequencer);
         rollup.submitBlobs(batchIndex, 1);
 
@@ -71,7 +71,7 @@ contract SubmitBlobsTest is RollupAssertions {
         h2[0] = keccak256("b2");
         vm.blobhashes(h2);
         vm.expectEmit(true, false, false, true, address(rollup));
-        emit BatchBlobsSubmitted(batchIndex, 1, 2);
+        emit BatchSubmitted(batchIndex, 1, 2);
         vm.expectEmit(true, false, false, false, address(rollup));
         emit BatchAccepted(batchIndex);
         vm.prank(sequencer);

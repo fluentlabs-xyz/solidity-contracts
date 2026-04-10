@@ -263,7 +263,7 @@ interface IL1FluentBridge {
 
     /**
      * @notice Current sent-message consume cursor (the index of the next message the rollup will consume).
-     * @dev The rollup snapshots this value at the start of {Rollup-submitBatch} and rewinds to it
+     * @dev The rollup snapshots this value at the start of {Rollup-commitBatch} and rewinds to it
      *      during {Rollup-revertBatches}.
      */
     function getSentMessageCursor() external view returns (uint64);

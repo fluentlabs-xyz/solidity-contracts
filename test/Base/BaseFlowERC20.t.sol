@@ -112,6 +112,7 @@ contract BaseFlowERC20Test is BaseDeployERC20 {
         _selectL1();
         bytes32 withdrawalRoot = WithdrawalMerkle.withdrawalRoot(withdrawalLeaves);
         uint256 depositCount = depositLeaves.length;
+        require(depositCount <= type(uint8).max, "deposit count exceeds uint8");
         bytes32 depositRoot = _depositRoot(depositLeaves);
         batchIndex = l1Rollup.nextBatchIndex();
         header = L2BlockHeader({
@@ -119,7 +120,7 @@ contract BaseFlowERC20Test is BaseDeployERC20 {
             blockHash: keccak256(abi.encodePacked("erc20-flow", withdrawalRoot)),
             withdrawalRoot: withdrawalRoot,
             depositRoot: depositRoot,
-            depositCount: depositCount
+            depositCount: uint8(depositCount)
         });
         L2BlockHeader[] memory headers = new L2BlockHeader[](1);
         headers[0] = header;

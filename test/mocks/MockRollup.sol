@@ -29,7 +29,8 @@ contract MockRollup {
                 sentMessageCursorStart: 0,
                 submitBlobsWindowSnapshot: 0,
                 challengeWindowSnapshot: 0,
-                finalizationDelaySnapshot: 0
+                finalizationDelaySnapshot: 0,
+                numberOfBlocks: 0
             });
     }
 }

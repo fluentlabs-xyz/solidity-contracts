@@ -15,7 +15,7 @@ contract DepositsTest is RollupAssertions {
     bytes32[3] internal _depositIds = [keccak256("deposit-0"), keccak256("deposit-1"), keccak256("deposit-2")];
 
     bytes32 internal _depositRoot;
-    uint256 internal _depositCount = 3;
+    uint8 internal constant _depositCount = 3;
 
     MockDepositBridge internal depositsBridge;
 

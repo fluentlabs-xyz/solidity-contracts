@@ -30,7 +30,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         /// @dev Rollup contract used for batch finalization and proof verification.
         Rollup _rollup;
         /// @dev Append-only mapping of sent message hashes indexed by sequence number.
-        ///      The rollup consumes them in order during {Rollup-submitBatch} via
+        ///      The rollup consumes them in order during {Rollup-commitBatch} via
         ///      {consumeNextSentMessage}; consumed slots are NOT deleted, only the cursor advances.
         mapping(uint256 => bytes32) _sentMessageHashes;
         /// @dev Index of the next slot the bridge will write on send (sequence high water mark).
@@ -398,7 +398,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
 
     /// @inheritdoc IL1FluentBridge
     function getSentMessageCursor() public view returns (uint64) {
-        // Current consume cursor — the rollup snapshots this at submitBatch
+        // Current consume cursor — the rollup snapshots this at commitBatch
         // and rewinds to a saved snapshot during revertBatches
         return _getL1FluentBridgeStorage()._sentMessageFront;
     }

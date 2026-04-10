@@ -59,7 +59,7 @@ contract RollupStorageLayout is
     bytes32 public constant PROVER_ROLE = keccak256("PROVER_ROLE");
 
     /**
-     * @dev Default gas left per block header iteration in acceptNextBatch.
+     * @dev Default gas left per block header iteration in resolveBatchRootChallenge.
      */
     uint32 public constant DEFAULT_GAS_LEFT = 1_000_000;
 
@@ -85,51 +85,59 @@ contract RollupStorageLayout is
          */
         address _bridge;
         /**
-         * @dev incremented on each acceptNextBatch; starts at 1 (index 0 holds the genesis hash)
+         * @dev incremented on each acceptNextBatch; starts at 1
          */
         uint96 _nextBatchIndex;
-        // ─── Slot 2: address(20) + 12 bytes padding ───
+        // ─── Slot 2: address(20) + uint24(3) + uint24(3) + uint24(3) + uint24(3) = 32 ───
         /**
          * @dev SP1 verifier contract used for ZK proof validation during challenge resolution
          */
         address _sp1Verifier;
+        /**
+         * @dev Number of L1 blocks after batch acceptance during which challenges can be submitted
+         *      and proofs verified. After this window elapses, the batch becomes eligible for
+         *      finalization via finalizeBatches. Must be greater than challengeWindow to
+         *      guarantee challengers always have a full challengeWindow to respond.
+         */
+        uint24 _finalizationDelay;
+        /**
+         * @dev Batch-wide challenge window measured from acceptance: all challenges for a batch
+         *      must be submitted AND resolved before acceptedAtBlock + _challengeWindow.
+         *      The deadline is shared — a late challenge leaves the prover less time to respond.
+         *      Must be strictly less than {_finalizationDelay}.
+         */
+        uint24 _challengeWindow;
+        /**
+         * @dev Maximum number of L1 blocks after batch acceptance for the sequencer to submit
+         *      all expected blob hashes via submitBlobs. Exceeding this deadline without
+         *      completing DA submission triggers the corrupted state. Set to 0 to disable.
+         */
+        uint24 _submitBlobsWindow;
+        /**
+         * @dev Number of L1 blocks after batch acceptance for the sequencer to preconfirm the batch.
+         *      Preconfirmation is an optional safety mechanism that allows the sequencer to signal
+         *      that a batch is valid before the challenge window elapses. If enabled, preconfirmation
+         *      must happen after blob submission completes (when both are enabled) and before the
+         *      challenge window elapses to give challengers time to respond. Set to 0 to disable.
+         */
+        uint24 _preconfirmWindow;
         // ─── Slot 3: bytes32(32) ───
         /**
          * @dev SP1 program verification key; binds proofs to the current rollup program
          */
         bytes32 _programVKey;
-        // ─── Slot 4: 3 × uint64 = 24 bytes used, 8 free ───
+        // ─── Slot 4: uint128(16) + uint128(16) = 32 ───
         /**
-         * @dev Number of L1 blocks after batch acceptance during which challenges can be submitted
-         *          and proofs verified. After this window elapses, the batch becomes eligible for
-         *          finalization via `finalizeBatches`. Must be greater than `challengeWindow` to
-         *          guarantee challengers always have a full `challengeWindow` to respond.
+         * @dev ETH deposit required to open a challenge; awarded to prover on resolution.
+         *      uint128 caps at ~3.4e20 ETH — practically unbounded for deposit amounts.
          */
-        uint64 _finalizationDelay;
+        uint128 _challengeDepositAmount;
         /**
-         * @dev Batch-wide challenge window measured from acceptance: all challenges for a batch
-         *      must be submitted AND resolved before `acceptedAtBlock + _challengeWindow`.
-         *      The deadline is shared — a late challenge leaves the prover less time to respond.
-         *      Must be strictly less than {_finalizationDelay}.
+         * @dev ETH reward paid to challengers during force revert (on top of deposit refund).
+         *      uint128 caps at ~3.4e20 ETH — practically unbounded for incentive fees.
          */
-        uint64 _challengeWindow;
-        /**
-         * @dev Maximum number of L1 blocks after batch acceptance for the sequencer to submit
-         *      all expected blob hashes via `submitBlobs`. Exceeding this deadline without
-         *      completing DA submission triggers the corrupted state. Set to 0 to disable.
-         */
-        uint64 _submitBlobsWindow;
-        // ─── Slot 5: uint256(32) ───
-        /**
-         * @dev ETH deposit required to open a challenge; awarded to prover on resolution
-         */
-        uint256 _challengeDepositAmount;
-        // ─── Slot 6: uint256(32) ───
-        /**
-         * @dev ETH reward paid to challengers during force revert (on top of deposit refund)
-         */
-        uint256 _incentiveFee;
-        // ─── Slot 7: uint64(8) + uint32(4) + uint32(4) = 16 bytes used, 16 bytes free ───
+        uint128 _incentiveFee;
+        // ─── Slot 5: uint64(8) + uint32(4) + uint32(4) = 16, 16 bytes free ───
         /**
          * @dev highest batch index with Finalized status; enforces sequential finalization
          */
@@ -138,7 +146,6 @@ contract RollupStorageLayout is
          * @dev minimum gasleft() required per block header iteration in acceptNextBatch
          */
         uint32 _gasLeft;
-        // ============ Emergency revert pagination ============
         /**
          * @dev Max batch size to prevent OOG during paginated force revert. Should be >= 1.
          */
@@ -148,10 +155,6 @@ contract RollupStorageLayout is
          * @dev packed per-batch state (root, accepted block, expected blobs, status)
          */
         mapping(uint256 => BatchRecord) _batches;
-        /**
-         * @dev chain-linking hash; index 0 holds genesis, index N holds last block hash of batch N
-         */
-        mapping(uint256 => bytes32) _lastBlockHashInBatch;
         /**
          * @dev EIP-4844 versioned blob hashes recorded per batch for proof binding
          */
@@ -170,9 +173,18 @@ contract RollupStorageLayout is
          */
         mapping(bytes32 => bool) _provenBlocks;
         /**
-         * @dev active challenge records keyed by block commitment hash
+         * @dev tracks which batch roots have been challenged; prevents duplicate challenges
          */
-        mapping(bytes32 => ChallengeRecord) _challenges;
+        mapping(uint256 => bool) _provenBatchRoots;
+        mapping(uint256 => bool) _challengedBatchRoots;
+        /**
+         * @dev active block challenge records keyed by block commitment hash
+         */
+        mapping(bytes32 => ChallengeRecord) _blockChallenges;
+        /**
+         * @dev active challenge records keyed by batch root index
+         */
+        mapping(uint256 => ChallengeRecord) _batchRootChallenges;
         /**
          * @dev min-heap of challenged commitments ordered by deadline for corruption detection
          */
@@ -218,18 +230,24 @@ contract RollupStorageLayout is
         InitConfiguration memory params = abi.decode(data, (InitConfiguration));
 
         // ─── Deadline invariants ───
-        // Window values are snapshotted into {BatchRecord} as uint32 so the record fits
-        // in two storage slots; bound config inputs to the same range to keep narrowing
-        // casts safe. uint32 ≈ 4.3B blocks, ≈1633 years at 12s/block.
-        require(params.submitBlobsWindow <= type(uint32).max, InvalidWindowConfig("submitBlobsWindow out of range"));
-        require(params.challengeWindow <= type(uint32).max, InvalidWindowConfig("challengeWindow out of range"));
-        require(params.finalizationDelay <= type(uint32).max, InvalidWindowConfig("finalizationDelay out of range"));
+        // all window values are stored as uint64/uint32; reject values that would silently truncate
+        require(params.submitBlobsWindow <= type(uint24).max, InvalidWindowConfig("submitBlobsWindow out of range"));
+        require(params.preconfirmWindow <= type(uint24).max, InvalidWindowConfig("preconfirmWindow out of range"));
+        require(params.challengeWindow <= type(uint24).max, InvalidWindowConfig("challengeWindow out of range"));
+        require(params.finalizationDelay <= type(uint24).max, InvalidWindowConfig("finalizationDelay out of range"));
         require(params.maxForceRevertBatchSize <= type(uint32).max, InvalidWindowConfig("maxForceRevertBatchSize out of range"));
-        _setSubmitBlobsWindow(uint64(params.submitBlobsWindow));
+        // preconfirmation must happen after blob submission completes (when both are enabled)
+        if (params.submitBlobsWindow != 0 && params.preconfirmWindow != 0) {
+            require(params.preconfirmWindow > params.submitBlobsWindow, InvalidWindowConfig("preconfirmWindow must exceed submitBlobsWindow"));
+        }
+        // set blob submission and preconfirmation windows before challenge/finalization
+        // because the setters cross-validate against each other
+        _setSubmitBlobsWindow(uint24(params.submitBlobsWindow));
+        _setPreconfirmWindow(uint24(params.preconfirmWindow));
         // challenge window must be strictly less to guarantee full finalization delay
         require(params.challengeWindow < params.finalizationDelay, InvalidWindowConfig("challengeWindow must be less than finalizationDelay"));
-        _setChallengeWindow(uint64(params.challengeWindow));
-        _setFinalizationDelay(uint64(params.finalizationDelay));
+        _setChallengeWindow(uint24(params.challengeWindow));
+        _setFinalizationDelay(uint24(params.finalizationDelay));
 
         // ─── Role setup ───
         // admin is the only required address; other roles fall back to admin if unset
@@ -249,10 +267,7 @@ contract RollupStorageLayout is
         _grantRole(PRECONFIRMATION_ROLE, preconfirmationRole);
 
         // ─── Storage setup ───
-        // genesis hash anchors the chain-linking hash at batch index 0
-        require(params.genesisHash != bytes32(0), ZeroValueNotAllowed("genesisHash"));
-        $._lastBlockHashInBatch[0] = params.genesisHash;
-        // first real batch starts at index 1; index 0 is reserved for genesis
+        // first real batch starts at index 1
         $._nextBatchIndex = 1;
         _setMaxForceRevertBatchSize(uint32(params.maxForceRevertBatchSize));
 
@@ -266,7 +281,7 @@ contract RollupStorageLayout is
         // economic parameters for the challenge/incentive mechanism
         _setChallengeDepositAmount(params.challengeDepositAmount);
         _setIncentiveFee(params.incentiveFee);
-        // default gas threshold prevents unbounded iteration in acceptNextBatch
+        // default gas threshold prevents unbounded iteration in resolveBatchRootChallenge
         _setGasLeft(DEFAULT_GAS_LEFT);
     }
 
@@ -320,6 +335,12 @@ contract RollupStorageLayout is
         return uint256(_getRollupStorage()._submitBlobsWindow);
     }
 
+    /// @inheritdoc IRollupConfig
+    function preconfirmWindow() public view returns (uint256) {
+        // zero means the preconfirmation deadline is disabled
+        return uint256(_getRollupStorage()._preconfirmWindow);
+    }
+
     // ============ IRollupRead ============
 
     /// @inheritdoc IRollupRead
@@ -338,11 +359,6 @@ contract RollupStorageLayout is
     }
 
     /// @inheritdoc IRollupRead
-    function lastBlockHashInBatch(uint256 batchIndex) public view returns (bytes32) {
-        return _getRollupStorage()._lastBlockHashInBatch[batchIndex];
-    }
-
-    /// @inheritdoc IRollupRead
     function isBatchFinalized(uint256 batchIndex) public view returns (bool) {
         return _getRollupStorage()._batches[batchIndex].status == BatchStatus.Finalized;
     }
@@ -354,9 +370,8 @@ contract RollupStorageLayout is
 
     /// @inheritdoc IRollupRead
     function getChallenge(bytes32 commitment) public view returns (ChallengeRecord memory) {
-        return _getRollupStorage()._challenges[commitment];
+        return _getRollupStorage()._blockChallenges[commitment];
     }
-
     /// @inheritdoc IRollupRead
     function challengeQueue() public view returns (bytes32[] memory) {
         RollupStorage storage $ = _getRollupStorage();
@@ -380,6 +395,11 @@ contract RollupStorageLayout is
     /// @inheritdoc IRollupRead
     function challengeQueueAt(uint256 index) public view returns (bytes32) {
         return _getRollupStorage()._challengeQueue.at(index);
+    }
+
+    /// @inheritdoc IRollupRead
+    function getBatchRootChallenge(uint256 batchIndex) public view returns (ChallengeRecord memory) {
+        return _getRollupStorage()._batchRootChallenges[batchIndex];
     }
 
     /// @inheritdoc IRollupRead
@@ -505,31 +525,52 @@ contract RollupStorageLayout is
     }
 
     /// @inheritdoc IRollupAdmin
-    function setSubmitBlobsWindow(uint64 newSubmitBlobsWindow) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setSubmitBlobsWindow(uint24 newSubmitBlobsWindow) external onlyRole(DEFAULT_ADMIN_ROLE) {
         _setSubmitBlobsWindow(newSubmitBlobsWindow);
     }
 
-    /** @dev Stores the blob submission window in L1 blocks. Bounded by uint32 to keep
-     *       {BatchRecord} packed in two storage slots after the snapshot.
+    /** @dev Stores the blob submission window in L1 blocks. Strictly > 0 (Q6 cleanup) and
+     *       bounded by uint24 to keep {BatchRecord} packed (Q12).
      */
-    function _setSubmitBlobsWindow(uint64 newSubmitBlobsWindow) internal {
+    function _setSubmitBlobsWindow(uint24 newSubmitBlobsWindow) internal {
         RollupStorage storage $ = _getRollupStorage();
-        require(newSubmitBlobsWindow <= type(uint32).max, InvalidWindowConfig("submitBlobsWindow out of range"));
+
+        require(newSubmitBlobsWindow > 0, InvalidWindowConfig("submitBlobsWindow must be greater than 0"));
+        // blob submission must complete before preconfirmation can start
+        if ($._preconfirmWindow != 0) {
+            require(newSubmitBlobsWindow < $._preconfirmWindow, InvalidWindowConfig("submitBlobsWindow >= preconfirmWindow"));
+        }
         emit SubmitBlobsWindowUpdated($._submitBlobsWindow, newSubmitBlobsWindow);
         $._submitBlobsWindow = newSubmitBlobsWindow;
     }
 
     /// @inheritdoc IRollupAdmin
-    function setChallengeWindow(uint64 newChallengeWindow) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setPreconfirmWindow(uint24 newPreconfirmWindow) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _setPreconfirmWindow(newPreconfirmWindow);
+    }
+
+    /** @dev Stores the preconfirmation window. Must not exceed submitBlobsWindow. */
+    function _setPreconfirmWindow(uint24 newPreconfirmWindow) internal {
+        RollupStorage storage $ = _getRollupStorage();
+        // preconfirmation must allow time for blob submission to complete first
+        if (newPreconfirmWindow != 0 && $._submitBlobsWindow != 0) {
+            require(newPreconfirmWindow > $._submitBlobsWindow, InvalidWindowConfig("preconfirmWindow <= submitBlobsWindow"));
+        }
+        emit PreconfirmWindowUpdated($._preconfirmWindow, newPreconfirmWindow);
+        $._preconfirmWindow = newPreconfirmWindow;
+    }
+
+    /// @inheritdoc IRollupAdmin
+    function setChallengeWindow(uint24 newChallengeWindow) external onlyRole(DEFAULT_ADMIN_ROLE) {
         _setChallengeWindow(newChallengeWindow);
     }
 
-    /** @dev Stores the challenge window. Must be strictly less than finalizationDelay and
-     *       fit in uint32 to keep {BatchRecord} packed in two storage slots after the snapshot.
+    /** @dev Stores the challenge window. Must be > 0, strictly less than finalizationDelay,
+     *       and fit in uint24 (Q6 cleanup + Q12).
      */
-    function _setChallengeWindow(uint64 newChallengeWindow) internal {
+    function _setChallengeWindow(uint24 newChallengeWindow) internal {
         RollupStorage storage $ = _getRollupStorage();
-        require(newChallengeWindow <= type(uint32).max, InvalidWindowConfig("challengeWindow out of range"));
+        require(newChallengeWindow > 0, InvalidWindowConfig("challengeWindow must be greater than 0"));
         // challenge window must end before finalization to give challengers full response time
         if ($._finalizationDelay != 0) {
             require(newChallengeWindow < $._finalizationDelay, InvalidWindowConfig("challengeWindow >= finalizationDelay"));
@@ -539,16 +580,15 @@ contract RollupStorageLayout is
     }
 
     /// @inheritdoc IRollupAdmin
-    function setFinalizationDelay(uint64 newFinalizationDelay) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setFinalizationDelay(uint24 newFinalizationDelay) external onlyRole(DEFAULT_ADMIN_ROLE) {
         _setFinalizationDelay(newFinalizationDelay);
     }
 
-    /** @dev Stores the finalization delay. Must exceed challengeWindow and fit in uint32
-     *       to keep {BatchRecord} packed in two storage slots after the snapshot.
+    /** @dev Stores the finalization delay. Must be > 0, strictly greater than challengeWindow,
+     *       and fit in uint24 (Q6 cleanup + Q12).
      */
-    function _setFinalizationDelay(uint64 newFinalizationDelay) internal {
+    function _setFinalizationDelay(uint24 newFinalizationDelay) internal {
         RollupStorage storage $ = _getRollupStorage();
-        require(newFinalizationDelay <= type(uint32).max, InvalidWindowConfig("finalizationDelay out of range"));
         // strict ordering ensures challenges always have time to be submitted and resolved
         require(newFinalizationDelay > $._challengeWindow, InvalidWindowConfig("finalizationDelay <= challengeWindow"));
         emit FinalizationDelayUpdated($._finalizationDelay, newFinalizationDelay);
@@ -560,13 +600,18 @@ contract RollupStorageLayout is
         _setChallengeDepositAmount(newChallengeDepositAmount);
     }
 
-    /** @dev Stores the ETH deposit required per challenge. */
+    /** @dev Stores the ETH deposit required per challenge. Bounded above by uint96 (A1) so
+     *       the cast in {ChallengeRecord} struct literals at challenge time is safe by
+     *       construction. uint96 ≈ 79 billion ETH headroom — well above any plausible bond.
+     */
     function _setChallengeDepositAmount(uint256 newChallengeDepositAmount) internal {
         RollupStorage storage $ = _getRollupStorage();
         // non-zero deposit required to prevent spam challenges
         require(newChallengeDepositAmount > 0, ZeroValueNotAllowed("challengeDepositAmount"));
+        // A1: enforce the uint96 narrowing safety invariant at the setter boundary
+        require(newChallengeDepositAmount <= type(uint128).max, InvalidWindowConfig("challengeDepositAmount overflow"));
         emit ChallengeDepositAmountUpdated($._challengeDepositAmount, newChallengeDepositAmount);
-        $._challengeDepositAmount = newChallengeDepositAmount;
+        $._challengeDepositAmount = uint128(newChallengeDepositAmount);
     }
 
     /// @inheritdoc IRollupAdmin
@@ -574,11 +619,14 @@ contract RollupStorageLayout is
         _setIncentiveFee(newIncentiveFee);
     }
 
-    /** @dev Stores the incentive fee paid to force-revert callers. */
+    /** @dev Stores the incentive fee paid to {revertBatches} callers. Bounded by uint128 to fit
+     *       the packed slot 4 layout; uint128 ≈ 3.4e20 ETH headroom — well above any plausible fee.
+     */
     function _setIncentiveFee(uint256 newIncentiveFee) internal {
+        require(newIncentiveFee <= type(uint128).max, InvalidWindowConfig("incentiveFee overflow"));
         RollupStorage storage $ = _getRollupStorage();
         emit IncentiveFeeUpdated($._incentiveFee, newIncentiveFee);
-        $._incentiveFee = newIncentiveFee;
+        $._incentiveFee = uint128(newIncentiveFee);
     }
 
     /// @inheritdoc IRollupAdmin
