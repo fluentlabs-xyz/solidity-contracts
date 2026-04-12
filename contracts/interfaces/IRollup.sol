@@ -281,12 +281,6 @@ interface IRollupErrors {
      * @dev selector: 0xdd278830
      */
     error NotAContract(string field);
-
-    /**
-     * @notice Role is not a valid operational role.
-     * @dev selector: TODO
-     */
-    error InvalidOperationalRole(bytes32 role);
 }
 
 /**
@@ -355,11 +349,6 @@ interface IRollupEvents {
      * @notice Emitted when the incentive fee is updated.
      */
     event IncentiveFeeUpdated(uint256 previousIncentiveFee, uint256 newIncentiveFee);
-
-    /**
-     * @notice Emitted when the maximum force revert batch size is updated.
-     */
-    event MaxForceRevertBatchSizeUpdated(uint32 previousMaxForceRevertBatchSize, uint32 newMaxForceRevertBatchSize);
 
     // ============ Batch lifecycle ============
 
@@ -701,11 +690,6 @@ interface IRollupWrite {
  */
 interface IRollupAdmin {
     /**
-     * @notice Revokes an operational role during an emergency without waiting for the admin timelock.
-     */
-    function emergencyRevokeRole(bytes32 role, address account) external;
-
-    /**
      * @notice Update the bridge contract address.
      */
     function setBridge(address newBridge) external;
@@ -795,7 +779,6 @@ interface IRollupEmergency {
      *      batch-root challenger deposits along with the incentive fee (Q5).
      *      Sets `_nextBatchIndex` to `toBatchIndex + 1`, effectively discarding all
      *      batches in the range `(toBatchIndex, lastAcceptedBatchIndex]`.
-     *      Reverts when the per-call batch count exceeds `_maxForceRevertBatchSize`.
      * @param toBatchIndex The last batch to keep. All batches above this index are reverted.
      */
     function revertBatches(uint256 toBatchIndex) external payable;

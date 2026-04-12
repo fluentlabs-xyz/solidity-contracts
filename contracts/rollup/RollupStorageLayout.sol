@@ -7,7 +7,7 @@ import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/Pau
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 
-import {IRollupEvents, IRollupErrors, IRollupRead, IRollupConfig, IRollupAdmin, IRollupEmergency} from "../interfaces/IRollup.sol";
+import {IRollupEvents, IRollupErrors, IRollupRead, IRollupConfig, IRollupAdmin} from "../interfaces/IRollup.sol";
 import {BatchStatus, BatchRecord, ChallengeRecord, InitConfiguration} from "../interfaces/IRollupTypes.sol";
 import {Heap} from "../libraries/Heap.sol";
 
@@ -639,30 +639,6 @@ contract RollupStorageLayout is
         RollupStorage storage $ = _getRollupStorage();
         emit IncentiveFeeUpdated($._incentiveFee, newIncentiveFee);
         $._incentiveFee = uint128(newIncentiveFee);
-    }
-
-    /// @inheritdoc IRollupAdmin
-    function setMaxForceRevertBatchSize(uint32 newMaxForceRevertBatchSize) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        _setMaxForceRevertBatchSize(newMaxForceRevertBatchSize);
-    }
-
-    /** @dev Stores the maximum force revert batch size. */
-    function _setMaxForceRevertBatchSize(uint32 newMaxForceRevertBatchSize) internal {
-        RollupStorage storage $ = _getRollupStorage();
-        require(newMaxForceRevertBatchSize != 0, ZeroValueNotAllowed("maxForceRevertBatchSize"));
-        emit MaxForceRevertBatchSizeUpdated($._maxForceRevertBatchSize, newMaxForceRevertBatchSize);
-        $._maxForceRevertBatchSize = newMaxForceRevertBatchSize;
-    }
-
-    // ============ Emergency role management ============
-
-    /// @inheritdoc IRollupAdmin
-    function emergencyRevokeRole(bytes32 role, address account) external onlyRole(EMERGENCY_ROLE) {
-        require(
-            role == SEQUENCER_ROLE || role == PRECONFIRMATION_ROLE || role == CHALLENGER_ROLE || role == PROVER_ROLE,
-            InvalidOperationalRole(role)
-        );
-        _revokeRole(role, account);
     }
 
     // ============ Internal helpers ============

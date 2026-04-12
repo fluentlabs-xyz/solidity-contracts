@@ -25,8 +25,7 @@
         "challengeWindow": 10800,
         "finalizationDelay": 14400,
         "challengeDepositAmount": "10000000000000000",
-        "incentiveFee": "1000000000000000",
-        "maxForceRevertBatchSize": 100
+        "incentiveFee": "1000000000000000"
     },
     "timelock": {
         "normalDelay": 60,
