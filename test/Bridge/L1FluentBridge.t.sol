@@ -169,9 +169,11 @@ contract L1FluentBridgeTest is BridgeBase {
     // ============ receiveMessageWithProof happy path ============
 
     function test_receiveMessageWithProof_executesMessageOnValidProof() public {
+        assertEq(l1Bridge.getReceivedNonce(), 0, "sanity: initial inbound nonce");
         ProofFixture memory f = _validProofFixture();
         _executeReceiveWithProof(f);
 
+        assertEq(l1Bridge.getReceivedNonce(), 1, "proof path should advance received nonce like receiveMessage");
         assertEq(
             uint8(l1Bridge.getReceivedMessage(f.messageHash)),
             uint8(IFluentBridge.MessageStatus.Success),
@@ -240,6 +242,22 @@ contract L1FluentBridgeTest is BridgeBase {
         _executeReceiveWithProof(f);
 
         vm.expectRevert(IFluentBridgeErrors.MessageAlreadyReceived.selector);
+        _executeReceiveWithProof(f);
+    }
+
+    /// @dev Proof path must consume the same sequential nonce as `receiveMessage` (expected next = getReceivedNonce()).
+    function test_RevertIf_receiveMessageWithProof_messageNonceOutOfOrder() public {
+        ProofFixture memory f = _validProofFixture();
+        f.messageNonce = 1;
+        f.messageHash = keccak256(abi.encode(f.from, f.to, f.value, f.chainId, f.blockNumber, f.messageNonce, f.message));
+        f.header.withdrawalRoot = f.messageHash;
+
+        bytes32 commitment = keccak256(
+            abi.encodePacked(f.header.previousBlockHash, f.header.blockHash, f.header.withdrawalRoot, f.header.depositRoot)
+        );
+        rollup.setBatchRoot(1, commitment);
+
+        vm.expectRevert(IFluentBridgeErrors.MessageReceivedOutOfOrder.selector);
         _executeReceiveWithProof(f);
     }
 

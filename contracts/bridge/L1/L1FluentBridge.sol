@@ -129,15 +129,17 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         // Messages originating from this chain cannot be "received" here — that would be a rollback
         // The chainId check differentiates between L2→L1 (receive) and L1→L2 (rollback) flows
         require(chainId != block.chainid, ForbiddenReceiveRollbackMessage());
-
         // Reconstruct the message hash used as the Merkle leaf in the withdrawal tree
         // All fields are deterministic — anyone can call this function permissionlessly
         bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, blockNumber, messageNonce, message));
-        // Prevent double-spend: each message can only be claimed once
+        // Prevent double-spend: each message can only be claimed once (check before nonce/proof work)
         require(getReceivedMessage(messageHash) == IFluentBridge.MessageStatus.None, MessageAlreadyReceived());
 
         // Two-level proof: block in batch root, then message in block's withdrawal root
         _verifyWithdrawal(batchIndex, blockHeader, withdrawalProof, blockProof, messageHash);
+        // Keep relayer and proof paths aligned: both consume the same sequential received nonce,
+        // otherwise mixed-mode delivery leaves _receivedNonce stale and blocks receiveMessage.
+        require(messageNonce == _takeNextReceivedNonce(), MessageReceivedOutOfOrder());
         // Prevent re-entrant calls back into the bridge itself
         require(to != address(this), ForbiddenSelfCall());
         // Hook for subclass logic (e.g. deadline checks on L2); false = silently skip
