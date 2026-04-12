@@ -28,13 +28,12 @@ contract DeployRollup is DeployBase {
         p.nitroVerifier = nitroVerifier;
         p.sp1Verifier = vm.envOr("SP1_VERIFIER", json.readAddress(".rollup.sp1Verifier"));
         p.programVKey = vm.envOr("ROLLUP_PROGRAM_VKEY", json.readBytes32(".rollup.programVKey"));
-        p.genesisHash = vm.envOr("ROLLUP_GENESIS_HASH", json.readBytes32(".rollup.genesisHash"));
         p.submitBlobsWindow = vm.envOr("ROLLUP_SUBMIT_BLOBS_WINDOW", json.readUint(".rollup.submitBlobsWindow"));
+        p.preconfirmWindow = vm.envOr("ROLLUP_PRECONFIRM_WINDOW", json.readUint(".rollup.preconfirmWindow"));
         p.challengeWindow = vm.envOr("ROLLUP_CHALLENGE_WINDOW", json.readUint(".rollup.challengeWindow"));
         p.finalizationDelay = vm.envOr("ROLLUP_FINALIZATION_DELAY", json.readUint(".rollup.finalizationDelay"));
         p.challengeDepositAmount = vm.envOr("ROLLUP_CHALLENGE_DEPOSIT_AMOUNT", json.readUint(".rollup.challengeDepositAmount"));
         p.incentiveFee = vm.envOr("ROLLUP_INCENTIVE_FEE", json.readUint(".rollup.incentiveFee"));
-        p.maxForceRevertBatchSize = vm.envOr("ROLLUP_MAX_FORCE_REVERT_BATCH_SIZE", json.readUint(".rollup.maxForceRevertBatchSize"));
     }
 
     function _deployRollup(InitConfiguration memory params) internal returns (RollupResult memory r) {
@@ -53,11 +52,6 @@ contract DeployRollup is DeployBase {
 
         InitConfiguration memory p = _readRollupParams(json, adminRole, nitroVerifier);
         p.bridge = bridge;
-
-        console2.log("Deploying Rollup");
-        console2.log("  admin:", p.admin);
-        console2.log("  bridge:", p.bridge);
-        console2.log("  nitroVerifier:", p.nitroVerifier);
 
         vm.startBroadcast();
         RollupResult memory r = _deployRollup(p);

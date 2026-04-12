@@ -3,19 +3,19 @@ pragma solidity 0.8.30;
 
 import {MockNitroVerifier} from "../mocks/MockNitroVerifier.sol";
 import {MockDepositBridge} from "../mocks/MockDepositBridge.sol";
-import {L2BlockHeader, BatchStatus} from "../../contracts/interfaces/IRollupTypes.sol";
+import {L2BlockHeader, BlockDeposit, BatchStatus} from "../../contracts/interfaces/IRollupTypes.sol";
 import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
 
 import {RollupAssertions} from "./Base.t.sol";
 
 /**
- * @notice Covers Rollup._checkDeposits by feeding multiple L1 deposits into acceptNextBatch.
+ * @notice Covers Rollup._checkDeposits by feeding multiple L1 deposits into commitBatch.
  */
 contract DepositsTest is RollupAssertions {
     bytes32[3] internal _depositIds = [keccak256("deposit-0"), keccak256("deposit-1"), keccak256("deposit-2")];
 
     bytes32 internal _depositRoot;
-    uint256 internal _depositCount = 3;
+    uint8 internal constant _depositCount = 3;
 
     MockDepositBridge internal depositsBridge;
 
@@ -35,50 +35,55 @@ contract DepositsTest is RollupAssertions {
         _depositRoot = keccak256(abi.encodePacked(ids));
     }
 
-    function test_acceptNextBatch_checksDeposits_forMultipleDeposits() public {
+    function test_commitBatch_checksDeposits_forMultipleDeposits() public {
         L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
+        bytes32 batchRoot = _computeBatchRoot(batch);
 
-        // Trigger _checkDeposits for exactly one header (batch header index 0).
-        batch[0].depositRoot = _depositRoot;
-        batch[0].depositCount = _depositCount;
+        BlockDeposit[] memory deposits = new BlockDeposit[](1);
+        deposits[0] = BlockDeposit({depositRoot: _depositRoot, depositCount: _depositCount});
 
         vm.prank(sequencer);
-        rollup.acceptNextBatch(batch, 1);
+        rollup.commitBatch(batchRoot, uint24(batch.length), deposits, 1);
 
-        assertEq(uint8(rollup.getBatch(1).status), uint8(BatchStatus.HeadersSubmitted));
+        assertEq(uint8(rollup.getBatch(1).status), uint8(BatchStatus.Committed));
         assertEq(depositsBridge.poppedCount(), _depositCount, "not all deposits were popped");
     }
 
-    function test_RevertIf_acceptNextBatch_depositRootMismatch() public {
+    function test_RevertIf_commitBatch_depositRootMismatch() public {
         L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
-        batch[0].depositRoot = keccak256("wrong-root");
-        batch[0].depositCount = 3;
+        bytes32 batchRoot = _computeBatchRoot(batch);
 
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.DepositRootMismatch.selector, batch[0].blockHash));
+        BlockDeposit[] memory deposits = new BlockDeposit[](1);
+        deposits[0] = BlockDeposit({depositRoot: keccak256("wrong-root"), depositCount: 3});
+
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.DepositRootMismatch.selector, _depositRoot, keccak256("wrong-root")));
         vm.prank(sequencer);
-        rollup.acceptNextBatch(batch, 1);
+        rollup.commitBatch(batchRoot, uint24(batch.length), deposits, 1);
     }
 
-    function test_acceptNextBatch_zeroDepositsSkipsCheck() public {
+    function test_commitBatch_zeroDepositsSkipsCheck() public {
         L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
+        bytes32 batchRoot = _computeBatchRoot(batch);
+        BlockDeposit[] memory emptyDeposits = new BlockDeposit[](0);
+
         vm.prank(sequencer);
-        rollup.acceptNextBatch(batch, 0);
-        assertEq(uint8(rollup.getBatch(1).status), uint8(BatchStatus.HeadersSubmitted), "should accept without deposits");
+        rollup.commitBatch(batchRoot, uint24(batch.length), emptyDeposits, 0);
+        assertEq(uint8(rollup.getBatch(1).status), uint8(BatchStatus.Committed), "should accept without deposits");
         assertEq(depositsBridge.poppedCount(), 0, "no deposits should be popped");
     }
 
-    function test_acceptNextBatch_checksDeposits_forMultipleDeposits_WithBlobs() public {
+    function test_commitBatch_checksDeposits_forMultipleDeposits_WithBlobs() public {
         L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
+        bytes32 batchRoot = _computeBatchRoot(batch);
 
-        // Trigger _checkDeposits for exactly one header (batch header index 0).
-        batch[0].depositRoot = _depositRoot;
-        batch[0].depositCount = _depositCount;
+        BlockDeposit[] memory deposits = new BlockDeposit[](1);
+        deposits[0] = BlockDeposit({depositRoot: _depositRoot, depositCount: _depositCount});
 
         vm.prank(sequencer);
-        rollup.acceptNextBatch(batch, 1);
+        rollup.commitBatch(batchRoot, uint24(batch.length), deposits, 1);
 
         uint256 batchIndex = 1;
-        assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.HeadersSubmitted));
+        assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Committed));
         assertEq(depositsBridge.poppedCount(), _depositCount, "not all deposits were popped");
 
         bytes32[] memory blobs = new bytes32[](1);
@@ -87,7 +92,7 @@ contract DepositsTest is RollupAssertions {
         vm.prank(sequencer);
         rollup.submitBlobs(batchIndex, 1);
 
-        assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Accepted), "batch should become Accepted");
+        assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Submitted), "batch should become Submitted");
 
         bytes32[] memory storedBlobHashes = rollup.batchBlobHashes(batchIndex);
         assertEq(storedBlobHashes.length, 1, "stored blob hash count mismatch");

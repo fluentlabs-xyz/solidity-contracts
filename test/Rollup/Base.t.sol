@@ -6,7 +6,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
 import {IRollupEvents} from "../../contracts/interfaces/IRollup.sol";
-import {L2BlockHeader, BatchStatus, BatchRecord, InitConfiguration} from "../../contracts/interfaces/IRollupTypes.sol";
+import {L2BlockHeader, BlockDeposit, BatchStatus, BatchRecord, InitConfiguration} from "../../contracts/interfaces/IRollupTypes.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 
 import {MockDepositBridge} from "../mocks/MockDepositBridge.sol";
@@ -53,15 +53,15 @@ abstract contract RollupBase is Test, IRollupEvents {
 
     uint256 internal constant BATCH_SIZE = 4;
     uint256 internal constant CHALLENGE_DEPOSIT = 1 ether;
-    uint256 internal constant SUBMIT_BLOBS_WINDOW = 50;
-    uint256 internal constant FINALIZATION_DELAY = 200;
-    uint256 internal constant CHALLENGE_WINDOW = 150;
-    uint256 internal constant MAX_FORCE_REVERT_BATCH_SIZE = 10;
+    uint256 internal constant SUBMIT_BLOBS_WINDOW = 100;
+    uint256 internal constant PRECONFIRM_WINDOW = 3800;
+    uint256 internal constant CHALLENGE_WINDOW = 7500;
+    uint256 internal constant FINALIZATION_DELAY = 14800;
 
     // ============ Setup ============
 
     function setUp() public virtual {
-        // A real mock bridge is required because acceptNextBatch reads the bridge cursor
+        // A real mock bridge is required because commitBatch reads the bridge cursor
         // unconditionally — an EOA address would revert on the external call.
         bridgeAddr = address(new MockDepositBridge());
         nitroVerifier = new MockNitroVerifier();
@@ -77,26 +77,22 @@ abstract contract RollupBase is Test, IRollupEvents {
         cfg.prover = prover;
         cfg.preconfirmationRole = preconfirmer;
         cfg.sp1Verifier = address(sp1);
-        cfg.nitroVerifier = address(0);
+        cfg.nitroVerifier = address(nitroVerifier);
         cfg.bridge = _bridge;
         cfg.programVKey = PROGRAM_VKEY;
-        cfg.genesisHash = GENESIS_HASH;
         cfg.challengeDepositAmount = CHALLENGE_DEPOSIT;
         cfg.challengeWindow = CHALLENGE_WINDOW;
         cfg.finalizationDelay = FINALIZATION_DELAY;
         cfg.incentiveFee = 0.1 ether;
         cfg.submitBlobsWindow = SUBMIT_BLOBS_WINDOW;
-        cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
+        cfg.preconfirmWindow = PRECONFIRM_WINDOW;
     }
 
     function _deployRollup(address _bridge) internal returns (Rollup) {
         InitConfiguration memory cfg = _defaultInitConfig(_bridge);
         Rollup impl = new Rollup();
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
-        Rollup r = Rollup(address(proxy));
-        vm.prank(admin);
-        r.enableNitroVerifier(address(nitroVerifier));
-        return r;
+        return Rollup(address(proxy));
     }
 }
 
@@ -121,6 +117,14 @@ abstract contract RollupActions is RollupBase {
         }
     }
 
+    function _lastBlockHash(bytes32 parentHash) internal pure returns (bytes32) {
+        bytes32 prev = parentHash;
+        for (uint256 i = 0; i < BATCH_SIZE; i++) {
+            prev = keccak256(abi.encode("block", i, prev));
+        }
+        return prev;
+    }
+
     // ============ Lifecycle Action Helpers ============
 
     function _normalizedExpectedBlobs(uint256 expectedBlobs) internal pure returns (uint256) {
@@ -131,8 +135,10 @@ abstract contract RollupActions is RollupBase {
         uint256 normalizedExpectedBlobs = _normalizedExpectedBlobs(expectedBlobs);
         batchIndex = rollup.nextBatchIndex();
         L2BlockHeader[] memory batch = _makeBatch(parentHash);
+        bytes32 batchRoot = _computeBatchRoot(batch);
+        BlockDeposit[] memory emptyDeposits = new BlockDeposit[](0);
         vm.prank(sequencer);
-        rollup.acceptNextBatch(batch, normalizedExpectedBlobs);
+        rollup.commitBatch(batchRoot, uint24(batch.length), emptyDeposits, uint8(normalizedExpectedBlobs));
     }
 
     function _submitBlobs(uint256 batchIndex, uint256 numBlobs) internal {
@@ -179,14 +185,14 @@ abstract contract RollupActions is RollupBase {
 
     // ============ Event Helpers ============
 
-    function _expectBatchHeadersSubmitted(uint256 batchIndex, bytes32 batchRoot, uint256 expectedBlobs) internal {
+    function _expectBatchCommitted(uint256 batchIndex, bytes32 batchRoot, uint24 numberOfBlocks, uint256 expectedBlobs) internal {
         vm.expectEmit(true, false, false, true, address(rollup));
-        emit BatchHeadersSubmitted(batchIndex, batchRoot, expectedBlobs);
+        emit BatchCommitted(batchIndex, batchRoot, numberOfBlocks, expectedBlobs);
     }
 
-    function _expectBatchAccepted(uint256 batchIndex) internal {
+    function _expectBatchSubmitted(uint256 batchIndex) internal {
         vm.expectEmit(true, false, false, false, address(rollup));
-        emit BatchAccepted(batchIndex);
+        emit BatchSubmitted(batchIndex);
     }
 
     function _expectBatchPreconfirmed(uint256 batchIndex) internal {

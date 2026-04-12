@@ -25,7 +25,7 @@ abstract contract BaseDeployNative is Test {
     bytes32 internal constant GENESIS_HASH = keccak256("genesis");
     bytes32 internal constant PROGRAM_VKEY = keccak256("vkey");
     bytes internal constant DUMMY_SIGNATURE = abi.encodePacked(keccak256("r"), keccak256("s"), uint8(27));
-    uint256 internal constant FINALIZATION_DELAY = 1;
+    uint256 internal constant FINALIZATION_DELAY = 14800;
     uint256 internal constant MAX_FORCE_REVERT_BATCH_SIZE = 10;
 
     // Fork ids
@@ -78,13 +78,12 @@ abstract contract BaseDeployNative is Test {
         cfg.nitroVerifier = address(l1NitroVerifier);
         cfg.bridge = address(0xB1);
         cfg.programVKey = PROGRAM_VKEY;
-        cfg.genesisHash = GENESIS_HASH;
         cfg.challengeDepositAmount = 1 ether;
-        cfg.challengeWindow = 0;
+        cfg.submitBlobsWindow = 100;
+        cfg.preconfirmWindow = 3800;
+        cfg.challengeWindow = 7500;
         cfg.finalizationDelay = FINALIZATION_DELAY;
         cfg.incentiveFee = 0;
-        cfg.submitBlobsWindow = 0;
-        cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
 
         Rollup rollupImpl = new Rollup();
         ERC1967Proxy rollupProxy = new ERC1967Proxy(address(rollupImpl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
@@ -145,7 +144,7 @@ abstract contract BaseDeployERC20 is Test {
     bytes32 internal constant GENESIS_HASH = keccak256("genesis");
     bytes32 internal constant PROGRAM_VKEY = keccak256("vkey");
     bytes internal constant DUMMY_SIGNATURE = abi.encodePacked(keccak256("r"), keccak256("s"), uint8(27));
-    uint256 internal constant FINALIZATION_DELAY = 1;
+    uint256 internal constant FINALIZATION_DELAY = 14800;
     uint256 internal constant MAX_FORCE_REVERT_BATCH_SIZE = 10;
 
     uint256 internal l1ForkId;
@@ -201,13 +200,12 @@ abstract contract BaseDeployERC20 is Test {
         cfg.nitroVerifier = address(l1NitroVerifier);
         cfg.bridge = address(0xB1);
         cfg.programVKey = PROGRAM_VKEY;
-        cfg.genesisHash = GENESIS_HASH;
         cfg.challengeDepositAmount = 1 ether;
-        cfg.challengeWindow = 0;
+        cfg.submitBlobsWindow = 100;
+        cfg.preconfirmWindow = 3800;
+        cfg.challengeWindow = 7500;
         cfg.finalizationDelay = FINALIZATION_DELAY;
         cfg.incentiveFee = 0;
-        cfg.submitBlobsWindow = 0;
-        cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
 
         Rollup rollupImpl = new Rollup();
         ERC1967Proxy rollupProxy = new ERC1967Proxy(address(rollupImpl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));

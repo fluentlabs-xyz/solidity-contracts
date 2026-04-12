@@ -6,7 +6,7 @@ import {L1FluentBridge} from "../../contracts/bridge/L1/L1FluentBridge.sol";
 import {NativeGateway} from "../../contracts/gateways/NativeGateway.sol";
 
 import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
-import {L2BlockHeader} from "../../contracts/interfaces/IRollupTypes.sol";
+import {L2BlockHeader, BlockDeposit} from "../../contracts/interfaces/IRollupTypes.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 
 import {BaseDeployNative} from "./BaseDeploy.sol";
@@ -432,8 +432,10 @@ contract BaseFlowNativeTest is BaseDeployNative {
         });
         L2BlockHeader[] memory headers = new L2BlockHeader[](1);
         headers[0] = header;
+        bytes32 batchRoot = keccak256(abi.encodePacked(keccak256(abi.encodePacked(header.previousBlockHash, header.blockHash, header.withdrawalRoot, header.depositRoot))));
+        BlockDeposit[] memory emptyDeposits = new BlockDeposit[](0);
         vm.prank(relayer);
-        l1Rollup.acceptNextBatch(headers, 1);
+        l1Rollup.commitBatch(batchRoot, 1, emptyDeposits, 1);
         bytes32[] memory blobHashes = new bytes32[](1);
         blobHashes[0] = keccak256(abi.encode(blobLabel, batchIndex));
         vm.blobhashes(blobHashes);

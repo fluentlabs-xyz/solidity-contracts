@@ -34,7 +34,7 @@ contract L1FluentBridgeTest is BridgeBase {
         L1FluentBridge impl = new L1FluentBridge();
         ERC1967Proxy proxy = new ERC1967Proxy(
             address(impl),
-            abi.encodeCall(L1FluentBridge.initialize, (abi.encode(cfg), address(rollup), 100))
+            abi.encodeCall(L1FluentBridge.initialize, (abi.encode(cfg), address(rollup), 100, 100))
         );
         l1Bridge = L1FluentBridge(payable(address(proxy)));
     }
@@ -173,7 +173,7 @@ contract L1FluentBridgeTest is BridgeBase {
         l1Bridge.sendMessage(receiver, hex"02");
         l1Bridge.sendMessage(receiver, hex"03");
 
-        uint256 start = l1Bridge.getSentMessageCursor();
+        uint64 start = l1Bridge.getSentMessageCursor();
         bytes32 peekedA = l1Bridge.getMessageAt(start);
         bytes32 peekedB = l1Bridge.getMessageAt(start + 1);
         bytes32 peekedC = l1Bridge.getMessageAt(start + 2);

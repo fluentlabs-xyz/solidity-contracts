@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.30;
 
-import {L2BlockHeader, BatchRecord, ChallengeRecord} from "./IRollupTypes.sol";
+import {L2BlockHeader, BatchRecord, ChallengeRecord, BlockDeposit} from "./IRollupTypes.sol";
 import {MerkleTree} from "../libraries/MerkleTree.sol";
 
 /**
@@ -28,10 +28,13 @@ interface IRollupErrors {
     error WrongPreviousBlockHash(bytes32 expected, bytes32 provided);
 
     /**
-     * @notice Deposit root in the block header does not match the consumed bridge messages.
-     * @dev selector: 0x12336bd2
+     * @notice Deposit root for a block in the BlockDeposit array does not match the
+     *         actual unconsumed bridge messages at the corresponding range.
+     * @param expected The expected deposit root.
+     * @param provided The provided deposit root.
+     * @dev selector: 0x9f29a87b
      */
-    error DepositRootMismatch(bytes32 blockHash);
+    error DepositRootMismatch(bytes32 expected, bytes32 provided);
 
     /**
      * @notice Batch has already been finalized and cannot be modified.
@@ -40,10 +43,10 @@ interface IRollupErrors {
     error BatchAlreadyFinalized(uint256 batchIndex);
 
     /**
-     * @notice Sent-message cursor would not fit into the uint64 BatchRecord field.
-     * @dev selector: 0xfe82d60f
+     * @notice Batch root has already been proven.
+     * @dev selector:
      */
-    error SentMessageCursorOverflow();
+    error BatchRootAlreadyProven(uint256 batchIndex);
 
     /**
      * @notice Block commitment has already been proven.
@@ -154,6 +157,12 @@ interface IRollupErrors {
     error SubmitBlobsWindowExceeded(uint256 deadline, uint256 currentBlock);
 
     /**
+     * @notice Batch was not preconfirmed within the `preconfirmWindow`.
+     * @dev selector: 0x915afa97
+     */
+    error PreconfirmWindowExceeded(uint256 deadline, uint256 currentBlock);
+
+    /**
      * @notice Number of submitted blob hashes exceeds the expected count for this batch.
      * @dev selector: 0x756c086a
      */
@@ -164,6 +173,41 @@ interface IRollupErrors {
      * @dev selector: 0x0f36c0b9
      */
     error InvalidBatchStatus(uint256 batchIndex, uint8 current);
+
+    /**
+     * @notice Stored batch Merkle root does not match the root recomputed from the provided headers.
+     */
+    error InvalidBatchRoot(bytes32 storedRoot, bytes32 computedRoot);
+
+    /**
+     * @notice Block hash linkage does not match the chain recorded for this batch.
+     */
+    error InvalidLastBlockHash(bytes32 expected, bytes32 provided);
+
+    /**
+     * @notice Batch already has an active challenge (status `Challenged`).
+     */
+    error BatchAlreadyChallenged(uint256 batchIndex);
+
+    /**
+     * @notice Batch root was already proven or cannot be challenged in this way.
+     */
+    error BatchRootAlreadyChallenged(uint256 batchIndex);
+
+    /**
+     * @notice No open batch-root challenge exists for this batch.
+     */
+    error BatchRootNotChallenged(uint256 batchIndex);
+
+    /**
+     * @notice Cannot open a block challenge while a batch-root challenge is open for this batch.
+     */
+    error BatchRootChallengeOpen(uint256 batchIndex);
+
+    /**
+     * @notice Cannot open a batch-root challenge while block challenges are open for this batch.
+     */
+    error BlockChallengesOpen(uint256 batchIndex);
 
     /**
      * @notice Gas remaining is below the required threshold for safe iteration.
@@ -282,6 +326,11 @@ interface IRollupEvents {
     event SubmitBlobsWindowUpdated(uint64 previousSubmitBlobsWindow, uint64 newSubmitBlobsWindow);
 
     /**
+     * @notice Emitted when the preconfirm window is updated.
+     */
+    event PreconfirmWindowUpdated(uint64 previousPreconfirmWindow, uint64 newPreconfirmWindow);
+
+    /**
      * @notice Emitted when the challenge window is updated.
      */
     event ChallengeWindowUpdated(uint64 previousChallengeWindow, uint64 newChallengeWindow);
@@ -301,17 +350,12 @@ interface IRollupEvents {
      */
     event IncentiveFeeUpdated(uint256 previousIncentiveFee, uint256 newIncentiveFee);
 
-    /**
-     * @notice Emitted when the maximum force revert batch size is updated.
-     */
-    event MaxForceRevertBatchSizeUpdated(uint32 previousMaxForceRevertBatchSize, uint32 newMaxForceRevertBatchSize);
-
     // ============ Batch lifecycle ============
 
     /**
-     * @notice Emitted when sequencer submits L2 block headers for a new batch.
+     * @notice Emitted when sequencer commits a new batchRoot via {Rollup-commitBatch}.
      */
-    event BatchHeadersSubmitted(uint256 indexed batchIndex, bytes32 batchRoot, uint256 expectedBlobs);
+    event BatchCommitted(uint256 indexed batchIndex, bytes32 batchRoot, uint24 numberOfBlocks, uint256 expectedBlobs);
 
     /**
      * @notice Emitted when sequencer submits blob hashes for a batch.
@@ -319,9 +363,9 @@ interface IRollupEvents {
     event BatchBlobsSubmitted(uint256 indexed batchIndex, uint256 numBlobs, uint256 totalBlobs);
 
     /**
-     * @notice Emitted when all expected blobs are submitted and batch moves to Accepted.
+     * @notice Emitted when all expected blobs are submitted and the batch moves to Submitted.
      */
-    event BatchAccepted(uint256 indexed batchIndex);
+    event BatchSubmitted(uint256 indexed batchIndex);
 
     /**
      * @notice Emitted when Nitro preconfirmation is committed for a batch.
@@ -346,9 +390,19 @@ interface IRollupEvents {
     event BlockChallenged(uint256 indexed batchIndex, bytes32 indexed commitment, address indexed challenger);
 
     /**
+     * @notice Emitted when a challenger opens a batch-root validity dispute.
+     */
+    event BatchRootChallenged(uint256 indexed batchIndex);
+
+    /**
      * @notice Emitted when a prover resolves a challenge with Nitro + SP1 proof.
      */
     event ChallengeResolved(uint256 indexed batchIndex, bytes32 indexed commitment, address indexed prover);
+
+    /**
+     * @notice Emitted when a batch root challenge is resolved.
+     */
+    event BatchRootChallengeResolved(uint256 indexed batchIndex, address indexed prover);
 
     // ============ Rewards ============
 
@@ -408,6 +462,11 @@ interface IRollupConfig {
      * @notice Max L1 blocks after batch acceptance for blob submission.
      */
     function submitBlobsWindow() external view returns (uint256);
+
+    /**
+     * @notice Max L1 blocks after batch acceptance for preconfirmation.
+     */
+    function preconfirmWindow() external view returns (uint256);
 }
 
 /**
@@ -432,11 +491,6 @@ interface IRollupRead {
      */
     function lastFinalizedBatchIndex() external view returns (uint256);
 
-    /**
-     * @notice Returns the last block hash in a batch, used for chain linking.
-     */
-    function lastBlockHashInBatch(uint256 batchIndex) external view returns (bytes32);
-
     // ============ Batch helpers ============
 
     /**
@@ -452,9 +506,16 @@ interface IRollupRead {
     // ============ Challenge state ============
 
     /**
-     * @notice Returns the full state record for a challenge.
+     * @notice Returns the full state record for a block challenge by commitment hash.
+     *         Returns a zero record if no active challenge exists.
      */
     function getChallenge(bytes32 commitment) external view returns (ChallengeRecord memory);
+
+    /**
+     * @notice Returns the active batch-root challenge record for a given batch index.
+     *         Returns a zero record if no active challenge exists.
+     */
+    function getBatchRootChallenge(uint256 batchIndex) external view returns (ChallengeRecord memory);
 
     /**
      * @notice Returns all commitments currently in the challenge queue.
@@ -463,18 +524,18 @@ interface IRollupRead {
      *      This full-array snapshot can be expensive for large queues; prefer
      *      challengeQueueLength/challengeQueueAt for pagination-like iteration.
      */
-    function challengeQueue() external view returns (bytes32[] memory);
+    function blockChallengeQueue() external view returns (bytes32[] memory);
 
     /**
-     * @notice Returns the number of commitments in the challenge queue.
+     * @notice Returns the number of commitments in the block challenge queue.
      */
-    function challengeQueueLength() external view returns (uint256);
+    function blockChallengeQueueLength() external view returns (uint256);
 
     /**
      * @notice Returns the queue element at a heap index.
-     * @dev Heap-internal order; not sorted by deadline except that index 0 is the earliest.
+     * @dev Heap-internal order; not sorted by deadline except that index 0 is the earliest block commitment.
      */
-    function challengeQueueAt(uint256 index) external view returns (bytes32);
+    function blockChallengeQueueAt(uint256 index) external view returns (bytes32);
 
     /**
      * @notice Returns blob hashes submitted for a batch.
@@ -518,9 +579,18 @@ interface IRollupWrite {
     // ============ Sequencer ============
 
     /**
-     * @notice Submit a new batch of L2 block headers.
+     * @notice Submit a new batch from a precomputed root.
+     * @dev Eager header validation is delegated to {challengeBlock} + SP1; eager chain
+     *      linkage via the dropped `lastBlockHashInBatch` parameter is delegated to
+     *      {resolveBatchRootChallenge} (Q4 in research_v2.md).
+     * @param batchRoot Merkle root of L2 block header commitments for this batch.
+     * @param numberOfBlocks Number of L2 blocks in the batch (sequencer-claimed; bound to
+     *                       leaf count via Q3 check at challenge resolution time).
+     * @param blockDeposits Per-block deposit bundles for the bridge cursor advance.
+     * @param expectedBlobsCount Number of EIP-4844 blobs the sequencer commits to submit
+     *                           via subsequent {submitBlobs} calls.
      */
-    function acceptNextBatch(L2BlockHeader[] calldata blockHeaders, uint256 expectedBlobsCount) external;
+    function commitBatch(bytes32 batchRoot, uint24 numberOfBlocks, BlockDeposit[] calldata blockDeposits, uint8 expectedBlobsCount) external;
 
     /**
      * @notice Submit blob hashes for DA verification of an accepted batch.
@@ -552,23 +622,34 @@ interface IRollupWrite {
      */
     function challengeBlock(uint256 batchIndex, L2BlockHeader calldata blockHeader, MerkleTree.MerkleProof calldata blockProof) external payable;
 
+    /**
+     * @notice Challenge the validity of the batch Merkle root (batch-root dispute path).
+     */
+    function challengeBatchRoot(uint256 batchIndex) external payable;
+
     // ============ Prover ============
 
     /**
-     * @notice Resolve a challenge by providing Nitro + SP1 proofs.
+     * @notice Resolve a batch-root challenge by showing headers that reproduce the committed root.
+     */
+    function resolveBatchRootChallenge(
+        uint256 batchIndex,
+        L2BlockHeader calldata lastBlockHeaderInPreviousBatch,
+        L2BlockHeader[] calldata blockHeaders,
+        MerkleTree.MerkleProof calldata lastBlockProof
+    ) external;
+
+    /**
+     * @notice Resolve a block challenge by providing SP1 proof.
      * @param batchIndex Index of the batch containing the challenged block.
      * @param blockHeader L2 block header that was challenged.
      * @param blockProof Merkle proof of the block header against the batch root.
-     * @param nitroVerifier Address of the Nitro verifier contract to use.
-     * @param nitroSignature 65-byte ECDSA Nitro enclave signature over the block payload.
      * @param sp1Proof SP1 ZK proof validating the block execution.
      */
-    function resolveChallenge(
+    function resolveBlockChallenge(
         uint256 batchIndex,
         L2BlockHeader calldata blockHeader,
         MerkleTree.MerkleProof calldata blockProof,
-        address nitroVerifier,
-        bytes calldata nitroSignature,
         bytes calldata sp1Proof
     ) external;
 
@@ -609,11 +690,6 @@ interface IRollupWrite {
  */
 interface IRollupAdmin {
     /**
-     * @notice Revokes an operational role during an emergency without waiting for the admin timelock.
-     */
-    function emergencyRevokeRole(bytes32 role, address account) external;
-
-    /**
      * @notice Update the bridge contract address.
      */
     function setBridge(address newBridge) external;
@@ -639,24 +715,30 @@ interface IRollupAdmin {
     function disableNitroVerifier(address verifier) external;
 
     /**
-     * @notice Set minimum gas threshold per block header iteration in acceptNextBatch.
+     * @notice Set minimum gas threshold per block header iteration in resolveBatchRootChallenge.
      */
     function setGasLeft(uint32 newGasLeft) external;
 
     /**
      * @notice Set the maximum L1 blocks after batch acceptance for batch blob submission.
      */
-    function setSubmitBlobsWindow(uint64 newSubmitBlobsWindow) external;
+    function setSubmitBlobsWindow(uint24 newSubmitBlobsWindow) external;
+
+    /**
+     * @notice Set the maximum L1 blocks after batch acceptance for batch preconfirmation
+     *         (measured from acceptedAtBlock).
+     */
+    function setPreconfirmWindow(uint24 newPreconfirmWindow) external;
 
     /**
      * @notice Set the maximum L1 blocks after batch acceptance for challenge submission.
      */
-    function setChallengeWindow(uint64 newChallengeWindow) external;
+    function setChallengeWindow(uint24 newChallengeWindow) external;
 
     /**
      * @notice Set the minimum L1 blocks after batch acceptance before finalization.
      */
-    function setFinalizationDelay(uint64 newFinalizationDelay) external;
+    function setFinalizationDelay(uint24 newFinalizationDelay) external;
 
     /**
      * @notice Set the ETH deposit required to open a challenge.
@@ -667,11 +749,6 @@ interface IRollupAdmin {
      * @notice Set the ETH reward paid to challengers who successfully challenged a batch.
      */
     function setIncentiveFee(uint256 newIncentiveFee) external;
-
-    /**
-     * @notice Set the maximum force revert batch size.
-     */
-    function setMaxForceRevertBatchSize(uint32 newMaxForceRevertBatchSize) external;
 }
 
 /**
@@ -697,14 +774,20 @@ interface IRollupEmergency {
     function unpause() external;
 
     /**
-     * @notice Force-revert all non-finalized batches above `toBatchIndex`.
-     * @dev Only callable by EMERGENCY_ROLE. Refunds challenger deposits with incentive fee.
+     * @notice Revert all non-finalized batches above `toBatchIndex`.
+     * @dev Only callable by EMERGENCY_ROLE. Refunds both block challenger deposits and
+     *      batch-root challenger deposits along with the incentive fee (Q5).
      *      Sets `_nextBatchIndex` to `toBatchIndex + 1`, effectively discarding all
      *      batches in the range `(toBatchIndex, lastAcceptedBatchIndex]`.
-     *      Reverts per-call batch count exceeds `_maxForceRevertBatchSize`.
      * @param toBatchIndex The last batch to keep. All batches above this index are reverted.
      */
-    function forceRevertBatch(uint256 toBatchIndex) external payable;
+    function revertBatches(uint256 toBatchIndex) external payable;
+
+    /**
+     * @notice Revoke a role from an account.
+     * @dev Only callable by EMERGENCY_ROLE.
+     */
+    function emergencyRevokeRole(bytes32 role, address account) external;
 }
 
 /**

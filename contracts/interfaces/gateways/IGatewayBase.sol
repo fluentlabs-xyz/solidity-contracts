@@ -44,6 +44,7 @@ interface IGatewayBaseErrors {
 
     /**
      * @notice Outbound deposit rejected because the account is on the configured blacklist registry.
+     * @dev selector: 0xdaf49ab9
      */
     error AddressBlacklisted(address account);
 }

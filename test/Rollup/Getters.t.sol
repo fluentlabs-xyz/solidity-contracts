@@ -2,7 +2,7 @@
 pragma solidity 0.8.30;
 
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
-import {L2BlockHeader} from "../../contracts/interfaces/IRollupTypes.sol";
+import {L2BlockHeader, BlockDeposit} from "../../contracts/interfaces/IRollupTypes.sol";
 import {RollupAssertions} from "./Base.t.sol";
 
 contract RollupGettersTest is RollupAssertions {
@@ -29,7 +29,7 @@ contract RollupGettersTest is RollupAssertions {
         L2BlockHeader[] memory headers = _makeBatch(GENESIS_HASH);
         uint256 batchIndex = rollup.nextBatchIndex();
         vm.prank(sequencer);
-        rollup.acceptNextBatch(headers, 1);
+        rollup.commitBatch(_computeBatchRoot(headers), uint24(headers.length), new BlockDeposit[](0), 1);
         _submitBlobs(batchIndex, 0);
         _preconfirmBatch(batchIndex);
         assertTrue(rollup.isBatchPreconfirmed(batchIndex), "precondition: batch must be preconfirmed");
@@ -42,7 +42,7 @@ contract RollupGettersTest is RollupAssertions {
         vm.prank(challenger);
         rollup.challengeBlock{value: CHALLENGE_DEPOSIT}(batchIndex, headers[0], proof);
 
-        assertEq(rollup.challengeQueueLength(), 1, "challengeQueueLength");
-        assertEq(rollup.challengeQueueAt(0), commitment, "challengeQueueAt");
+        assertEq(rollup.blockChallengeQueueLength(), 1, "blockChallengeQueueLength");
+        assertEq(rollup.blockChallengeQueueAt(0), commitment, "blockChallengeQueueAt");
     }
 }

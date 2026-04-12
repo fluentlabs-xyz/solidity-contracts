@@ -2,20 +2,26 @@
 pragma solidity ^0.8.30;
 
 /**
- * @dev Batch lifecycle: None → HeadersSubmitted → Accepted → Preconfirmed → Finalized.
- *      Challenged branches from Preconfirmed when a block is disputed.
- *      Corrupted is a computed state — triggered by DA/preconfirm/challenge deadline expiry.
+ * @dev Batch lifecycle: None → Committed → Submitted → Preconfirmed → Finalized.
+ *      Challenged branches from any post-DA status (Submitted, Preconfirmed) when a
+ *      block or batch-root dispute is opened, and restores back to the previous status
+ *      ({BatchRecord-statusBeforeChallenge}) once all disputes resolve.
+ *      Corrupted is a computed state — triggered by DA/preconfirm/challenge deadline
+ *      expiry or by deposit liveness violation on the bridge.
  */
 enum BatchStatus {
     /// @dev Initial state, batch does not exist.
     None,
-    /// @dev Sequencer submitted L2 block headers, waiting for blob submission.
-    HeadersSubmitted,
-    /// @dev All blobs submitted, waiting for preconfirmation.
-    Accepted,
-    /// @dev Nitro signature verified, eligible for challenge or finalization.
+    /// @dev Sequencer submitted the batchRoot via {Rollup-commitBatch}; waiting for blob submission.
+    Committed,
+    /// @dev All expected blobs are in DA; eligible for preconfirmation, block challenge,
+    ///      or batch-root challenge.
+    Submitted,
+    /// @dev Nitro signature verified; eligible for finalization, block challenge, or
+    ///      batch-root challenge.
     Preconfirmed,
-    /// @dev At least one block is being challenged.
+    /// @dev At least one block or batch-root dispute is open. Restored to
+    ///      {BatchRecord-statusBeforeChallenge} when all disputes resolve.
     Challenged,
     /// @dev Challenge period passed, batch is permanently accepted.
     Finalized
@@ -29,41 +35,55 @@ struct L2BlockHeader {
     bytes32 previousBlockHash;
     /// @dev Hash of the current block's contents.
     bytes32 blockHash;
-    /// @dev Merkle root of L2→L1 withdrawal messages in this block.
+    /// @dev Merkle root of L2→L1 withdrawals in this block (binds Nitro / SP1 verification).
     bytes32 withdrawalRoot;
     /// @dev Merkle root of L1→L2 deposit messages in this block.
     bytes32 depositRoot;
-    /// @dev Number of L1→L2 deposits received in this block.
-    uint256 depositCount;
+    /// @dev Number of L1→L2 deposits processed by this block.
+    uint16 depositCount;
+}
+
+/**
+ * @dev Per-block deposit bundle consumed from the L1 bridge during batch submission.
+ *      Parallel-array convention with the L2 block headers reconstructed from blob DA;
+ *      block-binding stays implicit and is enforced transitively by {Rollup-challengeBlock}
+ *      against {L2BlockHeader-depositRoot}.
+ */
+struct BlockDeposit {
+    bytes32 depositRoot;
+    uint16 depositCount;
 }
 
 /**
  * @dev Packed per-batch state record. All batch-lifecycle timing windows are
- *      snapshotted at {IRollupWrite-acceptNextBatch} so later admin updates do
- *      not retroactively affect in-flight batches.
+ *      snapshotted at {Rollup-commitBatch} so later admin updates do not retroactively
+ *      affect in-flight batches.
  */
 struct BatchRecord {
     /// @dev Merkle root of L2 block headers for this batch.
     bytes32 batchRoot;
-    // ─── Slot 2: 6 + 4 + 1 + 8 + 3×4 = 31 bytes used, 1 byte free ───
-    /// @dev L1 block number recorded when {IRollupWrite-acceptNextBatch} is called (status becomes HeadersSubmitted).
-    ///      Stored as uint48 to keep the whole record in two storage slots — covers ~2.8e14 blocks,
-    ///      far beyond any realistic L1 lifetime.
-    uint48 acceptedAtBlock;
-    /// @dev Number of blobs the sequencer committed to at acceptance time.
-    uint32 expectedBlobs;
+    // ─── Slot 2: 4 + 1 + 1 + 8 + 3 + 3 + 3 + 3 + 3 = 29 bytes used, 3 bytes free ───
+    /// @dev L1 block number recorded when {Rollup-commitBatch} is called.
+    uint32 acceptedAtBlock;
+    /// @dev Number of blobs the sequencer committed to at submission time.
+    uint8 expectedBlobs;
     /// @dev Current lifecycle state of this batch.
     BatchStatus status;
-    /// @dev Snapshot of {L1FluentBridge-getSentMessageCursor} at the start of acceptance.
-    ///      Used by {Rollup-forceRevertBatch} to rewind the bridge consume cursor exactly
+    /// @dev Snapshot of {L1FluentBridge-getSentMessageCursor} at the start of submission.
+    ///      Used by {Rollup-revertBatches} to rewind the bridge consume cursor exactly
     ///      to the position it held before this batch consumed any deposits.
     uint64 sentMessageCursorStart;
-    /// @dev Blob-submission window snapshotted from rollup config at acceptance time; 0 disables the deadline.
-    uint32 submitBlobsWindowSnapshot;
-    /// @dev Challenge window snapshotted from rollup config at acceptance time.
-    uint32 challengeWindowSnapshot;
-    /// @dev Finalization delay snapshotted from rollup config at acceptance time.
-    uint32 finalizationDelaySnapshot;
+    /// @dev Blob-submission window snapshotted from rollup config at submission time. Always > 0.
+    uint24 submitBlobsWindowSnapshot;
+    /// @dev Preconfirmation window snapshotted from rollup config at submission time. Always > 0.
+    uint24 preconfirmationWindowSnapshot;
+    /// @dev Challenge window snapshotted from rollup config at submission time. Always > 0.
+    uint24 challengeWindowSnapshot;
+    /// @dev Finalization delay snapshotted from rollup config at submission time. Always > 0.
+    uint24 finalizationDelaySnapshot;
+    /// @dev Number of L2 blocks in this batch. Sequencer-claimed at submit; bound to actual
+    ///      Merkle leaf count via {Rollup-resolveBatchRootChallenge}.
+    uint24 numberOfBlocks;
 }
 
 /**
@@ -74,6 +94,8 @@ struct ChallengeRecord {
     uint256 batchIndex;
     /// @dev ETH deposit locked by the challenger.
     uint256 deposit;
+    /// @dev Previous status of the batch.
+    BatchStatus previousStatus;
     /// @dev Address of the challenger.
     address challenger;
     /// @dev L1 block number by which the challenge must be resolved.
@@ -107,8 +129,6 @@ struct InitConfiguration {
     // ─── Keys ───
     /// @dev SP1 program verification key
     bytes32 programVKey;
-    /// @dev Genesis block hash stored at batch index 0
-    bytes32 genesisHash;
     // ─── Parameters ───
     /// @dev ETH deposit required to open a challenge
     uint256 challengeDepositAmount;
@@ -118,8 +138,8 @@ struct InitConfiguration {
     uint256 finalizationDelay;
     /// @dev ETH reward paid to challengers during force revert
     uint256 incentiveFee;
-    /// @dev Max L1 blocks after acceptance for blob submission; 0 = disabled
+    /// @dev Max L1 blocks after acceptance for blob submission; must be > 0
     uint256 submitBlobsWindow;
-    /// @dev Max batch size to revert at once
-    uint256 maxForceRevertBatchSize;
+    /// @dev Max L1 blocks after acceptance for preconfirmation; must be > 0
+    uint256 preconfirmWindow;
 }
