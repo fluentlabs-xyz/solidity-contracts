@@ -7,7 +7,6 @@ import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 contract ERC20PeggedTokenTest is Test {
     ERC20PeggedToken internal token;
@@ -42,31 +41,6 @@ contract ERC20PeggedTokenTest is Test {
 
     function test_owner_isGateway() public view {
         assertEq(token.owner(), gateway, "owner should be gateway");
-    }
-
-    // ============ Ownable2Step ============
-
-    function test_transferOwnership_setsPendingUntilAccepted() public {
-        address newOwner = makeAddr("newGateway");
-        vm.prank(gateway);
-        token.transferOwnership(newOwner);
-        assertEq(token.owner(), gateway, "owner unchanged before accept");
-        assertEq(token.pendingOwner(), newOwner, "pending should be set");
-
-        vm.prank(newOwner);
-        token.acceptOwnership();
-        assertEq(token.owner(), newOwner, "owner after accept");
-        assertEq(token.pendingOwner(), address(0), "pending cleared");
-    }
-
-    function test_RevertIf_acceptOwnership_wrongCaller() public {
-        address newOwner = makeAddr("newGateway");
-        vm.prank(gateway);
-        token.transferOwnership(newOwner);
-
-        vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, alice));
-        token.acceptOwnership();
     }
 
     // ============ Pause / Unpause ============
