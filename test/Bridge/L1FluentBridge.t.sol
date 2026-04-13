@@ -569,4 +569,89 @@ contract L1FluentBridgeTest is BridgeBase {
         );
         assertEq(depositor.balance, depositorBalBefore + depositValue, "depositor should receive refund");
     }
+
+    // ============ skipExpiredDeposits ============
+
+    function test_skipExpiredDeposits_advancesPastExpiredHeads() public {
+        uint256 sendBlock = block.number;
+        l1Bridge.sendMessage(receiver, hex"01");
+        l1Bridge.sendMessage(receiver, hex"02");
+
+        vm.roll(sendBlock + 101);
+
+        vm.prank(pauser);
+        l1Bridge.skipExpiredDeposits();
+        assertEq(l1Bridge.getSentMessageQueueSize(), 0, "all expired heads should be skipped");
+    }
+
+    function test_skipExpiredDeposits_stopsAtFirstFreshHead() public {
+        // depositProcessingWindow = 100 (set in setUp)
+        // msg 0 at block 1: expires at block 101
+        // msg 1 at block 102: expires at block 202
+        // check at block 102: msg 0 expired, msg 1 fresh
+        uint256 sendBlock = block.number;
+        l1Bridge.sendMessage(receiver, hex"01");
+
+        vm.roll(sendBlock + 101);
+        l1Bridge.sendMessage(receiver, hex"02");
+
+        // Now at block sendBlock+101: msg 0 deadline = sendBlock+100, expired.
+        // msg 1 deadline = sendBlock+201, fresh.
+        vm.prank(pauser);
+        l1Bridge.skipExpiredDeposits();
+
+        assertEq(l1Bridge.getSentMessageQueueSize(), 1, "second message should remain");
+        assertEq(l1Bridge.getSentMessageCursor(), 1, "cursor should advance past first only");
+    }
+
+    function test_skipExpiredDeposits_emitsPerSlotEvent() public {
+        uint256 sendBlock = block.number;
+        l1Bridge.sendMessage(receiver, hex"01");
+
+        bytes32 expectedHash = l1Bridge.getMessageAt(0);
+        uint64 expectedExpiry = uint64(sendBlock + 100);
+
+        vm.roll(sendBlock + 101);
+
+        vm.expectEmit(true, true, false, true, address(l1Bridge));
+        emit IL1FluentBridge.DepositSkipped(0, expectedHash, expectedExpiry);
+        vm.prank(pauser);
+        l1Bridge.skipExpiredDeposits();
+    }
+
+    function test_RevertIf_skipExpiredDeposits_emptyQueue() public {
+        vm.prank(pauser);
+        vm.expectRevert(IL1FluentBridge.SentMessageQueueEmpty.selector);
+        l1Bridge.skipExpiredDeposits();
+    }
+
+    function test_RevertIf_skipExpiredDeposits_headNotExpired() public {
+        l1Bridge.sendMessage(receiver, hex"01");
+        vm.prank(pauser);
+        vm.expectRevert(IL1FluentBridge.NoExpiredDeposits.selector);
+        l1Bridge.skipExpiredDeposits();
+    }
+
+    function test_RevertIf_skipExpiredDeposits_callerNotPauser() public {
+        uint256 sendBlock = block.number;
+        l1Bridge.sendMessage(receiver, hex"01");
+        vm.roll(sendBlock + 101);
+
+        vm.prank(user);
+        vm.expectRevert();
+        l1Bridge.skipExpiredDeposits();
+    }
+
+    function test_RevertIf_skipExpiredDeposits_paused() public {
+        uint256 sendBlock = block.number;
+        l1Bridge.sendMessage(receiver, hex"01");
+        vm.roll(sendBlock + 101);
+
+        vm.prank(pauser);
+        l1Bridge.pause();
+
+        vm.prank(pauser);
+        vm.expectRevert();
+        l1Bridge.skipExpiredDeposits();
+    }
 }

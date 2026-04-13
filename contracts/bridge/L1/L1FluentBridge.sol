@@ -23,6 +23,10 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     /// @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.L1FluentBridgeStorage")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 internal constant L1_FLUENT_BRIDGE_STORAGE_LOCATION = 0xd6d3cd15e5afa78c26fd085a6164155ff3587cb8c325a04216e6557eff29c700;
 
+    /// @dev Minimum gas required per {skipExpiredDeposits} loop iteration.
+    ///      Covers SLOAD (deadline) + SLOAD (hash) + LOG3 (DepositSkipped) + loop overhead.
+    uint256 public constant MIN_SKIP_GAS = 50_000;
+
     /// @custom:storage-location erc7201:fluent.storage.L1FluentBridgeStorage
     struct L1FluentBridgeStorage {
         /// @dev Status of a rollback execution by message hash.
@@ -357,6 +361,27 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         uint64 front = $._sentMessageFront;
         if (front == $._sentMessageBack) return false;
         return block.number > $._sentMessageProcessByBlock[front];
+    }
+
+    /// @inheritdoc IL1FluentBridge
+    /// @dev TODO: replace with user-initiated cancel/refund mechanism.
+    function skipExpiredDeposits() external whenNotPaused onlyRole(PAUSER_ROLE) {
+        L1FluentBridgeStorage storage $ = _getL1FluentBridgeStorage();
+        uint64 front = $._sentMessageFront;
+        uint64 back = $._sentMessageBack;
+        require(front < back, SentMessageQueueEmpty());
+        require(block.number > uint256($._sentMessageProcessByBlock[front]), NoExpiredDeposits());
+
+        while (front < back && block.number > uint256($._sentMessageProcessByBlock[front])) {
+            require(gasleft() >= MIN_SKIP_GAS, InsufficientGas());
+            bytes32 messageHash = $._sentMessageHashes[uint256(front)];
+            uint64 expiredAt = $._sentMessageProcessByBlock[front];
+            emit DepositSkipped(front, messageHash, expiredAt);
+            unchecked {
+                ++front;
+            }
+        }
+        $._sentMessageFront = front;
     }
 
     /// @inheritdoc IL1FluentBridge
