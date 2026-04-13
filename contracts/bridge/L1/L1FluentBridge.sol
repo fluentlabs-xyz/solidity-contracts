@@ -27,6 +27,11 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     ///      Covers SLOAD (deadline) + SLOAD (hash) + LOG3 (DepositSkipped) + loop overhead.
     uint256 public constant MIN_SKIP_GAS = 50_000;
 
+    /**
+     * @dev Maximum deposit acceptance deadline in L1 blocks (~7 days at 12 s/block).
+     */
+    uint32 public constant MAX_DEPOSIT_PROCESSING_WINDOW = 50_400;
+
     /// @custom:storage-location erc7201:fluent.storage.L1FluentBridgeStorage
     struct L1FluentBridgeStorage {
         /// @dev Status of a rollback execution by message hash.
@@ -506,7 +511,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
      */
     function _setDepositProcessingWindow(uint256 newDepositProcessingWindow) internal {
         require(newDepositProcessingWindow > 0, InvalidWindowConfig("depositProcessingWindow must be greater than 0"));
-        require(newDepositProcessingWindow <= type(uint64).max, InvalidWindowConfig("depositProcessingWindow overflow"));
+        require(newDepositProcessingWindow <= MAX_DEPOSIT_PROCESSING_WINDOW, InvalidWindowConfig("depositProcessingWindow exceeds maximum"));
         L1FluentBridgeStorage storage $ = _getL1FluentBridgeStorage();
         emit DepositProcessingWindowUpdated($._depositProcessingWindow, newDepositProcessingWindow);
         $._depositProcessingWindow = uint64(newDepositProcessingWindow);

@@ -109,12 +109,6 @@ interface IRollupErrors {
     error NotEnoughValueIncentiveFee(uint256 value, uint256 incentiveFee);
 
     /**
-     * @notice Incentive fee exceeds the protocol maximum (prevents overflow in challenger reward accounting).
-     * @dev selector: 0xcb903ec6
-     */
-    error IncentiveFeeTooLarge(uint256 provided, uint256 max);
-
-    /**
      * @notice Merkle proof for the block header is invalid.
      * @dev selector: 0xcdb93653
      */
@@ -131,6 +125,12 @@ interface IRollupErrors {
      * @dev selector: 0x78bcc63a
      */
     error ZeroValueNotAllowed(string field);
+
+    /**
+     * @notice Value exceeds the allowed range for this parameter.
+     * @dev selector: 0x01a7e693
+     */
+    error ValueOutOfBounds(string field);
 
     /**
      * @notice Nitro enclave signature verification failed.

@@ -245,7 +245,7 @@ contract AdminTest is RollupAssertions {
 
     function test_setGasLeft_updatesValue() public {
         vm.prank(admin);
-        rollup.setGasLeft(type(uint32).max);
+        rollup.setGasLeft(30_000_000);
     }
 
     // ============ Additional admin revert tests ============
@@ -282,10 +282,22 @@ contract AdminTest is RollupAssertions {
         rollup.setFinalizationDelay(uint24(CHALLENGE_WINDOW));
     }
 
-    function test_RevertIf_setChallengeDepositAmount_zero() public {
+    function test_RevertIf_setChallengeDepositAmount_belowMin() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "challengeDepositAmount"));
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ValueOutOfBounds.selector, "challengeDepositAmount"));
         rollup.setChallengeDepositAmount(0);
+    }
+
+    function test_RevertIf_setIncentiveFee_aboveMax() public {
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ValueOutOfBounds.selector, "incentiveFee"));
+        rollup.setIncentiveFee(101 ether);
+    }
+
+    function test_RevertIf_setGasLeft_aboveMax() public {
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ValueOutOfBounds.selector, "gasLeft"));
+        rollup.setGasLeft(30_000_001);
     }
 
     function test_RevertIf_initialize_submitBlobsWindowRange() public {
@@ -329,12 +341,5 @@ contract AdminTest is RollupAssertions {
         vm.prank(admin);
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "challengeWindow too close to preconfirmWindow"));
         rollup.setChallengeWindow(uint24(PRECONFIRM_WINDOW + 100));
-    }
-
-    function test_RevertIf_setIncentiveFee_exceedsMax() public {
-        uint256 maxFee = rollup.MAX_INCENTIVE_FEE();
-        vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.IncentiveFeeTooLarge.selector, maxFee + 1, maxFee));
-        rollup.setIncentiveFee(maxFee + 1);
     }
 }
