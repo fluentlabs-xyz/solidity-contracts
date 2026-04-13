@@ -419,6 +419,18 @@ contract ChallengeTest is RollupAssertions {
         _resolveBlockChallenge(batchIndex, headers[0], proof);
     }
 
+    function test_RevertIf_resolveChallenge_wrongBatchIndex() public {
+        _fullyFinalizeBatch(GENESIS_HASH);
+        bytes32 lastHash = _lastBlockHash(GENESIS_HASH);
+        (uint256 batchIndex, L2BlockHeader[] memory headers) = _preconfirmedBatchWithHeaders(lastHash);
+        MerkleTree.MerkleProof memory proof = _buildMerkleProof(headers, 0);
+        _challengeBlock(batchIndex, headers[0], proof);
+
+        uint256 wrongBatchIndex = batchIndex + 1;
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidBatchIndex.selector, wrongBatchIndex, batchIndex));
+        _resolveBlockChallenge(wrongBatchIndex, headers[0], proof);
+    }
+
     function test_RevertIf_withdrawChallengerReward_ethTransferFailed() public {
         EthRejecter rejecter = new EthRejecter();
         address rejecterAddr = address(rejecter);
