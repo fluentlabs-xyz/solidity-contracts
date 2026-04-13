@@ -374,9 +374,9 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
 
         while (front < back && block.number > uint256($._sentMessageProcessByBlock[front])) {
             require(gasleft() >= MIN_SKIP_GAS, InsufficientGas());
-            bytes32 h = $._sentMessageHashes[uint256(front)];
+            bytes32 messageHash = $._sentMessageHashes[uint256(front)];
             uint64 expiredAt = $._sentMessageProcessByBlock[front];
-            emit DepositSkipped(front, h, expiredAt);
+            emit DepositSkipped(front, messageHash, expiredAt);
             unchecked {
                 ++front;
             }
