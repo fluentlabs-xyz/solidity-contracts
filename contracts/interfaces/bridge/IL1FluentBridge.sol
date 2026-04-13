@@ -78,6 +78,18 @@ interface IL1FluentBridge {
      * @notice {getMessageHashesRange} end index exceeds the queue back cursor.
      */
     error RangeOutOfBounds(uint64 to, uint64 back);
+
+    /**
+     * @notice {skipExpiredDeposits} called while the head sent message is still fresh.
+     */
+    error NoExpiredDeposits();
+
+    /**
+     * @notice Gas floor reached in {skipExpiredDeposits} loop — call again to continue.
+     * @dev selector: 0x1c26714c
+     */
+    error InsufficientGas();
+
     // ========== Events ==========
 
     /**
@@ -94,6 +106,14 @@ interface IL1FluentBridge {
      * @notice Emitted when the L1-owned deposit processing window is updated.
      */
     event DepositProcessingWindowUpdated(uint256 indexed prevValue, uint256 indexed newValue);
+
+    /**
+     * @notice Emitted for each sent message slot skipped by {skipExpiredDeposits}.
+     * @param cursor      Slot index that was skipped.
+     * @param messageHash Hash of the sent message that will never be consumed by the rollup.
+     * @param expiredAt   Frozen processing deadline that this slot missed.
+     */
+    event DepositSkipped(uint64 indexed cursor, bytes32 indexed messageHash, uint64 expiredAt);
 
     // ========== Functions ==========
 
@@ -170,6 +190,14 @@ interface IL1FluentBridge {
      *      The bridge owns the timing parameter and snapshots; the rollup is a thin consumer.
      */
     function isOldestUnconsumedExpired() external view returns (bool);
+
+    /**
+     * @notice Permissionless escape hatch: advance the consume cursor past every
+     *         consecutive expired sent message at the head of the queue.
+     * @dev    TEMPORARY. Each skipped slot represents a permanently lost user deposit
+     *         until the user-initiated cancel/refund mechanism replaces this function.
+     */
+    function skipExpiredDeposits() external;
 
     /**
      * @notice Moves the sent-message consume cursor forward by `count`. Callable only by the rollup contract.
