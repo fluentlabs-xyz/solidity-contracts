@@ -323,9 +323,10 @@ contract L1FluentBridgeTest is BridgeBase {
     // ============ receiveMessageWithProof happy path ============
 
     function test_receiveMessageWithProof_executesMessageOnValidProof() public {
+        assertEq(l1Bridge.getReceivedNonce(), 0, "sanity: initial inbound nonce");
         ProofFixture memory f = _validProofFixture();
         _executeReceiveWithProof(f);
-
+        assertEq(l1Bridge.getReceivedNonce(), 1, "proof path should advance received nonce like receiveMessage");
         assertEq(
             uint8(l1Bridge.getReceivedMessage(f.messageHash)),
             uint8(IFluentBridge.MessageStatus.Success),
@@ -394,6 +395,22 @@ contract L1FluentBridgeTest is BridgeBase {
         _executeReceiveWithProof(f);
 
         vm.expectRevert(IFluentBridgeErrors.MessageAlreadyReceived.selector);
+        _executeReceiveWithProof(f);
+    }
+
+    /// @dev Proof path must consume the same sequential nonce as `receiveMessage` (expected next = getReceivedNonce()).
+    function test_RevertIf_receiveMessageWithProof_messageNonceOutOfOrder() public {
+        ProofFixture memory f = _validProofFixture();
+        f.messageNonce = 1;
+        f.messageHash = keccak256(abi.encode(f.from, f.to, f.value, f.chainId, f.blockNumber, f.messageNonce, f.message));
+        f.header.withdrawalRoot = f.messageHash;
+
+        bytes32 commitment = keccak256(
+            abi.encodePacked(f.header.previousBlockHash, f.header.blockHash, f.header.withdrawalRoot, f.header.depositRoot)
+        );
+        rollup.setBatchRoot(1, commitment);
+
+        vm.expectRevert(IFluentBridgeErrors.MessageReceivedOutOfOrder.selector);
         _executeReceiveWithProof(f);
     }
 
@@ -525,9 +542,7 @@ contract L1FluentBridgeTest is BridgeBase {
 
         // Reconstruct the same messageHash that would be produced by sendMessage on L1
         // and later included in the L2 block's withdrawalRoot after the rollback on L2
-        bytes32 messageHash = keccak256(
-            abi.encode(depositor, l2Target, depositValue, chainId, uint256(1), uint256(0), bytes(""))
-        );
+        bytes32 messageHash = keccak256(abi.encode(depositor, l2Target, depositValue, chainId, uint256(1), uint256(0), bytes("")));
 
         // The L2 sequencer builds a block whose withdrawalRoot contains the rollback messageHash.
         // After batch finalization on L1, this proof becomes verifiable.
@@ -539,9 +554,7 @@ contract L1FluentBridgeTest is BridgeBase {
             depositCount: 0
         });
 
-        bytes32 commitment = keccak256(
-            abi.encodePacked(header.previousBlockHash, header.blockHash, header.withdrawalRoot, header.depositRoot)
-        );
+        bytes32 commitment = keccak256(abi.encodePacked(header.previousBlockHash, header.blockHash, header.withdrawalRoot, header.depositRoot));
         rollup.setBatchRoot(1, commitment);
 
         MerkleTree.MerkleProof memory emptyProof = MerkleTree.MerkleProof(0, "");
@@ -562,11 +575,7 @@ contract L1FluentBridgeTest is BridgeBase {
             emptyProof
         );
 
-        assertEq(
-            uint8(l1Bridge.getRollbackMessage(messageHash)),
-            uint8(IFluentBridge.MessageStatus.Success),
-            "rollback should succeed"
-        );
+        assertEq(uint8(l1Bridge.getRollbackMessage(messageHash)), uint8(IFluentBridge.MessageStatus.Success), "rollback should succeed");
         assertEq(depositor.balance, depositorBalBefore + depositValue, "depositor should receive refund");
     }
 

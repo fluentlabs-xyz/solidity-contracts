@@ -195,6 +195,10 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
 
         // Two-level proof: block in batch root, then message in block's withdrawal root
         _verifyWithdrawal(batchIndex, blockHeader, withdrawalProof, blockProof, messageHash);
+
+        // Keep relayer and proof paths aligned: both consume the same sequential received nonce,
+        // otherwise mixed-mode delivery leaves _receivedNonce stale and blocks receiveMessage.
+        require(messageNonce == _takeNextReceivedNonce(), MessageReceivedOutOfOrder());
         // Prevent re-entrant calls back into the bridge itself
         require(to != address(this), ForbiddenSelfCall());
         // Hook for subclass logic (e.g. committed expiry check on L2); false = silently skip
