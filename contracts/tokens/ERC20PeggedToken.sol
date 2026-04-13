@@ -3,7 +3,7 @@ pragma solidity 0.8.30;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {ERC20Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
-import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import {ERC165Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/introspection/ERC165Upgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -13,12 +13,14 @@ import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IER
  * @title ERC20PeggedToken
  * @author Fluent Labs
  * @dev Pegged ERC20 representation deployed behind a UpgradeableBeacon proxy.
- *      Mint and burn are restricted to the owner (gateway). Supports pause via {PausableUpgradeable}.
+ *      Mint and burn are restricted to the owner (gateway). Ownership transfers use two-step
+ *      handoff ({Ownable2StepUpgradeable}) so a mistaken `transferOwnership` cannot lock the token.
+ *      Supports pause via {PausableUpgradeable}.
  *      Metadata (name, symbol, decimals) is set once during {initialize} and stored in an
  *      ERC-7201 namespace, allowing custom values per pegged token while remaining
  *      upgrade-safe across beacon implementations.
  */
-contract ERC20PeggedToken is Initializable, ERC20Upgradeable, OwnableUpgradeable, PausableUpgradeable, ERC165Upgradeable {
+contract ERC20PeggedToken is Initializable, ERC20Upgradeable, Ownable2StepUpgradeable, PausableUpgradeable, ERC165Upgradeable {
     /// @notice Token transfer attempted while paused.
     error TokenPaused();
 
@@ -70,6 +72,7 @@ contract ERC20PeggedToken is Initializable, ERC20Upgradeable, OwnableUpgradeable
         __ERC20_init("", "");
         // The caller (gateway) becomes the owner — authorized to mint/burn/pause
         __Ownable_init(msg.sender);
+        __Ownable2Step_init();
         __Pausable_init();
         __ERC165_init();
 
