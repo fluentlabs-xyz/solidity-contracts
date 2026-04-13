@@ -280,7 +280,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         uint256 gasLeft = $._gasLeft;
         for (uint256 i = 0; i < numberOfBlocksWithDeposits; ++i) {
             require(gasleft() >= gasLeft, InsufficientGas());
-            _checkDeposits(cursor, blockDeposits[i]);
+            cursor = _checkDeposits(cursor, blockDeposits[i]);
         }
 
         emit BatchCommitted(batchIndex, batchRoot, numberOfBlocks, expectedBlobsCount);
@@ -837,7 +837,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
      *      Called after all state writes in commitBatch (CEI pattern) and within
      *      a nonReentrant guard — reentrancy warning is a false positive.
      */
-    function _checkDeposits(uint64 sentMessageCursor, BlockDeposit memory blockDeposit) private {
+    function _checkDeposits(uint64 sentMessageCursor, BlockDeposit memory blockDeposit) private returns (uint64) {
         RollupStorage storage $ = _getRollupStorage();
 
         if (blockDeposit.depositRoot == ZERO_BYTES_HASH) {
@@ -864,6 +864,8 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
             keccak256(abi.encodePacked(depositIds)) == blockDeposit.depositRoot,
             DepositRootMismatch(keccak256(abi.encodePacked(depositIds)), blockDeposit.depositRoot)
         );
+
+        return sentMessageCursor;
     }
 
     /**
