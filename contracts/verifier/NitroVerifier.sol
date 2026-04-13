@@ -78,7 +78,7 @@ contract NitroVerifier is AccessControl, INitroVerifier {
     ) external view returns (address) {
         require(signature.length == 65, InvalidSignatureLength());
 
-        bytes32 payload = sha256(abi.encode(parentHash, blockHash, withdrawalHash, depositHash, blobHashes));
+        bytes32 payload = sha256(abi.encode(block.chainid, address(this), parentHash, blockHash, withdrawalHash, depositHash, blobHashes));
         address verifier = _assertSignerAttested(payload, signature);
 
         return verifier;
@@ -88,7 +88,7 @@ contract NitroVerifier is AccessControl, INitroVerifier {
     function verifyBatch(bytes32 batchRoot, bytes32[] calldata blobHashes, bytes calldata signature) external view returns (address) {
         require(signature.length == 65, InvalidSignatureLength());
 
-        bytes32 payload = sha256(abi.encode(batchRoot, blobHashes));
+        bytes32 payload = sha256(abi.encode(block.chainid, address(this), batchRoot, blobHashes));
         address verifier = _assertSignerAttested(payload, signature);
 
         return verifier;
