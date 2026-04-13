@@ -61,17 +61,6 @@ contract DepositsTest is RollupAssertions {
         rollup.commitBatch(batchRoot, uint24(batch.length), deposits, 1);
     }
 
-    function test_commitBatch_zeroDepositsSkipsCheck() public {
-        L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
-        bytes32 batchRoot = _computeBatchRoot(batch);
-        BlockDeposit[] memory emptyDeposits = new BlockDeposit[](0);
-
-        vm.prank(sequencer);
-        rollup.commitBatch(batchRoot, uint24(batch.length), emptyDeposits, 0);
-        assertEq(uint8(rollup.getBatch(1).status), uint8(BatchStatus.Committed), "should accept without deposits");
-        assertEq(depositsBridge.poppedCount(), 0, "no deposits should be popped");
-    }
-
     function test_commitBatch_checksDeposits_forMultipleDeposits_WithBlobs() public {
         L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
         bytes32 batchRoot = _computeBatchRoot(batch);

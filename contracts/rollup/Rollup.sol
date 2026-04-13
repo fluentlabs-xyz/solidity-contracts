@@ -253,6 +253,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         RollupStorage storage $ = _getRollupStorage();
         require(batchRoot != bytes32(0), InvalidBatchRoot(batchRoot, bytes32(0)));
         require(numberOfBlocks > 0, ZeroValueNotAllowed("numberOfBlocks"));
+        require(expectedBlobsCount > 0, ZeroValueNotAllowed("expectedBlobsCount"));
         require(!_rollupCorrupted(), RollupCorrupted());
 
         uint256 batchIndex = $._nextBatchIndex;
