@@ -64,6 +64,12 @@ contract RollupStorageLayout is
     uint32 public constant DEFAULT_GAS_LEFT = 1_000_000;
 
     /**
+     * @dev Upper bound on {incentiveFee} so `challenge.deposit + fee` cannot overflow uint256
+     *      during {forceRevertBatch} reward crediting.
+     */
+    uint256 public constant MAX_INCENTIVE_FEE = 1000 ether;
+
+    /**
      * @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.RollupStorage")) - 1)) & ~bytes32(uint256(0xff))
      */
     bytes32 private constant ROLLUP_STORAGE_LOCATION = 0x3c5cb8ff22ae9906a910cecced8ac84ef594b2ee1cab438e85f81b70bddcc700;
@@ -640,7 +646,7 @@ contract RollupStorageLayout is
      *       the packed slot 4 layout; uint128 ≈ 3.4e20 ETH headroom — well above any plausible fee.
      */
     function _setIncentiveFee(uint256 newIncentiveFee) internal {
-        require(newIncentiveFee <= type(uint128).max, InvalidWindowConfig("incentiveFee overflow"));
+        require(newIncentiveFee <= MAX_INCENTIVE_FEE, IncentiveFeeTooLarge(newIncentiveFee, MAX_INCENTIVE_FEE));
         RollupStorage storage $ = _getRollupStorage();
         emit IncentiveFeeUpdated($._incentiveFee, newIncentiveFee);
         $._incentiveFee = uint128(newIncentiveFee);

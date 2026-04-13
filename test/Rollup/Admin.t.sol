@@ -105,9 +105,7 @@ contract AdminTest is RollupAssertions {
         cfg.challengeWindow = 15000;
         cfg.finalizationDelay = 14800;
         Rollup impl = new Rollup();
-        vm.expectRevert(
-            abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "challengeWindow too close to finalizationDelay")
-        );
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "challengeWindow too close to finalizationDelay"));
         new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
     }
 
@@ -331,5 +329,12 @@ contract AdminTest is RollupAssertions {
         vm.prank(admin);
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "challengeWindow too close to preconfirmWindow"));
         rollup.setChallengeWindow(uint24(PRECONFIRM_WINDOW + 100));
+    }
+
+    function test_RevertIf_setIncentiveFee_exceedsMax() public {
+        uint256 maxFee = rollup.MAX_INCENTIVE_FEE();
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.IncentiveFeeTooLarge.selector, maxFee + 1, maxFee));
+        rollup.setIncentiveFee(maxFee + 1);
     }
 }
