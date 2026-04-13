@@ -365,7 +365,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
 
     /// @inheritdoc IL1FluentBridge
     /// @dev TODO: replace with user-initiated cancel/refund mechanism.
-    function skipExpiredDeposits() external whenNotPaused {
+    function skipExpiredDeposits() external whenNotPaused onlyRole(PAUSER_ROLE) {
         L1FluentBridgeStorage storage $ = _getL1FluentBridgeStorage();
         uint64 front = $._sentMessageFront;
         uint64 back = $._sentMessageBack;

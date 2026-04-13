@@ -579,6 +579,7 @@ contract L1FluentBridgeTest is BridgeBase {
 
         vm.roll(sendBlock + 101);
 
+        vm.prank(pauser);
         l1Bridge.skipExpiredDeposits();
         assertEq(l1Bridge.getSentMessageQueueSize(), 0, "all expired heads should be skipped");
     }
@@ -596,6 +597,7 @@ contract L1FluentBridgeTest is BridgeBase {
 
         // Now at block sendBlock+101: msg 0 deadline = sendBlock+100, expired.
         // msg 1 deadline = sendBlock+201, fresh.
+        vm.prank(pauser);
         l1Bridge.skipExpiredDeposits();
 
         assertEq(l1Bridge.getSentMessageQueueSize(), 1, "second message should remain");
@@ -613,17 +615,30 @@ contract L1FluentBridgeTest is BridgeBase {
 
         vm.expectEmit(true, true, false, true, address(l1Bridge));
         emit IL1FluentBridge.DepositSkipped(0, expectedHash, expectedExpiry);
+        vm.prank(pauser);
         l1Bridge.skipExpiredDeposits();
     }
 
     function test_RevertIf_skipExpiredDeposits_emptyQueue() public {
+        vm.prank(pauser);
         vm.expectRevert(IL1FluentBridge.SentMessageQueueEmpty.selector);
         l1Bridge.skipExpiredDeposits();
     }
 
     function test_RevertIf_skipExpiredDeposits_headNotExpired() public {
         l1Bridge.sendMessage(receiver, hex"01");
+        vm.prank(pauser);
         vm.expectRevert(IL1FluentBridge.NoExpiredDeposits.selector);
+        l1Bridge.skipExpiredDeposits();
+    }
+
+    function test_RevertIf_skipExpiredDeposits_callerNotPauser() public {
+        uint256 sendBlock = block.number;
+        l1Bridge.sendMessage(receiver, hex"01");
+        vm.roll(sendBlock + 101);
+
+        vm.prank(user);
+        vm.expectRevert();
         l1Bridge.skipExpiredDeposits();
     }
 
@@ -635,6 +650,7 @@ contract L1FluentBridgeTest is BridgeBase {
         vm.prank(pauser);
         l1Bridge.pause();
 
+        vm.prank(pauser);
         vm.expectRevert();
         l1Bridge.skipExpiredDeposits();
     }
