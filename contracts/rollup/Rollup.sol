@@ -836,6 +836,12 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
      */
     function _checkDeposits(uint64 sentMessageCursor, BlockDeposit memory blockDeposit) private {
         RollupStorage storage $ = _getRollupStorage();
+
+        if (blockDeposit.depositRoot == ZERO_BYTES_HASH) {
+            // If the block header claims an empty deposit tree, there must be zero deposits
+            require(blockDeposit.depositCount == 0, InvalidDepositRootWithNonZeroCount(blockDeposit.depositCount));
+        }
+
         // Allocate in-memory array for the root verification at the end of the loop
         bytes32[] memory depositIds = new bytes32[](blockDeposit.depositCount);
 

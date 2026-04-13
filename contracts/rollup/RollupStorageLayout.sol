@@ -86,6 +86,11 @@ contract RollupStorageLayout is
      */
     uint256 public constant MIN_CHALLENGE_RESOLUTION_WINDOW = 7200;
 
+    /**
+     * @dev keccak256 of empty bytes — used to detect zero-message roots.
+     */
+    bytes32 public constant ZERO_BYTES_HASH = 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
+
     // ============ Storage ============
 
     /**

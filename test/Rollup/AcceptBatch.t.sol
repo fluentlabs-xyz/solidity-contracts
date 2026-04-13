@@ -115,4 +115,16 @@ contract AcceptBatchTest is RollupAssertions {
         vm.prank(sequencer);
         rollup.commitBatch(keccak256("root"), 1, emptyDeposits, 1);
     }
+
+    function test_RevertIf_commitBatch_zeroDepositRootWithNonZeroCount() public {
+        L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
+        bytes32 batchRoot = _computeBatchRoot(batch);
+
+        BlockDeposit[] memory deposits = new BlockDeposit[](1);
+        deposits[0] = BlockDeposit({depositRoot: ZERO_BYTES_HASH, depositCount: 7});
+
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidDepositRootWithNonZeroCount.selector, uint256(7)));
+        vm.prank(sequencer);
+        rollup.commitBatch(batchRoot, uint24(batch.length), deposits, 1);
+    }
 }
