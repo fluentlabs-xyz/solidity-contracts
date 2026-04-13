@@ -56,6 +56,32 @@ contract L1BlockOracleTest is Test {
         oracle.setL1BlockNumber(100);
     }
 
+    function test_RevertIf_setL1BlockNumber_zero() public {
+        vm.expectRevert(abi.encodeWithSelector(IL1BlockOracle.L1BlockNumberZeroNotAllowed.selector));
+        oracle.setL1BlockNumber(0);
+    }
+
+    function test_RevertIf_setL1BlockNumber_exceedsMax() public {
+        uint256 maxBn = oracle.MAX_L1_BLOCK_NUMBER();
+        vm.expectRevert(abi.encodeWithSelector(IL1BlockOracle.L1BlockNumberTooLarge.selector, maxBn + 1, maxBn));
+        oracle.setL1BlockNumber(maxBn + 1);
+    }
+
+    function test_RevertIf_updateL1BlockNumber_zero() public {
+        vm.expectRevert(abi.encodeWithSelector(IL1BlockOracle.L1BlockNumberZeroNotAllowed.selector));
+        vm.prank(submitter);
+        oracle.updateL1BlockNumber(0);
+    }
+
+    function test_RevertIf_updateL1BlockNumber_exceedsMax() public {
+        vm.startPrank(submitter);
+        oracle.updateL1BlockNumber(oracle.MAX_L1_BLOCK_NUMBER());
+        uint256 maxBn = oracle.MAX_L1_BLOCK_NUMBER();
+        vm.expectRevert(abi.encodeWithSelector(IL1BlockOracle.L1BlockNumberTooLarge.selector, maxBn + 1, maxBn));
+        oracle.updateL1BlockNumber(maxBn + 1);
+        vm.stopPrank();
+    }
+
     function test_setSubmitter_updatesAndEmits() public {
         address newSubmitter = makeAddr("newSubmitter");
         oracle.setSubmitter(newSubmitter);
