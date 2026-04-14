@@ -292,14 +292,18 @@ contract RollupStorageLayout is
         _grantRole(PRECONFIRMATION_ROLE, preconfirmationRole);
 
         // ─── Storage setup ───
-        // first real batch starts at index 1
-        $._nextBatchIndex = 1;
 
         // external dependency addresses validated within their respective setters
         _setBridge(params.bridge);
         _setSp1Verifier(params.sp1Verifier);
         _setProgramVKey(params.programVKey);
         _enableNitroVerifier(params.nitroVerifier);
+
+        // Genesis anchor — committed as a synthetic batch at index 0. Enables
+        // resolveBatchRootChallenge for batch 1 via the standard Merkle-proof path and
+        // gives the sequencer a bootstrap anchor via the BatchCommitted(0) event.
+        require(params.genesisBlockHash != bytes32(0), ZeroValueNotAllowed("genesisBlockHash"));
+        _commitGenesisBatch(params.genesisBlockHash);
 
         // economic parameters for the challenge/incentive mechanism
         _setChallengeDepositAmount(params.challengeDepositAmount);
@@ -664,6 +668,47 @@ contract RollupStorageLayout is
     }
 
     // ============ Internal helpers ============
+
+    /**
+     * @dev Commits the synthetic genesis batch at index 0. Anchors the chain by recording
+     *      a single-leaf Merkle root whose leaf commits to a "block" with
+     *      {blockHash = genesisBlockHash_} and all other header fields zero. Enables
+     *      {resolveBatchRootChallenge} for batch 1 through the existing Merkle-proof
+     *      mechanism against {_batches[0].batchRoot}. Marked {BatchStatus-Finalized} so
+     *      {challengeBatchRoot(0)} is rejected by the existing status guard.
+     *
+     *      Also finalizes the batch-index bookkeeping: sets {_nextBatchIndex} to 1 so the
+     *      first real sequencer commit lands at index 1. {_lastFinalizedBatchIndex} remains
+     *      at its default value 0, which now semantically means "genesis finalized".
+     */
+    function _commitGenesisBatch(bytes32 genesisBlockHash_) internal {
+        RollupStorage storage $ = _getRollupStorage();
+
+        // Single-leaf Merkle root equals the leaf commitment. Matches _computeCommitment
+        // over a header with (previousBlockHash=0, blockHash=genesis, wr=ZERO, dr=ZERO).
+        bytes32 genesisCommitment = keccak256(
+            abi.encodePacked(bytes32(0), genesisBlockHash_, ZERO_BYTES_HASH, ZERO_BYTES_HASH)
+        );
+
+        $._batches[0] = BatchRecord({
+            batchRoot: genesisCommitment,
+            acceptedAtBlock: uint32(block.number),
+            expectedBlobs: 0,
+            status: BatchStatus.Finalized,
+            sentMessageCursorStart: 0,
+            submitBlobsWindowSnapshot: 0,
+            preconfirmationWindowSnapshot: 0,
+            challengeWindowSnapshot: 0,
+            finalizationDelaySnapshot: 0,
+            numberOfBlocks: 1
+        });
+
+        // First real batch commits at index 1. Genesis occupies index 0.
+        $._nextBatchIndex = 1;
+
+        emit BatchCommitted(0, genesisCommitment, genesisBlockHash_, 1, 0);
+        emit BatchFinalized(0);
+    }
 
     /// @inheritdoc UUPSUpgradeable
     function _authorizeUpgrade(address) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}

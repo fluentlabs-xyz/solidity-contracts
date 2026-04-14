@@ -3,7 +3,7 @@ pragma solidity 0.8.30;
 
 import {RollupAssertions} from "./Base.t.sol";
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
-import {InitConfiguration, L2BlockHeader, BatchStatus} from "../../contracts/interfaces/IRollupTypes.sol";
+import {InitConfiguration, L2BlockHeader, BatchStatus, BatchRecord} from "../../contracts/interfaces/IRollupTypes.sol";
 import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {MockSp1Verifier} from "../mocks/MockSp1Verifier.sol";
@@ -22,6 +22,7 @@ contract AdminTest is RollupAssertions {
         cfg.nitroVerifier = address(nitroVerifier);
         cfg.bridge = bridgeAddr;
         cfg.programVKey = PROGRAM_VKEY;
+        cfg.genesisBlockHash = GENESIS_HASH;
 
         cfg.challengeDepositAmount = CHALLENGE_DEPOSIT;
         cfg.challengeWindow = CHALLENGE_WINDOW;
@@ -114,6 +115,49 @@ contract AdminTest is RollupAssertions {
         Rollup impl = new Rollup();
 
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroAddressNotAllowed.selector, "admin"));
+        new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
+    }
+
+    function test_initialize_commitsGenesisBatch() public view {
+        BatchRecord memory b = rollup.getBatch(0);
+        bytes32 expectedRoot = keccak256(
+            abi.encodePacked(bytes32(0), GENESIS_HASH, ZERO_BYTES_HASH, ZERO_BYTES_HASH)
+        );
+
+        assertEq(b.batchRoot, expectedRoot, "genesis batchRoot mismatch");
+        assertEq(uint8(b.status), uint8(BatchStatus.Finalized), "genesis not Finalized");
+        assertEq(b.numberOfBlocks, 1, "genesis numberOfBlocks should be 1");
+        assertEq(b.acceptedAtBlock, uint32(block.number), "genesis acceptedAtBlock should match init block");
+        assertTrue(rollup.isBatchFinalized(0), "isBatchFinalized(0) should be true");
+        assertEq(rollup.nextBatchIndex(), 1, "nextBatchIndex should start at 1");
+        assertEq(rollup.lastFinalizedBatchIndex(), 0, "lastFinalizedBatchIndex should be 0 (genesis)");
+    }
+
+    function test_RevertIf_initialize_zeroGenesisBlockHash() public {
+        InitConfiguration memory cfg = _defaultInitConfig(admin, sequencer);
+        cfg.genesisBlockHash = bytes32(0);
+        Rollup impl = new Rollup();
+
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "genesisBlockHash"));
+        new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
+    }
+
+    function test_initialize_emitsGenesisBatchCommittedAndFinalized() public {
+        InitConfiguration memory cfg = _defaultInitConfig(admin, sequencer);
+        Rollup impl = new Rollup();
+
+        bytes32 expectedRoot = keccak256(
+            abi.encodePacked(bytes32(0), GENESIS_HASH, ZERO_BYTES_HASH, ZERO_BYTES_HASH)
+        );
+
+        // Emitter address is the proxy, unknown until creation — match any emitter.
+        // Other init events (role grants, window updates) may interleave; expectEmit
+        // enforces only the ordered subsequence of our expected events.
+        vm.expectEmit(true, false, false, true);
+        emit BatchCommitted(0, expectedRoot, GENESIS_HASH, 1, 0);
+        vm.expectEmit(true, false, false, false);
+        emit BatchFinalized(0);
+
         new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
     }
 

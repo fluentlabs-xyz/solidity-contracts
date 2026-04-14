@@ -14,7 +14,7 @@ contract BatchRootChallengeTest is RollupAssertions {
         headers = _makeBatch(parentHash);
         batchIndex = rollup.nextBatchIndex();
         vm.prank(sequencer);
-        rollup.commitBatch(_computeBatchRoot(headers), uint24(headers.length), new BlockDeposit[](0), 1);
+        rollup.commitBatch(_computeBatchRoot(headers), headers[headers.length - 1].blockHash, uint24(headers.length), new BlockDeposit[](0), 1);
         _submitBlobs(batchIndex, 0);
     }
 
@@ -71,10 +71,51 @@ contract BatchRootChallengeTest is RollupAssertions {
     }
 
     function test_RevertIf_challengeBatchRoot_genesisBatch() public {
+        // Genesis batch lives at index 0 and is Finalized at init;
+        // the status guard rejects it rather than a dedicated index check.
         vm.deal(challenger, CHALLENGE_DEPOSIT);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidBatchIndex.selector, uint256(1), uint256(2)));
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidBatchStatus.selector, uint256(0), uint8(BatchStatus.Finalized)));
         vm.prank(challenger);
-        rollup.challengeBatchRoot{value: CHALLENGE_DEPOSIT}(1);
+        rollup.challengeBatchRoot{value: CHALLENGE_DEPOSIT}(0);
+    }
+
+    function test_challengeBatchRoot_firstRealBatch_succeeds() public {
+        // Batch 1 is the first real sequencer commit — batch 0 is synthetic genesis.
+        // Before the genesis-batch change this was rejected by `batchIndex > 1` guard.
+        (uint256 batchIndex,) = _submittedBatchWithHeaders(GENESIS_HASH);
+        assertEq(batchIndex, 1, "first real batch should be index 1");
+
+        _challengeBatchRoot(batchIndex);
+
+        assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Challenged), "status should be Challenged");
+    }
+
+    function test_resolveBatchRootChallenge_firstRealBatch_againstGenesis() public {
+        // End-to-end: challenge batch 1 and resolve against the synthetic genesis batch
+        // that was committed at index 0 during initialize.
+        (uint256 batchIndex, L2BlockHeader[] memory headers) = _submittedBatchWithHeaders(GENESIS_HASH);
+        assertEq(batchIndex, 1);
+
+        _challengeBatchRoot(batchIndex);
+
+        // Reconstruct the synthetic genesis header as stored by _commitGenesisBatch.
+        L2BlockHeader memory genesisHeader = L2BlockHeader({
+            previousBlockHash: bytes32(0),
+            blockHash: GENESIS_HASH,
+            withdrawalRoot: ZERO_BYTES_HASH,
+            depositRoot: ZERO_BYTES_HASH,
+            depositCount: 0
+        });
+
+        // Single-leaf Merkle tree → proof is empty, nonce = 0 (last leaf index, numberOfBlocks - 1 = 0).
+        // Assumes MerkleTree.verifyMerkleProof accepts empty bytes (zero iterations → returns leaf == root).
+        // If the library ever requires _proof.length > 0, this genesis-batch path breaks silently.
+        MerkleTree.MerkleProof memory emptyProof = MerkleTree.MerkleProof({nonce: 0, proof: ""});
+
+        vm.prank(prover);
+        rollup.resolveBatchRootChallenge(batchIndex, genesisHeader, headers, emptyProof);
+
+        _assertProverWithdrawable(prover, CHALLENGE_DEPOSIT);
     }
 
     function test_RevertIf_challengeBatchRoot_incorrectDeposit() public {

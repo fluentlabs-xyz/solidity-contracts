@@ -246,12 +246,14 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
     /// @inheritdoc IRollupWrite
     function commitBatch(
         bytes32 batchRoot,
+        bytes32 lastBlockHash,
         uint24 numberOfBlocks,
         BlockDeposit[] calldata blockDeposits,
         uint8 expectedBlobsCount
     ) external onlyRole(SEQUENCER_ROLE) whenNotPaused nonReentrant {
         RollupStorage storage $ = _getRollupStorage();
         require(batchRoot != bytes32(0), InvalidBatchRoot(batchRoot, bytes32(0)));
+        require(lastBlockHash != bytes32(0), ZeroValueNotAllowed("lastBlockHash"));
         require(numberOfBlocks > 0, ZeroValueNotAllowed("numberOfBlocks"));
         require(expectedBlobsCount > 0, ZeroValueNotAllowed("expectedBlobsCount"));
         require(!_rollupCorrupted(), RollupCorrupted());
@@ -283,7 +285,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
             cursor = _checkDeposits(cursor, blockDeposits[i]);
         }
 
-        emit BatchCommitted(batchIndex, batchRoot, numberOfBlocks, expectedBlobsCount);
+        emit BatchCommitted(batchIndex, batchRoot, lastBlockHash, numberOfBlocks, expectedBlobsCount);
     }
 
     /// @inheritdoc IRollupWrite
@@ -357,18 +359,13 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
 
     // ============ Challenger ============
 
-    /// TODO: revert lastBlockInBatch map for the verification of the batch with index 1
     /// @inheritdoc IRollupWrite
     function challengeBatchRoot(uint256 batchIndex) external payable nonReentrant whenNotPaused onlyRole(CHALLENGER_ROLE) {
         RollupStorage storage $ = _getRollupStorage();
         require(!_rollupCorrupted(), RollupCorrupted());
 
-        /// ======== TODO: revert lastBlockInBatch map for the verification of the batch with index 1 =========
-
-        // Genesis batch (index 1) cannot be batch-root challenged — resolveBatchRootChallenge
-        // requires a Merkle proof against the previous batch's headers, which don't exist for genesis.
-        require(batchIndex > 1, InvalidBatchIndex(batchIndex, 2));
-
+        // batchIndex == 0 is the synthetic genesis batch (Finalized at init); it is rejected
+        // by the status guard below. Real batches start at index 1.
         BatchRecord storage batch = $._batches[batchIndex];
 
         // Post-DA eligibility only — Committed (pre-blob) is excluded as DoS defense.

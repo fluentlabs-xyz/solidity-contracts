@@ -361,7 +361,7 @@ interface IRollupEvents {
     /**
      * @notice Emitted when sequencer commits a new batchRoot via {Rollup-commitBatch}.
      */
-    event BatchCommitted(uint256 indexed batchIndex, bytes32 batchRoot, uint24 numberOfBlocks, uint256 expectedBlobs);
+    event BatchCommitted(uint256 indexed batchIndex, bytes32 batchRoot, bytes32 lastBlockHash, uint24 numberOfBlocks, uint256 expectedBlobs);
 
     /**
      * @notice Emitted when sequencer submits blob hashes for a batch.
@@ -590,13 +590,23 @@ interface IRollupWrite {
      *      linkage via the dropped `lastBlockHashInBatch` parameter is delegated to
      *      {resolveBatchRootChallenge} (Q4 in research_v2.md).
      * @param batchRoot Merkle root of L2 block header commitments for this batch.
+     * @param lastBlockHash Hash of the last L2 block in this batch; emitted in
+     *                      {IRollupEvents-BatchCommitted} for sequencer cold-start recovery.
+     *                      Untrusted input — verified off-chain via Merkle proof against
+     *                      {batchRoot}, or on-chain via {resolveBatchRootChallenge}.
      * @param numberOfBlocks Number of L2 blocks in the batch (sequencer-claimed; bound to
      *                       leaf count via Q3 check at challenge resolution time).
      * @param blockDeposits Per-block deposit bundles for the bridge cursor advance.
      * @param expectedBlobsCount Number of EIP-4844 blobs the sequencer commits to submit
      *                           via subsequent {submitBlobs} calls.
      */
-    function commitBatch(bytes32 batchRoot, uint24 numberOfBlocks, BlockDeposit[] calldata blockDeposits, uint8 expectedBlobsCount) external;
+    function commitBatch(
+        bytes32 batchRoot,
+        bytes32 lastBlockHash,
+        uint24 numberOfBlocks,
+        BlockDeposit[] calldata blockDeposits,
+        uint8 expectedBlobsCount
+    ) external;
 
     /**
      * @notice Submit blob hashes for DA verification of an accepted batch.

@@ -129,6 +129,8 @@ struct InitConfiguration {
     // ─── Keys ───
     /// @dev SP1 program verification key
     bytes32 programVKey;
+    /// @dev Genesis L2 block hash; anchors chain state before the first batch
+    bytes32 genesisBlockHash;
     // ─── Parameters ───
     /// @dev ETH deposit required to open a challenge
     uint256 challengeDepositAmount;

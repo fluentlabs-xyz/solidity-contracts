@@ -78,6 +78,7 @@ abstract contract BaseDeployNative is Test {
         cfg.nitroVerifier = address(l1NitroVerifier);
         cfg.bridge = address(0xB1);
         cfg.programVKey = PROGRAM_VKEY;
+        cfg.genesisBlockHash = GENESIS_HASH;
         cfg.challengeDepositAmount = 1 ether;
         cfg.submitBlobsWindow = 100;
         cfg.preconfirmWindow = 3800;
@@ -200,6 +201,7 @@ abstract contract BaseDeployERC20 is Test {
         cfg.nitroVerifier = address(l1NitroVerifier);
         cfg.bridge = address(0xB1);
         cfg.programVKey = PROGRAM_VKEY;
+        cfg.genesisBlockHash = GENESIS_HASH;
         cfg.challengeDepositAmount = 1 ether;
         cfg.submitBlobsWindow = 100;
         cfg.preconfirmWindow = 3800;

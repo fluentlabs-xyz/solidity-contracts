@@ -31,7 +31,17 @@ contract AcceptBatchTest is RollupAssertions {
         bytes32 expectedRoot = _computeBatchRoot(batch);
         uint256 batchIndex = rollup.nextBatchIndex();
 
-        _expectBatchCommitted(batchIndex, expectedRoot, uint24(batch.length), 1);
+        _expectBatchCommitted(batchIndex, expectedRoot, batch[batch.length - 1].blockHash, uint24(batch.length), 1);
+        _acceptBatch(GENESIS_HASH, 0);
+    }
+
+    function test_commitBatch_emitsLastBlockHashInEvent() public {
+        L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
+        bytes32 expectedRoot = _computeBatchRoot(batch);
+        bytes32 expectedLastHash = batch[batch.length - 1].blockHash;
+        uint256 batchIndex = rollup.nextBatchIndex();
+
+        _expectBatchCommitted(batchIndex, expectedRoot, expectedLastHash, uint24(batch.length), 1);
         _acceptBatch(GENESIS_HASH, 0);
     }
 
@@ -72,7 +82,7 @@ contract AcceptBatchTest is RollupAssertions {
 
         vm.expectRevert(abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, user, rollup.SEQUENCER_ROLE()));
         vm.prank(user);
-        rollup.commitBatch(batchRoot, uint24(batch.length), emptyDeposits, 1);
+        rollup.commitBatch(batchRoot, batch[batch.length - 1].blockHash, uint24(batch.length), emptyDeposits, 1);
     }
 
     function test_RevertIf_commitBatch_rollupCorrupted() public {
@@ -86,7 +96,7 @@ contract AcceptBatchTest is RollupAssertions {
 
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.RollupCorrupted.selector));
         vm.prank(sequencer);
-        rollup.commitBatch(batchRoot, uint24(batch.length), emptyDeposits, 1);
+        rollup.commitBatch(batchRoot, batch[batch.length - 1].blockHash, uint24(batch.length), emptyDeposits, 1);
     }
 
     function test_RevertIf_commitBatch_zeroBatchRoot() public {
@@ -94,7 +104,17 @@ contract AcceptBatchTest is RollupAssertions {
 
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidBatchRoot.selector, bytes32(0), bytes32(0)));
         vm.prank(sequencer);
-        rollup.commitBatch(bytes32(0), 1, emptyDeposits, 1);
+        rollup.commitBatch(bytes32(0), keccak256("last"), 1, emptyDeposits, 1);
+    }
+
+    function test_RevertIf_commitBatch_zeroLastBlockHash() public {
+        L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
+        bytes32 batchRoot = _computeBatchRoot(batch);
+        BlockDeposit[] memory emptyDeposits = new BlockDeposit[](0);
+
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "lastBlockHash"));
+        vm.prank(sequencer);
+        rollup.commitBatch(batchRoot, bytes32(0), uint24(batch.length), emptyDeposits, 1);
     }
 
     function test_RevertIf_commitBatch_zeroNumberOfBlocks() public {
@@ -102,7 +122,7 @@ contract AcceptBatchTest is RollupAssertions {
 
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "numberOfBlocks"));
         vm.prank(sequencer);
-        rollup.commitBatch(keccak256("root"), 0, emptyDeposits, 1);
+        rollup.commitBatch(keccak256("root"), keccak256("last"), 0, emptyDeposits, 1);
     }
 
     function test_RevertIf_commitBatch_paused() public {
@@ -113,7 +133,7 @@ contract AcceptBatchTest is RollupAssertions {
 
         vm.expectRevert(abi.encodeWithSelector(PausableUpgradeable.EnforcedPause.selector));
         vm.prank(sequencer);
-        rollup.commitBatch(keccak256("root"), 1, emptyDeposits, 1);
+        rollup.commitBatch(keccak256("root"), keccak256("last"), 1, emptyDeposits, 1);
     }
 
     function test_RevertIf_commitBatch_zeroDepositRootWithNonZeroCount() public {
@@ -125,7 +145,7 @@ contract AcceptBatchTest is RollupAssertions {
 
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidDepositRootWithNonZeroCount.selector, uint256(7)));
         vm.prank(sequencer);
-        rollup.commitBatch(batchRoot, uint24(batch.length), deposits, 1);
+        rollup.commitBatch(batchRoot, batch[batch.length - 1].blockHash, uint24(batch.length), deposits, 1);
     }
 
     function test_RevertIf_acceptNextBatch_zeroExpectedBlobsCount() public {
@@ -133,6 +153,6 @@ contract AcceptBatchTest is RollupAssertions {
 
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "expectedBlobsCount"));
         vm.prank(sequencer);
-        rollup.commitBatch(_computeBatchRoot(batch), uint24(batch.length), new BlockDeposit[](0), 0);
+        rollup.commitBatch(_computeBatchRoot(batch), batch[batch.length - 1].blockHash, uint24(batch.length), new BlockDeposit[](0), 0);
     }
 }

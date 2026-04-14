@@ -130,7 +130,7 @@ contract BaseFlowERC20Test is BaseDeployERC20 {
         BlockDeposit[] memory deposits = new BlockDeposit[](1);
         deposits[0] = BlockDeposit({depositRoot: depositRoot, depositCount: uint16(depositCount)});
         vm.prank(relayer);
-        l1Rollup.commitBatch(batchRoot, 1, deposits, 1);
+        l1Rollup.commitBatch(batchRoot, header.blockHash, 1, deposits, 1);
         assertEq(l1Bridge.getSentMessageQueueSize(), queueBefore - depositCount, "deposits not popped from bridge queue");
         bytes32[] memory blobHashes = new bytes32[](1);
         blobHashes[0] = keccak256(abi.encode("erc20-flow-blob", batchIndex));
