@@ -80,6 +80,13 @@ interface INitroVerifier {
      */
     error InvalidSignature();
 
+    /**
+     * @notice Attestation's enclave timestamp is outside the freshness window —
+     *         older than the maximum allowed age or too far in the future.
+     * @dev selector: 0x6b3df692
+     */
+    error AttestationExpired(uint64 attestationTime, uint256 blockTime);
+
     // ============ Events ============
 
     /**
