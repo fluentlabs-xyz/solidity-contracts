@@ -35,6 +35,16 @@ contract NitroVerifier is AccessControl, INitroVerifier {
     /// @dev Minimum seconds between {proposeVKeyUpdate} and {executeVKeyUpdate}.
     uint256 public constant VKEY_UPDATE_DELAY = 1 days;
 
+    /// @dev Maximum age of an attestation document at the moment it is submitted on-chain.
+    ///      Prevents replay of stale attestations produced by nodes whose ephemeral
+    ///      keys may have been compromised in the interim (e.g. RAM extraction after
+    ///      hardware decommission, AWS cert rotation, hypervisor updates).
+    uint256 public constant ATTESTATION_MAX_AGE = 1 hours;
+
+    /// @dev Permitted clock skew for attestations whose reported timestamp is in
+    ///      the future relative to `block.timestamp`.
+    uint256 public constant ATTESTATION_MAX_SKEW = 5 minutes;
+
     // ============ Storage ============
 
     /// @dev SP1 verifier contract used to validate attestation proofs. Immutable — set in constructor.
@@ -159,19 +169,43 @@ contract NitroVerifier is AccessControl, INitroVerifier {
      * @notice Verify an SP1 ZK proof of a Nitro enclave attestation document,
      *         confirming that `expectedPubkey` is controlled by a valid enclave.
      * @dev The SP1 program verifies the AWS Nitro certificate chain off-chain and
-     *      produces a proof with `abi.encode(expectedPubkey)` as the public output,
-     *      verified here against {_programVKey}.
+     *      commits `abi.encode(expectedPubkey, attestationTime)` as the proof's
+     *      public output, where `attestationTime` is the enclave-reported NSM
+     *      timestamp (seconds since the Unix epoch) extracted structurally from
+     *      the signed AttestationDoc. The caller mirrors the timestamp in the
+     *      call; SP1's `verifyProof` binds it to the proof, and
+     *      {ATTESTATION_MAX_AGE} enforces freshness to prevent replay of
+     *      long-dead attestation documents (e.g. after ephemeral key extraction
+     *      from decommissioned hardware, AWS cert rotation, or hypervisor
+     *      updates).
      *      DEFAULT_ADMIN_ROLE is required to prevent attack if SP1 verification is compromised —
-     *      ensures only trusted parties can submit proofs. Since DEFAULT_ADMIN_ROLE is mutlisig,
+     *      ensures only trusted parties can submit proofs. Since DEFAULT_ADMIN_ROLE is multisig,
      *      the risk of compromise is reduced.
-     * @param expectedPubkey Enclave-derived address to attest.
-     * @param proofBytes     Encoded SP1 proof.
+     * @param expectedPubkey   Enclave-derived address to attest.
+     * @param attestationTime  Enclave NSM timestamp (seconds since Unix epoch)
+     *                         committed inside the SP1 proof.
+     * @param proofBytes       Encoded SP1 proof.
      */
-    function verifyAttestation(address expectedPubkey, bytes calldata proofBytes) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function verifyAttestation(address expectedPubkey, uint64 attestationTime, bytes calldata proofBytes) external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(expectedPubkey != address(0), ZeroAddress());
         require(!verifiedPubkeys[expectedPubkey], PubkeyAlreadyVerified());
+
+        // Freshness window: attestationTime must lie within
+        // [block.timestamp - ATTESTATION_MAX_AGE, block.timestamp + ATTESTATION_MAX_SKEW].
+        uint256 nowTs = block.timestamp;
+        if (uint256(attestationTime) + ATTESTATION_MAX_AGE < nowTs || uint256(attestationTime) > nowTs + ATTESTATION_MAX_SKEW) {
+            revert AttestationExpired(attestationTime, nowTs);
+        }
+
         bytes32 vkey = _programVKey; // 1 SLOAD, passed to external call and event
-        ISP1Verifier(_attestationVerifier).verifyProof(vkey, abi.encode(expectedPubkey), proofBytes);
+
+        // Public-values layout produced by the guest's `main`:
+        //   abi.encode(address, uint64)  → 64 bytes (two 32-byte words).
+        // Any mismatch between (expectedPubkey, attestationTime) and the values
+        // baked into the proof causes `verifyProof` to revert, so a forged
+        // timestamp cannot satisfy both the freshness window and the SP1 check.
+        ISP1Verifier(_attestationVerifier).verifyProof(vkey, abi.encode(expectedPubkey, attestationTime), proofBytes);
+
         verifiedPubkeys[expectedPubkey] = true;
         emit AttestationVerified(vkey, expectedPubkey);
     }
