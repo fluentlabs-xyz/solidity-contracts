@@ -50,7 +50,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         /// @dev L1-owned receive-message deadline snapshotted into outbound L1->L2 messages at send time.
         ///      0 disables the deadline. Owned by L1 so admin updates never retroactively expire messages
         ///      that were already sent under the previous deadline.
-        uint256 _receiveMessageDeadline;
+        uint64 _receiveMessageDeadline;
         /// @dev L1-owned window: max L1 blocks the rollup is allowed to take to consume a sent
         ///      message before being considered corrupted. Snapshotted into
         ///      {_sentMessageProcessByBlock} at send time so admin updates never retroactively
@@ -509,10 +509,11 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
      *      `_beforeReceiveMessage`, silently stranding user funds with no rollback path.
      */
     function _setReceiveMessageDeadline(uint256 newReceiveMessageDeadline) internal {
-        require(newReceiveMessageDeadline > 0, InvalidWindowConfig("receiveMessageDeadline must be greater than 0"));
+        require(newReceiveMessageDeadline > 0, InvalidWindowConfig("must be greater than 0"));
+        require(newReceiveMessageDeadline <= type(uint64).max, InvalidWindowConfig("exceeds maximum"));
         L1FluentBridgeStorage storage $ = _getL1FluentBridgeStorage();
         emit ReceiveMessageDeadlineUpdated($._receiveMessageDeadline, newReceiveMessageDeadline);
-        $._receiveMessageDeadline = newReceiveMessageDeadline;
+        $._receiveMessageDeadline = uint64(newReceiveMessageDeadline);
     }
 
     /**
@@ -526,8 +527,8 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
      *      message instantly expired in the rollup's view.
      */
     function _setDepositProcessingWindow(uint256 newDepositProcessingWindow) internal {
-        require(newDepositProcessingWindow > 0, InvalidWindowConfig("depositProcessingWindow must be greater than 0"));
-        require(newDepositProcessingWindow <= MAX_DEPOSIT_PROCESSING_WINDOW, InvalidWindowConfig("depositProcessingWindow exceeds maximum"));
+        require(newDepositProcessingWindow > 0, InvalidWindowConfig("must be greater than 0"));
+        require(newDepositProcessingWindow <= MAX_DEPOSIT_PROCESSING_WINDOW, InvalidWindowConfig("exceeds maximum"));
         L1FluentBridgeStorage storage $ = _getL1FluentBridgeStorage();
         emit DepositProcessingWindowUpdated($._depositProcessingWindow, newDepositProcessingWindow);
         $._depositProcessingWindow = uint64(newDepositProcessingWindow);

@@ -107,7 +107,7 @@ contract BridgeAdminTest is BridgeBase {
 
     function test_RevertIf_setReceiveMessageDeadline_zeroValue() public {
         vm.expectRevert(
-            abi.encodeWithSelector(IFluentBridgeErrors.InvalidWindowConfig.selector, "receiveMessageDeadline must be greater than 0")
+            abi.encodeWithSelector(IFluentBridgeErrors.InvalidWindowConfig.selector, "must be greater than 0")
         );
         vm.prank(admin);
         l1Bridge.setReceiveMessageDeadline(0);

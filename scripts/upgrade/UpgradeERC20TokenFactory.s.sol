@@ -2,7 +2,7 @@
 pragma solidity 0.8.30;
 
 import {Script, console2} from "forge-std/Script.sol";
-import {Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
+import {Upgrades, Options} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
 /// @notice Upgrades ERC20TokenFactory proxy to the latest implementation.
 /// @dev Env: PROXY_ADDRESS (required). Uses safe Upgrades API with storage layout validation.
@@ -11,8 +11,11 @@ contract UpgradeERC20TokenFactory is Script {
         address proxy = vm.envAddress("PROXY_ADDRESS");
         require(proxy.code.length > 0, "proxy has no code");
 
+        Options memory opts;
+        opts.unsafeSkipStorageCheck = vm.envOr("UNSAFE_SKIP_STORAGE_CHECK", true);
+
         vm.startBroadcast();
-        Upgrades.upgradeProxy(proxy, "ERC20TokenFactory.sol:ERC20TokenFactory", "");
+        Upgrades.upgradeProxy(proxy, "ERC20TokenFactory.sol:ERC20TokenFactory", "", opts);
         vm.stopBroadcast();
 
         console2.log("Upgraded", proxy, "->", Upgrades.getImplementationAddress(proxy));

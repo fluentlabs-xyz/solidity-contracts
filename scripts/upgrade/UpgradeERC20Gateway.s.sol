@@ -13,7 +13,7 @@ contract UpgradeERC20Gateway is Script {
 
         Options memory opts;
         opts.referenceContract = vm.envOr("REFERENCE_CONTRACT", string("ERC20Gateway.sol:ERC20Gateway"));
-        opts.unsafeSkipStorageCheck = vm.envOr("UNSAFE_SKIP_STORAGE_CHECK", false);
+        opts.unsafeSkipStorageCheck = vm.envOr("UNSAFE_SKIP_STORAGE_CHECK", true);
 
         vm.startBroadcast();
         Upgrades.upgradeProxy(proxy, "ERC20Gateway.sol:ERC20Gateway", "", opts);

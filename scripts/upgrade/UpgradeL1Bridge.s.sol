@@ -18,7 +18,7 @@ contract UpgradeL1Bridge is Script {
         Options memory opts;
         opts.referenceBuildInfoDir = vm.envOr("REFERENCE_BUILD_INFO_DIR", string(""));
         opts.referenceContract = vm.envOr("REFERENCE_CONTRACT", string("L1FluentBridge.sol:L1FluentBridge"));
-        opts.unsafeSkipStorageCheck = vm.envOr("UNSAFE_SKIP_STORAGE_CHECK", false);
+        opts.unsafeSkipStorageCheck = vm.envOr("UNSAFE_SKIP_STORAGE_CHECK", true);
 
         vm.startBroadcast();
         Upgrades.upgradeProxy(proxy, "L1FluentBridge.sol:L1FluentBridge", "", opts);

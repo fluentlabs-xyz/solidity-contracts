@@ -95,7 +95,7 @@ contract RollupStorageLayout is
      * @dev Time buffer in blocks between challenge window end and finalization delay to guarantee provers have time to respond.
      *      ~24h
      */
-    uint256 public constant MIN_CHALLENGE_RESOLUTION_WINDOW = 7200;
+    uint256 public constant MIN_CHALLENGE_RESOLUTION_WINDOW = 3600;
 
     /**
      * @dev keccak256 of empty bytes — used to detect zero-message roots.

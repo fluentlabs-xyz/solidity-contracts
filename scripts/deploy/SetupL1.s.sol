@@ -29,6 +29,8 @@ contract SetupL1Bridge is DeployBase {
         address l1Bridge = _readAddr(sourceJson, "bridge");
         address l1Erc20Gateway = _readAddr(sourceJson, "erc20_gateway");
         address l1NativeGateway = _readAddr(sourceJson, "native_gateway");
+        address l1TokenFactory = _readAddr(sourceJson, "factory");
+        address l1Rollup = _readAddr(sourceJson, "rollup");
         address l2Bridge = _readAddr(destJson, "bridge");
         address l2Erc20Gateway = _readAddr(destJson, "erc20_gateway");
         address l2NativeGateway = _readAddr(destJson, "native_gateway");
@@ -56,6 +58,9 @@ contract SetupL1Bridge is DeployBase {
         L1FluentBridge(payable(l1Bridge)).setExecuteGasLimit(executeGasLimit);
         ERC20Gateway(payable(l1Erc20Gateway)).setOtherSide(true, l2Erc20Gateway, l2ChainId, l2PeggedImpl, l2Factory, l2FactoryBeacon);
         NativeGateway(payable(l1NativeGateway)).setOtherSideGateway(l2NativeGateway);
+        L1FluentBridge(payable(l1Bridge)).setRollup(l1Rollup);
+        ERC20Gateway(payable(l1Erc20Gateway)).setBridgeContract(l1Bridge);
+        ERC20Gateway(payable(l1Erc20Gateway)).setTokenFactory(l1TokenFactory);
         vm.stopBroadcast();
     }
 }
