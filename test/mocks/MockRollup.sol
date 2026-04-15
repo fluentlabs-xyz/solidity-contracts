@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
-import {BatchRecord, BatchStatus} from "../../contracts/interfaces/IRollupTypes.sol";
+import {BatchRecord, BatchStatus} from "../../contracts/interfaces/rollup/IRollupTypes.sol";
 
 contract MockRollup {
     bool public finalized;

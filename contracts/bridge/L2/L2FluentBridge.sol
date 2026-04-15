@@ -16,8 +16,8 @@ import {IL1GasOracle} from "../../interfaces/oracles/IL1GasOracle.sol";
 contract L2FluentBridge is FluentBridge, IL2FluentBridge {
     // ============ Constants ============
 
-    /// @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.L2FluentBridgeStorage")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 internal constant L2_FLUENT_BRIDGE_STORAGE_LOCATION = 0x87bc3410b506da535d5d599e04bd2f08b89897a5d89e1855acbd7567af23bd00;
+    /// @dev keccak256(abi.encode(uint256(keccak256("Fluent.storage.L2FluentBridgeStorage")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 internal constant L2_FLUENT_BRIDGE_STORAGE_LOCATION = 0xdb789bfce4d76202a01e0604e72a2e052398264aedb278a3431997ac77ce1100;
 
     // ============ Storage ============
 
@@ -34,10 +34,7 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
         uint256 _l1GasLimit;
     }
 
-    /**
-     * @dev ERC-7201 namespaced storage for L2-specific bridge state.
-     */
-    /// @custom:storage-location erc7201:fluent.storage.L2FluentBridgeStorage
+    /// @custom:storage-location erc7201:Fluent.storage.L2FluentBridgeStorage
     struct L2FluentBridgeStorage {
         /// @dev Oracle providing the latest L1 block number on L2.
         address _l1BlockOracle;
@@ -100,12 +97,14 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
 
     // ============ Fee logic ============
 
-    /// @inheritdoc FluentBridge
-    /// @dev `fee` is computed once by the base {FluentBridge-sendMessage} and passed through
-    ///      to avoid a second oracle read. The value matches the one used to derive `value`
-    ///      for the outbound message, so the transfer and the cross-chain value stay in sync
-    ///      even if the oracle state were to change between calls (impossible within a single
-    ///      tx, but defensively consistent).
+    /**
+     * @inheritdoc FluentBridge
+     * @dev `fee` is computed once by the base {FluentBridge-sendMessage} and passed through
+     *      to avoid a second oracle read. The value matches the one used to derive `value`
+     *      for the outbound message, so the transfer and the cross-chain value stay in sync
+     *      even if the oracle state were to change between calls (impossible within a single
+     *      tx, but defensively consistent).
+     */
     function _chargeSendFee(uint256 fee) internal override {
         if (fee > 0) {
             // Treasury must be configured before fees can be collected
@@ -125,10 +124,11 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
 
     // ============ Receive hooks ============
 
-    /// @inheritdoc FluentBridge
-    /// @dev Checks if the message has reached its committed expiry block. If so, marks it
-    ///      Failed and emits {RollbackMessage} (included in L2BlockHeader.withdrawalRoot
-    ///      for later proof-based rollback on L1). Returns false to skip execution.
+    /** @inheritdoc FluentBridge
+     * @dev Checks if the message has reached its committed expiry block. If so, marks it
+     *      Failed and emits {RollbackMessage} (included in L2BlockHeader.withdrawalRoot
+     *      for later proof-based rollback on L1). Returns false to skip execution.
+     */
     function _beforeReceiveMessage(
         address from,
         address to,
@@ -275,5 +275,4 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
         $._scalarGasPrice = scalarGasPrice;
         $._l1GasLimit = l1GasLimit;
     }
-
 }

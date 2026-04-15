@@ -12,11 +12,15 @@ import {IL1BlockOracle} from "../interfaces/oracles/IL1BlockOracle.sol";
  *      to check if a message is eligible for rollback.
  */
 contract L1BlockOracle is Ownable, IL1BlockOracle {
+    // ============ Constants ============
+
     /**
      * @dev Inclusive upper bound on stored L1 block numbers. Ethereum mainnet is on the order of
      *      tens of millions of blocks; this headroom covers decades while rejecting pathological values.
      */
     uint256 public constant MAX_L1_BLOCK_NUMBER = 100_000_000;
+
+    // ============ Storage ============
 
     /// @dev The current L1 block number
     uint256 internal _l1BlockNumber;

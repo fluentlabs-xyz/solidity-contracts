@@ -25,7 +25,12 @@ import {IGatewayBase} from "../interfaces/gateways/IGatewayBase.sol";
  *      `FluentBridge` instance.
  */
 abstract contract GatewayBase is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuardUpgradeable, IGatewayBase {
-    /// @custom:storage-location erc7201:fluent.storage.GatewayBaseStorage
+    // ============ Constants ============
+
+    /// @dev keccak256(abi.encode(uint256(keccak256("Fluent.storage.GatewayBaseStorage")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant GATEWAY_BASE_STORAGE_LOCATION = 0x96d2d562565fa04c409a57bcf4eeb472b5eafb489b00a26ae2441efb4f4ecc00;
+
+    /// @custom:storage-location erc7201:Fluent.storage.GatewayBaseStorage
     struct GatewayBaseStorage {
         /// @dev Local FluentBridge address used for cross-chain message dispatch.
         address _bridgeContract;
@@ -38,9 +43,6 @@ abstract contract GatewayBase is Initializable, UUPSUpgradeable, Ownable2StepUpg
         /// @dev Reserved for future storage fields.
         uint256[50] __gap;
     }
-
-    /// @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.GatewayBaseStorage")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant GATEWAY_BASE_STORAGE_LOCATION = 0x76174ff789203cf2db8238f11acb33783dc695662454a2feabb4fb5ea262c400;
 
     /// @dev Returns the ERC-7201 storage pointer for gateway base state.
     function _getGatewayBaseStorage() internal pure returns (GatewayBaseStorage storage $) {

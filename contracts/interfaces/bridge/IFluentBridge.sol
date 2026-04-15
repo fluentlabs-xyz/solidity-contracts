@@ -157,11 +157,68 @@ interface IFluentBridgeEvents {
     event FeeTreasuryUpdated(address indexed prevValue, address indexed newValue);
 }
 
+interface IFluentBridgeWrite {
+    /**
+     * @notice Sends a cross-chain message with optional native value.
+     * @dev Deducts the L2 send fee (if any), encodes and hashes the message,
+     *      then calls {_afterSendMessage} for chain-specific hooks (L1 enqueue).
+     *
+     * @param to Destination address on the target chain.
+     * @param message Calldata payload to deliver.
+     */
+    function sendMessage(address to, bytes calldata message) external payable;
+
+    /**
+     * @notice Receives and executes a relayer-delivered cross-chain message.
+     * @dev Enforces sequential nonce, verifies message not already processed,
+     *      then delegates to {_receiveMessage} for ExcessivelySafeCall execution.
+     *
+     * @param from Sender on the other chain.
+     * @param to Destination on this chain.
+     * @param value Value to forward.
+     * @param chainId Source chain id.
+     * @param validUntilBlockNumber Absolute L1 block number by which the message must be received (0 = no deadline).
+     * @param nonce Message nonce (must match receivedNonce).
+     * @param message Message payload.
+     */
+    function receiveMessage(
+        address from,
+        address to,
+        uint256 value,
+        uint256 chainId,
+        uint256 validUntilBlockNumber,
+        uint256 nonce,
+        bytes calldata message
+    ) external;
+
+    /**
+     * @notice Retries a previously failed message. Anyone can call with the original params.
+     * @dev Requires message status == Failed. Uses full gasleft() instead of executeGasLimit.
+     *
+     * @param from Sender on the other chain.
+     * @param to Destination on this chain.
+     * @param value Value to forward.
+     * @param chainId Source chain id.
+     * @param validUntilBlockNumber Absolute L1 block number by which the message must be received (0 = no deadline).
+     * @param nonce Message nonce.
+     * @param message Message payload.
+     */
+    function receiveFailedMessage(
+        address from,
+        address to,
+        uint256 value,
+        uint256 chainId,
+        uint256 validUntilBlockNumber,
+        uint256 nonce,
+        bytes calldata message
+    ) external;
+}
+
 /**
  * @title IFluentBridge
  * @dev Core bridge interface: message lifecycle (send, receive, retry), state queries, and status tracking.
  */
-interface IFluentBridge is IFluentBridgeErrors, IFluentBridgeEvents {
+interface IFluentBridge is IFluentBridgeErrors, IFluentBridgeEvents, IFluentBridgeWrite {
     /**
      * @dev Describes the status of a cross-chain message.
      */
@@ -206,57 +263,4 @@ interface IFluentBridge is IFluentBridgeErrors, IFluentBridgeEvents {
      * @return The status of the received message.
      */
     function getReceivedMessage(bytes32 key) external view returns (MessageStatus);
-
-    // ---------- Send / receive ----------
-
-    /**
-     * @notice Sends a cross-chain message to the other chain.
-     * @param to Destination address on the target chain.
-     * @param message Calldata payload to deliver.
-     */
-    function sendMessage(address to, bytes calldata message) external payable;
-
-    /**
-     * @notice Receives and executes a message sent by the bridge authority (callable on both L1 and L2 by the authorized relayer; trusted relayer path).
-     * @dev Callable on both L1 and L2 by the authorized relayer; trusted relayer path.
-     *
-     * @param from Sender on the other chain.
-     * @param to Destination on this chain.
-     * @param value Value to forward.
-     * @param chainId Source chain id.
-     * @param validUntilBlockNumber Absolute L1 block number by which the message must be received (0 = no deadline).
-     * @param nonce Message nonce (must match receivedNonce).
-     * @param message Message payload.
-     */
-    function receiveMessage(
-        address from,
-        address to,
-        uint256 value,
-        uint256 chainId,
-        uint256 validUntilBlockNumber,
-        uint256 nonce,
-        bytes calldata message
-    ) external;
-
-    /**
-     * @notice Retries execution of a previously failed message (same params as original receive).
-     * @dev This function is used to retry execution of a previously failed message from anyone.
-     *
-     * @param from Sender on the other chain.
-     * @param to Destination on this chain.
-     * @param value Value to forward.
-     * @param chainId Source chain id.
-     * @param validUntilBlockNumber Absolute L1 block number by which the message must be received (0 = no deadline).
-     * @param nonce Message nonce.
-     * @param message Message payload.
-     */
-    function receiveFailedMessage(
-        address from,
-        address to,
-        uint256 value,
-        uint256 chainId,
-        uint256 validUntilBlockNumber,
-        uint256 nonce,
-        bytes calldata message
-    ) external;
 }

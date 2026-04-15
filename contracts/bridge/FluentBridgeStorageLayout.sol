@@ -40,21 +40,23 @@ contract FluentBridgeStorageLayout is
      * @notice Default gas limit for message execution.
      */
     uint256 public constant DEFAULT_EXECUTE_GAS_LIMIT = 100_000;
+
     /**
      * @notice Role authorized to pause the contract.
      */
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
+
     /**
      * @notice Role authorized to send authorized messages (a trusted relayer or bridge controller).
      */
     bytes32 public constant RELAYER_ROLE = keccak256("RELAYER_ROLE");
 
-    /// @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.FluentBridgeStorage")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 internal constant FLUENT_BRIDGE_STORAGE_LOCATION = 0xe2e0b7768cb35928615964d328c094191301065845ac8cd8ffc433ff2eae9300;
+    /// @dev keccak256(abi.encode(uint256(keccak256("Fluent.storage.FluentBridgeStorage")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 internal constant FLUENT_BRIDGE_STORAGE_LOCATION = 0x1d32f057e9fce0670715dab7ddeb05958b1ba8f4bd87a5dcabc7ec5913505500;
 
     // ============ Storage ============
 
-    /// @custom:storage-location erc7201:fluent.storage.FluentBridgeStorage
+    /// @custom:storage-location erc7201:Fluent.storage.FluentBridgeStorage
     struct FluentBridgeStorage {
         /// @dev Gas limit forwarded to target during message execution.
         uint256 _executeGasLimit;
@@ -258,6 +260,7 @@ contract FluentBridgeStorageLayout is
         emit ExecuteGasLimitUpdated(getExecuteGasLimit(), newExecuteGasLimit);
         _getFluentBridgeStorage()._executeGasLimit = newExecuteGasLimit;
     }
+
     // ============ Internal helpers ============
 
     /**

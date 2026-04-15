@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
-import {ISP1Verifier} from "../interfaces/ISP1Verifier.sol";
-import {INitroVerifier} from "../interfaces/INitroVerifier.sol";
+import {ISP1Verifier} from "../interfaces/verifiers/ISP1Verifier.sol";
+import {INitroVerifier} from "../interfaces/verifiers/INitroVerifier.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
@@ -32,20 +32,20 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 contract NitroVerifier is AccessControl, INitroVerifier {
     // ============ Constants ============
 
-    /// @dev Minimum seconds between {proposeVKeyUpdate} and {executeVKeyUpdate}.
-    uint256 public constant VKEY_UPDATE_DELAY = 1 days;
-
     /// @dev Maximum age of an attestation document at the moment it is submitted on-chain.
     ///      Prevents replay of stale attestations produced by nodes whose ephemeral
     ///      keys may have been compromised in the interim (e.g. RAM extraction after
     ///      hardware decommission, AWS cert rotation, hypervisor updates).
     uint256 public constant ATTESTATION_MAX_AGE = 1 hours;
 
+    // ============ Storage ============
+
+    /// @dev Minimum seconds between {proposeVKeyUpdate} and {executeVKeyUpdate}.
+    uint256 public constant VKEY_UPDATE_DELAY = 1 days;
+
     /// @dev Permitted clock skew for attestations whose reported timestamp is in
     ///      the future relative to `block.timestamp`.
     uint256 public constant ATTESTATION_MAX_SKEW = 5 minutes;
-
-    // ============ Storage ============
 
     /// @dev SP1 verifier contract used to validate attestation proofs. Immutable — set in constructor.
     address public immutable _attestationVerifier;
@@ -57,7 +57,7 @@ contract NitroVerifier is AccessControl, INitroVerifier {
     uint256 public pendingVKeyValidAt;
 
     /// @dev Current SP1 program verification key for attestation proofs.
-    bytes32 internal _programVKey = 0x00e34107e4c5284bd4ecc4269c650671038c1e85d9dacb931b534e984f607334;
+    bytes32 internal _programVKey;
 
     /// @dev Enclave pubkeys that have passed ZK attestation.
     ///      Enumeration is intentionally off-chain via events — avoids array SSTORE overhead.

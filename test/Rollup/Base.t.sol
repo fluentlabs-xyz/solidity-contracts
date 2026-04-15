@@ -5,8 +5,8 @@ import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
-import {IRollupEvents} from "../../contracts/interfaces/IRollup.sol";
-import {L2BlockHeader, BlockDeposit, BatchStatus, BatchRecord, InitConfiguration} from "../../contracts/interfaces/IRollupTypes.sol";
+import {IRollupEvents} from "../../contracts/interfaces/rollup/IRollup.sol";
+import {L2BlockHeader, BlockDeposit, BatchStatus, BatchRecord, InitConfiguration} from "../../contracts/interfaces/rollup/IRollupTypes.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 
 import {MockDepositBridge} from "../mocks/MockDepositBridge.sol";

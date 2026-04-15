@@ -2,7 +2,7 @@
 pragma solidity ^0.8.30;
 
 import {L2BlockHeader, BatchRecord, ChallengeRecord, BlockDeposit} from "./IRollupTypes.sol";
-import {MerkleTree} from "../libraries/MerkleTree.sol";
+import {MerkleTree} from "../../libraries/MerkleTree.sol";
 
 /**
  * @title IRollupErrors

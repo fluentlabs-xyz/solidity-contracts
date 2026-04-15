@@ -5,7 +5,7 @@ import {stdJson} from "forge-std/StdJson.sol";
 import {console2} from "forge-std/console2.sol";
 import {Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
-import {InitConfiguration} from "../../contracts/interfaces/IRollupTypes.sol";
+import {InitConfiguration} from "../../contracts/interfaces/rollup/IRollupTypes.sol";
 import {DeployBase} from "./DeployBase.s.sol";
 
 /// @notice Deploys Rollup behind a UUPS proxy with full OZ upgrade validation.

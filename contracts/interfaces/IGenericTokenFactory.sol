@@ -93,6 +93,7 @@ interface IGenericTokenFactoryEvents {
 interface IGenericTokenFactory is IGenericTokenFactoryErrors, IGenericTokenFactoryEvents {
     /**
      * @notice Deploys a bridged/pegged token
+     *
      * @param gateway The gateway address
      * @param originToken The origin token address
      * @param deployArgs Optional deployment params (empty for ERC20; for Universal: name, symbol, decimals, initialSupply, minter, pauser)
@@ -102,6 +103,7 @@ interface IGenericTokenFactory is IGenericTokenFactoryErrors, IGenericTokenFacto
 
     /**
      * @notice Returns the deployment arguments for a token
+     *
      * @param tokenName The name of the token
      * @param tokenSymbol The symbol of the token
      * @param decimals The decimals of the token
@@ -111,6 +113,7 @@ interface IGenericTokenFactory is IGenericTokenFactoryErrors, IGenericTokenFacto
 
     /**
      * @notice Computes the address of a token
+     *
      * @param gateway The gateway address
      * @param originToken The origin token address
      * @param deployArgs Optional deployment params (empty for ERC20; for Universal: name, symbol, decimals, initialSupply, minter, pauser)
@@ -120,6 +123,7 @@ interface IGenericTokenFactory is IGenericTokenFactoryErrors, IGenericTokenFacto
 
     /**
      * @notice Computes the address of a bridged/pegged token for the other side.
+     *
      * @param gateway The gateway address
      * @param originToken The origin token address
      * @param deployArgs Optional deployment params (empty for ERC20; for Universal: name, symbol, decimals, initialSupply, minter, pauser)

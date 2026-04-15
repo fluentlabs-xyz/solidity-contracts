@@ -5,11 +5,11 @@ import {MerkleTree} from "../libraries/MerkleTree.sol";
 import {Heap} from "../libraries/Heap.sol";
 import {RollupStorageLayout} from "./RollupStorageLayout.sol";
 
-import {IRollupWrite, IRollupEmergency} from "../interfaces/IRollup.sol";
-import {ISP1Verifier} from "../interfaces/ISP1Verifier.sol";
-import {INitroVerifier} from "../interfaces/INitroVerifier.sol";
+import {IRollupWrite, IRollupEmergency} from "../interfaces/rollup/IRollup.sol";
+import {ISP1Verifier} from "../interfaces/verifiers/ISP1Verifier.sol";
+import {INitroVerifier} from "../interfaces/verifiers/INitroVerifier.sol";
 import {IL1FluentBridge} from "../interfaces/bridge/IL1FluentBridge.sol";
-import {L2BlockHeader, BatchStatus, BatchRecord, ChallengeRecord, BlockDeposit} from "../interfaces/IRollupTypes.sol";
+import {L2BlockHeader, BatchStatus, BatchRecord, ChallengeRecord, BlockDeposit} from "../interfaces/rollup/IRollupTypes.sol";
 
 /**
  * @title Rollup
@@ -401,6 +401,63 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
     }
 
     /// @inheritdoc IRollupWrite
+    function challengeBlock(
+        uint256 batchIndex,
+        L2BlockHeader calldata blockHeader,
+        MerkleTree.MerkleProof calldata blockProof
+    ) external payable nonReentrant whenNotPaused onlyRole(CHALLENGER_ROLE) {
+        RollupStorage storage $ = _getRollupStorage();
+        // Cannot challenge when the rollup is already in a corrupted/halted state
+        require(!_rollupCorrupted(), RollupCorrupted());
+        BatchRecord storage batch = $._batches[batchIndex];
+
+        // Challenges can only target Preconfirmed batches — not earlier or finalized ones
+        // Note: We can't challenge a batch if its root has been challenged already
+        require(batch.status == BatchStatus.Preconfirmed, InvalidBatchStatus(batchIndex, uint8(batch.status)));
+        require($._batchRootChallenges[batchIndex].challenger == address(0), BatchRootChallengeOpen(batchIndex));
+        // Exact deposit required — overpayment is not refunded, underpayment is rejected;
+        // this deposit is forfeited to the prover if the challenge is resolved
+        require(msg.value == $._challengeDepositAmount, IncorrectChallengeDeposit($._challengeDepositAmount, msg.value));
+        // Challenge must be submitted before the challenge window closes (strict less-than)
+        uint256 deadline = uint256(batch.acceptedAtBlock) + batch.challengeWindowSnapshot;
+        // This is safe, since ChallengeWindowSnapshot is always less then (FinalizationDelay - MIN_CHALLENGE_RESOLUTION_WINDOW),
+        // see `_setChallengeWindow` in RollupStorageLayout.sol
+        require(block.number < deadline, ChallengeTooLate(batchIndex));
+
+        // Compute the keccak commitment of the challenged block header
+        bytes32 commitment = _computeCommitment(blockHeader);
+        // Verify the block is actually part of this b`atch via Merkle inclusion proof
+        require(MerkleTree.verifyMerkleProof(batch.batchRoot, commitment, blockProof.nonce, blockProof.proof), InvalidBlockProof());
+        // A block that has already been proven correct cannot be challenged again
+        require(!$._provenBlocks[commitment], BlockAlreadyProven(commitment));
+        // Prevent duplicate challenges on the same block — batchIndex 0 is genesis (never used)
+        require($._blockChallenges[commitment].batchIndex == 0, BlockAlreadyChallenged(commitment));
+
+        // Record this commitment in the batch's challenged-blocks list
+        $._batchChallengedBlocks[batchIndex].push(commitment);
+
+        // Create the challenge record with the resolution deadline derived from the challenge window
+        $._blockChallenges[commitment] = ChallengeRecord({
+            deposit: msg.value,
+            challenger: _msgSender(),
+            deadline: deadline,
+            batchIndex: batchIndex,
+            previousStatus: batch.status
+        });
+        // State transition: Preconfirmed → Challenged (remains Challenged until all disputes resolve)
+        batch.status = BatchStatus.Challenged;
+        // Insert into the min-heap priority queue ordered by deadline — _rollupCorrupted()
+        // peeks at the earliest deadline to detect expiry
+        $._blockChallengePriority[commitment] = deadline;
+        $._blockChallengeQueue.push($._blockChallengePriority, $._blockChallengeQueueIndex, commitment);
+
+        // Notify off-chain watchers — provers monitor this event to begin generating proofs
+        emit BlockChallenged(batchIndex, commitment, _msgSender());
+    }
+
+    // ============ Prover ============
+
+    /// @inheritdoc IRollupWrite
     function resolveBatchRootChallenge(
         uint256 batchIndex,
         L2BlockHeader calldata lastBlockHeaderInPreviousBatch,
@@ -464,63 +521,6 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
 
         emit BatchRootChallengeResolved(batchIndex, _msgSender());
     }
-
-    /// @inheritdoc IRollupWrite
-    function challengeBlock(
-        uint256 batchIndex,
-        L2BlockHeader calldata blockHeader,
-        MerkleTree.MerkleProof calldata blockProof
-    ) external payable nonReentrant whenNotPaused onlyRole(CHALLENGER_ROLE) {
-        RollupStorage storage $ = _getRollupStorage();
-        // Cannot challenge when the rollup is already in a corrupted/halted state
-        require(!_rollupCorrupted(), RollupCorrupted());
-        BatchRecord storage batch = $._batches[batchIndex];
-
-        // Challenges can only target Preconfirmed batches — not earlier or finalized ones
-        // Note: We can't challenge a batch if its root has been challenged already
-        require(batch.status == BatchStatus.Preconfirmed, InvalidBatchStatus(batchIndex, uint8(batch.status)));
-        require($._batchRootChallenges[batchIndex].challenger == address(0), BatchRootChallengeOpen(batchIndex));
-        // Exact deposit required — overpayment is not refunded, underpayment is rejected;
-        // this deposit is forfeited to the prover if the challenge is resolved
-        require(msg.value == $._challengeDepositAmount, IncorrectChallengeDeposit($._challengeDepositAmount, msg.value));
-        // Challenge must be submitted before the challenge window closes (strict less-than)
-        uint256 deadline = uint256(batch.acceptedAtBlock) + batch.challengeWindowSnapshot;
-        // This is safe, since ChallengeWindowSnapshot is always less then (FinalizationDelay - MIN_CHALLENGE_RESOLUTION_WINDOW),
-        // see `_setChallengeWindow` in RollupStorageLayout.sol
-        require(block.number < deadline, ChallengeTooLate(batchIndex));
-
-        // Compute the keccak commitment of the challenged block header
-        bytes32 commitment = _computeCommitment(blockHeader);
-        // Verify the block is actually part of this b`atch via Merkle inclusion proof
-        require(MerkleTree.verifyMerkleProof(batch.batchRoot, commitment, blockProof.nonce, blockProof.proof), InvalidBlockProof());
-        // A block that has already been proven correct cannot be challenged again
-        require(!$._provenBlocks[commitment], BlockAlreadyProven(commitment));
-        // Prevent duplicate challenges on the same block — batchIndex 0 is genesis (never used)
-        require($._blockChallenges[commitment].batchIndex == 0, BlockAlreadyChallenged(commitment));
-
-        // Record this commitment in the batch's challenged-blocks list
-        $._batchChallengedBlocks[batchIndex].push(commitment);
-
-        // Create the challenge record with the resolution deadline derived from the challenge window
-        $._blockChallenges[commitment] = ChallengeRecord({
-            deposit: msg.value,
-            challenger: _msgSender(),
-            deadline: deadline,
-            batchIndex: batchIndex,
-            previousStatus: batch.status
-        });
-        // State transition: Preconfirmed → Challenged (remains Challenged until all disputes resolve)
-        batch.status = BatchStatus.Challenged;
-        // Insert into the min-heap priority queue ordered by deadline — _rollupCorrupted()
-        // peeks at the earliest deadline to detect expiry
-        $._blockChallengePriority[commitment] = deadline;
-        $._blockChallengeQueue.push($._blockChallengePriority, $._blockChallengeQueueIndex, commitment);
-
-        // Notify off-chain watchers — provers monitor this event to begin generating proofs
-        emit BlockChallenged(batchIndex, commitment, _msgSender());
-    }
-
-    // ============ Prover ============
 
     /// @inheritdoc IRollupWrite
     function resolveBlockChallenge(
