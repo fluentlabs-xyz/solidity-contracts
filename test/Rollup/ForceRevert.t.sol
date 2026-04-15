@@ -441,7 +441,7 @@ contract ForceRevertTest is RollupAssertions {
 
     function _commitBatch(L2BlockHeader[] memory headers, BlockDeposit[] memory deposits) internal {
         vm.prank(sequencer);
-        rollup.commitBatch(_computeBatchRoot(headers), uint24(headers.length), deposits, 1);
+        rollup.commitBatch(_computeBatchRoot(headers), headers[headers.length - 1].blockHash, uint24(headers.length), deposits, 1);
     }
 
     function _makeDeposits(bytes32[] memory ids) internal pure returns (BlockDeposit[] memory deposits) {

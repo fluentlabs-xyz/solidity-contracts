@@ -28,6 +28,7 @@ contract DeployRollup is DeployBase {
         p.nitroVerifier = nitroVerifier;
         p.sp1Verifier = vm.envOr("SP1_VERIFIER", json.readAddress(".rollup.sp1Verifier"));
         p.programVKey = vm.envOr("ROLLUP_PROGRAM_VKEY", json.readBytes32(".rollup.programVKey"));
+        p.genesisBlockHash = vm.envOr("ROLLUP_GENESIS_BLOCK_HASH", json.readBytes32(".rollup.genesisHash"));
         p.submitBlobsWindow = vm.envOr("ROLLUP_SUBMIT_BLOBS_WINDOW", json.readUint(".rollup.submitBlobsWindow"));
         p.preconfirmWindow = vm.envOr("ROLLUP_PRECONFIRM_WINDOW", json.readUint(".rollup.preconfirmWindow"));
         p.challengeWindow = vm.envOr("ROLLUP_CHALLENGE_WINDOW", json.readUint(".rollup.challengeWindow"));

@@ -71,7 +71,7 @@ contract RollupSnapshotTest is RollupAssertions {
         uint256 batchIndex = rollup.nextBatchIndex();
 
         vm.prank(sequencer);
-        rollup.commitBatch(_computeBatchRoot(headers), uint24(headers.length), new BlockDeposit[](0), 1);
+        rollup.commitBatch(_computeBatchRoot(headers), headers[headers.length - 1].blockHash, uint24(headers.length), new BlockDeposit[](0), 1);
         _submitBlobs(batchIndex, 0);
         _preconfirmBatch(batchIndex);
 
@@ -102,7 +102,7 @@ contract RollupSnapshotTest is RollupAssertions {
         uint256 batchIndex = rollup.nextBatchIndex();
 
         vm.prank(sequencer);
-        rollup.commitBatch(_computeBatchRoot(headers), uint24(headers.length), new BlockDeposit[](0), 1);
+        rollup.commitBatch(_computeBatchRoot(headers), headers[headers.length - 1].blockHash, uint24(headers.length), new BlockDeposit[](0), 1);
         _submitBlobs(batchIndex, 0);
         _preconfirmBatch(batchIndex);
 

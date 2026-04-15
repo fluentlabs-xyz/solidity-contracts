@@ -80,6 +80,7 @@ abstract contract RollupBase is Test, IRollupEvents {
         cfg.nitroVerifier = address(nitroVerifier);
         cfg.bridge = _bridge;
         cfg.programVKey = PROGRAM_VKEY;
+        cfg.genesisBlockHash = GENESIS_HASH;
         cfg.challengeDepositAmount = CHALLENGE_DEPOSIT;
         cfg.challengeWindow = CHALLENGE_WINDOW;
         cfg.finalizationDelay = FINALIZATION_DELAY;
@@ -136,9 +137,10 @@ abstract contract RollupActions is RollupBase {
         batchIndex = rollup.nextBatchIndex();
         L2BlockHeader[] memory batch = _makeBatch(parentHash);
         bytes32 batchRoot = _computeBatchRoot(batch);
+        bytes32 lastBlockHash = batch[batch.length - 1].blockHash;
         BlockDeposit[] memory emptyDeposits = new BlockDeposit[](0);
         vm.prank(sequencer);
-        rollup.commitBatch(batchRoot, uint24(batch.length), emptyDeposits, uint8(normalizedExpectedBlobs));
+        rollup.commitBatch(batchRoot, lastBlockHash, uint24(batch.length), emptyDeposits, uint8(normalizedExpectedBlobs));
     }
 
     function _submitBlobs(uint256 batchIndex, uint256 numBlobs) internal {
@@ -185,9 +187,15 @@ abstract contract RollupActions is RollupBase {
 
     // ============ Event Helpers ============
 
-    function _expectBatchCommitted(uint256 batchIndex, bytes32 batchRoot, uint24 numberOfBlocks, uint256 expectedBlobs) internal {
+    function _expectBatchCommitted(
+        uint256 batchIndex,
+        bytes32 batchRoot,
+        bytes32 lastBlockHash,
+        uint24 numberOfBlocks,
+        uint256 expectedBlobs
+    ) internal {
         vm.expectEmit(true, false, false, true, address(rollup));
-        emit BatchCommitted(batchIndex, batchRoot, numberOfBlocks, expectedBlobs);
+        emit BatchCommitted(batchIndex, batchRoot, lastBlockHash, numberOfBlocks, expectedBlobs);
     }
 
     function _expectBatchSubmitted(uint256 batchIndex) internal {
