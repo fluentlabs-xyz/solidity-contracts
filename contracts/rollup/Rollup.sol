@@ -758,37 +758,6 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
     }
 
     /**
-     * @dev Verifies both Nitro and SP1 proofs for an L2 block.
-     */
-    // function _verifyNitroAndSp1(
-    //     uint256 batchIndex,
-    //     L2BlockHeader calldata blockHeader,
-    //     address nitroVerifier,
-    //     bytes calldata nitroSignature,
-    //     bytes calldata sp1Proof
-    // ) private view {
-    //     // First verify the Nitro verifier is on the admin whitelist
-    //     _validateNitroVerifier(nitroVerifier);
-    //     RollupStorage storage $ = _getRollupStorage();
-    //     // Copy blob hashes to memory — passed to both verifiers to bind proofs to on-chain DA
-    //     bytes32[] memory blobHashes = $._batchBlobHashes[batchIndex];
-
-    //     // // Verification path 1: Nitro enclave attestation — proves the TEE processed this block
-    //     // // External call to a trusted (whitelisted) verifier; reverts if signature is invalid
-    //     // INitroVerifier(nitroVerifier).verifyBlock(
-    //     //     blockHeader.previousBlockHash,
-    //     //     blockHeader.blockHash,
-    //     //     blockHeader.withdrawalRoot,
-    //     //     blockHeader.depositRoot,
-    //     //     nitroSignature,
-    //     //     blobHashes
-    //     // );
-    //     SP1 ZK proof — mathematically proves block execution correctness
-    //     // Both paths must succeed for a challenge to be resolved
-    //     _proveBlockWithSp1(sp1Verifier(), blobHashes, blockHeader, sp1Proof);
-    // }
-
-    /**
      * @dev Validates that `verifier` is whitelisted.
      */
     function _validateNitroVerifier(address verifier) private view {
@@ -855,12 +824,11 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         }
 
         IL1FluentBridge($._bridge).advanceSentMessageCursor(blockDeposit.depositCount); // wake-disable-line reentrancy
+
         // Final integrity check: the hash of all popped deposit IDs must match the header's
         // depositRoot — ensures the sequencer included exactly these deposits in the L2 block
-        require(
-            keccak256(abi.encodePacked(depositIds)) == blockDeposit.depositRoot,
-            DepositRootMismatch(keccak256(abi.encodePacked(depositIds)), blockDeposit.depositRoot)
-        );
+        bytes32 computedRoot = keccak256(abi.encodePacked(depositIds));
+        require(computedRoot == blockDeposit.depositRoot, DepositRootMismatch(computedRoot, blockDeposit.depositRoot));
 
         return sentMessageCursor;
     }

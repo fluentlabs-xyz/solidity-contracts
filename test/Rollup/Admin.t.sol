@@ -106,7 +106,7 @@ contract AdminTest is RollupAssertions {
         cfg.challengeWindow = 15000;
         cfg.finalizationDelay = 14800;
         Rollup impl = new Rollup();
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "challengeWindow too close to finalizationDelay"));
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "challenge too close to finaliz"));
         new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
     }
 
@@ -120,9 +120,7 @@ contract AdminTest is RollupAssertions {
 
     function test_initialize_commitsGenesisBatch() public view {
         BatchRecord memory b = rollup.getBatch(0);
-        bytes32 expectedRoot = keccak256(
-            abi.encodePacked(bytes32(0), GENESIS_HASH, ZERO_BYTES_HASH, ZERO_BYTES_HASH)
-        );
+        bytes32 expectedRoot = keccak256(abi.encodePacked(bytes32(0), GENESIS_HASH, ZERO_BYTES_HASH, ZERO_BYTES_HASH));
 
         assertEq(b.batchRoot, expectedRoot, "genesis batchRoot mismatch");
         assertEq(uint8(b.status), uint8(BatchStatus.Finalized), "genesis not Finalized");
@@ -146,9 +144,7 @@ contract AdminTest is RollupAssertions {
         InitConfiguration memory cfg = _defaultInitConfig(admin, sequencer);
         Rollup impl = new Rollup();
 
-        bytes32 expectedRoot = keccak256(
-            abi.encodePacked(bytes32(0), GENESIS_HASH, ZERO_BYTES_HASH, ZERO_BYTES_HASH)
-        );
+        bytes32 expectedRoot = keccak256(abi.encodePacked(bytes32(0), GENESIS_HASH, ZERO_BYTES_HASH, ZERO_BYTES_HASH));
 
         // Emitter address is the proxy, unknown until creation — match any emitter.
         // Other init events (role grants, window updates) may interleave; expectEmit
@@ -316,13 +312,13 @@ contract AdminTest is RollupAssertions {
 
     function test_RevertIf_setChallengeWindow_tooCloseToFinalizationDelay() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "challengeWindow too close to finalizationDelay"));
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "challenge too close to finaliz"));
         rollup.setChallengeWindow(uint24(FINALIZATION_DELAY));
     }
 
     function test_RevertIf_setFinalizationDelay_tooCloseToChallengeWindow() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "finalizationDelay too close to challengeWindow"));
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "finalization too close to chall"));
         rollup.setFinalizationDelay(uint24(CHALLENGE_WINDOW));
     }
 
@@ -369,7 +365,7 @@ contract AdminTest is RollupAssertions {
 
     function test_RevertIf_setPreconfirmWindow_tooCloseToSubmitBlobsWindow() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "preconfirmWindow too close to submitBlobsWindow"));
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "preconfirm too close to blobs"));
         rollup.setPreconfirmWindow(uint24(SUBMIT_BLOBS_WINDOW + 100));
     }
 
@@ -377,13 +373,13 @@ contract AdminTest is RollupAssertions {
 
     function test_RevertIf_setSubmitBlobsWindow_exceedsPreconfirmWindow() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "submitBlobsWindow >= preconfirmWindow"));
-        rollup.setSubmitBlobsWindow(uint24(PRECONFIRM_WINDOW));
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "submitBlobsWindow >= preconfirm"));
+        rollup.setSubmitBlobsWindow(uint24(PRECONFIRM_WINDOW) + 1);
     }
 
     function test_RevertIf_setChallengeWindow_tooCloseToPreconfirmWindow() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "challengeWindow too close to preconfirmWindow"));
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "challenge too close to preconf"));
         rollup.setChallengeWindow(uint24(PRECONFIRM_WINDOW + 100));
     }
 }

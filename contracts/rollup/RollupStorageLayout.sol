@@ -32,6 +32,10 @@ contract RollupStorageLayout is
     using Heap for Heap.HeapStorage;
 
     // ============ Constants ============
+    /**
+     * @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.RollupStorage")) - 1)) & ~bytes32(uint256(0xff))
+     */
+    bytes32 private constant ROLLUP_STORAGE_LOCATION = 0x3c5cb8ff22ae9906a910cecced8ac84ef594b2ee1cab438e85f81b70bddcc700;
 
     /**
      * @notice Role that can perform emergency actions. Should be Timelock Contract
@@ -78,11 +82,6 @@ contract RollupStorageLayout is
      * @dev Maximum gas-left threshold; above the L1 block gas limit, `gasleft() >= _gasLeft` is never true.
      */
     uint32 public constant MAX_GAS_LEFT = 30_000_000;
-
-    /**
-     * @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.RollupStorage")) - 1)) & ~bytes32(uint256(0xff))
-     */
-    bytes32 private constant ROLLUP_STORAGE_LOCATION = 0x3c5cb8ff22ae9906a910cecced8ac84ef594b2ee1cab438e85f81b70bddcc700;
 
     /**
      * @dev Minimum number of L1 blocks for the preconfirmation window to ensure challengers have time to respond before the challenge window elapses.
@@ -252,8 +251,11 @@ contract RollupStorageLayout is
 
     /**
      * @dev Initializes rollup storage from ABI-encoded {InitConfiguration}.
-     *      Called once from {Rollup.initialize} via the UUPS proxy.
+     *      Called once from {Rollup.initialize} via the UUPS proxy. Parent
+     *      initializers (ReentrancyGuard, AccessControl, Pausable, UUPS) are
+     *      invoked from {Rollup.initialize} before this function runs.
      */
+    /// @custom:oz-upgrades-unsafe-allow missing-initializer-call
     function __RollupStorage_init(bytes memory data) internal onlyInitializing {
         RollupStorage storage $ = _getRollupStorage();
 
@@ -277,20 +279,19 @@ contract RollupStorageLayout is
         // ─── Role setup ───
         // admin is the only required address; other roles fall back to admin if unset
         require(params.admin != address(0), ZeroAddressNotAllowed("admin"));
-        address emergencyRole = params.emergency != address(0) ? params.emergency : params.admin;
-        address challengerRole = params.challenger != address(0) ? params.challenger : params.admin;
-        address proverRole = params.prover != address(0) ? params.prover : params.admin;
-        address sequencerRole = params.sequencer != address(0) ? params.sequencer : params.admin;
-        address preconfirmationRole = params.preconfirmationRole != address(0) ? params.preconfirmationRole : params.admin;
+        address fallback_ = params.admin;
 
-        // grant all required roles; DEFAULT_ADMIN_ROLE controls role management
-        _grantRole(DEFAULT_ADMIN_ROLE, params.admin);
-        _grantRole(EMERGENCY_ROLE, emergencyRole);
-        _grantRole(CHALLENGER_ROLE, challengerRole);
-        _grantRole(PROVER_ROLE, proverRole);
-        _grantRole(SEQUENCER_ROLE, sequencerRole);
-        _grantRole(PRECONFIRMATION_ROLE, preconfirmationRole);
-
+        _grantRoles(
+            [DEFAULT_ADMIN_ROLE, EMERGENCY_ROLE, CHALLENGER_ROLE, PROVER_ROLE, SEQUENCER_ROLE, PRECONFIRMATION_ROLE],
+            [
+                fallback_,
+                params.emergency != address(0) ? params.emergency : fallback_,
+                params.challenger != address(0) ? params.challenger : fallback_,
+                params.prover != address(0) ? params.prover : fallback_,
+                params.sequencer != address(0) ? params.sequencer : fallback_,
+                params.preconfirmationRole != address(0) ? params.preconfirmationRole : fallback_
+            ]
+        );
         // ─── Storage setup ───
 
         // external dependency addresses validated within their respective setters
@@ -562,9 +563,9 @@ contract RollupStorageLayout is
     function _setSubmitBlobsWindow(uint24 newSubmitBlobsWindow) internal {
         RollupStorage storage $ = _getRollupStorage();
 
-        require(newSubmitBlobsWindow > 0, InvalidWindowConfig("submitBlobsWindow must be greater than 0"));
+        require(newSubmitBlobsWindow > 0, InvalidWindowConfig("submitBlobsWindow must be > 0"));
         // blob submission must complete before preconfirmation can start
-        require(newSubmitBlobsWindow < $._preconfirmWindow, InvalidWindowConfig("submitBlobsWindow >= preconfirmWindow"));
+        require(newSubmitBlobsWindow <= $._preconfirmWindow, InvalidWindowConfig("submitBlobsWindow >= preconfirm"));
 
         emit SubmitBlobsWindowUpdated($._submitBlobsWindow, newSubmitBlobsWindow);
         $._submitBlobsWindow = newSubmitBlobsWindow;
@@ -580,10 +581,7 @@ contract RollupStorageLayout is
         RollupStorage storage $ = _getRollupStorage();
         // preconfirmation must allow time for blob submission to complete first
 
-        require(
-            newPreconfirmWindow > $._submitBlobsWindow + MIN_PRECONFIRMATION_WINDOW,
-            InvalidWindowConfig("preconfirmWindow too close to submitBlobsWindow")
-        );
+        require(newPreconfirmWindow >= $._submitBlobsWindow + MIN_PRECONFIRMATION_WINDOW, InvalidWindowConfig("preconfirm too close to blobs"));
 
         emit PreconfirmWindowUpdated($._preconfirmWindow, newPreconfirmWindow);
         $._preconfirmWindow = newPreconfirmWindow;
@@ -600,14 +598,11 @@ contract RollupStorageLayout is
     function _setChallengeWindow(uint24 newChallengeWindow) internal {
         RollupStorage storage $ = _getRollupStorage();
         // strict ordering ensures challengers always have time to respond before finalization
-        require(
-            newChallengeWindow > $._preconfirmWindow + MIN_CHALLENGE_WINDOW,
-            InvalidWindowConfig("challengeWindow too close to preconfirmWindow")
-        );
+        require(newChallengeWindow >= $._preconfirmWindow + MIN_CHALLENGE_WINDOW, InvalidWindowConfig("challenge too close to preconf"));
         // strict ordering ensures provers always have time to respond before finalization
         require(
-            newChallengeWindow < $._finalizationDelay - MIN_CHALLENGE_RESOLUTION_WINDOW,
-            InvalidWindowConfig("challengeWindow too close to finalizationDelay")
+            newChallengeWindow <= $._finalizationDelay - MIN_CHALLENGE_RESOLUTION_WINDOW,
+            InvalidWindowConfig("challenge too close to finaliz")
         );
 
         emit ChallengeWindowUpdated($._challengeWindow, newChallengeWindow);
@@ -626,8 +621,8 @@ contract RollupStorageLayout is
         RollupStorage storage $ = _getRollupStorage();
         // strict ordering ensures challenges always have time to be submitted and resolved
         require(
-            newFinalizationDelay > $._challengeWindow + MIN_CHALLENGE_RESOLUTION_WINDOW,
-            InvalidWindowConfig("finalizationDelay too close to challengeWindow")
+            newFinalizationDelay >= $._challengeWindow + MIN_CHALLENGE_RESOLUTION_WINDOW,
+            InvalidWindowConfig("finalization too close to chall")
         );
         emit FinalizationDelayUpdated($._finalizationDelay, newFinalizationDelay);
         $._finalizationDelay = newFinalizationDelay;
@@ -669,6 +664,14 @@ contract RollupStorageLayout is
 
     // ============ Internal helpers ============
 
+    /** @dev Grants roles in a loop to prevent the via_ir optimizer from
+     *      creating specialized copies of _grantRole per constant (~2KB savings).
+     */
+    function _grantRoles(bytes32[6] memory roles, address[6] memory accounts) private {
+        for (uint256 i = 0; i < 6; ++i) {
+            _grantRole(roles[i], accounts[i]);
+        }
+    }
     /**
      * @dev Commits the synthetic genesis batch at index 0. Anchors the chain by recording
      *      a single-leaf Merkle root whose leaf commits to a "block" with
@@ -686,9 +689,7 @@ contract RollupStorageLayout is
 
         // Single-leaf Merkle root equals the leaf commitment. Matches _computeCommitment
         // over a header with (previousBlockHash=0, blockHash=genesis, wr=ZERO, dr=ZERO).
-        bytes32 genesisCommitment = keccak256(
-            abi.encodePacked(bytes32(0), genesisBlockHash_, ZERO_BYTES_HASH, ZERO_BYTES_HASH)
-        );
+        bytes32 genesisCommitment = keccak256(abi.encodePacked(bytes32(0), genesisBlockHash_, ZERO_BYTES_HASH, ZERO_BYTES_HASH));
 
         $._batches[0] = BatchRecord({
             batchRoot: genesisCommitment,
