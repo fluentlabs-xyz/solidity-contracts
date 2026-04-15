@@ -164,6 +164,18 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         }
     }
 
+    function receiveMessage(
+        address from,
+        address to,
+        uint256 value,
+        uint256 chainId,
+        uint256 validUntilBlockNumber,
+        uint256 messageNonce,
+        bytes calldata message
+    ) external override onlyRole(RELAYER_ROLE) nonReentrant whenNotPaused {
+        revert("PAUSED");
+    }
+
     // ============ Receive with proof ============
 
     /// @inheritdoc IL1FluentBridge
@@ -520,4 +532,6 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         emit DepositProcessingWindowUpdated($._depositProcessingWindow, newDepositProcessingWindow);
         $._depositProcessingWindow = uint64(newDepositProcessingWindow);
     }
+
+    receive() external payable {}
 }

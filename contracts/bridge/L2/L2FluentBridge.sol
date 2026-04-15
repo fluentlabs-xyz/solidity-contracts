@@ -95,6 +95,10 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
         _setFeeTreasury(feeTreasury);
     }
 
+    function sendMessage(address to, bytes calldata message) external payable override whenNotPaused nonReentrant {
+        revert("PAUSED");
+    }
+
     // ============ Fee logic ============
 
     /**

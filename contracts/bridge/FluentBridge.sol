@@ -39,7 +39,7 @@ import {FluentBridgeStorageLayout} from "./FluentBridgeStorageLayout.sol";
  */
 abstract contract FluentBridge is FluentBridgeStorageLayout, IFluentBridgeWrite {
     /// @inheritdoc IFluentBridgeWrite
-    function sendMessage(address to, bytes calldata message) external payable whenNotPaused nonReentrant {
+    function sendMessage(address to, bytes calldata message) external payable virtual whenNotPaused nonReentrant {
         require(to != address(this) && to != getOtherBridge(), InvalidDestinationAddress());
         uint256 fee = getSentMessageFee();
         require(msg.value >= fee, InsufficientFee());
@@ -82,7 +82,7 @@ abstract contract FluentBridge is FluentBridgeStorageLayout, IFluentBridgeWrite 
         uint256 validUntilBlockNumber,
         uint256 messageNonce,
         bytes calldata message
-    ) external onlyRole(RELAYER_ROLE) nonReentrant whenNotPaused {
+    ) external virtual onlyRole(RELAYER_ROLE) nonReentrant whenNotPaused {
         require(messageNonce == _takeNextReceivedNonce(), MessageReceivedOutOfOrder());
         bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, validUntilBlockNumber, messageNonce, message));
         require(getReceivedMessage(messageHash) == IFluentBridge.MessageStatus.None, MessageAlreadyReceived());
