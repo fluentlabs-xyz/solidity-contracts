@@ -12,7 +12,7 @@ import {DeployNativeGateway} from "./DeployNativeGateway.s.sol";
 import {NitroVerifier} from "../../contracts/verifier/NitroVerifier.sol";
 import {L1FluentBridge} from "../../contracts/bridge/L1/L1FluentBridge.sol";
 import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol";
-import {InitConfiguration} from "../../contracts/interfaces/IRollupTypes.sol";
+import {InitConfiguration} from "../../contracts/interfaces/rollup/IRollupTypes.sol";
 import {MockERC20Token} from "../../test/mocks/MockERC20.sol";
 
 /// @notice L1 orchestrator: deploys full stack with deterministic nonce ordering.

@@ -38,11 +38,14 @@ interface IERC20GatewayErrors {
 interface IERC20Gateway is IERC20GatewayErrors {
     /**
      * @notice Bridges ERC20 tokens to the remote chain and starts cross-chain delivery.
+     * @dev Callable by anyone. Nonreentrant guard prevents callbacks from token hooks re-entering.
+     *
      * @dev Round-trip flow:
      *      1) L1 -> L2 (deposit): caller sends an L1 origin token; gateway escrows tokens locally and bridge
      *         message triggers `receivePeggedTokens` on L2, minting/unlocking pegged tokens for `_to`.
      *      2) L2 -> L1 (withdraw): caller sends the L2 pegged token; gateway burns pegged tokens and bridge
      *         message triggers `receiveOriginTokens` on L1, releasing origin tokens for `_to`.
+     *
      * @param token Token being bridged from the current chain (origin on deposit path, pegged on withdraw path).
      * @param to Recipient address on the destination chain.
      * @param amount Amount of tokens to bridge.
@@ -51,6 +54,7 @@ interface IERC20Gateway is IERC20GatewayErrors {
 
     /**
      * @notice Receives tokens from the other side. Used on L1 to receive origin tokens from the other side.
+     *
      * @param originToken The address of the origin token.
      * @param from The address of the sender on the other side.
      * @param to The address of the recipient on the local side.
@@ -60,6 +64,7 @@ interface IERC20Gateway is IERC20GatewayErrors {
 
     /**
      * @notice Receives pegged tokens from the other side. Used on L2 to receive pegged tokens from the other side.
+     *
      * @param originToken The address of the origin token.
      * @param token The address of the token.
      * @param from The address of the sender on the other side.

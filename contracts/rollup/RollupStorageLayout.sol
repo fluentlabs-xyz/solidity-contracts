@@ -7,8 +7,8 @@ import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/Pau
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 
-import {IRollupEvents, IRollupErrors, IRollupRead, IRollupConfig, IRollupAdmin} from "../interfaces/IRollup.sol";
-import {BatchStatus, BatchRecord, ChallengeRecord, InitConfiguration} from "../interfaces/IRollupTypes.sol";
+import {IRollupEvents, IRollupErrors, IRollupRead, IRollupConfig, IRollupAdmin} from "../interfaces/rollup/IRollup.sol";
+import {BatchStatus, BatchRecord, ChallengeRecord, InitConfiguration} from "../interfaces/rollup/IRollupTypes.sol";
 import {Heap} from "../libraries/Heap.sol";
 
 /**
@@ -32,10 +32,6 @@ contract RollupStorageLayout is
     using Heap for Heap.HeapStorage;
 
     // ============ Constants ============
-    /**
-     * @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.RollupStorage")) - 1)) & ~bytes32(uint256(0xff))
-     */
-    bytes32 private constant ROLLUP_STORAGE_LOCATION = 0x3c5cb8ff22ae9906a910cecced8ac84ef594b2ee1cab438e85f81b70bddcc700;
 
     /**
      * @notice Role that can perform emergency actions. Should be Timelock Contract
@@ -106,13 +102,16 @@ contract RollupStorageLayout is
      */
     bytes32 public constant ZERO_BYTES_HASH = 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
 
+    /// @dev keccak256(abi.encode(uint256(keccak256("Fluent.storage.RollupStorage")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant ROLLUP_STORAGE_LOCATION = 0xcd2a0570d1e71ca5f3a527e38e69bcfbb101d71118c7b7b11bd050ca5ff84000;
+
     // ============ Storage ============
 
     /**
      * @dev Packed rollup state. All mutable storage is in this struct, accessed via
      *      {_getRollupStorage}. Fields are append-only for upgrade safety.
      */
-    /// @custom:storage-location erc7201:fluent.storage.RollupStorage
+    /// @custom:storage-location erc7201:Fluent.storage.RollupStorage
     struct RollupStorage {
         // ─── Slot 1: address(20) + uint64(8) = 28 ───
         /**
@@ -257,8 +256,6 @@ contract RollupStorageLayout is
      */
     /// @custom:oz-upgrades-unsafe-allow missing-initializer-call
     function __RollupStorage_init(bytes memory data) internal onlyInitializing {
-        RollupStorage storage $ = _getRollupStorage();
-
         // ABI-decode the monolithic init struct passed by the proxy deployer
         InitConfiguration memory params = abi.decode(data, (InitConfiguration));
 

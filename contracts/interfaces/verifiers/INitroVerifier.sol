@@ -75,12 +75,6 @@ interface INitroVerifier {
     error SignerNotAttested();
 
     /**
-     * @notice `ecrecover` returned the zero address — malformed signature.
-     * @dev selector: 0x8baa579f
-     */
-    error InvalidSignature();
-
-    /**
      * @notice Attestation's enclave timestamp is outside the freshness window —
      *         older than the maximum allowed age or too far in the future.
      * @dev selector: 0x6b3df692

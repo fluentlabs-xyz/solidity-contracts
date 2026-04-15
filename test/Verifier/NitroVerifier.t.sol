@@ -3,7 +3,7 @@ pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
 
-import {INitroVerifier} from "contracts/interfaces/INitroVerifier.sol";
+import {INitroVerifier} from "contracts/interfaces/verifiers/INitroVerifier.sol";
 import {NitroVerifier} from "contracts/verifier/NitroVerifier.sol";
 import {MockSp1Verifier} from "../mocks/MockSp1Verifier.sol";
 

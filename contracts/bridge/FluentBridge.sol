@@ -3,7 +3,7 @@ pragma solidity 0.8.30;
 
 import {ExcessivelySafeCall} from "../libraries/ExcessivelySafeCall.sol";
 
-import {IFluentBridge} from "../interfaces/bridge/IFluentBridge.sol";
+import {IFluentBridge, IFluentBridgeWrite} from "../interfaces/bridge/IFluentBridge.sol";
 
 import {FluentBridgeStorageLayout} from "./FluentBridgeStorageLayout.sol";
 
@@ -37,13 +37,9 @@ import {FluentBridgeStorageLayout} from "./FluentBridgeStorageLayout.sol";
  *    - Anyone invokes receiveFailedMessage(...) — not payable, bridge pays value from pooled balance.
  *    - Allows retrying after fixing conditions (e.g. gateway config).
  */
-abstract contract FluentBridge is FluentBridgeStorageLayout {
-    /**
-     * @notice Sends a cross-chain message with optional native value.
-     * @dev Deducts the L2 send fee (if any), encodes and hashes the message,
-     *      then calls {_afterSendMessage} for chain-specific hooks (L1 enqueue).
-     */
-    function sendMessage(address to, bytes calldata message) external payable whenNotPaused nonReentrant {
+abstract contract FluentBridge is FluentBridgeStorageLayout, IFluentBridgeWrite {
+    /// @inheritdoc IFluentBridgeWrite
+    function sendMessage(address to, bytes calldata message) external payable virtual whenNotPaused nonReentrant {
         require(to != address(this) && to != getOtherBridge(), InvalidDestinationAddress());
         uint256 fee = getSentMessageFee();
         require(msg.value >= fee, InsufficientFee());
@@ -77,11 +73,7 @@ abstract contract FluentBridge is FluentBridgeStorageLayout {
      */
     function _afterSendMessage(bytes32 messageHash) internal virtual {}
 
-    /**
-     * @notice Receives and executes a relayer-delivered cross-chain message.
-     * @dev Enforces sequential nonce, verifies message not already processed,
-     *      then delegates to {_receiveMessage} for ExcessivelySafeCall execution.
-     */
+    /// @inheritdoc IFluentBridgeWrite
     function receiveMessage(
         address from,
         address to,
@@ -90,7 +82,7 @@ abstract contract FluentBridge is FluentBridgeStorageLayout {
         uint256 validUntilBlockNumber,
         uint256 messageNonce,
         bytes calldata message
-    ) external onlyRole(RELAYER_ROLE) nonReentrant whenNotPaused {
+    ) external virtual onlyRole(RELAYER_ROLE) nonReentrant whenNotPaused {
         require(messageNonce == _takeNextReceivedNonce(), MessageReceivedOutOfOrder());
         bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, validUntilBlockNumber, messageNonce, message));
         require(getReceivedMessage(messageHash) == IFluentBridge.MessageStatus.None, MessageAlreadyReceived());
@@ -101,10 +93,7 @@ abstract contract FluentBridge is FluentBridgeStorageLayout {
         _receiveMessage(getExecuteGasLimit(), from, to, value, message, messageHash);
     }
 
-    /**
-     * @notice Retries a previously failed message. Anyone can call with the original params.
-     * @dev Requires message status == Failed. Uses full gasleft() instead of executeGasLimit.
-     */
+    /// @inheritdoc IFluentBridgeWrite
     function receiveFailedMessage(
         address from,
         address to,

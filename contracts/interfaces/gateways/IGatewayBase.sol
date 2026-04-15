@@ -60,11 +60,6 @@ interface IGatewayBaseEvents {
     event ReceivedTokens(address indexed source, address indexed target, uint256 amount);
 
     /**
-     * @notice Emitted when the token mapping is updated.
-     */
-    event UpdateTokenMapping(address indexed peggedToken, address indexed oldOriginToken, address indexed newOriginToken);
-
-    /**
      * @notice Emitted when the other side gateway, token implementation, factory, and beacon are updated.
      */
     event OtherSideUpdated(

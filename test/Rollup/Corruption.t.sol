@@ -2,8 +2,8 @@
 pragma solidity 0.8.30;
 
 import {RollupAssertions} from "./Base.t.sol";
-import {L2BlockHeader, BlockDeposit, InitConfiguration} from "../../contracts/interfaces/IRollupTypes.sol";
-import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
+import {L2BlockHeader, BlockDeposit, InitConfiguration} from "../../contracts/interfaces/rollup/IRollupTypes.sol";
+import {IRollupErrors} from "../../contracts/interfaces/rollup/IRollup.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 import {Rollup} from "../../contracts/rollup/Rollup.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";

@@ -2,7 +2,7 @@
 pragma solidity 0.8.30;
 
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
-import {L2BlockHeader, BlockDeposit} from "../../contracts/interfaces/IRollupTypes.sol";
+import {L2BlockHeader, BlockDeposit} from "../../contracts/interfaces/rollup/IRollupTypes.sol";
 import {RollupAssertions} from "./Base.t.sol";
 
 contract RollupGettersTest is RollupAssertions {

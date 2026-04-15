@@ -2,8 +2,8 @@
 pragma solidity 0.8.30;
 
 import {RollupAssertions} from "./Base.t.sol";
-import {L2BlockHeader, BlockDeposit, BatchStatus} from "../../contracts/interfaces/IRollupTypes.sol";
-import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
+import {L2BlockHeader, BlockDeposit, BatchStatus} from "../../contracts/interfaces/rollup/IRollupTypes.sol";
+import {IRollupErrors} from "../../contracts/interfaces/rollup/IRollup.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 

@@ -12,6 +12,8 @@ import {IL1GasOracle} from "../interfaces/oracles/IL1GasOracle.sol";
  *      to send messages with the correct gas price.
  */
 contract L1GasOracle is Ownable, IL1GasOracle {
+    // ============ Storage ============
+
     /// @dev The current L1 gas price
     uint256 internal _l1GasPrice;
 

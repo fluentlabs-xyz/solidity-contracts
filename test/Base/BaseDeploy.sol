@@ -15,7 +15,7 @@ import {Rollup} from "../../contracts/rollup/Rollup.sol";
 import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
 import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol";
 import {MockERC20Token} from "../../test/mocks/MockERC20.sol";
-import {InitConfiguration} from "../../contracts/interfaces/IRollupTypes.sol";
+import {InitConfiguration} from "../../contracts/interfaces/rollup/IRollupTypes.sol";
 import {MockNitroVerifier} from "../mocks/MockNitroVerifier.sol";
 import {MockSp1Verifier} from "../mocks/MockSp1Verifier.sol";
 

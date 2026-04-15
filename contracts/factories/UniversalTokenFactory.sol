@@ -17,7 +17,6 @@ import {IGenericTokenFactory} from "../interfaces/IGenericTokenFactory.sol";
 contract UniversalTokenFactory is GenericTokenFactory {
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
-        // Prevent the implementation contract from being initialized directly
         _disableInitializers();
     }
 

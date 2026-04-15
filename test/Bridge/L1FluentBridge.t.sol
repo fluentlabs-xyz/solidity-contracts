@@ -9,7 +9,7 @@ import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol
 import {IL1FluentBridge} from "../../contracts/interfaces/bridge/IL1FluentBridge.sol";
 import {IFluentBridgeErrors} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
-import {L2BlockHeader} from "../../contracts/interfaces/IRollupTypes.sol";
+import {L2BlockHeader} from "../../contracts/interfaces/rollup/IRollupTypes.sol";
 import {MockRollup} from "../mocks/MockRollup.sol";
 import {BridgeBase, NoopReceiver} from "./Base.t.sol";
 

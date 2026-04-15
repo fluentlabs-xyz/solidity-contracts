@@ -2,9 +2,9 @@
 pragma solidity 0.8.30;
 
 import {RollupAssertions} from "./Base.t.sol";
-import {BlockDeposit} from "../../contracts/interfaces/IRollupTypes.sol";
-import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
-import {L2BlockHeader, BatchRecord, BatchStatus} from "../../contracts/interfaces/IRollupTypes.sol";
+import {BlockDeposit} from "../../contracts/interfaces/rollup/IRollupTypes.sol";
+import {IRollupErrors} from "../../contracts/interfaces/rollup/IRollup.sol";
+import {L2BlockHeader, BatchRecord, BatchStatus} from "../../contracts/interfaces/rollup/IRollupTypes.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 
 /// @dev Verifies that batch-lifecycle timing windows are frozen at {Rollup-commitBatch}

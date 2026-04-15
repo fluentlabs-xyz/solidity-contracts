@@ -2,8 +2,8 @@
 pragma solidity 0.8.30;
 
 import {RollupAssertions} from "./Base.t.sol";
-import {BatchStatus} from "../../contracts/interfaces/IRollupTypes.sol";
-import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
+import {BatchStatus} from "../../contracts/interfaces/rollup/IRollupTypes.sol";
+import {IRollupErrors} from "../../contracts/interfaces/rollup/IRollup.sol";
 
 contract SubmitBlobsTest is RollupAssertions {
     function test_submitBlobs_singleCallTransitionsToAccepted() public {

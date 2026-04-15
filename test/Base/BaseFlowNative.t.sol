@@ -6,7 +6,7 @@ import {L1FluentBridge} from "../../contracts/bridge/L1/L1FluentBridge.sol";
 import {NativeGateway} from "../../contracts/gateways/NativeGateway.sol";
 
 import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
-import {L2BlockHeader, BlockDeposit} from "../../contracts/interfaces/IRollupTypes.sol";
+import {L2BlockHeader, BlockDeposit} from "../../contracts/interfaces/rollup/IRollupTypes.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 
 import {BaseDeployNative} from "./BaseDeploy.sol";

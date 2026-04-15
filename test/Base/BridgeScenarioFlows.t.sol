@@ -10,7 +10,7 @@ import {BaseFlowERC20Test} from "./BaseFlowERC20.t.sol";
 import {NativeGateway} from "../../contracts/gateways/NativeGateway.sol";
 import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {IL1FluentBridge} from "../../contracts/interfaces/bridge/IL1FluentBridge.sol";
-import {L2BlockHeader, BlockDeposit} from "../../contracts/interfaces/IRollupTypes.sol";
+import {L2BlockHeader, BlockDeposit} from "../../contracts/interfaces/rollup/IRollupTypes.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 import {WithdrawalMerkle} from "../helpers/WithdrawalMerkle.sol";
 

@@ -7,7 +7,7 @@ import {Rollup} from "../../rollup/Rollup.sol";
 import {MerkleTree} from "../../libraries/MerkleTree.sol";
 import {ExcessivelySafeCall} from "../../libraries/ExcessivelySafeCall.sol";
 
-import {L2BlockHeader} from "../../interfaces/IRollupTypes.sol";
+import {L2BlockHeader} from "../../interfaces/rollup/IRollupTypes.sol";
 import {IFluentBridge} from "../../interfaces/bridge/IFluentBridge.sol";
 import {IL1FluentBridge} from "../../interfaces/bridge/IL1FluentBridge.sol";
 
@@ -20,9 +20,6 @@ import {IL1FluentBridge} from "../../interfaces/bridge/IL1FluentBridge.sol";
 contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     // ============ Constants ============
 
-    /// @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.L1FluentBridgeStorage")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 internal constant L1_FLUENT_BRIDGE_STORAGE_LOCATION = 0xd6d3cd15e5afa78c26fd085a6164155ff3587cb8c325a04216e6557eff29c700;
-
     /// @dev Minimum gas required per {skipExpiredDeposits} loop iteration.
     ///      Covers SLOAD (deadline) + SLOAD (hash) + LOG3 (DepositSkipped) + loop overhead.
     uint256 public constant MIN_SKIP_GAS = 50_000;
@@ -32,7 +29,10 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
      */
     uint32 public constant MAX_DEPOSIT_PROCESSING_WINDOW = 50_400;
 
-    /// @custom:storage-location erc7201:fluent.storage.L1FluentBridgeStorage
+    /// @dev keccak256(abi.encode(uint256(keccak256("Fluent.storage.L1FluentBridgeStorage")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 internal constant L1_FLUENT_BRIDGE_STORAGE_LOCATION = 0x64776360b34cbf9c591fd7718af261c9ddf17ee353bef9c701b140ff387a6200;
+
+    /// @custom:storage-location erc7201:Fluent.storage.L1FluentBridgeStorage
     struct L1FluentBridgeStorage {
         /// @dev Status of a rollback execution by message hash.
         mapping(bytes32 => IFluentBridge.MessageStatus) _rollbackMessages;
@@ -162,6 +162,18 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         unchecked {
             ++$._sentMessageBack;
         }
+    }
+
+    function receiveMessage(
+        address from,
+        address to,
+        uint256 value,
+        uint256 chainId,
+        uint256 validUntilBlockNumber,
+        uint256 messageNonce,
+        bytes calldata message
+    ) external override onlyRole(RELAYER_ROLE) nonReentrant whenNotPaused {
+        revert("PAUSED");
     }
 
     // ============ Receive with proof ============
@@ -520,4 +532,6 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         emit DepositProcessingWindowUpdated($._depositProcessingWindow, newDepositProcessingWindow);
         $._depositProcessingWindow = uint64(newDepositProcessingWindow);
     }
+
+    receive() external payable {}
 }

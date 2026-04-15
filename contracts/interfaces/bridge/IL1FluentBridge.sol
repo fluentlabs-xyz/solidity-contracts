@@ -4,7 +4,7 @@ pragma solidity ^0.8.30;
 import {MerkleTree} from "../../libraries/MerkleTree.sol";
 
 import {IFluentBridge} from "./IFluentBridge.sol";
-import {L2BlockHeader} from "../IRollupTypes.sol";
+import {L2BlockHeader} from "../rollup/IRollupTypes.sol";
 
 /**
  * @title IL1FluentBridge
@@ -12,9 +12,7 @@ import {L2BlockHeader} from "../IRollupTypes.sol";
  * @dev Interface for the L1 bridge contract.
  */
 interface IL1FluentBridge {
-    // ---------------------------
-    // ========= Errors ==========
-    // ---------------------------
+    // ============ Errors ============
 
     /**
      * @notice Caller is not the configured rollup contract.

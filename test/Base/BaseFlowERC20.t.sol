@@ -9,7 +9,7 @@ import {IGatewayBaseErrors} from "../../contracts/interfaces/gateways/IGatewayBa
 import {ERC20Gateway} from "../../contracts/gateways/ERC20Gateway.sol";
 import {IFluentBridgeEvents} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
-import {L2BlockHeader, BlockDeposit} from "../../contracts/interfaces/IRollupTypes.sol";
+import {L2BlockHeader, BlockDeposit} from "../../contracts/interfaces/rollup/IRollupTypes.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 import {BaseDeployERC20} from "./BaseDeploy.sol";
 import {WithdrawalMerkle} from "../helpers/WithdrawalMerkle.sol";

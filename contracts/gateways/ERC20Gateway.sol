@@ -30,19 +30,21 @@ import {GatewayBase} from "./GatewayBase.sol";
  * @dev Admin controls include remote routing config and token-mapping maintenance.
  */
 contract ERC20Gateway is GatewayBase, IERC20Gateway {
-    // SafeERC20 wraps all IERC20 calls with revert-on-failure checks,
-    // handling non-standard tokens that return false instead of reverting
     using SafeERC20 for IERC20;
+
+    // ============ Constants ============
 
     /**
      * @dev Magic prefix used in Universal token CREATE2 init-code encoding.
-     * @dev "ERC "
+     *      0x45524320 == ASCII bytes "ERC "
+     *      L2 precompile recognizes this prefix to distinguish universal-token deploys from arbitrary CREATE2 bytecode
      */
-    // 0x45524320 == ASCII "ERC " — the L2 precompile recognizes this prefix to
-    // distinguish universal-token deploys from arbitrary CREATE2 bytecode
     bytes4 private constant UNIVERSAL_TOKEN_MAGIC_BYTES = bytes4(0x45524320);
 
-    /// @custom:storage-location erc7201:fluent.storage.ERC20GatewayStorage
+    /// @dev keccak256(abi.encode(uint256(keccak256("Fluent.storage.ERC20GatewayStorage")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant ERC20_GATEWAY_STORAGE_LOCATION = 0xf47e2114890f2cdc2d9644f35be1703f8896e73133e40b7222d20df4904ab100;
+
+    /// @custom:storage-location erc7201:Fluent.storage.ERC20GatewayStorage
     struct ERC20GatewayStorage {
         /// @dev True when the remote chain uses UniversalTokenFactory (precompile-based).
         bool _isOtherSideUniversal;
@@ -59,11 +61,6 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         /// @dev Reserved for future storage fields.
         uint256[50] __gap;
     }
-
-    /// @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.ERC20GatewayStorage")) - 1)) & ~bytes32(uint256(0xff))
-    // This deterministic slot hash isolates ERC20Gateway storage from the rest of the
-    // proxy's storage layout, preventing slot collisions during upgrades (ERC-7201 pattern)
-    bytes32 private constant ERC20_GATEWAY_STORAGE_LOCATION = 0xe252cab26214ab2f0e4d4e6f063d78ba24b618cf5f8fd25d1b9aef671b7f9100;
 
     /** @dev Returns the ERC-7201 storage pointer for ERC20 gateway state. */
     function _getERC20GatewayStorage() private pure returns (ERC20GatewayStorage storage $) {
@@ -95,7 +92,6 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
     // ============ Send Tokens ============
 
     /// @inheritdoc IERC20Gateway
-    /// @dev Callable by anyone. Nonreentrant guard prevents callbacks from token hooks re-entering.
     function sendTokens(address token, address to, uint256 amount) external payable nonReentrant {
         address sender = msg.sender;
         // Ensure the remote gateway has been configured — cannot route messages without a destination

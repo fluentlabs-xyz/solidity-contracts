@@ -10,7 +10,7 @@ import {FluentBridgeStorageLayout} from "../../contracts/bridge/FluentBridgeStor
 import {L1BlockOracle} from "../../contracts/oracles/L1BlockOracle.sol";
 import {L1GasOracle} from "../../contracts/oracles/L1GasOracle.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
-import {L2BlockHeader} from "../../contracts/interfaces/IRollupTypes.sol";
+import {L2BlockHeader} from "../../contracts/interfaces/rollup/IRollupTypes.sol";
 
 contract NoopReceiver {
     uint256 public calls;

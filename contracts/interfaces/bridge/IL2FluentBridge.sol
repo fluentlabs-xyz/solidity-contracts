@@ -49,13 +49,6 @@ interface IL2FluentBridge {
      */
     event L1BlockOracleUpdated(address indexed prevValue, address indexed newValue);
 
-    /**
-     * @notice Emitted when the L1 gas limit is updated.
-     * @param prevValue The previous L1 gas limit.
-     * @param newValue The new L1 gas limit.
-     */
-    event L1GasLimitUpdated(uint256 indexed prevValue, uint256 indexed newValue);
-
     // ========== Functions ==========
 
     /**
