@@ -14,6 +14,7 @@ import {L1FluentBridge} from "../../contracts/bridge/L1/L1FluentBridge.sol";
 import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol";
 import {InitConfiguration} from "../../contracts/interfaces/rollup/IRollupTypes.sol";
 import {MockERC20Token} from "../../test/mocks/MockERC20.sol";
+import {FluentTimeLock} from "../../contracts/governance/FluentTimeLock.sol";
 
 /// @notice L1 orchestrator: deploys full stack with deterministic nonce ordering.
 /// @dev Three-phase deployment ensures proxy addresses match L2 counterparts.
@@ -69,8 +70,8 @@ contract DeployL1 is DeployRollup, DeployL1Bridge, DeployERC20Factory, DeployERC
         address bridgeProxy = address(0x9CAcf613fC29015893728563f423fD26dCdB8Ddc);
 
         // NativeGateway (nonce 8: impl, nonce 9: proxy)
-        NativeGatewayResult memory nativeGw = _deployNativeGateway(initialOwner, bridgeProxy);
-        console2.log("Native Gateway deployed at:", nativeGw.gateway);
+//        NativeGatewayResult memory nativeGw = _deployNativeGateway(initialOwner, bridgeProxy);
+//        console2.log("Native Gateway deployed at:", nativeGw.gateway);
 
          // ── Phase 2: L1-specific contracts (nonce 9+) ──
          // NitroVerifier (nonce 9)
@@ -82,6 +83,13 @@ contract DeployL1 is DeployRollup, DeployL1Bridge, DeployERC20Factory, DeployERC
          RollupResult memory rollup = _deployRollup(rollupParams);
 
         console2.log("Rollup: ", rollup.proxy);
+
+        address[] memory proposers = new address[](1);
+        proposers[0] = 0x9ec3f0d76A6d3847d86374c791C6E170CAd9518D;
+        address[] memory executors = new address[](1);
+        executors[0] = 0x33C0B99F3210a9578d81d5B13dEC03160F58ff11; // Bridge Relayer Admin
+        address timeLock = address(new FluentTimeLock(60, proposers, executors));
+        console2.log("TimeLock: ", timeLock);
 
         // // MockERC20Token — testnet only (nonce 12)
         // address mockToken = _deployMock(initialOwner);

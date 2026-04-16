@@ -1,17 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
-import {stdJson} from "forge-std/StdJson.sol";
-import {console2} from "forge-std/console2.sol";
+import "../../contracts/governance/FluentTimeLock.sol";
+import {DeployERC20Gateway} from "./DeployERC20Gateway.s.sol";
 
 import {DeployL2Bridge} from "./DeployL2Bridge.s.sol";
-import {DeployUniversalFactory} from "./DeployUniversalFactory.s.sol";
-import {DeployERC20Gateway} from "./DeployERC20Gateway.s.sol";
 import {DeployNativeGateway} from "./DeployNativeGateway.s.sol";
+import {DeployUniversalFactory} from "./DeployUniversalFactory.s.sol";
 import {L1BlockOracle} from "../../contracts/oracles/L1BlockOracle.sol";
 import {L1GasOracle} from "../../contracts/oracles/L1GasOracle.sol";
 import {L2FluentBridge} from "../../contracts/bridge/L2/L2FluentBridge.sol";
 import {UniversalTokenFactory} from "../../contracts/factories/UniversalTokenFactory.sol";
+import {console2} from "forge-std/console2.sol";
+import {stdJson} from "forge-std/StdJson.sol";
 
 /// @notice L2 orchestrator: deploys full stack with deterministic nonce ordering.
 /// @dev Three-phase deployment ensures proxy addresses match L1 counterparts.
@@ -38,30 +39,41 @@ contract DeployL2 is DeployL2Bridge, DeployUniversalFactory, DeployERC20Gateway,
         require(relayerRole != address(0), "RELAYER_ROLE required");
 
         vm.startBroadcast();
-        require(vm.getNonce(msg.sender) == 0, "deployer nonce must be 0 for deterministic addresses");
+//        require(vm.getNonce(msg.sender) == 0, "deployer nonce must be 0 for deterministic addresses");
 
         // ── Phase 1: Matched contracts (nonce 0–8) ──
         // Bridge with placeholders (nonce 0: impl, nonce 1: proxy)
-        L2BridgeResult memory bridge = _deployL2Bridge(adminRole, pauserRole, relayerRole, address(0x1), address(0x1), address(0x1), adminRole);
-        console2.log("L2 Bridge deployed at:", bridge.proxy);
+//        L2BridgeResult memory bridge = _deployL2Bridge(adminRole, pauserRole, relayerRole, address(0x1), address(0x1), address(0x1), adminRole);
+//        console2.log("L2 Bridge deployed at:", bridge.proxy);
 
         // L1BlockOracle — nonce alignment slot (nonce 2)
-        address l1BlockOracle = address(new L1BlockOracle(relayerRole));
+//        address l1BlockOracle = address(new L1BlockOracle(relayerRole));
 
         // UniversalTokenFactory (nonce 3: impl, nonce 4: proxy)
-        UniversalFactoryResult memory factory = _deployUniversalFactory(initialOwner);
-        console2.log("Universal Factory deployed at:", factory.factory);
+//        UniversalFactoryResult memory factory = _deployUniversalFactory(initialOwner);
+//        console2.log("Universal Factory deployed at:", factory.factory);
 
         // ERC20Gateway (nonce 5: impl, nonce 6: proxy)
-        ERC20GatewayResult memory erc20Gw = _deployERC20Gateway(initialOwner, bridge.proxy, factory.factory);
-        console2.log("ERC20 Gateway deployed at:", erc20Gw.gateway);
+//        ERC20GatewayResult memory erc20Gw = _deployERC20Gateway(initialOwner, bridge.proxy, factory.factory);
+//        console2.log("ERC20 Gateway deployed at:", erc20Gw.gateway);
         // ── Phase 2: L2-specific contracts (nonce 7) ──
-        UniversalTokenFactory(factory.factory).setPaymentGateway(erc20Gw.gateway);
+//        UniversalTokenFactory(factory.factory).setPaymentGateway(erc20Gw.gateway);
         // NativeGateway (nonce 8: impl, nonce 9: proxy)
-        NativeGatewayResult memory nativeGw = _deployNativeGateway(initialOwner, bridge.proxy);
-        console2.log("Native Gateway deployed at:", nativeGw.gateway);
+//        NativeGatewayResult memory nativeGw = _deployNativeGateway(initialOwner, bridge.proxy);
+//        console2.log("Native Gateway deployed at:", nativeGw.gateway);
         // Gas Oracle: Nonce 10
-        address gasOracle = address(new L1GasOracle(relayerRole));
+//        address gasOracle = address(new L1GasOracle(relayerRole));
+
+        // Skip nonce 10
+        payable(0x9ec3f0d76A6d3847d86374c791C6E170CAd9518D).transfer(0);
+        payable(0x9ec3f0d76A6d3847d86374c791C6E170CAd9518D).transfer(0);
+
+        address[] memory proposers = new address[](1);
+        proposers[0] = 0x9ec3f0d76A6d3847d86374c791C6E170CAd9518D;
+        address[] memory executors = new address[](1);
+        executors[0] = 0x33C0B99F3210a9578d81d5B13dEC03160F58ff11; // Bridge Relayer Admin
+        address timeLock = address(new FluentTimeLock(60, proposers, executors));
+        console2.log("TimeLock: ", timeLock);
 
         // ── Phase 3: Configure (nonce 10–14) ──
 //        L2FluentBridge l2Bridge = L2FluentBridge(payable(bridge.proxy));
@@ -76,7 +88,7 @@ contract DeployL2 is DeployL2Bridge, DeployUniversalFactory, DeployERC20Gateway,
 
         vm.stopBroadcast();
 
-        _writeL2Manifest(outputPath, l1BlockOracle, gasOracle, bridge, factory, erc20Gw, nativeGw);
+//        _writeL2Manifest(outputPath, l1BlockOracle, gasOracle, bridge, factory, erc20Gw, nativeGw);
     }
 
     function _writeL2Manifest(
