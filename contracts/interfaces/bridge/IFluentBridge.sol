@@ -136,6 +136,13 @@ interface IFluentBridgeEvents {
      *      or when a rollback/timeout path was taken without invoking the target.
      */
     event ReceivedMessage(bytes32 messageHash, bool successfulCall, bytes returnData);
+
+    /**
+     * @notice Emitted when a retry of a previously failed message is attempted via `receiveFailedMessage`.
+     * @dev `successfulCall` is true when the target call succeeded, and false when execution failed.
+     */
+    event RetriedFailedMessage(bytes32 messageHash, bool successfulCall, bytes returnData);
+
     /**
      * @notice Emitted when a rollback is triggered (message reached its committed expiry on L2).
      */

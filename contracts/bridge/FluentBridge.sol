@@ -107,9 +107,9 @@ abstract contract FluentBridge is FluentBridgeStorageLayout, IFluentBridgeWrite 
         require(getReceivedMessage(messageHash) == IFluentBridge.MessageStatus.Failed, MessageNotFailed());
 
         require(to != address(this), ForbiddenSelfCall());
-        if (!_beforeReceiveMessage(from, to, value, chainId, validUntilBlockNumber, messageNonce, message)) return;
+        if (!_beforeReceiveFailedMessage(from, to, value, chainId, validUntilBlockNumber, messageNonce, message)) return;
 
-        _receiveMessage(gasleft(), from, to, value, message, messageHash);
+        _receiveFailedMessage(gasleft(), from, to, value, message, messageHash);
     }
 
     /**
@@ -117,6 +117,22 @@ abstract contract FluentBridge is FluentBridgeStorageLayout, IFluentBridgeWrite 
      *      chain-specific checks (e.g., committed expiry validation on L2). Return false to skip execution.
      */
     function _beforeReceiveMessage(
+        address /* _from */,
+        address /* _to */,
+        uint256 /* _value */,
+        uint256 /* _chainId */,
+        uint256 /* _validUntilBlockNumber */,
+        uint256 /* _messageNonce */,
+        bytes calldata /* _message */
+    ) internal virtual returns (bool) {
+        return true;
+    }
+
+    /**
+     * @dev Hook called before message execution. Override in L1/L2 bridges for
+     *      chain-specific checks (e.g., committed expiry validation on L2). Return false to skip execution.
+     */
+    function _beforeReceiveFailedMessage(
         address /* _from */,
         address /* _to */,
         uint256 /* _value */,
@@ -141,6 +157,28 @@ abstract contract FluentBridge is FluentBridgeStorageLayout, IFluentBridgeWrite 
 
         $._receivedMessage[messageHash] = success ? IFluentBridge.MessageStatus.Success : IFluentBridge.MessageStatus.Failed;
         emit ReceivedMessage(messageHash, success, data);
+    }
+
+    /**
+     * @dev Core message execution: sets {_nativeSender} for cross-chain sender identification,
+     *      forwards value and calldata via {ExcessivelySafeCall}, records result status.
+     */
+    function _receiveFailedMessage(
+        uint256 gasLimit,
+        address from,
+        address to,
+        uint256 value,
+        bytes calldata message,
+        bytes32 messageHash
+    ) internal {
+        FluentBridgeStorage storage $ = _getFluentBridgeStorage();
+
+        $._nativeSender = from;
+        (bool success, bytes memory data) = ExcessivelySafeCall.excessivelySafeCall(to, value, message, gasLimit);
+        $._nativeSender = address(0);
+
+        $._receivedMessage[messageHash] = success ? IFluentBridge.MessageStatus.Success : IFluentBridge.MessageStatus.Failed;
+        emit RetriedFailedMessage(messageHash, success, data);
     }
 
     // ============ Pauser functions ============

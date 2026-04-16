@@ -176,6 +176,54 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
         return true;
     }
 
+    /** @inheritdoc FluentBridge
+     * @dev Checks if the message has reached its committed expiry block. If so, marks it
+     *      Failed and emits {RollbackMessage} (included in L2BlockHeader.withdrawalRoot
+     *      for later proof-based rollback on L1). Returns false to skip execution.
+     */
+    function _beforeReceiveFailedMessage(
+        address from,
+        address to,
+        uint256 value,
+        uint256 chainId,
+        uint256 validUntilBlockNumber,
+        uint256 messageNonce,
+        bytes calldata message
+    ) internal override returns (bool) {
+        // Inbound L1->L2 messages must carry a committed expiry block from L1.
+        require(validUntilBlockNumber > 0, ZeroValueNotAllowed("validUntilBlockNumber"));
+
+        // Fetch the latest known L1 block number from the on-chain oracle
+        uint256 l1BlockNumber = IL1BlockOracle(getL1BlockOracle()).getL1BlockNumber();
+
+        // If the oracle returns 0, it means the L1 block number is not available yet. In this case, we cannot perform the deadline check.
+        require(l1BlockNumber > 0, ZeroValueNotAllowed("l1BlockNumber"));
+
+        // Reconstruct the message hash to record the outcome in storage
+        bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, validUntilBlockNumber, messageNonce, message));
+        // Check whether the message has reached its committed absolute expiry block.
+        // The deadline was frozen into the message hash on L1 at send time, so admin
+        // updates to the receive-message deadline never retroactively affect this message.
+        if (l1BlockNumber >= validUntilBlockNumber) {
+            // Mark as Failed so it cannot be executed later
+            _getFluentBridgeStorage()._receivedMessage[messageHash] = IFluentBridge.MessageStatus.Failed;
+            // RollbackMessage is included in the L2 block's withdrawalRoot,
+            // enabling proof-based refund on L1 via rollbackMessageWithProof
+            emit RollbackMessage(messageHash, block.number);
+            emit RetriedFailedMessage(messageHash, false, "");
+            // Return false to skip message execution in the caller
+            return false;
+        }
+        // On Fluent L2, native ETH for inbound messages is minted by the chain's consensus
+        // layer before execution and burned if the call fails. The bridge balance is therefore
+        // always sufficient by protocol invariant. This check is defense-in-depth — it should
+        // never revert under normal operation, but guards against a broken minting mechanism.
+        if (value > 0) require(address(this).balance >= value, InsufficientBridgeBalance(value));
+
+        // Committed expiry not reached — allow normal execution to proceed
+        return true;
+    }
+
     // ============ Views ============
 
     /// @inheritdoc IL2FluentBridge

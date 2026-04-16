@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
-import {IFluentBridge, IFluentBridgeErrors} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
+import {IFluentBridge, IFluentBridgeErrors, IFluentBridgeEvents} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {GatewayBase} from "../Gateway/Base.t.sol";
 import {NoopReceiver, RevertingReceiver} from "./Base.t.sol";
 
@@ -75,5 +75,90 @@ contract FluentBridgeTest is GatewayBase {
         vm.prank(relayer);
         vm.expectRevert(IFluentBridgeErrors.ForbiddenSelfCall.selector);
         bridge.receiveMessage(remoteBridge, address(bridge), 0, sourceChainId, 1, nonce, "");
+    }
+
+    /// @notice Case B2: first delivery reverts (status=Failed, no rollback emitted), then the L1
+    ///         block oracle advances past the committed deadline. Retry at this point emits
+    ///         `RollbackMessage` (first and only emission) + `RetriedFailedMessage(false, "")`.
+    ///         This is the only refund path for messages that originally failed for a reason
+    ///         other than expiry.
+    function test_receiveFailedMessage_expiredAfterRevertEmitsRollbackMessage() public {
+        RevertingReceiver receiver = new RevertingReceiver();
+        bytes memory payload = abi.encodeCall(RevertingReceiver.fail, ());
+
+        (bytes32 messageHash, uint256 nonce, uint256 sourceBlock) = _relayMessage(remoteBridge, address(receiver), 0, payload);
+        assertEq(
+            uint256(bridge.getReceivedMessage(messageHash)),
+            uint256(IFluentBridge.MessageStatus.Failed),
+            "status after first delivery should be Failed"
+        );
+
+        // Advance L1 oracle past the committed validUntilBlockNumber (== sourceBlock).
+        vm.prank(admin);
+        oracle.updateL1BlockNumber(sourceBlock + 1);
+
+        vm.expectEmit(true, true, true, true, address(bridge));
+        emit IFluentBridgeEvents.RollbackMessage(messageHash, block.number);
+        vm.expectEmit(true, true, true, true, address(bridge));
+        emit IFluentBridgeEvents.RetriedFailedMessage(messageHash, false, "");
+
+        _retryFailedMessage(remoteBridge, address(receiver), 0, sourceBlock, nonce, payload);
+
+        assertEq(
+            uint256(bridge.getReceivedMessage(messageHash)),
+            uint256(IFluentBridge.MessageStatus.Failed),
+            "status after expired retry should stay Failed"
+        );
+    }
+
+    /// @notice Case A double-emit non-regression: first `receiveMessage` hits expiry →
+    ///         `RollbackMessage` in block N. Retry in a different block M also sees expiry →
+    ///         `RollbackMessage` in block M. On L1 the double claim is blocked by dedup
+    ///         (see `test_RevertIf_rollbackMessageWithProof_rollbackAlreadyDone`).
+    function test_receiveFailedMessage_afterInitialExpiryReEmitsRollbackMessage() public {
+        NoopReceiver receiver = new NoopReceiver();
+        bytes memory payload = abi.encodeCall(NoopReceiver.handle, ());
+
+        vm.prank(admin);
+        oracle.updateL1BlockNumber(RECEIVE_DEADLINE + 100);
+
+        uint256 firstBlock = block.number;
+        bytes32 expectedHash = _bridgeMessageHash(
+            remoteBridge,
+            address(receiver),
+            0,
+            sourceChainId,
+            nextSourceBlock,
+            bridge.getReceivedNonce(),
+            payload
+        );
+
+        vm.expectEmit(true, true, true, true, address(bridge));
+        emit IFluentBridgeEvents.RollbackMessage(expectedHash, firstBlock);
+        (bytes32 messageHash, uint256 nonce, uint256 sourceBlock) = _relayMessage(remoteBridge, address(receiver), 0, payload);
+
+        assertEq(receiver.calls(), 0, "target must not be called on expiry path");
+        assertEq(
+            uint256(bridge.getReceivedMessage(messageHash)),
+            uint256(IFluentBridge.MessageStatus.Failed),
+            "status after expired first delivery should be Failed"
+        );
+
+        // Advance the EVM block so the second RollbackMessage carries a different block.number.
+        uint256 secondBlock = firstBlock + 7;
+        vm.roll(secondBlock);
+
+        vm.expectEmit(true, true, true, true, address(bridge));
+        emit IFluentBridgeEvents.RollbackMessage(messageHash, secondBlock);
+        vm.expectEmit(true, true, true, true, address(bridge));
+        emit IFluentBridgeEvents.RetriedFailedMessage(messageHash, false, "");
+
+        _retryFailedMessage(remoteBridge, address(receiver), 0, sourceBlock, nonce, payload);
+
+        assertEq(
+            uint256(bridge.getReceivedMessage(messageHash)),
+            uint256(IFluentBridge.MessageStatus.Failed),
+            "status after expired retry should stay Failed"
+        );
     }
 }
