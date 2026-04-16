@@ -123,6 +123,7 @@ interface IFluentBridgeEvents {
         address indexed sender,
         address indexed to,
         uint256 value,
+        uint256 fee,
         uint256 chainId,
         uint256 validUntilBlockNumber,
         uint256 nonce,

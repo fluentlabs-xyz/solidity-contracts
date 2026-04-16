@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
-import {L2FluentBridge} from "../../contracts/bridge/L2/L2FluentBridge.sol";
-import {UniversalTokenFactory} from "../../contracts/factories/UniversalTokenFactory.sol";
-import {ERC20Gateway} from "../../contracts/gateways/ERC20Gateway.sol";
-import {NativeGateway} from "../../contracts/gateways/NativeGateway.sol";
-import {CommonBase} from "../../lib/forge-std/src/Base.sol";
-import {Script} from "../../lib/forge-std/src/Script.sol";
-import {StdChains} from "../../lib/forge-std/src/StdChains.sol";
-import {StdCheatsSafe} from "../../lib/forge-std/src/StdCheats.sol";
-import {StdUtils} from "../../lib/forge-std/src/StdUtils.sol";
-import {console} from "../../lib/forge-std/src/console.sol";
+import {L2FluentBridge} from "../../../contracts/bridge/L2/L2FluentBridge.sol";
+import {UniversalTokenFactory} from "../../../contracts/factories/UniversalTokenFactory.sol";
+import {ERC20Gateway} from "../../../contracts/gateways/ERC20Gateway.sol";
+import {NativeGateway} from "../../../contracts/gateways/NativeGateway.sol";
+import {CommonBase} from "../../../lib/forge-std/src/Base.sol";
+import {Script} from "../../../lib/forge-std/src/Script.sol";
+import {StdChains} from "../../../lib/forge-std/src/StdChains.sol";
+import {StdCheatsSafe} from "../../../lib/forge-std/src/StdCheats.sol";
+import {StdUtils} from "../../../lib/forge-std/src/StdUtils.sol";
+import {console} from "../../../lib/forge-std/src/console.sol";
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
 contract MigrateL2 is Script {

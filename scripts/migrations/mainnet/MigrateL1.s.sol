@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
+import {ERC20PeggedToken} from "../../../contracts/tokens/ERC20PeggedToken.sol";
 import {L1FluentBridge} from "../../../contracts/bridge/L1/L1FluentBridge.sol";
 import {ERC20TokenFactory} from "../../../contracts/factories/ERC20TokenFactory.sol";
 import {ERC20Gateway} from "../../../contracts/gateways/ERC20Gateway.sol";
@@ -15,21 +16,17 @@ import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
 contract MigrateL1 is Script {
     function run() external {
-        /// ############################################################################################################
-        ///  ========================================== TODO: update this
-        /// ############################################################################################################
-
         uint256 L2_CHAIN_ID = 25363;
-        uint256 RECEIVE_MESSAGE_DEADLINE = 10000;
-        uint256 DEPOSIT_PROCESSING_WINDOW = 1000;
-        uint256 EXECUTE_GAS_LIMIT = 500_000;
+        uint256 RECEIVE_MESSAGE_DEADLINE = 7200;
+        uint256 DEPOSIT_PROCESSING_WINDOW = 7200;
+        uint256 EXECUTE_GAS_LIMIT = 5_000;
 
         address payable bridgeProxy = payable(address(0x9CAcf613fC29015893728563f423fD26dCdB8Ddc));
         address payable rollupProxy = payable(address(0x1cF53Fd9CD0b713be29F2b41cA17A943f138727f));
         address payable erc20GatewayProxy = payable(address(0xFD4C62647A34FF6d6802092F5fbe176099223B61));
         address payable nativeGatewayProxy = payable(address(0x8976Ca4E0c8467097Da675399fB7DB454a1b56dd));
         address payable erc20TokenFactoryProxy = payable(address(0xF6d49E874Cb64b8ee56D6F99BD340134B30AB225));
-        address payable beaconUpgradeable = payable(address(0xdd283a04cc711ab9c08d79e665835821beef710b));
+        address payable beaconUpgradeable = payable(address(0xdD283a04cc711aB9c08d79e665835821BEef710B));
 
         vm.startBroadcast();
 
@@ -65,7 +62,6 @@ contract MigrateL1 is Script {
         L1FluentBridge(bridgeProxy).setOtherBridge(bridgeProxy);
         L1FluentBridge(bridgeProxy).setExecuteGasLimit(EXECUTE_GAS_LIMIT);
 
-        ///  ========================================== TODO: update this
         L1FluentBridge(bridgeProxy).setRollup(rollupProxy);
         L1FluentBridge(bridgeProxy).setReceiveMessageDeadline(RECEIVE_MESSAGE_DEADLINE);
         L1FluentBridge(bridgeProxy).setDepositProcessingWindow(DEPOSIT_PROCESSING_WINDOW);

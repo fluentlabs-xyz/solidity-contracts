@@ -57,7 +57,7 @@ abstract contract FluentBridge is FluentBridgeStorageLayout, IFluentBridgeWrite 
         _chargeSendFee(fee);
         _afterSendMessage(messageHash);
 
-        emit SentMessage(from, to, value, block.chainid, validUntilBlockNumber, messageNonce, messageHash, message);
+        emit SentMessage(from, to, value, fee, block.chainid, validUntilBlockNumber, messageNonce, messageHash, message);
     }
 
     /**
