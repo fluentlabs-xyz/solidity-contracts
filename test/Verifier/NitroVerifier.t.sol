@@ -12,9 +12,13 @@ contract NitroVerifierTest is Test {
     NitroVerifier internal verifier;
     MockSp1Verifier internal attestationVerifier;
 
+    bytes32 internal constant INITIAL_VKEY = bytes32(uint256(0xDEADBEEF));
+
     function setUp() public {
         attestationVerifier = new MockSp1Verifier();
         verifier = new NitroVerifier(address(attestationVerifier), admin);
+        vm.prank(admin);
+        verifier.updateProgramVKey(INITIAL_VKEY);
         // Warp past ATTESTATION_MAX_AGE so past-boundary tests do not underflow.
         vm.warp(block.timestamp + 1 days);
     }
@@ -24,22 +28,13 @@ contract NitroVerifierTest is Test {
         verifier.verifyAttestation(pubkey, uint64(block.timestamp), hex"1234");
     }
 
-    function test_vkeyRotation_respectsTimelock() public {
+    function test_updateProgramVKey_rotatesImmediately() public {
         bytes32 newVKey = keccak256("new-vkey");
 
         vm.prank(admin);
-        verifier.proposeVKeyUpdate(newVKey);
-
-        vm.prank(admin);
-        vm.expectRevert(INitroVerifier.TimelockNotExpired.selector);
-        verifier.executeVKeyUpdate();
-
-        vm.warp(block.timestamp + verifier.VKEY_UPDATE_DELAY());
-        vm.prank(admin);
-        verifier.executeVKeyUpdate();
+        verifier.updateProgramVKey(newVKey);
 
         assertEq(verifier.getProgramVKey(), newVKey);
-        assertEq(verifier.pendingVKey(), bytes32(0));
     }
 
     function test_verifyAttestation_whitelistsPubkey() public {
@@ -54,25 +49,6 @@ contract NitroVerifierTest is Test {
         vm.prank(admin);
         verifier.revokeAttestation(pubkey);
         assertFalse(verifier.verifiedPubkeys(pubkey));
-    }
-
-    function test_verifyBlock_requiresAttestedSigner() public {
-        uint256 signerKey = 0xA11CE;
-        address signer = vm.addr(signerKey);
-
-        _attest(signer);
-
-        bytes32 parentHash = keccak256("parent");
-        bytes32 blockHash = keccak256("block");
-        bytes32 withdrawalHash = keccak256("withdrawal");
-        bytes32 depositHash = keccak256("deposit");
-        bytes32[] memory blobHashes = new bytes32[](0);
-        bytes32 digest = sha256(abi.encode(block.chainid, address(verifier), parentHash, blockHash, withdrawalHash, depositHash, blobHashes));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, digest);
-        bytes memory signature = abi.encodePacked(r, s, v);
-
-        address signer_ = verifier.verifyBlock(parentHash, blockHash, withdrawalHash, depositHash, signature, blobHashes);
-        assertEq(signer_, signer);
     }
 
     function test_verifyBatch_requiresAttestedSigner() public {
@@ -122,27 +98,16 @@ contract NitroVerifierTest is Test {
         verifier.verifyAttestation(pubkey, uint64(block.timestamp), hex"1234");
     }
 
-    function test_RevertIf_proposeVKeyUpdate_zeroVKey() public {
+    function test_RevertIf_updateProgramVKey_zeroVKey() public {
         vm.prank(admin);
         vm.expectRevert(INitroVerifier.ZeroVKey.selector);
-        verifier.proposeVKeyUpdate(bytes32(0));
-    }
-
-    function test_RevertIf_cancelVKeyUpdate_noPendingUpdate() public {
-        vm.prank(admin);
-        vm.expectRevert(INitroVerifier.NoPendingUpdate.selector);
-        verifier.cancelVKeyUpdate();
+        verifier.updateProgramVKey(bytes32(0));
     }
 
     function test_RevertIf_revokeAttestation_pubkeyNotVerified() public {
         vm.prank(admin);
         vm.expectRevert(INitroVerifier.PubkeyNotVerified.selector);
         verifier.revokeAttestation(makeAddr("unknown"));
-    }
-
-    function test_RevertIf_verifyBlock_invalidSignatureLength() public {
-        vm.expectRevert(INitroVerifier.InvalidSignatureLength.selector);
-        verifier.verifyBlock(keccak256("a"), keccak256("b"), keccak256("c"), keccak256("d"), hex"0102", new bytes32[](0));
     }
 
     // ============ Attestation freshness window ============
@@ -155,12 +120,12 @@ contract NitroVerifierTest is Test {
         assertTrue(verifier.verifiedPubkeys(pubkey), "pubkey should be attested at max-age boundary");
     }
 
-    function test_verifyAttestation_attestationTimeAtMaxSkew() public {
+    function test_verifyAttestation_acceptsFutureTimestamp() public {
         address pubkey = makeAddr("pubkey");
-        uint64 atBoundary = uint64(block.timestamp + verifier.ATTESTATION_MAX_SKEW());
+        uint64 future = uint64(block.timestamp + 1 days);
         vm.prank(admin);
-        verifier.verifyAttestation(pubkey, atBoundary, hex"1234");
-        assertTrue(verifier.verifiedPubkeys(pubkey), "pubkey should be attested at max-skew boundary");
+        verifier.verifyAttestation(pubkey, future, hex"1234");
+        assertTrue(verifier.verifiedPubkeys(pubkey), "future timestamps should be accepted");
     }
 
     function test_RevertIf_verifyAttestation_attestationTooOld() public {
@@ -169,13 +134,5 @@ contract NitroVerifierTest is Test {
         vm.prank(admin);
         vm.expectRevert(abi.encodeWithSelector(INitroVerifier.AttestationExpired.selector, tooOld, block.timestamp));
         verifier.verifyAttestation(pubkey, tooOld, hex"1234");
-    }
-
-    function test_RevertIf_verifyAttestation_attestationFromFuture() public {
-        address pubkey = makeAddr("pubkey");
-        uint64 tooNew = uint64(block.timestamp + verifier.ATTESTATION_MAX_SKEW() + 1);
-        vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(INitroVerifier.AttestationExpired.selector, tooNew, block.timestamp));
-        verifier.verifyAttestation(pubkey, tooNew, hex"1234");
     }
 }
