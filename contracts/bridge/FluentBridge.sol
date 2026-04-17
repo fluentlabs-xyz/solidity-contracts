@@ -137,22 +137,6 @@ abstract contract FluentBridge is FluentBridgeStorageLayout, IFluentBridgeWrite 
     }
 
     /**
-     * @dev Hook called before message execution. Override in L1/L2 bridges for
-     *      chain-specific checks (e.g., committed expiry validation on L2). Return false to skip execution.
-     */
-    function _beforeReceiveFailedMessage(
-        address /* _from */,
-        address /* _to */,
-        uint256 /* _value */,
-        uint256 /* _chainId */,
-        uint256 /* _validUntilBlockNumber */,
-        uint256 /* _messageNonce */,
-        bytes calldata /* _message */
-    ) internal virtual returns (bool) {
-        return true;
-    }
-
-    /**
      * @dev Core message execution: sets {_nativeSender} for cross-chain sender identification,
      *      forwards value and calldata via {ExcessivelySafeCall}, records result status.
      */
