@@ -286,7 +286,7 @@ contract ChallengeTest is RollupAssertions {
     }
 
     function test_heap_forceRevert_clearsAllChallengesFromQueue() public {
-        uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
+        _fullyFinalizeBatch(GENESIS_HASH);
         bytes32 lastHash = _lastBlockHash(GENESIS_HASH);
         (uint256 batchIndex, L2BlockHeader[] memory headers) = _preconfirmedBatchWithHeaders(lastHash);
         MerkleTree.MerkleProof memory proof = _buildMerkleProof(headers, 0);
@@ -297,7 +297,7 @@ contract ChallengeTest is RollupAssertions {
         uint256 fee = rollup.incentiveFee();
         vm.deal(admin, fee);
         vm.prank(admin);
-        rollup.revertBatches{value: fee}(batch1);
+        rollup.revertBatches{value: fee}(batchIndex);
 
         assertEq(rollup.blockChallengeQueue().length, 0);
     }
@@ -321,7 +321,7 @@ contract ChallengeTest is RollupAssertions {
     // ============ Reward withdrawals ============
 
     function test_withdrawChallengerReward_afterForceRevert_paysDepositPlusIncentive() public {
-        uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
+        _fullyFinalizeBatch(GENESIS_HASH);
         bytes32 lastHash = _lastBlockHash(GENESIS_HASH);
         (uint256 batchIndex, L2BlockHeader[] memory headers) = _preconfirmedBatchWithHeaders(lastHash);
         MerkleTree.MerkleProof memory proof = _buildMerkleProof(headers, 0);
@@ -330,7 +330,7 @@ contract ChallengeTest is RollupAssertions {
         uint256 fee = rollup.incentiveFee();
         vm.deal(admin, fee);
         vm.prank(admin);
-        rollup.revertBatches{value: fee}(batch1);
+        rollup.revertBatches{value: fee}(batchIndex);
 
         _assertChallengerWithdrawable(challenger, CHALLENGE_DEPOSIT + fee);
 
@@ -440,7 +440,7 @@ contract ChallengeTest is RollupAssertions {
         vm.prank(admin);
         rollup.grantRole(challengerRole, rejecterAddr);
 
-        uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
+        _fullyFinalizeBatch(GENESIS_HASH);
         bytes32 lastHash = _lastBlockHash(GENESIS_HASH);
         L2BlockHeader[] memory headers = _makeBatch(lastHash);
         uint256 batchIndex = rollup.nextBatchIndex();
@@ -458,7 +458,7 @@ contract ChallengeTest is RollupAssertions {
         uint256 fee = rollup.incentiveFee();
         vm.deal(admin, fee);
         vm.prank(admin);
-        rollup.revertBatches{value: fee}(batch1);
+        rollup.revertBatches{value: fee}(batchIndex);
 
         uint256 expectedReward = CHALLENGE_DEPOSIT + fee;
         assertEq(rollup.claimableChallengerReward(rejecterAddr), expectedReward);
