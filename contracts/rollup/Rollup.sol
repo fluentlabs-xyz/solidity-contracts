@@ -42,9 +42,8 @@ import {L2BlockHeader, BatchStatus, BatchRecord, ChallengeRecord, BlockDeposit} 
  *
  * A challenge submitted near the end of the window leaves the prover very little wall-clock
  * time to respond, because the resolution deadline is always `acceptedAtBlock + challengeWindow`
- * regardless of when the challenge was created. If the prover cannot submit both a Nitro
- * attestation and an SP1 proof before that deadline, the rollup enters the corrupted
- * (safety-halt) state. This is by design:
+ * regardless of when the challenge was created. If the prover cannot submit an SP1 proof
+ * before that deadline, the rollup enters the corrupted (safety-halt) state. This is by design:
  *
  * - *No funds are at risk* — the corrupted state blocks all mutations until
  *   {EMERGENCY_ROLE} calls {revertBatches} to roll back the affected batch.
@@ -52,7 +51,7 @@ import {L2BlockHeader, BatchStatus, BatchRecord, ChallengeRecord, BlockDeposit} 
  *   returned, disincentivizing frivolous last-moment challenges.
  * - The sequencer can re-submit the batch after the corrupted state is cleared.
  *
- * Operators should therefore ensure the prover infrastructure can generate dual proofs
+ * Operators should therefore ensure the prover infrastructure can generate SP1 proofs
  * well within the `challengeWindow` and monitor {BlockChallenged} events in real time.
  */
 contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {

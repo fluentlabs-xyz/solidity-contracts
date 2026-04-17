@@ -9,7 +9,7 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 /**
  * @title NitroVerifier
  * @author Fluent Labs
- * @dev Two-phase verifier for AWS Nitro Enclave-based block and batch signing.
+ * @dev Two-phase verifier for AWS Nitro Enclave-based batch signing.
  *
  *      Phase 1 — Attestation: an SP1 ZK proof is submitted via {verifyAttestation},
  *      confirming that a Nitro enclave controls a given pubkey. The SP1 program
@@ -17,82 +17,75 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
  *      verified on-chain against {_programVKey}. Attested pubkeys are stored in
  *      {verifiedPubkeys}.
  *
- *      Phase 2 — Verification: the attested enclave signs L2 block and batch payloads
- *      with its private key. {verifyBlock} and {verifyBatch} recover the signer via
- *      ECDSA and confirm it is in {verifiedPubkeys}.
+ *      Phase 2 — Verification: the attested enclave signs L2 batch payloads with
+ *      its private key. {verifyBatch} recovers the signer via ECDSA and confirms
+ *      it is in {verifiedPubkeys}.
  *
- *      Multiple pubkeys may be attested simultaneously to allow zero-downtime enclave
- *      rotation. Full pubkey enumeration is available off-chain via
+ *      Multiple pubkeys may be attested simultaneously to allow zero-downtime
+ *      enclave rotation. Full pubkey enumeration is available off-chain via
  *      {INitroVerifier-AttestationVerified} and
  *      {INitroVerifier-AttestationRevoked} events.
  *
- *      {_programVKey} rotation uses a two-step timelock: {proposeVKeyUpdate} followed
- *      by {executeVKeyUpdate} after {VKEY_UPDATE_DELAY} seconds.
+ *      Governance timing (VKey rotation, attestation approval) is enforced by
+ *      the admin account, which is expected to be an OpenZeppelin
+ *      `TimelockController`. No timelock is enforced inside this contract; if
+ *      the admin role is granted to a non-timelock account, rotations are
+ *      immediate. Verify the admin identity at deploy time.
  */
 contract NitroVerifier is AccessControl, INitroVerifier {
     // ============ Constants ============
 
-    /// @dev Maximum age of an attestation document at the moment it is submitted on-chain.
-    ///      Prevents replay of stale attestations produced by nodes whose ephemeral
-    ///      keys may have been compromised in the interim (e.g. RAM extraction after
-    ///      hardware decommission, AWS cert rotation, hypervisor updates).
-    uint256 public constant ATTESTATION_MAX_AGE = 1 hours;
+    /**
+     * @dev Maximum age of an attestation document at the moment it is submitted on-chain.
+     *      Prevents replay of stale attestations produced by nodes whose ephemeral
+     *      keys may have been compromised in the interim (e.g. RAM extraction after
+     *      hardware decommission, AWS cert rotation, hypervisor updates).
+     */
+    uint256 public constant ATTESTATION_MAX_AGE = 12 hours;
 
     // ============ Storage ============
 
-    /// @dev Minimum seconds between {proposeVKeyUpdate} and {executeVKeyUpdate}.
-    uint256 public constant VKEY_UPDATE_DELAY = 1 days;
-
-    /// @dev Permitted clock skew for attestations whose reported timestamp is in
-    ///      the future relative to `block.timestamp`.
-    uint256 public constant ATTESTATION_MAX_SKEW = 5 minutes;
-
-    /// @dev SP1 verifier contract used to validate attestation proofs. Immutable — set in constructor.
+    /**
+     * @dev SP1 verifier contract used to validate attestation proofs. Immutable — set in constructor.
+     */
     address public immutable _attestationVerifier;
 
-    /// @dev VKey queued for rotation; zero if no update is pending.
-    bytes32 public pendingVKey;
-
-    /// @dev Earliest timestamp at which {executeVKeyUpdate} may be called. Zero if no update is pending.
-    uint256 public pendingVKeyValidAt;
-
-    /// @dev Current SP1 program verification key for attestation proofs.
+    /**
+     * @dev Current SP1 program verification key for attestation proofs.
+     *      Zero until the admin calls {updateProgramVKey}; {verifyAttestation}
+     *      will fail until that first call.
+     */
     bytes32 internal _programVKey;
 
-    /// @dev Enclave pubkeys that have passed ZK attestation.
-    ///      Enumeration is intentionally off-chain via events — avoids array SSTORE overhead.
+    /**
+     * @dev Enclave pubkeys that have passed ZK attestation.
+     *      Enumeration is intentionally off-chain via events — avoids array SSTORE overhead.
+     */
     mapping(address => bool) public verifiedPubkeys;
 
     // ============ Constructor ============
 
     /**
-     * @dev Sets the SP1 attestation verifier and grants DEFAULT_ADMIN_ROLE to the deployer.
-     *      Reverts if `attestationVerifier_` is the zero address.
+     * @notice Initializes the verifier with the given SP1 verifier and admin.
+     * @dev Reverts if either address is zero. The admin is expected to be an
+     *      OpenZeppelin `TimelockController` so that {updateProgramVKey},
+     *      {revokeAttestation}, and {verifyAttestation} are subject to an
+     *      off-chain-observable delay. This is a deployment-time invariant —
+     *      nothing on-chain enforces it.
+     *      `_programVKey` starts at zero; the admin must call {updateProgramVKey}
+     *      before {verifyAttestation} can succeed.
+     * @param attestationVerifier Address of the SP1 verifier contract used to
+     *                            verify attestation proofs.
+     * @param admin               Address granted `DEFAULT_ADMIN_ROLE`; should be
+     *                            a `TimelockController`.
      */
     constructor(address attestationVerifier, address admin) {
         require(attestationVerifier != address(0) && admin != address(0), ZeroAddress());
         _attestationVerifier = attestationVerifier;
-        require(_grantRole(DEFAULT_ADMIN_ROLE, admin), RoleGrantFailed());
+        _grantRole(DEFAULT_ADMIN_ROLE, admin);
     }
 
     // ============ INitroVerifier ============
-
-    /// @inheritdoc INitroVerifier
-    function verifyBlock(
-        bytes32 parentHash,
-        bytes32 blockHash,
-        bytes32 withdrawalHash,
-        bytes32 depositHash,
-        bytes calldata signature,
-        bytes32[] calldata blobHashes
-    ) external view returns (address) {
-        require(signature.length == 65, InvalidSignatureLength());
-
-        bytes32 payload = sha256(abi.encode(block.chainid, address(this), parentHash, blockHash, withdrawalHash, depositHash, blobHashes));
-        address verifier = _assertSignerAttested(payload, signature);
-
-        return verifier;
-    }
 
     /// @inheritdoc INitroVerifier
     function verifyBatch(bytes32 batchRoot, bytes32[] calldata blobHashes, bytes calldata signature) external view returns (address) {
@@ -107,40 +100,16 @@ contract NitroVerifier is AccessControl, INitroVerifier {
     // ============ Admin: VKey Rotation ============
 
     /**
-     * @notice Step 1 — propose a VKey rotation; executable after {VKEY_UPDATE_DELAY}.
+     * @notice Sets the SP1 program verification key for attestation proofs.
+     * @dev Rotation is immediate. Governance delay is expected to be enforced
+     *      by the admin (a `TimelockController`), giving off-chain monitors a
+     *      window to observe and contest the proposed key.
      */
-    function proposeVKeyUpdate(bytes32 newProgramVKey) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function updateProgramVKey(bytes32 newProgramVKey) external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(newProgramVKey != bytes32(0), ZeroVKey());
-        require(newProgramVKey != _programVKey, VKeyUnchanged());
-        pendingVKey = newProgramVKey;
-        uint256 validAt = block.timestamp + VKEY_UPDATE_DELAY;
-        pendingVKeyValidAt = validAt;
-        emit VKeyUpdateProposed(newProgramVKey, validAt);
-    }
-
-    /**
-     * @notice Step 2 — execute the proposed VKey rotation after the timelock expires.
-     */
-    function executeVKeyUpdate() external onlyRole(DEFAULT_ADMIN_ROLE) {
-        bytes32 pending = pendingVKey; // 1 SLOAD, used twice below
-        require(pending != bytes32(0), NoPendingUpdate());
-        require(block.timestamp >= pendingVKeyValidAt, TimelockNotExpired());
         bytes32 oldVKey = _programVKey;
-        _programVKey = pending;
-        pendingVKey = bytes32(0);
-        pendingVKeyValidAt = 0;
-        emit ProgramVKeyUpdated(oldVKey, pending);
-    }
-
-    /**
-     * @notice Cancel a pending VKey rotation before it is executed.
-     */
-    function cancelVKeyUpdate() external onlyRole(DEFAULT_ADMIN_ROLE) {
-        bytes32 pending = pendingVKey; // 1 SLOAD, used twice below
-        require(pending != bytes32(0), NoPendingUpdate());
-        emit VKeyUpdateCancelled(pending);
-        pendingVKey = bytes32(0);
-        pendingVKeyValidAt = 0;
+        _programVKey = newProgramVKey;
+        emit ProgramVKeyUpdated(oldVKey, newProgramVKey);
     }
 
     /**
@@ -154,8 +123,8 @@ contract NitroVerifier is AccessControl, INitroVerifier {
 
     /**
      * @notice Revoke a previously attested enclave pubkey.
-     * @dev Enclave signatures from `pubkey` are rejected by {verifyBlock} and
-     *      {verifyBatch} immediately after revocation.
+     * @dev Enclave signatures from `pubkey` are rejected by {verifyBatch}
+     *      immediately after revocation.
      */
     function revokeAttestation(address pubkey) external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(verifiedPubkeys[pubkey], PubkeyNotVerified());
@@ -190,14 +159,15 @@ contract NitroVerifier is AccessControl, INitroVerifier {
         require(expectedPubkey != address(0), ZeroAddress());
         require(!verifiedPubkeys[expectedPubkey], PubkeyAlreadyVerified());
 
-        // Freshness window: attestationTime must lie within
-        // [block.timestamp - ATTESTATION_MAX_AGE, block.timestamp + ATTESTATION_MAX_SKEW].
+        // Freshness window: attestationTime must be no older than ATTESTATION_MAX_AGE.
+        // Future timestamps are accepted — SP1 binds the timestamp to the proof, so
+        // a forged future value cannot satisfy the enclave-side signing check.
         uint256 nowTs = block.timestamp;
-        if (uint256(attestationTime) + ATTESTATION_MAX_AGE < nowTs || uint256(attestationTime) > nowTs + ATTESTATION_MAX_SKEW) {
+        if (uint256(attestationTime) + ATTESTATION_MAX_AGE < nowTs) {
             revert AttestationExpired(attestationTime, nowTs);
         }
 
-        bytes32 vkey = _programVKey; // 1 SLOAD, passed to external call and event
+        bytes32 vkey = _programVKey;
 
         // Public-values layout produced by the guest's `main`:
         //   abi.encode(address, uint64)  → 64 bytes (two 32-byte words).

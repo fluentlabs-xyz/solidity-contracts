@@ -83,9 +83,9 @@ Exceeding any active deadline triggers the **corrupted** state. All state-changi
 ### Verification paths
 
 - **Batch preconfirmation:** `NitroVerifier.verifyBatch()` — ECDSA recovery against whitelisted Nitro enclave public keys.
-- **Challenge resolution:** Dual proof required — `NitroVerifier.verifyBlock()` (block-level Nitro signature) **and** `SP1Verifier.verifyProof()` (ZK proof).
+- **Challenge resolution:** `SP1Verifier.verifyProof()` — ZK proof of block execution.
 - **Enclave attestation:** SP1 ZK proof validates the Nitro certificate chain; verified public key is added to the whitelist.
-- **VKEY rotation:** 1-day timelock via `proposeVKeyUpdate` → `executeVKeyUpdate`.
+- **VKEY rotation:** `updateProgramVKey` is permissioned to `DEFAULT_ADMIN_ROLE`; the admin is expected to be an OZ `TimelockController` so the rotation is observable off-chain before it takes effect.
 
 ---
 
