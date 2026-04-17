@@ -5,10 +5,15 @@ import {BatchRecord, BatchStatus} from "../../contracts/interfaces/rollup/IRollu
 
 contract MockRollup {
     bool public finalized;
+    bool public corrupted;
     mapping(uint256 => bytes32) public batchRoots;
 
     function setFinalized(bool value) external {
         finalized = value;
+    }
+
+    function setCorrupted(bool value) external {
+        corrupted = value;
     }
 
     function setBatchRoot(uint256 batchIndex, bytes32 root) external {
@@ -17,6 +22,10 @@ contract MockRollup {
 
     function isBatchFinalized(uint256) external view returns (bool) {
         return finalized;
+    }
+
+    function isRollupCorrupted() external view returns (bool) {
+        return corrupted;
     }
 
     function getBatch(uint256 batchIndex) external view returns (BatchRecord memory) {

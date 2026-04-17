@@ -8,6 +8,7 @@ import {MerkleTree} from "../../libraries/MerkleTree.sol";
 import {ExcessivelySafeCall} from "../../libraries/ExcessivelySafeCall.sol";
 
 import {L2BlockHeader} from "../../interfaces/rollup/IRollupTypes.sol";
+import {IRollupErrors} from "../../interfaces/rollup/IRollup.sol";
 import {IFluentBridge} from "../../interfaces/bridge/IFluentBridge.sol";
 import {IL1FluentBridge} from "../../interfaces/bridge/IL1FluentBridge.sol";
 
@@ -145,6 +146,18 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
      */
     function _getReceiveMessageDeadline() internal view override returns (uint256) {
         return _getL1FluentBridgeStorage()._receiveMessageDeadline;
+    }
+
+    /**
+     * @dev Halts outbound L1->L2 sends while the rollup is in its corruption/safety-halt state.
+     *      Mirrors the rollup's own `require(!_rollupCorrupted(), RollupCorrupted())` guard on
+     *      state-changing functions (see {Rollup-_rollupCorrupted}) so the bridge does not keep
+     *      enqueuing deposits into a rollup that is refusing new batches. Reverts with the
+     *      rollup's {IRollupErrors-RollupCorrupted} selector so off-chain monitoring classifies
+     *      this the same way as rollup-side rejections.
+     */
+    function _beforeSendMessage(address /** to */, bytes calldata /** message */) internal view override {
+        require(!Rollup(getRollup()).isRollupCorrupted(), IRollupErrors.RollupCorrupted());
     }
 
     /// @inheritdoc FluentBridge

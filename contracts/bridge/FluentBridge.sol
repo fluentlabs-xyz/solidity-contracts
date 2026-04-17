@@ -41,6 +41,7 @@ abstract contract FluentBridge is FluentBridgeStorageLayout, IFluentBridgeWrite 
     /// @inheritdoc IFluentBridgeWrite
     function sendMessage(address to, bytes calldata message) external payable virtual whenNotPaused nonReentrant {
         require(to != address(this) && to != getOtherBridge(), InvalidDestinationAddress());
+        _beforeSendMessage(to, message);
         uint256 fee = getSentMessageFee();
         require(msg.value >= fee, InsufficientFee());
 
@@ -67,6 +68,16 @@ abstract contract FluentBridge is FluentBridgeStorageLayout, IFluentBridgeWrite 
      *      the transfer uses the exact value that `sendMessage` used to compute `value`.
      */
     function _chargeSendFee(uint256 /* fee */) internal virtual {}
+
+    /**
+     * @dev Hook called before message encoding. Override in L1/L2 bridges to add chain-specific
+     *      pre-send checks by reverting with a specific error. Base is a no-op.
+     *      Unlike {_beforeReceiveMessage} (which may silently skip an already-delivered message),
+     *      this hook has no silent-skip path: on the send path the caller has paid no fee yet
+     *      and nothing is recorded, so any failure MUST revert so the user sees it and no
+     *      `msg.value` is silently accepted.
+     */
+    function _beforeSendMessage(address /** to */, bytes calldata /** message */) internal view virtual {}
 
     /**
      * @dev Hook called after message encoding. L1 overrides to enqueue the message hash.
