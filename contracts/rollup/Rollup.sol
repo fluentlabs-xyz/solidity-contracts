@@ -651,6 +651,14 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         emit ProofRewardClaimed(prover, amount);
     }
 
+    /**
+     * @dev Validates that `verifier` is whitelisted.
+     */
+    function isNitroVerifierEnabled(address verifier) external view returns (bool) {
+        RollupStorage storage $ = _getRollupStorage();
+        return $._enabledNitroVerifiers[verifier];
+    }
+
     // ============ Internal — lifecycle ============
 
     /**
