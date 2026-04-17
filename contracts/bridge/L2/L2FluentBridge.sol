@@ -95,7 +95,8 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
         _setFeeTreasury(feeTreasury);
     }
 
-    function sendMessage(address to, bytes calldata message) external payable override whenNotPaused nonReentrant {
+    /// @notice Withdrawals are PAUSED on L2.
+    function sendMessage(address /** to */, bytes calldata /** message */) external payable override whenNotPaused nonReentrant {
         revert("PAUSED");
     }
 
@@ -162,7 +163,6 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
             // RollbackMessage is included in the L2 block's withdrawalRoot,
             // enabling proof-based refund on L1 via rollbackMessageWithProof
             emit RollbackMessage(messageHash, block.number);
-            emit ReceivedMessage(messageHash, false, "");
             // Return false to skip message execution in the caller
             return false;
         }

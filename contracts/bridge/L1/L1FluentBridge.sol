@@ -164,16 +164,19 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         }
     }
 
+    /**
+     * @notice Leverage on 'receiveMessageWithProof()' instead of this function on L1.
+     */
     function receiveMessage(
-        address from,
-        address to,
-        uint256 value,
-        uint256 chainId,
-        uint256 validUntilBlockNumber,
-        uint256 messageNonce,
-        bytes calldata message
+        address /** from */,
+        address /** to */,
+        uint256 /** value */,
+        uint256 /** chainId */,
+        uint256 /** validUntilBlockNumber */,
+        uint256 /** messageNonce */,
+        bytes calldata /** message */
     ) external override onlyRole(RELAYER_ROLE) nonReentrant whenNotPaused {
-        revert("PAUSED");
+        revert("NOT_IMPLEMENTED");
     }
 
     // ============ Receive with proof ============
