@@ -110,14 +110,17 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
     function revertBatches(uint256 toBatchIndex) external payable onlyRole(EMERGENCY_ROLE) nonReentrant {
         // Access control: EMERGENCY_ROLE + nonReentrant guard (payable — receives ETH for incentive fees)
         RollupStorage storage $ = _getRollupStorage();
-        // Identify the most recent batch so we know the revert range [toBatchIndex+1 .. lastAccepted]
+        // Identify the most recent batch so we know the revert range [toBatchIndex .. lastAccepted]
         uint256 lastAcceptedBatchIndex = $._nextBatchIndex - 1;
         // Index 0 holds the genesis hash and must never be reverted
         require(toBatchIndex > 0, ZeroValueNotAllowed("toBatchIndex"));
+        // Reject indices beyond the latest accepted batch — prevents fat-fingered calls from
+        // silently jumping _nextBatchIndex forward and creating unreachable gaps in batch indexing.
+        require(toBatchIndex <= lastAcceptedBatchIndex, InvalidBatchIndex(toBatchIndex, $._nextBatchIndex));
 
         uint256 gasLeft = $._gasLeft;
         // Safety check: finalized batches are immutable and must never be rolled back
-        for (uint256 i = lastAcceptedBatchIndex; i > toBatchIndex; i--) {
+        for (uint256 i = lastAcceptedBatchIndex; i >= toBatchIndex; i--) {
             require(gasleft() >= gasLeft, InsufficientGas());
             require($._batches[i].status != BatchStatus.Finalized, BatchAlreadyFinalized(i));
         }
@@ -127,40 +130,35 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         // Cache the per-challenge incentive fee to avoid repeated storage reads in the loop
         uint256 fee = $._incentiveFee;
 
-        // Only rewind the bridge cursor when there is at least one batch in the revert range.
-        // Capturing the snapshot before the cleanup loop deletes the BatchRecord.
-        if (lastAcceptedBatchIndex > toBatchIndex) {
-            uint64 rewindTarget = $._batches[toBatchIndex + 1].sentMessageCursorStart;
+        // Capture the rewind target before the cleanup loop deletes the BatchRecord.
+        uint64 rewindTarget = $._batches[toBatchIndex].sentMessageCursorStart;
 
-            // Process each batch in reverse order: refund both challenge families and wipe batch storage
-            for (uint256 i = lastAcceptedBatchIndex; i > toBatchIndex; i--) {
-                totalIncentiveFees += _processRevertBlockChallenges($._batchChallengedBlocks[i], fee);
-                totalIncentiveFees += _processRevertBatchRootChallenge(i, fee);
-                _cleanupRevertedBatch(i);
-            }
-
-            // Single bridge call to rewind the consume cursor — replaces the per-deposit
-            // pushSentMessage loop that the previous fix used. Safe under nonReentrant
-            // (forceRevertBatch is nonReentrant) and against the trusted bridge.
-            IL1FluentBridge($._bridge).rewindSentMessageCursor(rewindTarget); // wake-disable-line reentrancy
+        // Process each batch in reverse order: refund both challenge families and wipe batch storage
+        for (uint256 i = lastAcceptedBatchIndex; i >= toBatchIndex; i--) {
+            totalIncentiveFees += _processRevertBlockChallenges($._batchChallengedBlocks[i], fee);
+            totalIncentiveFees += _processRevertBatchRootChallenge(i, fee);
+            _cleanupRevertedBatch(i);
         }
+
+        // Single bridge call to rewind the consume cursor — replaces the per-deposit
+        // pushSentMessage loop that the previous fix used. Safe under nonReentrant
+        // (forceRevertBatch is nonReentrant) and against the trusted bridge.
+        IL1FluentBridge($._bridge).rewindSentMessageCursor(rewindTarget); // wake-disable-line reentrancy
 
         // Caller must send enough ETH to cover all incentive fees owed to challengers
         require(msg.value >= totalIncentiveFees, NotEnoughValueIncentiveFee(msg.value, totalIncentiveFees));
-        // Reset the batch counter so the next batch starts right after the revert target
-        require(toBatchIndex + 1 <= type(uint64).max, NextBatchIndexOverflow());
-        // casting to 'uint64' is safe because we validate the bounds above.
+        // Reset the batch counter so the next batch reuses the revert target index.
         // forge-lint: disable-next-line(unsafe-typecast)
-        $._nextBatchIndex = uint64(toBatchIndex + 1);
+        $._nextBatchIndex = uint64(toBatchIndex);
 
-        // Refund any overpayment back to the caller (underflow safe: require on L115 guarantees msg.value >= totalIncentiveFees)
+        // Refund any overpayment back to the caller (underflow safe: require above guarantees msg.value >= totalIncentiveFees)
         uint256 refund = msg.value - totalIncentiveFees;
         if (refund > 0) {
             (bool ok, ) = msg.sender.call{value: refund}("");
             require(ok, EthTransferFailed(msg.sender, refund));
         }
 
-        // Notify off-chain indexers that all batches after toBatchIndex have been rolled back
+        // Notify off-chain indexers that all batches from toBatchIndex onward have been rolled back
         emit BatchReverted(toBatchIndex);
     }
 

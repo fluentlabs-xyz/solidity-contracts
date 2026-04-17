@@ -20,21 +20,20 @@ contract ForceRevertTest is RollupAssertions {
     // ============ Cleanup ============
 
     function test_forceRevert_cleansUpBlobHashes() public {
-        uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
+        _fullyFinalizeBatch(GENESIS_HASH);
         bytes32 lastHash = _lastBlockHash(GENESIS_HASH);
         uint256 batch2 = _acceptBatch(lastHash, 0);
         _submitBlobs(batch2, 0);
 
-        // revertBatches(batch1) keeps batch1, reverts batch2
+        // revertBatches(batch2) reverts batch2 (and everything above it)
         vm.prank(admin);
-        rollup.revertBatches(batch1);
+        rollup.revertBatches(batch2);
 
         assertEq(rollup.batchBlobHashes(batch2).length, 0, "blobHashes should be empty after revert");
     }
 
     function test_forceRevert_cleansUpLastBlockHash() public {
-        uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
-        bytes32 batch1LastHash = _lastBlockHash(GENESIS_HASH);
+        _fullyFinalizeBatch(GENESIS_HASH);
 
         bytes32 lastHash1 = _lastBlockHash(GENESIS_HASH);
         L2BlockHeader[] memory batch2Headers = _makeBatch(lastHash1);
@@ -43,7 +42,7 @@ contract ForceRevertTest is RollupAssertions {
 
         // Revert batch2: keep batch1, remove batch2
         vm.prank(admin);
-        rollup.revertBatches(batch1);
+        rollup.revertBatches(batch2);
     }
 
     function test_forceRevert_cleansUpProvenBlocks() public {
@@ -65,13 +64,13 @@ contract ForceRevertTest is RollupAssertions {
 
         // Revert batch2: keep batch1
         vm.prank(admin);
-        rollup.revertBatches(batch1);
+        rollup.revertBatches(batch2);
 
         assertFalse(rollup.isBlockProven(commitment), "proven flag should be cleared after revert");
     }
 
     function test_forceRevert_multipleBatches_cleansAll() public {
-        uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
+        _fullyFinalizeBatch(GENESIS_HASH);
 
         bytes32 lastHash1 = _lastBlockHash(GENESIS_HASH);
         uint256 batch2 = _acceptBatch(lastHash1, 0);
@@ -87,9 +86,9 @@ contract ForceRevertTest is RollupAssertions {
 
         // Revert batch2 and batch3: keep batch1
         vm.prank(admin);
-        rollup.revertBatches(batch1);
+        rollup.revertBatches(batch2);
 
-        assertEq(rollup.nextBatchIndex(), batch1 + 1);
+        assertEq(rollup.nextBatchIndex(), batch2);
         assertEq(rollup.getBatch(batch2).batchRoot, bytes32(0), "batch2 should be deleted");
         assertEq(rollup.getBatch(batch3).batchRoot, bytes32(0), "batch3 should be deleted");
         // lastBlockHashInBatch removed — chain linking is no longer stored
@@ -107,7 +106,7 @@ contract ForceRevertTest is RollupAssertions {
 
         // Revert batch2: keep batch1
         vm.prank(admin);
-        rollup.revertBatches(batch1);
+        rollup.revertBatches(batch2);
 
         uint256 batch2Again = _acceptBatch(batch1LastHash, 0);
         assertEq(batch2Again, batch2, "re-submitted batch should have same index");
@@ -130,7 +129,7 @@ contract ForceRevertTest is RollupAssertions {
         uint256 fee = rollup.incentiveFee();
         vm.deal(admin, fee);
         vm.prank(admin);
-        rollup.revertBatches{value: fee}(batch1);
+        rollup.revertBatches{value: fee}(batch2);
 
         // Re-submit the same batch
         _commitBatch(batch2Commits, new BlockDeposit[](0));
@@ -146,7 +145,7 @@ contract ForceRevertTest is RollupAssertions {
     // ============ Finalization guards ============
 
     function test_forceRevert_cannotRevertRangeContainingFinalized() public {
-        uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
+        _fullyFinalizeBatch(GENESIS_HASH);
 
         bytes32 lastHash1 = _lastBlockHash(GENESIS_HASH);
         uint256 batch2 = _acceptBatch(lastHash1, 0);
@@ -165,23 +164,23 @@ contract ForceRevertTest is RollupAssertions {
         bytes32 lastHash3 = _lastBlockHash(GENESIS_HASH);
         uint256 batch4 = _acceptBatch(lastHash3, 0);
 
-        // Trying to revert from batch1 (which would include finalized batch2) should fail
-        // The loop goes from lastAccepted down to toBatchIndex+1, hitting finalized batch3 first
+        // Trying to revert starting from batch2 (which includes finalized batch2 & batch3) should fail.
+        // The loop walks from lastAccepted down to toBatchIndex inclusive, hitting finalized batch3 first.
         vm.prank(admin);
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.BatchAlreadyFinalized.selector, batch4 - 1));
-        rollup.revertBatches(batch1);
+        rollup.revertBatches(batch2);
 
         // Reverting only batch4 (keep batch3) should succeed
         vm.prank(admin);
-        rollup.revertBatches(batch3);
-        assertEq(rollup.nextBatchIndex(), batch3 + 1, "nextBatchIndex should be reset");
+        rollup.revertBatches(batch4);
+        assertEq(rollup.nextBatchIndex(), batch4, "nextBatchIndex should be reset");
     }
 
     // ============ Corruption ============
 
     function test_corruptedRecoveryViaForceRevert() public {
         // Finalize batch1 first so we have a valid toBatchIndex > 0
-        uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
+        _fullyFinalizeBatch(GENESIS_HASH);
         bytes32 lastHash = _lastBlockHash(GENESIS_HASH);
 
         uint256 batch2 = _acceptBatch(lastHash, 0);
@@ -191,7 +190,7 @@ contract ForceRevertTest is RollupAssertions {
 
         // Revert batch2: keep batch1
         vm.prank(admin);
-        rollup.revertBatches(batch1);
+        rollup.revertBatches(batch2);
 
         _assertRollupHealthy();
 
@@ -219,7 +218,7 @@ contract ForceRevertTest is RollupAssertions {
         uint256 fee = rollup.incentiveFee();
         vm.deal(admin, fee);
         vm.prank(admin);
-        rollup.revertBatches{value: fee}(batch1);
+        rollup.revertBatches{value: fee}(batch2);
 
         _assertChallengerWithdrawable(challenger, CHALLENGE_DEPOSIT + fee);
     }
@@ -256,7 +255,7 @@ contract ForceRevertTest is RollupAssertions {
         uint256 fee = rollup.incentiveFee();
         vm.deal(admin, fee * 2);
         vm.prank(admin);
-        rollup.revertBatches{value: fee * 2}(batch1);
+        rollup.revertBatches{value: fee * 2}(batch2);
 
         assertEq(rollup.claimableChallengerReward(challenger), CHALLENGE_DEPOSIT + fee, "challenger reward mismatch");
         assertEq(rollup.claimableChallengerReward(challenger2), CHALLENGE_DEPOSIT + fee, "challenger2 reward mismatch");
@@ -287,7 +286,7 @@ contract ForceRevertTest is RollupAssertions {
         vm.deal(admin, insufficient);
         vm.prank(admin);
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.NotEnoughValueIncentiveFee.selector, insufficient, fee));
-        rollup.revertBatches{value: insufficient}(batch1);
+        rollup.revertBatches{value: insufficient}(batch2);
     }
 
     // ============ Deposit restoration ============
@@ -328,8 +327,9 @@ contract ForceRevertTest is RollupAssertions {
         _assertRollupCorrupted();
 
         // Force-revert batch2
+        uint256 batch2 = batch1 + 1;
         vm.prank(admin);
-        rollup.revertBatches(batch1);
+        rollup.revertBatches(batch2);
         _assertRollupHealthy();
 
         // All four deposits must be present and consumable in original send order.
@@ -406,7 +406,7 @@ contract ForceRevertTest is RollupAssertions {
         uint256 fee = rollup.incentiveFee();
         vm.deal(admin, fee);
         vm.prank(admin);
-        rollup.revertBatches{value: fee}(batch1);
+        rollup.revertBatches{value: fee}(batch2);
 
         // Cursor must be back to 0 (snapshot of batch2, the oldest reverted batch)
         assertEq(depositBridge.getSentMessageCursor(), 0, "cursor rewound to oldest snapshot");
@@ -418,23 +418,16 @@ contract ForceRevertTest is RollupAssertions {
         assertEq(depositBridge.consumeNextSentMessage(), c, "re-consume c");
     }
 
-    /// @dev revertBatches with toBatchIndex == lastAcceptedBatchIndex is a no-op for
-    ///      the cursor — must not call rewindSentMessageCursor at all.
-    function test_forceRevert_noBatchesToRevert_doesNotRewindCursor() public {
+    /// @dev revertBatches rejects a toBatchIndex beyond the latest accepted batch —
+    ///      prevents fat-fingered calls from jumping _nextBatchIndex forward.
+    function test_RevertIf_revertBatches_toBatchIndexAboveLastAccepted() public {
         uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
-        // lastAcceptedBatchIndex == batch1, toBatchIndex == batch1 → range is empty
-
-        bytes32 d = keccak256("d");
-        depositBridge.enqueue(d);
-        // After enqueue, cursor is still 0 (nothing consumed)
-        assertEq(depositBridge.getSentMessageCursor(), 0);
+        // lastAcceptedBatchIndex == batch1, nextBatchIndex == batch1 + 1
+        uint256 beyond = batch1 + 1;
 
         vm.prank(admin);
-        rollup.revertBatches(batch1);
-
-        // Cursor unchanged — no rewind happened
-        assertEq(depositBridge.getSentMessageCursor(), 0);
-        assertEq(depositBridge.getSentMessageQueueSize(), 1, "deposit still in queue");
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidBatchIndex.selector, beyond, beyond));
+        rollup.revertBatches(beyond);
     }
 
     // ============ Helpers ============

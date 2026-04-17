@@ -269,7 +269,7 @@ contract BatchRootChallengeTest is RollupAssertions {
     // ============ forceRevert interaction ============
 
     function test_forceRevert_refundsBatchRootChallenger() public {
-        uint256 batch1 = _fullyFinalizeBatch(GENESIS_HASH);
+        _fullyFinalizeBatch(GENESIS_HASH);
         bytes32 lastHash = _lastBlockHash(GENESIS_HASH);
         (uint256 batchIndex,) = _submittedBatchWithHeaders(lastHash);
 
@@ -279,7 +279,7 @@ contract BatchRootChallengeTest is RollupAssertions {
         uint256 fee = rollup.incentiveFee();
         vm.deal(admin, fee);
         vm.prank(admin);
-        rollup.revertBatches{value: fee}(batch1);
+        rollup.revertBatches{value: fee}(batchIndex);
 
         _assertChallengerWithdrawable(challenger, CHALLENGE_DEPOSIT + fee);
     }

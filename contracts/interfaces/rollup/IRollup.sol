@@ -790,12 +790,12 @@ interface IRollupEmergency {
     function unpause() external;
 
     /**
-     * @notice Revert all non-finalized batches above `toBatchIndex`.
+     * @notice Revert all non-finalized batches starting from `toBatchIndex`.
      * @dev Only callable by EMERGENCY_ROLE. Refunds both block challenger deposits and
      *      batch-root challenger deposits along with the incentive fee (Q5).
-     *      Sets `_nextBatchIndex` to `toBatchIndex + 1`, effectively discarding all
-     *      batches in the range `(toBatchIndex, lastAcceptedBatchIndex]`.
-     * @param toBatchIndex The last batch to keep. All batches above this index are reverted.
+     *      Sets `_nextBatchIndex` to `toBatchIndex`, effectively discarding all
+     *      batches in the range `[toBatchIndex, lastAcceptedBatchIndex]`.
+     * @param toBatchIndex The first batch to revert. This batch and every batch above it are reverted.
      */
     function revertBatches(uint256 toBatchIndex) external payable;
 
