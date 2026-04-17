@@ -88,6 +88,12 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         _;
     }
 
+    modifier onlyRollupOrOwner() {
+        // Only the bound rollup contract may call queue-consuming functions
+        require(msg.sender == getRollup() || hasRole(DEFAULT_ADMIN_ROLE, msg.sender), OnlyRollup());
+        _;
+    }
+
     // ============ Constructor ============
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -422,7 +428,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     }
 
     /// @inheritdoc IL1FluentBridge
-    function advanceSentMessageCursor(uint64 count) public onlyRollup {
+    function advanceSentMessageCursor(uint64 count) public onlyRollupOrOwner {
         L1FluentBridgeStorage storage $ = _getL1FluentBridgeStorage();
         // Reverts if advancing the cursor would exceed the number of unconsumed messages
         require($._sentMessageFront + count <= $._sentMessageBack, InvalidAdvanceCount(count, getSentMessageQueueSize()));
