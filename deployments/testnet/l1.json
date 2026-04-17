@@ -1,6 +1,6 @@
 {
   "bridge": "0x9CAcf613fC29015893728563f423fD26dCdB8Ddc",
-  "bridge_impl": "0x7846c001835d889a29ba659f67a5b7ac98e73bf4",
+  "bridge_impl": "0x5398c8De96Ef049B5d8D0ce01e4C9D58c47B98C9",
   "chainId": 11155111,
   "erc20_gateway": "0xfd4c62647a34ff6d6802092f5fbe176099223b61",
   "erc20_gateway_impl": "0x648a97b29946b62e9feea63c5134ef6beb82313b",
@@ -10,8 +10,8 @@
   "mock_token": "0x0000000000000000000000000000000000000000",
   "native_gateway": "0x8976ca4e0c8467097da675399fb7db454a1b56dd",
   "native_gateway_impl": "0x482df12fbc3ba7a7f02aa928e620fd12af5fd30e",
-  "nitro_verifier": "0x207fbb4ac5227ab598b8072bdc1e150df687ac5b",
+  "nitro_verifier": "0xbA3d3B60b6f462AA3fb2D63F8B610Fa8825c3019",
   "pegged_impl": "0x57125e0de1dd238154558643b1e78fcbf5ab1a92",
   "rollup": "0x1cF53Fd9CD0b713be29F2b41cA17A943f138727f",
-  "rollup_impl": "0x405eA6684CDD57e8f9c15395626F3c72c5255D50"
+  "rollup_impl": "0x52f9e37FeDd9EF7d5eCB24D77cff40d5337A5770"
 }

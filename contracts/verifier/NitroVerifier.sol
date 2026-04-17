@@ -35,6 +35,8 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 contract NitroVerifier is AccessControl, INitroVerifier {
     // ============ Constants ============
 
+    bytes32 public constant ENCLAVE_ATTESTER_ROLE = keccak256("ENCLAVE_ATTESTER_ROLE");
+
     /**
      * @dev Maximum age of an attestation document at the moment it is submitted on-chain.
      *      Prevents replay of stale attestations produced by nodes whose ephemeral
@@ -155,7 +157,7 @@ contract NitroVerifier is AccessControl, INitroVerifier {
      *                         committed inside the SP1 proof.
      * @param proofBytes       Encoded SP1 proof.
      */
-    function verifyAttestation(address expectedPubkey, uint64 attestationTime, bytes calldata proofBytes) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function verifyAttestation(address expectedPubkey, uint64 attestationTime, bytes calldata proofBytes) external onlyRole(ENCLAVE_ATTESTER_ROLE) {
         require(expectedPubkey != address(0), ZeroAddress());
         require(!verifiedPubkeys[expectedPubkey], PubkeyAlreadyVerified());
 
