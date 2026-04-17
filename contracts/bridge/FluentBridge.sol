@@ -88,9 +88,13 @@ abstract contract FluentBridge is FluentBridgeStorageLayout, IFluentBridgeWrite 
         require(getReceivedMessage(messageHash) == IFluentBridge.MessageStatus.None, MessageAlreadyReceived());
 
         require(to != address(this), ForbiddenSelfCall());
-        if (!_beforeReceiveMessage(from, to, value, chainId, validUntilBlockNumber, messageNonce, message)) return;
+        if (!_beforeReceiveMessage(from, to, value, chainId, validUntilBlockNumber, messageNonce, message)) {
+            emit ReceivedMessage(messageHash, false, "");
+            return;
+        }
 
-        _receiveMessage(getExecuteGasLimit(), from, to, value, message, messageHash);
+        (bool success, bytes memory data) = _receiveMessage(getExecuteGasLimit(), from, to, value, message, messageHash);
+        emit ReceivedMessage(messageHash, success, data);
     }
 
     /// @inheritdoc IFluentBridgeWrite
@@ -107,9 +111,13 @@ abstract contract FluentBridge is FluentBridgeStorageLayout, IFluentBridgeWrite 
         require(getReceivedMessage(messageHash) == IFluentBridge.MessageStatus.Failed, MessageNotFailed());
 
         require(to != address(this), ForbiddenSelfCall());
-        if (!_beforeReceiveFailedMessage(from, to, value, chainId, validUntilBlockNumber, messageNonce, message)) return;
+        if (!_beforeReceiveMessage(from, to, value, chainId, validUntilBlockNumber, messageNonce, message)) {
+            emit RetriedFailedMessage(messageHash, false, "");
+            return;
+        }
 
-        _receiveFailedMessage(gasleft(), from, to, value, message, messageHash);
+        (bool success, bytes memory data) = _receiveMessage(gasleft(), from, to, value, message, messageHash);
+        emit RetriedFailedMessage(messageHash, success, data);
     }
 
     /**
@@ -148,37 +156,22 @@ abstract contract FluentBridge is FluentBridgeStorageLayout, IFluentBridgeWrite 
      * @dev Core message execution: sets {_nativeSender} for cross-chain sender identification,
      *      forwards value and calldata via {ExcessivelySafeCall}, records result status.
      */
-    function _receiveMessage(uint256 gasLimit, address from, address to, uint256 value, bytes calldata message, bytes32 messageHash) internal {
-        FluentBridgeStorage storage $ = _getFluentBridgeStorage();
-
-        $._nativeSender = from;
-        (bool success, bytes memory data) = ExcessivelySafeCall.excessivelySafeCall(to, value, message, gasLimit);
-        $._nativeSender = address(0);
-
-        $._receivedMessage[messageHash] = success ? IFluentBridge.MessageStatus.Success : IFluentBridge.MessageStatus.Failed;
-        emit ReceivedMessage(messageHash, success, data);
-    }
-
-    /**
-     * @dev Core message execution: sets {_nativeSender} for cross-chain sender identification,
-     *      forwards value and calldata via {ExcessivelySafeCall}, records result status.
-     */
-    function _receiveFailedMessage(
+    function _receiveMessage(
         uint256 gasLimit,
         address from,
         address to,
         uint256 value,
         bytes calldata message,
         bytes32 messageHash
-    ) internal {
+    ) internal returns (bool success, bytes memory data) {
         FluentBridgeStorage storage $ = _getFluentBridgeStorage();
 
         $._nativeSender = from;
-        (bool success, bytes memory data) = ExcessivelySafeCall.excessivelySafeCall(to, value, message, gasLimit);
+        (success, data) = ExcessivelySafeCall.excessivelySafeCall(to, value, message, gasLimit);
         $._nativeSender = address(0);
 
         $._receivedMessage[messageHash] = success ? IFluentBridge.MessageStatus.Success : IFluentBridge.MessageStatus.Failed;
-        emit RetriedFailedMessage(messageHash, success, data);
+        return (success, data);
     }
 
     // ============ Pauser functions ============

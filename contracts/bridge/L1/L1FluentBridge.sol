@@ -139,22 +139,6 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         return true;
     }
 
-    /// @inheritdoc FluentBridge
-    function _beforeReceiveFailedMessage(
-        address /** from */,
-        address /** to */,
-        uint256 value,
-        uint256 /** chainId */,
-        uint256 /** validUntilBlockNumber */,
-        uint256 /** messageNonce */,
-        bytes calldata /** message */
-    ) internal view override returns (bool) {
-        // Ensures the bridge has enough balance to cover the value being sent before allowing the message to be sent.
-        if (value > 0) require(address(this).balance >= value, InsufficientBridgeBalance(value));
-
-        return true;
-    }
-
     /**
      * @dev Returns the L1-owned receive-message deadline snapshotted into new outbound
      *      L1->L2 messages. Overrides the base {FluentBridgeStorageLayout} default of 0.
@@ -180,16 +164,19 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         }
     }
 
+    /**
+     * @notice Leverage on 'receiveMessageWithProof()' instead of this function on L1.
+     */
     function receiveMessage(
-        address from,
-        address to,
-        uint256 value,
-        uint256 chainId,
-        uint256 validUntilBlockNumber,
-        uint256 messageNonce,
-        bytes calldata message
+        address /** from */,
+        address /** to */,
+        uint256 /** value */,
+        uint256 /** chainId */,
+        uint256 /** validUntilBlockNumber */,
+        uint256 /** messageNonce */,
+        bytes calldata /** message */
     ) external override onlyRole(RELAYER_ROLE) nonReentrant whenNotPaused {
-        revert("PAUSED");
+        revert("NOT_IMPLEMENTED");
     }
 
     // ============ Receive with proof ============
