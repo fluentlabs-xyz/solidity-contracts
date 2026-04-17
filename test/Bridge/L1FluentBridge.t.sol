@@ -10,6 +10,7 @@ import {IL1FluentBridge} from "../../contracts/interfaces/bridge/IL1FluentBridge
 import {IFluentBridgeErrors} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 import {L2BlockHeader} from "../../contracts/interfaces/rollup/IRollupTypes.sol";
+import {IRollupErrors} from "../../contracts/interfaces/rollup/IRollup.sol";
 import {MockRollup} from "../mocks/MockRollup.sol";
 import {BridgeBase, NoopReceiver} from "./Base.t.sol";
 
@@ -46,6 +47,24 @@ contract L1FluentBridgeTest is BridgeBase {
         bytes32 msgHash = l1Bridge.consumeNextSentMessage();
 
         assertTrue(msgHash != bytes32(0), "message hash should be queued");
+    }
+
+    function test_RevertIf_sendMessage_rollupCorrupted() public {
+        rollup.setCorrupted(true);
+
+        vm.expectRevert(IRollupErrors.RollupCorrupted.selector);
+        l1Bridge.sendMessage(receiver, hex"01");
+    }
+
+    function test_sendMessage_succeedsAfterCorruptionCleared() public {
+        rollup.setCorrupted(true);
+        vm.expectRevert(IRollupErrors.RollupCorrupted.selector);
+        l1Bridge.sendMessage(receiver, hex"01");
+
+        rollup.setCorrupted(false);
+        l1Bridge.sendMessage(receiver, hex"01");
+
+        assertEq(l1Bridge.getSentMessageQueueSize(), 1, "queued after clear");
     }
 
     function test_RevertIf_consumeNextSentMessage_queueEmpty() public {
