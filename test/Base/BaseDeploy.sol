@@ -7,6 +7,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {L1FluentBridge} from "../../contracts/bridge/L1/L1FluentBridge.sol";
 import {L2FluentBridge} from "../../contracts/bridge/L2/L2FluentBridge.sol";
 import {FluentBridgeStorageLayout} from "../../contracts/bridge/FluentBridgeStorageLayout.sol";
+import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {L1BlockOracle} from "../../contracts/oracles/L1BlockOracle.sol";
 import {L1GasOracle} from "../../contracts/oracles/L1GasOracle.sol";
 import {NativeGateway} from "../../contracts/gateways/NativeGateway.sol";
@@ -90,7 +91,7 @@ abstract contract BaseDeployNative is Test {
         ERC1967Proxy rollupProxy = new ERC1967Proxy(address(rollupImpl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
         l1Rollup = Rollup(payable(address(rollupProxy)));
 
-        FluentBridgeStorageLayout.InitConfiguration memory params = FluentBridgeStorageLayout.InitConfiguration({
+        IFluentBridge.InitConfiguration memory params = IFluentBridge.InitConfiguration({
             adminRole: admin,
             pauserRole: admin,
             relayerRole: relayer,
@@ -116,7 +117,7 @@ abstract contract BaseDeployNative is Test {
         l2BlockOracle.updateL1BlockNumber(1);
         l2GasOracle = new L1GasOracle(relayer);
 
-        FluentBridgeStorageLayout.InitConfiguration memory params = FluentBridgeStorageLayout.InitConfiguration({
+        IFluentBridge.InitConfiguration memory params = IFluentBridge.InitConfiguration({
             adminRole: admin,
             pauserRole: admin,
             relayerRole: relayer,
@@ -213,7 +214,7 @@ abstract contract BaseDeployERC20 is Test {
         ERC1967Proxy rollupProxy = new ERC1967Proxy(address(rollupImpl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
         l1Rollup = Rollup(payable(address(rollupProxy)));
 
-        FluentBridgeStorageLayout.InitConfiguration memory params = FluentBridgeStorageLayout.InitConfiguration({
+        IFluentBridge.InitConfiguration memory params = IFluentBridge.InitConfiguration({
             adminRole: admin,
             pauserRole: admin,
             relayerRole: relayer,
@@ -251,7 +252,7 @@ abstract contract BaseDeployERC20 is Test {
         l1BlockOracle.updateL1BlockNumber(1);
         l1GasOracle = new L1GasOracle(relayer);
 
-        FluentBridgeStorageLayout.InitConfiguration memory params = FluentBridgeStorageLayout.InitConfiguration({
+        IFluentBridge.InitConfiguration memory params = IFluentBridge.InitConfiguration({
             adminRole: admin,
             pauserRole: admin,
             relayerRole: relayer,

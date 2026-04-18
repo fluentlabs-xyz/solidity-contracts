@@ -159,11 +159,13 @@ abstract contract FluentBridge is FluentBridgeStorageLayout, IFluentBridgeWrite 
         bytes calldata message,
         bytes32 messageHash
     ) internal returns (bool success, bytes memory data) {
+        // 'to' is either the native gateway or erc20 gateway
         FluentBridgeStorage storage $ = _getFluentBridgeStorage();
+        require($._gatewayWhitelist[to], GatewayNotWhitelisted());
 
-        $._nativeSender = from;
+        _nativeSender = from;
         (success, data) = ExcessivelySafeCall.excessivelySafeCall(to, value, message, gasLimit);
-        $._nativeSender = address(0);
+        _nativeSender = address(0);
 
         $._receivedMessage[messageHash] = success ? IFluentBridge.MessageStatus.Success : IFluentBridge.MessageStatus.Failed;
         return (success, data);

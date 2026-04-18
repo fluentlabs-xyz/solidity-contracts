@@ -5,6 +5,7 @@ import {stdJson} from "forge-std/StdJson.sol";
 import {console2} from "forge-std/console2.sol";
 import {Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {L1FluentBridge} from "../../contracts/bridge/L1/L1FluentBridge.sol";
+import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {FluentBridgeStorageLayout} from "../../contracts/bridge/FluentBridgeStorageLayout.sol";
 import {DeployBase} from "./DeployBase.s.sol";
 
@@ -27,7 +28,7 @@ contract DeployL1Bridge is DeployBase {
         uint256 receiveMessageDeadline,
         uint256 depositProcessingWindow
     ) internal returns (L1BridgeResult memory r) {
-        FluentBridgeStorageLayout.InitConfiguration memory params = FluentBridgeStorageLayout.InitConfiguration({
+        IFluentBridge.InitConfiguration memory params = IFluentBridge.InitConfiguration({
             adminRole: adminRole,
             pauserRole: pauserRole,
             relayerRole: relayerRole,

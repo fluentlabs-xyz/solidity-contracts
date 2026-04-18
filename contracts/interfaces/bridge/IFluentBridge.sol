@@ -51,6 +51,17 @@ interface IFluentBridgeRead {
      * @notice Fee charged on the next outbound message (0 when no fee applies).
      */
     function getSentMessageFee() external view returns (uint256);
+
+    /**
+     * @notice True iff the currently executing cross-chain message originated from an L1 batch
+     *         whose rollup status is {BatchStatus.Preconfirmed}. False in every other case —
+     *         including {BatchStatus.Finalized}, the L1 relayer path, every L2 receive path,
+     *         and any call made outside an in-flight receive execution.
+     * @dev Used by gateway-level rate limits that are only meaningful during the optimistic
+     *      preconfirmation window. Once the originating batch is Finalized the consumer MUST
+     *      treat the call as unrestricted; outside a receive the return is always false.
+     */
+    function isCurrentBatchPreconfirmed() external view returns (bool);
 }
 
 /**
@@ -109,6 +120,12 @@ interface IFluentBridgeErrors {
      * @notice Bridge balance too low to cover the native value required by the message.
      */
     error InsufficientBridgeBalance(uint256 required);
+
+    /**
+     * @notice Gateway is not whitelisted.
+     * @dev selector: 0x4185a6fb
+     */
+    error GatewayNotWhitelisted();
 }
 
 /**
@@ -163,6 +180,20 @@ interface IFluentBridgeEvents {
      * @notice Emitted when the fee treasury address is updated.
      */
     event FeeTreasuryUpdated(address indexed prevValue, address indexed newValue);
+    /**
+     * @notice Emitted when a gateway is registered as a trusted peer on this bridge.
+     * @dev A registered gateway is eligible as both a `sendMessage` destination (outbound)
+     *      and a `_receiveMessage` target (inbound). See {FluentBridge.sendMessage} and
+     *      {FluentBridge._receiveMessage}.
+     */
+    event GatewayRegistered(address indexed gateway);
+    /**
+     * @notice Emitted when a gateway is de-registered from the trusted peer set.
+     * @dev Once deregistered, the bridge rejects further sends to and receives from this
+     *      address. In-flight outbound messages already enqueued are unaffected; in-flight
+     *      inbound messages will revert on receive with {GatewayNotWhitelisted}.
+     */
+    event GatewayDeregistered(address indexed gateway);
 }
 
 interface IFluentBridgeWrite {
@@ -227,6 +258,20 @@ interface IFluentBridgeWrite {
  * @dev Core bridge interface: message lifecycle (send, receive, retry), state queries, and status tracking.
  */
 interface IFluentBridge is IFluentBridgeErrors, IFluentBridgeEvents, IFluentBridgeWrite {
+    /**
+     * @dev Configuration parameters for bridge initialization.
+     */
+    struct InitConfiguration {
+        /// @dev Address authorized to perform admin actions.
+        address adminRole;
+        /// @dev Address authorized to pause the contract.
+        address pauserRole;
+        /// @dev Address authorized to relay messages.
+        address relayerRole;
+        /// @dev Address of the bridge contract on the other chain.
+        address otherBridge;
+    }
+
     /**
      * @dev Describes the status of a cross-chain message.
      */

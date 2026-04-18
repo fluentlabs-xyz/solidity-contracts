@@ -40,6 +40,11 @@ interface IL1FluentBridge {
      */
     error InvalidBlockProof();
     /**
+     * @notice Rollup batch with index `batchIndex` is not expected status
+     * @dev selector: 0x0f36c0b9
+     */
+    error InvalidBatchStatus(uint256 batchIndex, uint8 provided);
+    /**
      * @notice Withdrawal Merkle proof does not prove the message hash under the batch root.
      * @dev selector: 0xb86abc9c
      */
@@ -127,6 +132,7 @@ interface IL1FluentBridge {
      * @return The address of the rollup contract.
      */
     function getRollup() external view returns (address);
+
     /**
      * @notice Update the address of the rollup contract that lives on L1 and
      *         is used to validate L2 batches and enable proof-based L2 to L1 message delivery.

@@ -7,9 +7,9 @@ import {Rollup} from "../../rollup/Rollup.sol";
 import {MerkleTree} from "../../libraries/MerkleTree.sol";
 import {ExcessivelySafeCall} from "../../libraries/ExcessivelySafeCall.sol";
 
-import {L2BlockHeader, BatchStatus} from "../../interfaces/rollup/IRollupTypes.sol";
 import {IRollupErrors} from "../../interfaces/rollup/IRollup.sol";
-import {IFluentBridge} from "../../interfaces/bridge/IFluentBridge.sol";
+import {L2BlockHeader, BatchStatus} from "../../interfaces/rollup/IRollupTypes.sol";
+import {IFluentBridge, IFluentBridgeRead} from "../../interfaces/bridge/IFluentBridge.sol";
 import {IL1FluentBridge} from "../../interfaces/bridge/IL1FluentBridge.sol";
 
 /**
@@ -65,6 +65,22 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         /// @dev Reserved for future storage fields.
         uint256[50] __gap;
     }
+
+    // ============ Transient storage ============
+
+    /**
+     * @dev Batch index stashed during {receiveMessageWithProof} execution so gateways can
+     *      consult the originating batch's rollup status via {isCurrentBatchPreconfirmed}.
+     *      Zero outside an in-flight proof-based receive.
+     *
+     *      Lives in EIP-1153 transient storage (TSTORE/TLOAD) rather than regular storage:
+     *      its lifetime is strictly one transaction, the EVM clears it automatically at tx
+     *      end — so the enclosing function needs no manual cleanup and a revert anywhere
+     *      down the call stack cannot leak stale context into a subsequent tx. Also an
+     *      order-of-magnitude gas saving over cold/warm SSTOREs on every receive, and it
+     *      doesn't consume an ERC-7201 `__gap` slot.
+     */
+    uint256 private transient _currentBatchIndex;
 
     // ============ Storage accessor ============
 
@@ -213,7 +229,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         bytes calldata message,
         MerkleTree.MerkleProof calldata withdrawalProof,
         MerkleTree.MerkleProof calldata blockProof
-    ) external nonReentrant whenNotPaused {
+    ) external nonReentrant onlyRole(RELAYER_ROLE) whenNotPaused {
         // Only finalized batches carry valid state roots — reject unfinalized ones
         // The rollup contract tracks batch lifecycle; finalized means SP1-proven or delay-elapsed
         BatchStatus status = Rollup(getRollup()).getBatch(batchIndex).status;
@@ -238,52 +254,53 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         require(to != address(this), ForbiddenSelfCall());
         // Hook for subclass logic (e.g. committed expiry check on L2); false = silently skip
         if (!_beforeReceiveMessage(from, to, value, chainId, validUntilBlockNumber, messageNonce, message)) return;
-
+        // Stash the originating batch index for the duration of {_receiveMessage} so the
+        // downstream gateway can consult {isCurrentBatchPreconfirmed}. Transient storage
+        // (EIP-1153) auto-clears at tx end — no manual reset needed, and a revert anywhere
+        // below cannot leak stale context into a later transaction.
+        _currentBatchIndex = batchIndex;
         // Execute the cross-chain message with gasleft(), forwarding remaining gas
         // _receiveMessage records the outcome (Success/Failed) in storage
         _receiveMessage(gasleft(), from, to, value, message, messageHash);
+        // Clear the transient batch index
+        _currentBatchIndex = 0;
+    }
+
+    /// @inheritdoc IFluentBridgeRead
+    /// @dev True iff a proof-based receive is currently executing and the originating batch's
+    ///      rollup status is {BatchStatus.Preconfirmed}. Returns false when called outside
+    ///      {receiveMessageWithProof} (e.g. by the relayer path, view calls, or on L2).
+    function isCurrentBatchPreconfirmed() public view override returns (bool) {
+        uint256 idx = _currentBatchIndex;
+        // idx == 0 is the sentinel: no proof-based receive is currently in flight.
+        // Batch index 0 is the reserved genesis slot on {Rollup}, so a real message can
+        // never legitimately reference it — safe to use as the "no context" marker.
+        if (idx == 0) return false;
+        return Rollup(getRollup()).isBatchPreconfirmed(idx);
     }
 
     // ============ Rollback ============
 
     /// @inheritdoc IL1FluentBridge
-    /// @dev Verifies two Merkle proofs (block + withdrawal) against the finalized batch,
-    ///      then refunds the original sender from locked bridge balance.
+    /// @dev NOT IMPLEMENTED. Rollback of expired L1→L2 deposits is intentionally disabled
+    ///      for this release. The full flow (batch-finalized check, chainId guard, balance
+    ///      early-exit, dedup against received/rollback, two Merkle proofs, refund) is
+    ///      preserved in git history and will be restored together with the user-initiated
+    ///      cancel/refund mechanism that replaces {skipExpiredDeposits}.
     function rollbackMessageWithProof(
-        uint256 batchIndex,
-        L2BlockHeader calldata blockHeader,
-        address from,
-        address to,
-        uint256 value,
-        uint256 chainId,
-        uint256 validUntilBlockNumber,
-        uint256 messageNonce,
-        bytes calldata message,
-        MerkleTree.MerkleProof calldata withdrawalProof,
-        MerkleTree.MerkleProof calldata blockProof
+        uint256 /** batchIndex */,
+        L2BlockHeader calldata /** blockHeader */,
+        address /** from */,
+        address /** to */,
+        uint256 /** value */,
+        uint256 /** chainId */,
+        uint256 /** validUntilBlockNumber */,
+        uint256 /** messageNonce */,
+        bytes calldata /** message */,
+        MerkleTree.MerkleProof calldata /** withdrawalProof */,
+        MerkleTree.MerkleProof calldata /** blockProof */
     ) external nonReentrant whenNotPaused {
-        // Rollback requires a finalized batch so the proof anchors to a committed state
-        // Without finalization, the withdrawal root is not yet trustworthy
-        require(Rollup(getRollup()).isBatchFinalized(batchIndex), InvalidBlockProof());
-        // Rollback only applies to messages that originated on THIS chain and failed on L2
-        // If chainId == block.chainid, the message was sent FROM here, so rollback is valid
-        require(chainId == block.chainid, ForbiddenRollbackReceivedMessage());
-        // Verify bridge has enough ETH to refund before spending gas on proof verification
-        // This is an early-exit optimization — no point verifying proofs if we cannot pay
-        if (value > 0) require(address(this).balance >= value, InsufficientBridgeBalance(value));
-
-        // Reconstruct the same hash that was included in the L2 withdrawal root
-        // Encoding is deterministic so the hash is reproducible by anyone
-        bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, validUntilBlockNumber, messageNonce, message));
-        // Guard against replaying a message that was already successfully received
-        require(getReceivedMessage(messageHash) == IFluentBridge.MessageStatus.None, MessageAlreadyReceived());
-        // Guard against double-claiming the same rollback refund
-        require(getRollbackMessage(messageHash) == IFluentBridge.MessageStatus.None, MessageAlreadyReceived());
-
-        // Verify two Merkle proofs: block inclusion in batch, message inclusion in block
-        _verifyWithdrawal(batchIndex, blockHeader, withdrawalProof, blockProof, messageHash);
-        // Execute the refund transfer back to the original sender
-        _rollbackMessage(gasleft(), from, to, value, validUntilBlockNumber, messageNonce, message, messageHash);
+        revert("NOT_IMPLEMENTED");
     }
 
     /**

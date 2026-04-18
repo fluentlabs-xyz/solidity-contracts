@@ -65,30 +65,20 @@ contract FluentBridgeStorageLayout is
         /// @dev Next expected inbound nonce (sequential enforcement for relayer path).
         uint256 _receivedNonce;
         /// @dev Set to the cross-chain sender during message execution; address(0) otherwise.
-        address _nativeSender;
+        address ___deprecated_nativeSender;
         /// @dev Address of the bridge contract on the other chain.
         address _otherBridge;
         /// @dev Execution result by message hash (None / Failed / Success).
         mapping(bytes32 => IFluentBridge.MessageStatus) _receivedMessage;
         /// @dev Address that receives fees charged on L2 outbound messages.
         address _feeTreasury;
+        /// @dev gateway whitelist
+        mapping(address => bool) _gatewayWhitelist;
         /// @dev Reserved for future storage fields.
-        uint256[50] __gap;
+        uint256[49] __gap;
     }
 
-    /**
-     * @dev Configuration parameters for bridge initialization.
-     */
-    struct InitConfiguration {
-        /// @dev Address authorized to perform admin actions.
-        address adminRole;
-        /// @dev Address authorized to pause the contract.
-        address pauserRole;
-        /// @dev Address authorized to relay messages.
-        address relayerRole;
-        /// @dev Address of the bridge contract on the other chain.
-        address otherBridge;
-    }
+    address internal transient _nativeSender;
 
     /**
      * @dev Initializes bridge storage from ABI-encoded {InitConfiguration}.
@@ -102,7 +92,7 @@ contract FluentBridgeStorageLayout is
         __UUPSUpgradeable_init();
 
         // Decode the packed initialization payload into structured config
-        InitConfiguration memory params = abi.decode(data, (InitConfiguration));
+        IFluentBridge.InitConfiguration memory params = abi.decode(data, (IFluentBridge.InitConfiguration));
 
         // ==== setup roles ====
         // Admin and pauser are mandatory — the bridge cannot operate without governance
@@ -145,7 +135,7 @@ contract FluentBridgeStorageLayout is
      */
     function getNativeSender() public view returns (address) {
         // Non-zero only during message execution; allows the target to identify the L2 sender
-        return _getFluentBridgeStorage()._nativeSender;
+        return _nativeSender;
     }
 
     /// @inheritdoc IFluentBridgeRead
@@ -175,6 +165,14 @@ contract FluentBridgeStorageLayout is
     /// @inheritdoc IFluentBridgeRead
     function getSentMessageFee() public view virtual returns (uint256) {
         return 0;
+    }
+
+    /// @inheritdoc IFluentBridgeRead
+    /// @dev Base default: no rollup batch concept (L2 and all relayer-delivered paths).
+    ///      Overridden by {L1FluentBridge} to return the Preconfirmed status of the
+    ///      batch index stashed during {receiveMessageWithProof} execution.
+    function isCurrentBatchPreconfirmed() public view virtual returns (bool) {
+        return false;
     }
 
     // ============ IFluentBridgeAdmin ============
@@ -259,6 +257,44 @@ contract FluentBridgeStorageLayout is
         require(newExecuteGasLimit > 0, InvalidWindowConfig("executeGasLimit must be greater than 0"));
         emit ExecuteGasLimitUpdated(getExecuteGasLimit(), newExecuteGasLimit);
         _getFluentBridgeStorage()._executeGasLimit = newExecuteGasLimit;
+    }
+
+    /**
+     * @notice Registers a gateway as a trusted peer. A registered gateway is eligible as
+     *         both a {sendMessage} destination (outbound) and a {_receiveMessage} target
+     *         (inbound) — the same entry gates both directions, giving the bridge pair
+     *         symmetric send/receive admission.
+     * @dev Idempotent: re-registering an already-registered gateway is a no-op but still
+     *      emits {GatewayRegistered}, which off-chain indexers should treat as an
+     *      affirmation rather than a state transition.
+     */
+    function registerGateway(address gateway) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(gateway != address(0), ZeroAddressNotAllowed("gateway"));
+        _getFluentBridgeStorage()._gatewayWhitelist[gateway] = true;
+
+        emit GatewayRegistered(gateway);
+    }
+
+    /**
+     * @notice De-registers a gateway. After this call, both {sendMessage} to the gateway
+     *         and {_receiveMessage} delivery to it will revert with
+     *         {GatewayNotWhitelisted}.
+     * @dev In-flight inbound messages cannot complete until the gateway is re-registered.
+     *      In-flight outbound messages already enqueued on L1 are unaffected because the
+     *      check only applies at the moment {sendMessage} is called.
+     */
+    function deregisterGateway(address gateway) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        require(gateway != address(0), ZeroAddressNotAllowed("gateway"));
+        _getFluentBridgeStorage()._gatewayWhitelist[gateway] = false;
+
+        emit GatewayDeregistered(gateway);
+    }
+
+    /**
+     * @notice Returns whether `gateway` is currently registered as a trusted peer.
+     */
+    function isGatewayRegistered(address gateway) external view returns (bool) {
+        return _getFluentBridgeStorage()._gatewayWhitelist[gateway];
     }
 
     // ============ Internal helpers ============

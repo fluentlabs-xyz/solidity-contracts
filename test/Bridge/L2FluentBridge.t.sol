@@ -7,7 +7,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 
 import {L2FluentBridge} from "../../contracts/bridge/L2/L2FluentBridge.sol";
 import {FluentBridgeStorageLayout} from "../../contracts/bridge/FluentBridgeStorageLayout.sol";
-import {IFluentBridgeEvents, IFluentBridgeErrors} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
+import {IFluentBridge, IFluentBridgeEvents, IFluentBridgeErrors} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {IL2FluentBridge} from "../../contracts/interfaces/bridge/IL2FluentBridge.sol";
 import {L1BlockOracle} from "../../contracts/oracles/L1BlockOracle.sol";
 import {L1GasOracle} from "../../contracts/oracles/L1GasOracle.sol";
@@ -47,7 +47,7 @@ abstract contract L2BridgeFeeBase is Test {
     }
 
     function _deployBridge(uint256 overhead, uint256 scalar) internal {
-        FluentBridgeStorageLayout.InitConfiguration memory cfg = FluentBridgeStorageLayout.InitConfiguration({
+        IFluentBridge.InitConfiguration memory cfg = IFluentBridge.InitConfiguration({
             adminRole: admin,
             pauserRole: pauser,
             relayerRole: relayer,
@@ -63,6 +63,12 @@ abstract contract L2BridgeFeeBase is Test {
             )
         );
         bridge = L2FluentBridge(payable(address(proxy)));
+
+        // Send-side symmetry: all outbound tests here target `recipient`, and the bridge
+        // now gates `sendMessage` against the gateway registry.
+        vm.prank(admin);
+        (bool ok, ) = address(bridge).call(abi.encodeWithSignature("registerGateway(address)", recipient));
+        require(ok, "registerGateway failed in L2BridgeFeeBase setUp");
     }
 
     /// fee = L1GasLimit * ((l1GasPrice * scalar) / 1e18 + overhead)
@@ -351,6 +357,12 @@ contract ReceiveMessageNoFeeTest is L2BridgeFeeBase {
 
         address otherBridge = makeAddr("otherBridge");
 
+        // Bridge rejects `_receiveMessage` whose `to` is not a registered gateway.
+        // Register the recipient so the inbound delivery reaches the success path.
+        vm.prank(admin);
+        (bool ok, ) = address(bridge).call(abi.encodeWithSignature("registerGateway(address)", recipient));
+        require(ok, "registerGateway failed");
+
         vm.deal(address(bridge), amount);
         vm.prank(relayer);
         // validUntilBlockNumber well beyond the L1 block oracle value so the committed expiry is not reached
@@ -358,6 +370,31 @@ contract ReceiveMessageNoFeeTest is L2BridgeFeeBase {
 
         assertEq(feeTreasury.balance, treasuryBefore, "treasury should not receive anything on inbound");
         assertEq(recipient.balance, amount, "recipient should receive full amount");
+    }
+
+    /// @dev Relayer-delivered receive with an unregistered `to` must revert up-front.
+    ///      Confirms the gateway-registry guard also fires on the L2 receive path (base
+    ///      `FluentBridge._receiveMessage`), not only on the L1 proof path.
+    function test_RevertIf_receiveMessage_gatewayNotRegistered() public {
+        address otherBridge = makeAddr("otherBridge");
+        address unregistered = makeAddr("unregistered-destination");
+
+        vm.deal(address(bridge), 1 ether);
+        vm.prank(relayer);
+        vm.expectRevert(IFluentBridgeErrors.GatewayNotWhitelisted.selector);
+        bridge.receiveMessage(otherBridge, unregistered, 1 ether, block.chainid + 1, type(uint64).max, 0, "");
+    }
+
+    /// @dev Symmetric send-side admission on L2: `sendMessage` to a non-registered
+    ///      destination reverts before fee collection, so user funds never leave the
+    ///      wallet when the admin hasn't whitelisted the remote counterpart.
+    function test_RevertIf_sendMessage_gatewayNotRegistered() public {
+        address unregistered = makeAddr("unregistered-destination");
+        uint256 fee = bridge.getSentMessageFee();
+        vm.deal(user, fee + 1 ether);
+        vm.prank(user);
+        vm.expectRevert(IFluentBridgeErrors.GatewayNotWhitelisted.selector);
+        bridge.sendMessage{value: fee + 1 ether}(unregistered, hex"00");
     }
 }
 
@@ -415,5 +452,4 @@ contract L2FluentBridgeTest is L2BridgeFeeBase {
         vm.expectRevert(abi.encodeWithSelector(IFluentBridgeErrors.ZeroAddressNotAllowed.selector, "l1GasPriceOracle"));
         bridge.setL1GasPriceOracle(address(0));
     }
-
 }

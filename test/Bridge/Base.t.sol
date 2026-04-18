@@ -11,6 +11,7 @@ import {L1BlockOracle} from "../../contracts/oracles/L1BlockOracle.sol";
 import {L1GasOracle} from "../../contracts/oracles/L1GasOracle.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 import {L2BlockHeader} from "../../contracts/interfaces/rollup/IRollupTypes.sol";
+import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 
 contract NoopReceiver {
     uint256 public calls;
@@ -42,7 +43,7 @@ abstract contract BridgeBase is Test {
     L2FluentBridge internal l2Bridge;
 
     function setUp() public virtual {
-        FluentBridgeStorageLayout.InitConfiguration memory cfg = FluentBridgeStorageLayout.InitConfiguration({
+        IFluentBridge.InitConfiguration memory cfg = IFluentBridge.InitConfiguration({
             adminRole: admin,
             pauserRole: pauser,
             relayerRole: relayer,
@@ -80,6 +81,22 @@ abstract contract BridgeBase is Test {
             depositRoot: bytes32(uint256(4)),
             depositCount: 0
         });
+    }
+
+    /// @dev Register a gateway on the L1 bridge so both `sendMessage` and `_receiveMessage`
+    ///      accept it. Idempotent — the admin setter has no "already registered" guard.
+    function _registerOnL1Bridge(address target) internal {
+        vm.prank(admin);
+        (bool ok, ) = address(l1Bridge).call(abi.encodeWithSignature("registerGateway(address)", target));
+        require(ok, "registerGateway (L1) failed");
+    }
+
+    /// @dev Register a gateway on the L2 bridge so both `sendMessage` and `_receiveMessage`
+    ///      accept it. Idempotent — the admin setter has no "already registered" guard.
+    function _registerOnL2Bridge(address target) internal {
+        vm.prank(admin);
+        (bool ok, ) = address(l2Bridge).call(abi.encodeWithSignature("registerGateway(address)", target));
+        require(ok, "registerGateway (L2) failed");
     }
 
     function _dummyProof() internal pure returns (MerkleTree.MerkleProof memory proof) {

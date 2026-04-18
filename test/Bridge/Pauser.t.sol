@@ -68,6 +68,9 @@ contract BridgePauserTest is BridgeBase {
         l1Bridge.pause();
 
         vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
+        // `receiveMessageWithProof` is gated by RELAYER_ROLE; prank as `relayer` so the
+        // role check passes and `whenNotPaused` is the modifier that fires next.
+        vm.prank(relayer);
         l1Bridge.receiveMessageWithProof(
             0,
             _dummyHeader(),
@@ -92,16 +95,21 @@ contract BridgePauserTest is BridgeBase {
     }
 
     function test_sendMessage_worksAfterUnpause() public {
+        address dst = makeAddr("dst");
+        // Send path is gated by the gateway registry — register so the unpaused send
+        // reaches the nonce-bump path this test asserts on.
+        _registerOnL2Bridge(dst);
+
         vm.prank(pauser);
         l2Bridge.pause();
 
         vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
-        l2Bridge.sendMessage(makeAddr("dst"), hex"01");
+        l2Bridge.sendMessage(dst, hex"01");
 
         vm.prank(pauser);
         l2Bridge.unpause();
 
-        l2Bridge.sendMessage(makeAddr("dst"), hex"01");
+        l2Bridge.sendMessage(dst, hex"01");
         assertEq(l2Bridge.getNonce(), 1);
     }
 }

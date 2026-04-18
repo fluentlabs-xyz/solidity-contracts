@@ -46,7 +46,7 @@ abstract contract GatewayBase is Test {
         L1GasOracle gasOracle = new L1GasOracle(relayer);
 
         L2FluentBridge impl = new L2FluentBridge();
-        FluentBridgeStorageLayout.InitConfiguration memory params = FluentBridgeStorageLayout.InitConfiguration({
+        IFluentBridge.InitConfiguration memory params = IFluentBridge.InitConfiguration({
             adminRole: admin,
             pauserRole: admin,
             relayerRole: relayer,

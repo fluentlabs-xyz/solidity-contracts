@@ -5,6 +5,7 @@ import {stdJson} from "forge-std/StdJson.sol";
 import {console2} from "forge-std/console2.sol";
 import {Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {L2FluentBridge} from "../../contracts/bridge/L2/L2FluentBridge.sol";
+import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {FluentBridgeStorageLayout} from "../../contracts/bridge/FluentBridgeStorageLayout.sol";
 import {L1GasOracle} from "../../contracts/oracles/L1GasOracle.sol";
 import {DeployBase} from "./DeployBase.s.sol";
@@ -32,7 +33,7 @@ contract DeployL2Bridge is DeployBase {
         require(l1BlockOracle != address(0), "L1_BLOCK_ORACLE required");
         require(gasOracle != address(0), "l1_gas_oracle required");
         address treasury = feeTreasury == address(0) ? adminRole : feeTreasury;
-        FluentBridgeStorageLayout.InitConfiguration memory params = FluentBridgeStorageLayout.InitConfiguration({
+        IFluentBridge.InitConfiguration memory params = IFluentBridge.InitConfiguration({
             adminRole: adminRole,
             pauserRole: pauserRole,
             relayerRole: relayerRole,
