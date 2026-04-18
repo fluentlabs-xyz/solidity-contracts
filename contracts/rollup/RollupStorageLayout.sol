@@ -261,10 +261,10 @@ contract RollupStorageLayout is
 
         // ─── Deadline invariants ───
         // all window values are stored as uint64/uint32; reject values that would silently truncate
-        require(params.submitBlobsWindow <= type(uint24).max, InvalidWindowConfig("submitBlobsWindow out of range"));
-        require(params.preconfirmWindow <= type(uint24).max, InvalidWindowConfig("preconfirmWindow out of range"));
-        require(params.challengeWindow <= type(uint24).max, InvalidWindowConfig("challengeWindow out of range"));
-        require(params.finalizationDelay <= type(uint24).max, InvalidWindowConfig("finalizationDelay out of range"));
+        require(params.submitBlobsWindow <= type(uint24).max, SubmitBlobsWindowOutOfBounds());
+        require(params.preconfirmWindow <= type(uint24).max, PreconfirmWindowOutOfBounds());
+        require(params.challengeWindow <= type(uint24).max, ChallengeWindowOutOfBounds());
+        require(params.finalizationDelay <= type(uint24).max, FinalizationDelayOutOfBounds());
         // Init order is dictated by setter cross-validation: each setter reads
         // previously-stored values, so dependencies must be initialized first.
         // preconfirmWindow → submitBlobsWindow → finalizationDelay → challengeWindow
@@ -275,7 +275,7 @@ contract RollupStorageLayout is
 
         // ─── Role setup ───
         // admin is the only required address; other roles fall back to admin if unset
-        require(params.admin != address(0), ZeroAddressNotAllowed("admin"));
+        require(params.admin != address(0), ZeroAdmin());
         address fallback_ = params.admin;
 
         _grantRoles(
@@ -300,7 +300,7 @@ contract RollupStorageLayout is
         // Genesis anchor — committed as a synthetic batch at index 0. Enables
         // resolveBatchRootChallenge for batch 1 via the standard Merkle-proof path and
         // gives the sequencer a bootstrap anchor via the BatchCommitted(0) event.
-        require(params.genesisBlockHash != bytes32(0), ZeroValueNotAllowed("genesisBlockHash"));
+        require(params.genesisBlockHash != bytes32(0), ZeroGenesisBlockHash());
         _commitGenesisBatch(params.genesisBlockHash);
 
         // economic parameters for the challenge/incentive mechanism
@@ -469,7 +469,7 @@ contract RollupStorageLayout is
     /** @dev Validates and stores a new bridge address. Reverts on zero address. */
     function _setBridge(address newBridge) internal {
         RollupStorage storage $ = _getRollupStorage();
-        require(newBridge != address(0), ZeroAddressNotAllowed("bridge"));
+        require(newBridge != address(0), ZeroBridge());
         // emit old -> new for off-chain indexers before writing storage
         emit BridgeUpdated($._bridge, newBridge);
         $._bridge = newBridge;
@@ -482,10 +482,10 @@ contract RollupStorageLayout is
 
     /** @dev Validates and stores a new SP1 verifier address. Reverts on zero address or non-contract. */
     function _setSp1Verifier(address newVerifier) internal {
-        require(newVerifier != address(0), ZeroAddressNotAllowed("sp1Verifier"));
+        require(newVerifier != address(0), ZeroSp1Verifier());
         RollupStorage storage $ = _getRollupStorage();
         // must be a deployed contract to prevent calls to an EOA during proof verification
-        require(newVerifier.code.length != 0, NotAContract("sp1Verifier"));
+        require(newVerifier.code.length != 0, Sp1VerifierNotAContract());
         emit SP1VerifierUpdated($._sp1Verifier, newVerifier);
         $._sp1Verifier = newVerifier;
     }
@@ -498,7 +498,7 @@ contract RollupStorageLayout is
     /** @dev Stores a new SP1 program verification key. Reverts on zero value. */
     function _setProgramVKey(bytes32 newVKey) internal {
         // zero vKey would cause all SP1 proofs to be trivially accepted or rejected
-        require(newVKey != bytes32(0), ZeroValueNotAllowed("programVKey"));
+        require(newVKey != bytes32(0), ZeroProgramVKey());
         RollupStorage storage $ = _getRollupStorage();
         emit ProgramVKeyUpdated($._programVKey, newVKey);
         $._programVKey = newVKey;
@@ -511,9 +511,9 @@ contract RollupStorageLayout is
 
     /** @dev Adds a Nitro verifier to the enabled set. Reverts on zero address, non-contract, or already enabled. */
     function _enableNitroVerifier(address verifier) internal {
-        require(verifier != address(0), ZeroAddressNotAllowed("nitroVerifier"));
+        require(verifier != address(0), ZeroNitroVerifier());
         // must be a deployed contract — EOAs cannot verify Nitro attestations
-        require(verifier.code.length != 0, NotAContract("nitroVerifier"));
+        require(verifier.code.length != 0, NitroVerifierNotAContract());
         // prevent duplicate enables that would emit misleading events
         require(!_getRollupStorage()._enabledNitroVerifiers[verifier], NitroVerifierAlreadyEnabled(verifier));
         _getRollupStorage()._enabledNitroVerifiers[verifier] = true;
@@ -527,7 +527,7 @@ contract RollupStorageLayout is
 
     /** @dev Removes a Nitro verifier from the enabled set. Reverts if not currently enabled. */
     function _disableNitroVerifier(address verifier) internal {
-        require(verifier != address(0), ZeroAddressNotAllowed("verifier"));
+        require(verifier != address(0), ZeroVerifier());
         // only disable verifiers that are actually in the enabled set
         require(_getRollupStorage()._enabledNitroVerifiers[verifier], NitroVerifierNotEnabled(verifier));
         _getRollupStorage()._enabledNitroVerifiers[verifier] = false;
@@ -543,8 +543,8 @@ contract RollupStorageLayout is
     function _setGasLeft(uint32 newGasLeft) internal {
         RollupStorage storage $ = _getRollupStorage();
         // zero would allow unbounded iteration in resolveBatchRootChallenge, risking OOG
-        require(newGasLeft != 0, ZeroValueNotAllowed("gasLeft"));
-        require(newGasLeft <= MAX_GAS_LEFT, ValueOutOfBounds("gasLeft"));
+        require(newGasLeft != 0, ZeroGasLeft());
+        require(newGasLeft <= MAX_GAS_LEFT, GasLeftOutOfBounds());
         emit GasLeftUpdated($._gasLeft, newGasLeft);
         $._gasLeft = newGasLeft;
     }
@@ -560,9 +560,9 @@ contract RollupStorageLayout is
     function _setSubmitBlobsWindow(uint24 newSubmitBlobsWindow) internal {
         RollupStorage storage $ = _getRollupStorage();
 
-        require(newSubmitBlobsWindow > 0, InvalidWindowConfig("submitBlobsWindow must be > 0"));
+        require(newSubmitBlobsWindow > 0, ZeroSubmitBlobsWindow());
         // blob submission must complete before preconfirmation can start
-        require(newSubmitBlobsWindow <= $._preconfirmWindow, InvalidWindowConfig("submitBlobsWindow >= preconfirm"));
+        require(newSubmitBlobsWindow <= $._preconfirmWindow, SubmitBlobsExceedsPreconfirm());
 
         emit SubmitBlobsWindowUpdated($._submitBlobsWindow, newSubmitBlobsWindow);
         $._submitBlobsWindow = newSubmitBlobsWindow;
@@ -578,7 +578,7 @@ contract RollupStorageLayout is
         RollupStorage storage $ = _getRollupStorage();
         // preconfirmation must allow time for blob submission to complete first
 
-        require(newPreconfirmWindow >= $._submitBlobsWindow + MIN_PRECONFIRMATION_WINDOW, InvalidWindowConfig("preconfirm too close to blobs"));
+        require(newPreconfirmWindow >= $._submitBlobsWindow + MIN_PRECONFIRMATION_WINDOW, PreconfirmTooCloseToSubmitBlobs());
 
         emit PreconfirmWindowUpdated($._preconfirmWindow, newPreconfirmWindow);
         $._preconfirmWindow = newPreconfirmWindow;
@@ -595,11 +595,11 @@ contract RollupStorageLayout is
     function _setChallengeWindow(uint24 newChallengeWindow) internal {
         RollupStorage storage $ = _getRollupStorage();
         // strict ordering ensures challengers always have time to respond before finalization
-        require(newChallengeWindow >= $._preconfirmWindow + MIN_CHALLENGE_WINDOW, InvalidWindowConfig("challenge too close to preconf"));
+        require(newChallengeWindow >= $._preconfirmWindow + MIN_CHALLENGE_WINDOW, ChallengeTooCloseToPreconfirm());
         // strict ordering ensures provers always have time to respond before finalization
         require(
             newChallengeWindow <= $._finalizationDelay - MIN_CHALLENGE_RESOLUTION_WINDOW,
-            InvalidWindowConfig("challenge too close to finaliz")
+            ChallengeTooCloseToFinalization()
         );
 
         emit ChallengeWindowUpdated($._challengeWindow, newChallengeWindow);
@@ -619,7 +619,7 @@ contract RollupStorageLayout is
         // strict ordering ensures challenges always have time to be submitted and resolved
         require(
             newFinalizationDelay >= $._challengeWindow + MIN_CHALLENGE_RESOLUTION_WINDOW,
-            InvalidWindowConfig("finalization too close to chall")
+            FinalizationTooCloseToChallenge()
         );
         emit FinalizationDelayUpdated($._finalizationDelay, newFinalizationDelay);
         $._finalizationDelay = newFinalizationDelay;
@@ -636,9 +636,9 @@ contract RollupStorageLayout is
      */
     function _setChallengeDepositAmount(uint256 newChallengeDepositAmount) internal {
         RollupStorage storage $ = _getRollupStorage();
-        require(newChallengeDepositAmount >= MIN_CHALLENGE_DEPOSIT_AMOUNT, ValueOutOfBounds("challengeDepositAmount"));
+        require(newChallengeDepositAmount >= MIN_CHALLENGE_DEPOSIT_AMOUNT, ChallengeDepositAmountOutOfBounds());
         // A1: enforce the uint96 narrowing safety invariant at the setter boundary
-        require(newChallengeDepositAmount <= type(uint128).max, InvalidWindowConfig("challengeDepositAmount overflow"));
+        require(newChallengeDepositAmount <= type(uint128).max, ChallengeDepositAmountOutOfBounds());
         emit ChallengeDepositAmountUpdated($._challengeDepositAmount, newChallengeDepositAmount);
         $._challengeDepositAmount = uint128(newChallengeDepositAmount);
     }
@@ -652,8 +652,8 @@ contract RollupStorageLayout is
      *       the packed slot 4 layout; uint128 ≈ 3.4e20 ETH headroom — well above any plausible fee.
      */
     function _setIncentiveFee(uint256 newIncentiveFee) internal {
-        require(newIncentiveFee > 0, ValueOutOfBounds("incentiveFee"));
-        require(newIncentiveFee <= MAX_INCENTIVE_FEE, ValueOutOfBounds("incentiveFee"));
+        require(newIncentiveFee > 0, IncentiveFeeOutOfBounds());
+        require(newIncentiveFee <= MAX_INCENTIVE_FEE, IncentiveFeeOutOfBounds());
         RollupStorage storage $ = _getRollupStorage();
         emit IncentiveFeeUpdated($._incentiveFee, newIncentiveFee);
         $._incentiveFee = uint128(newIncentiveFee);
@@ -672,7 +672,7 @@ contract RollupStorageLayout is
     /**
      * @dev Commits the synthetic genesis batch at index 0. Anchors the chain by recording
      *      a single-leaf Merkle root whose leaf commits to a "block" with
-     *      {blockHash = genesisBlockHash_} and all other header fields zero. Enables
+     *      {blockHash = genesisBlockHash} and all other header fields zero. Enables
      *      {resolveBatchRootChallenge} for batch 1 through the existing Merkle-proof
      *      mechanism against {_batches[0].batchRoot}. Marked {BatchStatus-Finalized} so
      *      {challengeBatchRoot(0)} is rejected by the existing status guard.
@@ -681,12 +681,12 @@ contract RollupStorageLayout is
      *      first real sequencer commit lands at index 1. {_lastFinalizedBatchIndex} remains
      *      at its default value 0, which now semantically means "genesis finalized".
      */
-    function _commitGenesisBatch(bytes32 genesisBlockHash_) internal {
+    function _commitGenesisBatch(bytes32 genesisBlockHash) internal {
         RollupStorage storage $ = _getRollupStorage();
 
         // Single-leaf Merkle root equals the leaf commitment. Matches _computeCommitment
         // over a header with (previousBlockHash=0, blockHash=genesis, wr=ZERO, dr=ZERO).
-        bytes32 genesisCommitment = keccak256(abi.encodePacked(bytes32(0), genesisBlockHash_, ZERO_BYTES_HASH, ZERO_BYTES_HASH));
+        bytes32 genesisCommitment = keccak256(abi.encodePacked(bytes32(0), genesisBlockHash, ZERO_BYTES_HASH, ZERO_BYTES_HASH));
 
         $._batches[0] = BatchRecord({
             batchRoot: genesisCommitment,
@@ -704,7 +704,7 @@ contract RollupStorageLayout is
         // First real batch commits at index 1. Genesis occupies index 0.
         $._nextBatchIndex = 1;
 
-        emit BatchCommitted(0, genesisCommitment, genesisBlockHash_, 1, 0);
+        emit BatchCommitted(0, genesisCommitment, genesisBlockHash, genesisBlockHash, 1, 0);
         emit BatchFinalized(0);
     }
 

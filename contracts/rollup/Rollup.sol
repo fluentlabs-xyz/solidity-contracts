@@ -113,7 +113,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         // Identify the most recent batch so we know the revert range [toBatchIndex .. lastAccepted]
         uint256 lastAcceptedBatchIndex = $._nextBatchIndex - 1;
         // Index 0 holds the genesis hash and must never be reverted
-        require(toBatchIndex > 0, ZeroValueNotAllowed("toBatchIndex"));
+        require(toBatchIndex > 0, ZeroToBatchIndex());
         // Reject indices beyond the latest accepted batch — prevents fat-fingered calls from
         // silently jumping _nextBatchIndex forward and creating unreachable gaps in batch indexing.
         require(toBatchIndex <= lastAcceptedBatchIndex, InvalidBatchIndex(toBatchIndex, $._nextBatchIndex));
@@ -243,16 +243,18 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
     /// @inheritdoc IRollupWrite
     function commitBatch(
         bytes32 batchRoot,
-        bytes32 lastBlockHash,
+        bytes32 fromBlockHash,
+        bytes32 toBlockHash,
         uint24 numberOfBlocks,
         BlockDeposit[] calldata blockDeposits,
         uint8 expectedBlobsCount
     ) external onlyRole(SEQUENCER_ROLE) whenNotPaused nonReentrant {
         RollupStorage storage $ = _getRollupStorage();
         require(batchRoot != bytes32(0), InvalidBatchRoot(batchRoot, bytes32(0)));
-        require(lastBlockHash != bytes32(0), ZeroValueNotAllowed("lastBlockHash"));
-        require(numberOfBlocks > 0, ZeroValueNotAllowed("numberOfBlocks"));
-        require(expectedBlobsCount > 0, ZeroValueNotAllowed("expectedBlobsCount"));
+        require(fromBlockHash != bytes32(0), ZeroFromBlockHash());
+        require(toBlockHash != bytes32(0), ZeroToBlockHash());
+        require(numberOfBlocks > 0, ZeroNumberOfBlocks());
+        require(expectedBlobsCount > 0, ZeroExpectedBlobsCount());
         require(!_rollupCorrupted(), RollupCorrupted());
 
         uint256 batchIndex = $._nextBatchIndex;
@@ -282,7 +284,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
             cursor = _checkDeposits(cursor, blockDeposits[i]);
         }
 
-        emit BatchCommitted(batchIndex, batchRoot, lastBlockHash, numberOfBlocks, expectedBlobsCount);
+        emit BatchCommitted(batchIndex, batchRoot, fromBlockHash, toBlockHash, numberOfBlocks, expectedBlobsCount);
     }
 
     /// @inheritdoc IRollupWrite
@@ -297,7 +299,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         bytes32[] storage blobHashes = $._batchBlobHashes[batchIndex];
 
         // At least one blob must be submitted per call
-        require(numBlobs > 0, ZeroValueNotAllowed("numBlobs"));
+        require(numBlobs > 0, ZeroNumBlobs());
         // Total submitted blobs (existing + new) must not exceed the declared count from submitBatch
         require(blobHashes.length + numBlobs <= batch.expectedBlobs, InvalidBlobCount(batch.expectedBlobs, blobHashes.length + numBlobs));
         // Blobs can only be submitted while the batch is in Committed state
@@ -312,7 +314,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         for (uint256 i = 0; i < numBlobs; ++i) {
             bytes32 blobHash = _getBlobHash(i);
             // Zero blobhash means the index is out of range — no more blobs in this tx
-            require(blobHash != bytes32(0), ZeroValueNotAllowed("blobHash"));
+            require(blobHash != bytes32(0), ZeroBlobHash());
             // Append to persistent storage; later used by Nitro/SP1 verifiers for data binding
             blobHashes.push(blobHash);
         }

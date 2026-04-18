@@ -49,31 +49,31 @@ contract AdminTest is RollupAssertions {
 
     function test_RevertIf_setBridge_zeroAddress() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroAddressNotAllowed.selector, "bridge"));
+        vm.expectRevert(IRollupErrors.ZeroBridge.selector);
         rollup.setBridge(address(0));
     }
 
     function test_RevertIf_setSp1Verifier_zeroAddress() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroAddressNotAllowed.selector, "sp1Verifier"));
+        vm.expectRevert(IRollupErrors.ZeroSp1Verifier.selector);
         rollup.setSp1Verifier(address(0));
     }
 
     function test_RevertIf_setProgramVKey_zeroValue() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "programVKey"));
+        vm.expectRevert(IRollupErrors.ZeroProgramVKey.selector);
         rollup.setProgramVKey(bytes32(0));
     }
 
     function test_RevertIf_setGasLeft_zeroValue() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "gasLeft"));
+        vm.expectRevert(IRollupErrors.ZeroGasLeft.selector);
         rollup.setGasLeft(0);
     }
 
     function test_RevertIf_enableNitroVerifier_zeroAddress() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroAddressNotAllowed.selector, "nitroVerifier"));
+        vm.expectRevert(IRollupErrors.ZeroNitroVerifier.selector);
         rollup.enableNitroVerifier(address(0));
     }
 
@@ -106,7 +106,7 @@ contract AdminTest is RollupAssertions {
         cfg.challengeWindow = 15000;
         cfg.finalizationDelay = 14800;
         Rollup impl = new Rollup();
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "challenge too close to finaliz"));
+        vm.expectRevert(IRollupErrors.ChallengeTooCloseToFinalization.selector);
         new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
     }
 
@@ -114,7 +114,7 @@ contract AdminTest is RollupAssertions {
         InitConfiguration memory cfg = _defaultInitConfig(address(0), sequencer);
         Rollup impl = new Rollup();
 
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroAddressNotAllowed.selector, "admin"));
+        vm.expectRevert(IRollupErrors.ZeroAdmin.selector);
         new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
     }
 
@@ -136,7 +136,7 @@ contract AdminTest is RollupAssertions {
         cfg.genesisBlockHash = bytes32(0);
         Rollup impl = new Rollup();
 
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "genesisBlockHash"));
+        vm.expectRevert(IRollupErrors.ZeroGenesisBlockHash.selector);
         new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
     }
 
@@ -150,7 +150,7 @@ contract AdminTest is RollupAssertions {
         // Other init events (role grants, window updates) may interleave; expectEmit
         // enforces only the ordered subsequence of our expected events.
         vm.expectEmit(true, false, false, true);
-        emit BatchCommitted(0, expectedRoot, GENESIS_HASH, 1, 0);
+        emit BatchCommitted(0, expectedRoot, GENESIS_HASH, GENESIS_HASH, 1, 0);
         vm.expectEmit(true, false, false, false);
         emit BatchFinalized(0);
 
@@ -293,50 +293,50 @@ contract AdminTest is RollupAssertions {
     function test_RevertIf_setSp1Verifier_notAContract() public {
         address eoa = makeAddr("eoa");
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.NotAContract.selector, "sp1Verifier"));
+        vm.expectRevert(IRollupErrors.Sp1VerifierNotAContract.selector);
         rollup.setSp1Verifier(eoa);
     }
 
     function test_RevertIf_enableNitroVerifier_notAContract() public {
         address eoa = makeAddr("eoa");
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.NotAContract.selector, "nitroVerifier"));
+        vm.expectRevert(IRollupErrors.NitroVerifierNotAContract.selector);
         rollup.enableNitroVerifier(eoa);
     }
 
     function test_RevertIf_disableNitroVerifier_zeroAddress() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroAddressNotAllowed.selector, "verifier"));
+        vm.expectRevert(IRollupErrors.ZeroVerifier.selector);
         rollup.disableNitroVerifier(address(0));
     }
 
     function test_RevertIf_setChallengeWindow_tooCloseToFinalizationDelay() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "challenge too close to finaliz"));
+        vm.expectRevert(IRollupErrors.ChallengeTooCloseToFinalization.selector);
         rollup.setChallengeWindow(uint24(FINALIZATION_DELAY));
     }
 
     function test_RevertIf_setFinalizationDelay_tooCloseToChallengeWindow() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "finalization too close to chall"));
+        vm.expectRevert(IRollupErrors.FinalizationTooCloseToChallenge.selector);
         rollup.setFinalizationDelay(uint24(CHALLENGE_WINDOW));
     }
 
     function test_RevertIf_setChallengeDepositAmount_belowMin() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ValueOutOfBounds.selector, "challengeDepositAmount"));
+        vm.expectRevert(IRollupErrors.ChallengeDepositAmountOutOfBounds.selector);
         rollup.setChallengeDepositAmount(0);
     }
 
     function test_RevertIf_setIncentiveFee_aboveMax() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ValueOutOfBounds.selector, "incentiveFee"));
+        vm.expectRevert(IRollupErrors.IncentiveFeeOutOfBounds.selector);
         rollup.setIncentiveFee(101 ether);
     }
 
     function test_RevertIf_setGasLeft_aboveMax() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ValueOutOfBounds.selector, "gasLeft"));
+        vm.expectRevert(IRollupErrors.GasLeftOutOfBounds.selector);
         rollup.setGasLeft(30_000_001);
     }
 
@@ -345,7 +345,7 @@ contract AdminTest is RollupAssertions {
         cfg.submitBlobsWindow = uint256(type(uint24).max) + 1;
         Rollup impl = new Rollup();
 
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "submitBlobsWindow out of range"));
+        vm.expectRevert(IRollupErrors.SubmitBlobsWindowOutOfBounds.selector);
         new ERC1967Proxy(address(impl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
     }
 
@@ -365,7 +365,7 @@ contract AdminTest is RollupAssertions {
 
     function test_RevertIf_setPreconfirmWindow_tooCloseToSubmitBlobsWindow() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "preconfirm too close to blobs"));
+        vm.expectRevert(IRollupErrors.PreconfirmTooCloseToSubmitBlobs.selector);
         rollup.setPreconfirmWindow(uint24(SUBMIT_BLOBS_WINDOW + 100));
     }
 
@@ -373,13 +373,13 @@ contract AdminTest is RollupAssertions {
 
     function test_RevertIf_setSubmitBlobsWindow_exceedsPreconfirmWindow() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "submitBlobsWindow >= preconfirm"));
+        vm.expectRevert(IRollupErrors.SubmitBlobsExceedsPreconfirm.selector);
         rollup.setSubmitBlobsWindow(uint24(PRECONFIRM_WINDOW) + 1);
     }
 
     function test_RevertIf_setChallengeWindow_tooCloseToPreconfirmWindow() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidWindowConfig.selector, "challenge too close to preconf"));
+        vm.expectRevert(IRollupErrors.ChallengeTooCloseToPreconfirm.selector);
         rollup.setChallengeWindow(uint24(PRECONFIRM_WINDOW + 100));
     }
 }

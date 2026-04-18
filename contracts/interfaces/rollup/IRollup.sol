@@ -115,22 +115,112 @@ interface IRollupErrors {
     error InvalidBlockProof();
 
     /**
-     * @notice Address field must not be zero.
-     * @dev selector: 0x44034241
+     * @notice Admin address (in {InitConfiguration}) must not be zero.
+     * @dev selector: 0x7289db0e
      */
-    error ZeroAddressNotAllowed(string field);
+    error ZeroAdmin();
 
     /**
-     * @notice Value field must not be zero.
-     * @dev selector: 0x78bcc63a
+     * @notice Bridge address must not be zero.
+     * @dev selector: 0x361106cd
      */
-    error ZeroValueNotAllowed(string field);
+    error ZeroBridge();
 
     /**
-     * @notice Value exceeds the allowed range for this parameter.
-     * @dev selector: 0x01a7e693
+     * @notice SP1 verifier address must not be zero.
+     * @dev selector: 0xf0500170
      */
-    error ValueOutOfBounds(string field);
+    error ZeroSp1Verifier();
+
+    /**
+     * @notice Nitro verifier address (in {InitConfiguration}) must not be zero.
+     * @dev selector: 0xcc77d1a1
+     */
+    error ZeroNitroVerifier();
+
+    /**
+     * @notice Nitro verifier target of {addNitroVerifier} / {removeNitroVerifier} must not be zero.
+     * @dev selector: 0x4a8bdce3
+     */
+    error ZeroVerifier();
+
+    /**
+     * @notice {revertBatches} called with `toBatchIndex == 0` — genesis cannot be reverted.
+     * @dev selector: 0x1b7028dd
+     */
+    error ZeroToBatchIndex();
+
+    /**
+     * @notice {commitBatch} called with zero `fromBlockHash`.
+     * @dev selector: 0xf3ad5080
+     */
+    error ZeroFromBlockHash();
+
+    /**
+     * @notice {commitBatch} called with zero `toBlockHash`.
+     * @dev selector: 0x70675c6d
+     */
+    error ZeroToBlockHash();
+
+    /**
+     * @notice {commitBatch} called with `numberOfBlocks == 0`.
+     * @dev selector: 0xcbe1d68a
+     */
+    error ZeroNumberOfBlocks();
+
+    /**
+     * @notice {commitBatch} called with `expectedBlobsCount == 0`.
+     * @dev selector: 0x29686fea
+     */
+    error ZeroExpectedBlobsCount();
+
+    /**
+     * @notice {submitBlobs} called with `numBlobs == 0`.
+     * @dev selector: 0x7ac42834
+     */
+    error ZeroNumBlobs();
+
+    /**
+     * @notice BLOBHASH opcode returned zero for the requested index (out of range).
+     * @dev selector: 0x3d4b5f62
+     */
+    error ZeroBlobHash();
+
+    /**
+     * @notice Genesis block hash (in {InitConfiguration}) must not be zero.
+     * @dev selector: 0xd393efc3
+     */
+    error ZeroGenesisBlockHash();
+
+    /**
+     * @notice SP1 program verification key must not be zero.
+     * @dev selector: 0x4bf2a2d8
+     */
+    error ZeroProgramVKey();
+
+    /**
+     * @notice gasLeft guard must not be zero.
+     * @dev selector: 0xeb7df3d4
+     */
+    error ZeroGasLeft();
+
+    /**
+     * @notice gasLeft guard exceeds MAX_GAS_LEFT.
+     * @dev selector: 0x9508b2f6
+     */
+    error GasLeftOutOfBounds();
+
+    /**
+     * @notice challengeDepositAmount is below MIN_CHALLENGE_DEPOSIT_AMOUNT.
+     * @dev selector: 0xd1724dd8
+     */
+    error ChallengeDepositAmountOutOfBounds();
+
+    /**
+     * @notice incentiveFee is zero or exceeds MAX_INCENTIVE_FEE.
+     * @dev selector: 0x9a3d3f1b
+     */
+    error IncentiveFeeOutOfBounds();
 
     /**
      * @notice Nitro enclave signature verification failed.
@@ -253,10 +343,64 @@ interface IRollupErrors {
     error InvalidDepositRootWithNonZeroCount(uint256 depositCount);
 
     /**
-     * @notice Rollup window configuration parameter is outside its allowed range.
-     * @dev selector: 0x14bef653
+     * @notice submitBlobsWindow exceeds the uint24 storage range.
+     * @dev selector: 0xfafb610f
      */
-    error InvalidWindowConfig(string reason);
+    error SubmitBlobsWindowOutOfBounds();
+
+    /**
+     * @notice preconfirmWindow exceeds the uint24 storage range.
+     * @dev selector: 0x82dd2b00
+     */
+    error PreconfirmWindowOutOfBounds();
+
+    /**
+     * @notice challengeWindow exceeds the uint24 storage range.
+     * @dev selector: 0xead17a86
+     */
+    error ChallengeWindowOutOfBounds();
+
+    /**
+     * @notice finalizationDelay exceeds the uint24 storage range.
+     * @dev selector: 0xea1f08a4
+     */
+    error FinalizationDelayOutOfBounds();
+
+    /**
+     * @notice submitBlobsWindow must not be zero.
+     * @dev selector: 0xb9e14f26
+     */
+    error ZeroSubmitBlobsWindow();
+
+    /**
+     * @notice submitBlobsWindow exceeds preconfirmWindow — must stay strictly within it.
+     * @dev selector: 0x7dd0b2f8
+     */
+    error SubmitBlobsExceedsPreconfirm();
+
+    /**
+     * @notice preconfirmWindow is too close to submitBlobsWindow — needs at least MIN_PRECONFIRMATION_WINDOW gap.
+     * @dev selector: 0xb3690832
+     */
+    error PreconfirmTooCloseToSubmitBlobs();
+
+    /**
+     * @notice challengeWindow is too close to preconfirmWindow — needs at least MIN_CHALLENGE_WINDOW gap.
+     * @dev selector: 0x9c108196
+     */
+    error ChallengeTooCloseToPreconfirm();
+
+    /**
+     * @notice challengeWindow is too close to finalizationDelay — needs at least MIN_CHALLENGE_RESOLUTION_WINDOW gap.
+     * @dev selector: 0xe68d9221
+     */
+    error ChallengeTooCloseToFinalization();
+
+    /**
+     * @notice finalizationDelay is too close to challengeWindow — needs at least MIN_CHALLENGE_RESOLUTION_WINDOW gap.
+     * @dev selector: 0x666f15d2
+     */
+    error FinalizationTooCloseToChallenge();
 
     /**
      * @notice Block header `depositCount` exceeds the maximum value supported by on-chain processing.
@@ -283,10 +427,16 @@ interface IRollupErrors {
     error BatchIndexMismatch(uint256 challengedBatchIndex, uint256 batchIndex);
 
     /**
-     * @notice Address field is not a contract.
-     * @dev selector: 0xdd278830
+     * @notice SP1 verifier address is not a contract.
+     * @dev selector: 0xeed9c0c2
      */
-    error NotAContract(string field);
+    error Sp1VerifierNotAContract();
+
+    /**
+     * @notice Nitro verifier address is not a contract.
+     * @dev selector: 0xc0136839
+     */
+    error NitroVerifierNotAContract();
 }
 
 /**
@@ -361,7 +511,14 @@ interface IRollupEvents {
     /**
      * @notice Emitted when sequencer commits a new batchRoot via {Rollup-commitBatch}.
      */
-    event BatchCommitted(uint256 indexed batchIndex, bytes32 batchRoot, bytes32 lastBlockHash, uint24 numberOfBlocks, uint256 expectedBlobs);
+    event BatchCommitted(
+        uint256 indexed batchIndex,
+        bytes32 batchRoot,
+        bytes32 fromBlockHash,
+        bytes32 toBlockHash,
+        uint24 numberOfBlocks,
+        uint256 expectedBlobs
+    );
 
     /**
      * @notice Emitted when sequencer submits blob hashes for a batch.
@@ -586,14 +743,15 @@ interface IRollupWrite {
 
     /**
      * @notice Submit a new batch from a precomputed root.
-     * @dev Eager header validation is delegated to {challengeBlock} + SP1; eager chain
-     *      linkage via the dropped `lastBlockHashInBatch` parameter is delegated to
-     *      {resolveBatchRootChallenge} (Q4 in research_v2.md).
+     * @dev Eager header validation is delegated to {challengeBlock} + SP1; chain linkage
+     *      between adjacent batches is enforced at {resolveBatchRootChallenge}.
      * @param batchRoot Merkle root of L2 block header commitments for this batch.
-     * @param lastBlockHash Hash of the last L2 block in this batch; emitted in
-     *                      {IRollupEvents-BatchCommitted} for sequencer cold-start recovery.
-     *                      Untrusted input — verified off-chain via Merkle proof against
-     *                      {batchRoot}, or on-chain via {resolveBatchRootChallenge}.
+     * @param fromBlockHash Hash of the first L2 block in this batch. Emit-only indexer
+     *                      metadata included in {IRollupEvents-BatchCommitted}; not stored
+     *                      or validated against {batchRoot} on-chain beyond a non-zero check.
+     * @param toBlockHash Hash of the last L2 block in this batch. Emit-only indexer
+     *                    metadata included in {IRollupEvents-BatchCommitted}; not stored
+     *                    or validated against {batchRoot} on-chain beyond a non-zero check.
      * @param numberOfBlocks Number of L2 blocks in the batch (sequencer-claimed; bound to
      *                       leaf count via Q3 check at challenge resolution time).
      * @param blockDeposits Per-block deposit bundles for the bridge cursor advance.
@@ -602,7 +760,8 @@ interface IRollupWrite {
      */
     function commitBatch(
         bytes32 batchRoot,
-        bytes32 lastBlockHash,
+        bytes32 fromBlockHash,
+        bytes32 toBlockHash,
         uint24 numberOfBlocks,
         BlockDeposit[] calldata blockDeposits,
         uint8 expectedBlobsCount

@@ -265,7 +265,7 @@ contract ForceRevertTest is RollupAssertions {
         _acceptBatch(GENESIS_HASH, 0);
 
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "toBatchIndex"));
+        vm.expectRevert(IRollupErrors.ZeroToBatchIndex.selector);
         rollup.revertBatches(0);
     }
 
@@ -434,7 +434,14 @@ contract ForceRevertTest is RollupAssertions {
 
     function _commitBatch(L2BlockHeader[] memory headers, BlockDeposit[] memory deposits) internal {
         vm.prank(sequencer);
-        rollup.commitBatch(_computeBatchRoot(headers), headers[headers.length - 1].blockHash, uint24(headers.length), deposits, 1);
+        rollup.commitBatch(
+            _computeBatchRoot(headers),
+            headers[0].blockHash,
+            headers[headers.length - 1].blockHash,
+            uint24(headers.length),
+            deposits,
+            1
+        );
     }
 
     function _makeDeposits(bytes32[] memory ids) internal pure returns (BlockDeposit[] memory deposits) {
