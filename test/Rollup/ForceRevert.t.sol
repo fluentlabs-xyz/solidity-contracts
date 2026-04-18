@@ -265,7 +265,7 @@ contract ForceRevertTest is RollupAssertions {
         _acceptBatch(GENESIS_HASH, 0);
 
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "toBatchIndex"));
+        vm.expectRevert(IRollupErrors.ZeroToBatchIndex.selector);
         rollup.revertBatches(0);
     }
 

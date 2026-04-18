@@ -122,7 +122,7 @@ contract AcceptBatchTest is RollupAssertions {
         bytes32 batchRoot = _computeBatchRoot(batch);
         BlockDeposit[] memory emptyDeposits = new BlockDeposit[](0);
 
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "fromBlockHash"));
+        vm.expectRevert(IRollupErrors.ZeroFromBlockHash.selector);
         vm.prank(sequencer);
         rollup.commitBatch(batchRoot, bytes32(0), batch[batch.length - 1].blockHash, uint24(batch.length), emptyDeposits, 1);
     }
@@ -132,7 +132,7 @@ contract AcceptBatchTest is RollupAssertions {
         bytes32 batchRoot = _computeBatchRoot(batch);
         BlockDeposit[] memory emptyDeposits = new BlockDeposit[](0);
 
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "toBlockHash"));
+        vm.expectRevert(IRollupErrors.ZeroToBlockHash.selector);
         vm.prank(sequencer);
         rollup.commitBatch(batchRoot, batch[0].blockHash, bytes32(0), uint24(batch.length), emptyDeposits, 1);
     }
@@ -140,7 +140,7 @@ contract AcceptBatchTest is RollupAssertions {
     function test_RevertIf_commitBatch_zeroNumberOfBlocks() public {
         BlockDeposit[] memory emptyDeposits = new BlockDeposit[](0);
 
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "numberOfBlocks"));
+        vm.expectRevert(IRollupErrors.ZeroNumberOfBlocks.selector);
         vm.prank(sequencer);
         rollup.commitBatch(keccak256("root"), keccak256("from"), keccak256("to"), 0, emptyDeposits, 1);
     }
@@ -171,7 +171,7 @@ contract AcceptBatchTest is RollupAssertions {
     function test_RevertIf_acceptNextBatch_zeroExpectedBlobsCount() public {
         L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
 
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "expectedBlobsCount"));
+        vm.expectRevert(IRollupErrors.ZeroExpectedBlobsCount.selector);
         vm.prank(sequencer);
         rollup.commitBatch(_computeBatchRoot(batch), batch[0].blockHash, batch[batch.length - 1].blockHash, uint24(batch.length), new BlockDeposit[](0), 0);
     }
