@@ -8,6 +8,7 @@ import {L2FluentBridge} from "../../contracts/bridge/L2/L2FluentBridge.sol";
 import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {FluentBridgeStorageLayout} from "../../contracts/bridge/FluentBridgeStorageLayout.sol";
 import {L1GasOracle} from "../../contracts/oracles/L1GasOracle.sol";
+import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {DeployBase} from "./DeployBase.s.sol";
 
 /// @notice Deploys L2FluentBridge behind a UUPS proxy.
@@ -63,15 +64,7 @@ contract DeployL2Bridge is DeployBase {
 
         vm.startBroadcast();
         address gasOracle = address(new L1GasOracle(relayerRole));
-        L2BridgeResult memory r = _deployL2Bridge(
-            adminRole,
-            pauserRole,
-            relayerRole,
-            otherBridge,
-            l1BlockOracle,
-            gasOracle,
-            address(0)
-        );
+        L2BridgeResult memory r = _deployL2Bridge(adminRole, pauserRole, relayerRole, otherBridge, l1BlockOracle, gasOracle, address(0));
         vm.stopBroadcast();
 
         console2.log("L2FluentBridge deployed:", r.proxy);

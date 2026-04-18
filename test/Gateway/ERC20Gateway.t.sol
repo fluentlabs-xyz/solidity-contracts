@@ -65,6 +65,117 @@ contract ERC20GatewayTest is GatewayBase {
         assertEq(pegged.totalSupply(), supplyBefore - 4 ether);
     }
 
+    /// @dev With whitelist enabled and the originating batch Preconfirmed, a token NOT
+    ///      registered on the FastWithdrawalList must be rejected — forcing the user to wait
+    ///      for finalization before withdrawing this token.
+    function test_receivePeggedTokens_marksFailedWhenPreconfirmedAndTokenNotInFastList() public {
+        vm.prank(admin);
+        gateway.setWhitelistEnabled(true);
+        // Simulate the optimistic window so the gate fires.
+        _mockBridgePreconfirmed(true);
+
+        address predictedPegged = _predictedPegged();
+        bytes memory tokenMetadata = abi.encode("MOCK", "Mock Token", uint8(18));
+        bytes memory message = abi.encodeCall(
+            ERC20Gateway.receivePeggedTokens,
+            (address(originToken), predictedPegged, user, recipient, 1 ether, tokenMetadata)
+        );
+
+        (bytes32 messageHash, , ) = _relayMessage(remoteGateway, address(gateway), 0, message);
+        assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
+
+        // Bucket is unregistered, so usage stays at zero.
+        (, uint256 hourlyUsed, , uint256 dailyUsed) = fastWithdrawalList.getUsage(address(originToken));
+        assertEq(hourlyUsed, 0);
+        assertEq(dailyUsed, 0);
+    }
+
+    /// @dev When the whitelist is enabled but the batch is FINALIZED (i.e. not Preconfirmed),
+    ///      no rate limits apply even for an unregistered token. This is the "Finalized →
+    ///      unrestricted" branch of the optimistic-withdrawal policy.
+    function test_receivePeggedTokens_finalizedBatchSkipsLimitsForUnregisteredToken() public {
+        vm.prank(admin);
+        gateway.setWhitelistEnabled(true);
+        // No mock — bridge defaults to "not preconfirmed", which the gateway treats as Finalized.
+
+        address predictedPegged = _predictedPegged();
+        bytes memory tokenMetadata = abi.encode("MOCK", "Mock Token", uint8(18));
+        bytes memory message = abi.encodeCall(
+            ERC20Gateway.receivePeggedTokens,
+            (address(originToken), predictedPegged, user, recipient, 100 ether, tokenMetadata)
+        );
+
+        (bytes32 messageHash, , ) = _relayMessage(remoteGateway, address(gateway), 0, message);
+        assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Success));
+    }
+
+    function test_receivePeggedTokens_enforcesFastWithdrawalLimits() public {
+        vm.prank(admin);
+        fastWithdrawalList.registerToken(address(originToken), 3 ether, 5 ether);
+        vm.prank(admin);
+        gateway.setWhitelistEnabled(true);
+        _mockBridgePreconfirmed(true);
+
+        address predictedPegged = _predictedPegged();
+        bytes memory tokenMetadata = abi.encode("MOCK", "Mock Token", uint8(18));
+
+        // Within-limit receive of 2 ether succeeds and consumes the hourly/daily counters.
+        bytes memory okMsg = abi.encodeCall(
+            ERC20Gateway.receivePeggedTokens,
+            (address(originToken), predictedPegged, user, recipient, 2 ether, tokenMetadata)
+        );
+        (bytes32 okHash, , ) = _relayMessage(remoteGateway, address(gateway), 0, okMsg);
+        assertEq(uint256(bridge.getReceivedMessage(okHash)), uint256(IFluentBridge.MessageStatus.Success));
+
+        (uint256 currentHourWindow, uint256 hourlyUsed, uint256 currentDayWindow, uint256 dailyUsed) = fastWithdrawalList.getUsage(
+            address(originToken)
+        );
+        assertEq(currentHourWindow, block.timestamp / 1 hours);
+        assertEq(hourlyUsed, 2 ether);
+        assertEq(currentDayWindow, block.timestamp / 1 days);
+        assertEq(dailyUsed, 2 ether);
+
+        // Over-hourly-limit receive (2 + 2 > 3) must fail; counters must not advance.
+        bytes memory overHourly = abi.encodeCall(
+            ERC20Gateway.receivePeggedTokens,
+            (address(originToken), predictedPegged, user, recipient, 2 ether, tokenMetadata)
+        );
+        (bytes32 overHourlyHash, , ) = _relayMessage(remoteGateway, address(gateway), 0, overHourly);
+        assertEq(uint256(bridge.getReceivedMessage(overHourlyHash)), uint256(IFluentBridge.MessageStatus.Failed));
+
+        (, hourlyUsed, , dailyUsed) = fastWithdrawalList.getUsage(address(originToken));
+        assertEq(hourlyUsed, 2 ether);
+        assertEq(dailyUsed, 2 ether);
+
+        // Next hour, hourly window resets; daily continues to accumulate.
+        vm.warp(block.timestamp + 1 hours);
+        bytes memory nextHour = abi.encodeCall(
+            ERC20Gateway.receivePeggedTokens,
+            (address(originToken), predictedPegged, user, recipient, 2 ether, tokenMetadata)
+        );
+        (bytes32 nextHash, , ) = _relayMessage(remoteGateway, address(gateway), 0, nextHour);
+        assertEq(uint256(bridge.getReceivedMessage(nextHash)), uint256(IFluentBridge.MessageStatus.Success));
+
+        (, hourlyUsed, , dailyUsed) = fastWithdrawalList.getUsage(address(originToken));
+        assertEq(hourlyUsed, 2 ether);
+        assertEq(dailyUsed, 4 ether);
+
+        // Disable hourly, keep daily at 5. Next receive of 2 would push daily to 6 → fail.
+        vm.prank(admin);
+        fastWithdrawalList.setLimit(address(originToken), 0, 5 ether);
+
+        bytes memory overDaily = abi.encodeCall(
+            ERC20Gateway.receivePeggedTokens,
+            (address(originToken), predictedPegged, user, recipient, 2 ether, tokenMetadata)
+        );
+        (bytes32 overDailyHash, , ) = _relayMessage(remoteGateway, address(gateway), 0, overDaily);
+        assertEq(uint256(bridge.getReceivedMessage(overDailyHash)), uint256(IFluentBridge.MessageStatus.Failed));
+
+        (, hourlyUsed, , dailyUsed) = fastWithdrawalList.getUsage(address(originToken));
+        assertEq(hourlyUsed, 2 ether);
+        assertEq(dailyUsed, 4 ether);
+    }
+
     function test_receiveOriginTokens_withZeroRecipient_marksFailed() public {
         bytes memory message = abi.encodeCall(ERC20Gateway.receiveOriginTokens, (address(originToken), user, address(0), 1 ether));
         (bytes32 messageHash, , ) = _relayMessage(remoteGateway, address(gateway), 0, message);

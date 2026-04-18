@@ -4,7 +4,7 @@ pragma solidity 0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
+import {IFluentBridge, IFluentBridgeRead} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {L1BlockOracle} from "../../contracts/oracles/L1BlockOracle.sol";
 import {L1GasOracle} from "../../contracts/oracles/L1GasOracle.sol";
 import {ERC20Gateway} from "../../contracts/gateways/ERC20Gateway.sol";
@@ -12,7 +12,8 @@ import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol
 import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
 import {MockERC20Token} from "../mocks/MockERC20.sol";
 import {L2FluentBridge} from "../../contracts/bridge/L2/L2FluentBridge.sol";
-import {FluentBridgeStorageLayout} from "../../contracts/bridge/FluentBridgeStorageLayout.sol";
+import {FastWithdrawalList} from "../../contracts/fastlist/FastWithdrawalList.sol";
+import {IFastWithdrawalList} from "../../contracts/interfaces/IFastWithdrawalList.sol";
 
 abstract contract GatewayBase is Test {
     address internal admin = makeAddr("admin");
@@ -34,6 +35,7 @@ abstract contract GatewayBase is Test {
     ERC20Gateway internal gateway;
     ERC20PeggedToken internal peggedImplementation;
     MockERC20Token internal originToken;
+    FastWithdrawalList internal fastWithdrawalList;
 
     function setUp() public virtual {
         sourceChainId = block.chainid + 1;
@@ -69,6 +71,26 @@ abstract contract GatewayBase is Test {
         assertTrue(ok, "setExecuteGasLimit failed");
     }
 
+    /// @dev Register an arbitrary gateway on the bridge. The bridge rejects both
+    ///      `sendMessage` and `_receiveMessage` whose peer isn't registered; test helpers
+    ///      call this before delivering so legitimate receivers aren't rejected mid-flow.
+    ///      Idempotent — the admin setter has no "already registered" check.
+    function _registerGateway(address target) internal {
+        vm.prank(admin);
+        (bool ok, ) = address(bridge).call(abi.encodeWithSignature("registerGateway(address)", target));
+        require(ok, "registerGateway failed");
+    }
+
+    /// @dev Deploys the shared {FastWithdrawalList} behind a UUPS proxy. Reused by both the
+    ///      ERC20 and native gateway test paths so each can wire its own gateway as a
+    ///      consumer. Idempotent against multiple calls within the same test (the second
+    ///      deploy just overwrites `fastWithdrawalList` — fine for tests).
+    function _deployFastWithdrawalList() internal {
+        FastWithdrawalList listImpl = new FastWithdrawalList();
+        ERC1967Proxy listProxy = new ERC1967Proxy(address(listImpl), abi.encodeCall(FastWithdrawalList.initialize, (admin)));
+        fastWithdrawalList = FastWithdrawalList(address(listProxy));
+    }
+
     function _deployGatewayStack() internal {
         peggedImplementation = new ERC20PeggedToken();
 
@@ -93,6 +115,27 @@ abstract contract GatewayBase is Test {
         vm.prank(admin);
         gateway.setOtherSide(false, remoteGateway, sourceChainId, address(peggedImplementation), address(factory), beacon);
 
+        // The bridge only dispatches `_receiveMessage` into registered gateways (and
+        // symmetrically only accepts `sendMessage` to registered destinations), so register
+        // the freshly deployed gateway once upfront. We also register `remoteGateway`
+        // because tests exercise the send path (`gateway.sendTokens(...)`) which calls
+        // `bridge.sendMessage(remoteGateway, ...)`. Per-test ad-hoc receivers (e.g.
+        // `NoopReceiver`) are registered lazily inside `_relayMessage`.
+        _registerGateway(address(gateway));
+        _registerGateway(remoteGateway);
+
+        // Deploy the shared fast-withdrawal allowlist and wire it into the gateway. The
+        // gateway must also be registered as a consumer on the list so `_consumeLimit` is
+        // allowed to debit the rate caps. Tests that want to exercise the optimistic-
+        // withdrawal safety policy then call `gateway.setWhitelistEnabled(true)` and
+        // `fastWithdrawalList.registerToken(...)` to admit tokens to the allowlist.
+        _deployFastWithdrawalList();
+        vm.prank(admin);
+        gateway.setFastWithdrawalList(address(fastWithdrawalList));
+        bytes32 consumerRole = fastWithdrawalList.CONSUMER_ROLE();
+        vm.prank(admin);
+        fastWithdrawalList.grantRole(consumerRole, address(gateway));
+
         originToken = new MockERC20Token("Mock Token", "MOCK", 1_000_000 ether, user);
     }
 
@@ -114,6 +157,10 @@ abstract contract GatewayBase is Test {
         uint256 value,
         bytes memory message
     ) internal returns (bytes32 messageHash, uint256 nonce, uint256 sourceBlock) {
+        // Auto-register the receive target so every test-delivered message reaches
+        // `_receiveMessage` (the bridge rejects unregistered `to`). Idempotent.
+        _registerGateway(to);
+
         nonce = bridge.getReceivedNonce();
         sourceBlock = nextSourceBlock++;
         messageHash = _bridgeMessageHash(from, to, value, sourceChainId, sourceBlock, nonce, message);
@@ -124,6 +171,9 @@ abstract contract GatewayBase is Test {
     }
 
     function _retryFailedMessage(address from, address to, uint256 value, uint256 blockNumber, uint256 nonce, bytes memory message) internal {
+        // Defensive: ensure the target is registered for the retry as well.
+        _registerGateway(to);
+
         vm.deal(address(bridge), address(bridge).balance + value);
         vm.prank(relayer);
         bridge.receiveFailedMessage(from, to, value, sourceChainId, blockNumber, nonce, message);
@@ -131,5 +181,15 @@ abstract contract GatewayBase is Test {
 
     function _predictedPegged() internal view returns (address) {
         return gateway.computeTokenAddress(address(gateway), address(originToken));
+    }
+
+    /**
+     * @dev Forces the local bridge to report that the currently executing receive originated
+     *      from a Preconfirmed L1 batch. The gateway's `_consumeLimit` only enforces limits
+     *      while the batch is Preconfirmed; outside of that window it's a no-op. Tests that
+     *      want to exercise the limit path call this helper right before `_relayMessage`.
+     */
+    function _mockBridgePreconfirmed(bool value) internal {
+        vm.mockCall(address(bridge), abi.encodeWithSelector(IFluentBridgeRead.isCurrentBatchPreconfirmed.selector), abi.encode(value));
     }
 }

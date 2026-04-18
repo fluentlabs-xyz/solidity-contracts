@@ -19,6 +19,7 @@ import {MockERC20Token} from "../../test/mocks/MockERC20.sol";
 import {InitConfiguration} from "../../contracts/interfaces/rollup/IRollupTypes.sol";
 import {MockNitroVerifier} from "../mocks/MockNitroVerifier.sol";
 import {MockSp1Verifier} from "../mocks/MockSp1Verifier.sol";
+import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 
 abstract contract BaseDeployNative is Test {
     uint256 internal constant RECEIVE_DEADLINE = 100;

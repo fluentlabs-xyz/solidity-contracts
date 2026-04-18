@@ -7,6 +7,7 @@ import {Upgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 import {L1FluentBridge} from "../../contracts/bridge/L1/L1FluentBridge.sol";
 import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {FluentBridgeStorageLayout} from "../../contracts/bridge/FluentBridgeStorageLayout.sol";
+import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {DeployBase} from "./DeployBase.s.sol";
 
 /// @notice Deploys L1FluentBridge behind a UUPS proxy.
@@ -36,10 +37,7 @@ contract DeployL1Bridge is DeployBase {
         });
         r.proxy = Upgrades.deployUUPSProxy(
             "L1FluentBridge.sol:L1FluentBridge",
-            abi.encodeCall(
-                L1FluentBridge.initialize,
-                (abi.encode(params), rollup, receiveMessageDeadline, depositProcessingWindow)
-            )
+            abi.encodeCall(L1FluentBridge.initialize, (abi.encode(params), rollup, receiveMessageDeadline, depositProcessingWindow))
         );
         r.impl = Upgrades.getImplementationAddress(r.proxy);
     }

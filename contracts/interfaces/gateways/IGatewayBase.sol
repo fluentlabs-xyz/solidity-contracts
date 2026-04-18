@@ -47,6 +47,29 @@ interface IGatewayBaseErrors {
      * @dev selector: 0xdaf49ab9
      */
     error AddressBlacklisted(address account);
+
+    /**
+     * @notice Thrown when the batch status is invalid.
+     * @dev selector: 0xf610563c
+     */
+    error InvalidBatchStatus();
+
+    /**
+     * @notice {setWhitelistEnabled(true)} called while {_fastWithdrawalList} is unset, OR
+     *         a Preconfirmed-batch receive reached the consume step on a gateway whose
+     *         {_fastWithdrawalList} address is zero. Either case is a misconfiguration:
+     *         the rate-limit registry must be wired before optimistic withdrawals can be
+     *         enforced safely.
+     */
+    error FastWithdrawalListNotConfigured();
+
+    /**
+     * @notice The originating L1 batch is `Preconfirmed` but `token` is not on the
+     *         {IFastWithdrawalList} allowlist. The user must wait for the batch to reach
+     *         `Finalized` before withdrawing this token, or the admin must register the
+     *         token on the allowlist.
+     */
+    error FastWithdrawalNotAllowed(address token);
 }
 
 /**
@@ -102,6 +125,18 @@ interface IGatewayBaseEvents {
      * @notice Emitted when the blacklist registry address is updated.
      */
     event BlacklistRegistryUpdated(address indexed prevValue, address indexed newValue);
+
+    /**
+     * @notice Emitted when whitelist enforcement is toggled. While `false`, {_consumeLimit}
+     *         is a no-op and the gateway behaves as if no rate-limit policy were in place.
+     */
+    event WhitelistEnabledUpdated(bool enabled);
+
+    /**
+     * @notice Emitted when the {IFastWithdrawalList} address used for optimistic-withdrawal
+     *         rate-limiting is updated. `address(0)` means "no list configured".
+     */
+    event FastWithdrawalListUpdated(address indexed prevValue, address indexed newValue);
 }
 
 /**
@@ -111,25 +146,21 @@ interface IGatewayBaseEvents {
 interface IGatewayBase is IGatewayBaseErrors, IGatewayBaseEvents {
     /**
      * @notice Returns the address of the bridge contract.
-     * @return The address of the bridge contract.
      */
     function getBridgeContract() external view returns (address);
 
     /**
      * @notice Returns the address of the other side gateway.
-     * @return The address of the other side gateway.
      */
     function getOtherSideGateway() external view returns (address);
 
     /**
      * @notice Returns the other side chain id.
-     * @return The other side chain id.
      */
     function getOtherSideChainId() external view returns (uint256);
 
     /**
      * @notice Updates the bridge contract address used for sending and receiving messages.
-     * @param newBridgeContract The address of the bridge contract.
      *
      * @dev Emits BridgeContractUpdated
      */
@@ -137,7 +168,6 @@ interface IGatewayBase is IGatewayBaseErrors, IGatewayBaseEvents {
 
     /**
      * @notice Updates the other side gateway address used as message destination.
-     * @param newOtherSideGateway The address of the other side gateway.
      *
      * @dev Emits OtherSideGatewayUpdated
      */
@@ -145,7 +175,6 @@ interface IGatewayBase is IGatewayBaseErrors, IGatewayBaseEvents {
 
     /**
      * @notice Updates the other side chain id used for message destination.
-     * @param newOtherSideChainId The new other side chain id.
      *
      * @dev Emits OtherSideChainIdUpdated
      */
@@ -158,6 +187,42 @@ interface IGatewayBase is IGatewayBaseErrors, IGatewayBaseEvents {
 
     /**
      * @notice Sets the blacklist registry for outbound deposit checks (zero disables enforcement).
+     *
+     * @dev Emits BlacklistRegistryUpdated
      */
     function setBlacklistRegistry(address newBlacklistRegistry) external;
+
+    /**
+     * @notice Returns the {IFastWithdrawalList} contract used for optimistic-withdrawal rate
+     *         limiting. Zero when no list is configured. While {isWhitelistEnabled} is `true`
+     *         this MUST be non-zero — `setWhitelistEnabled(true)` reverts otherwise.
+     */
+    function getFastWithdrawalList() external view returns (address);
+
+    /**
+     * @notice Sets the {IFastWithdrawalList} contract address. Pass `address(0)` to clear
+     *         (only allowed while {isWhitelistEnabled} is `false`).
+     *
+     * @dev Emits FastWithdrawalListUpdated
+     */
+    function setFastWithdrawalList(address newFastWithdrawalList) external;
+
+    /**
+     * @notice Enables or disables the optimistic-withdrawal safety policy. When `false`,
+     *         {_consumeLimit} is a no-op (legacy / unprotected mode). When `true`, every
+     *         receive on a Preconfirmed batch must either (a) target a token registered on
+     *         the configured {IFastWithdrawalList} (consuming its rate cap) or (b) be
+     *         rejected with {FastWithdrawalNotAllowed}.
+     *
+     * @dev Reverts {FastWithdrawalListNotConfigured} if `enabled == true` and the
+     *      {IFastWithdrawalList} address has not been set.
+     *
+     * @dev Emits WhitelistEnabledUpdated
+     */
+    function setWhitelistEnabled(bool enabled) external;
+
+    /**
+     * @notice Returns whether the optimistic-withdrawal safety policy is currently enforced.
+     */
+    function isWhitelistEnabled() external view returns (bool);
 }

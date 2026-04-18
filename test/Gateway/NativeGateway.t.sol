@@ -6,7 +6,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 
 import {NativeGateway} from "../../contracts/gateways/NativeGateway.sol";
-import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
+import {IFluentBridge, IFluentBridgeErrors} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {IGatewayBaseErrors, IGatewayBaseEvents} from "../../contracts/interfaces/gateways/IGatewayBase.sol";
 import {INativeGatewayErrors} from "../../contracts/interfaces/gateways/INativeGateway.sol";
 import {GatewayBase} from "./Base.t.sol";
@@ -28,6 +28,23 @@ contract NativeGatewayTest is GatewayBase {
 
         vm.prank(admin);
         nativeGateway.setOtherSideGateway(remoteGateway);
+
+        // Bridge gates BOTH `sendMessage` (outbound) and `_receiveMessage` (inbound)
+        // against the gateway registry. Register the local native gateway so receives
+        // land, and `remoteGateway` so outbound `sendMessage(remoteGateway, ...)` from
+        // `sendNativeTokens` passes the symmetric admission check.
+        _registerGateway(address(nativeGateway));
+        _registerGateway(remoteGateway);
+
+        // Wire the shared FastWithdrawalList so the optimistic-withdrawal policy can be
+        // toggled in tests. The native gateway addresses the native asset via
+        // `NATIVE_LIMIT_KEY`; tests register that key on the list to exercise rate caps.
+        _deployFastWithdrawalList();
+        vm.prank(admin);
+        nativeGateway.setFastWithdrawalList(address(fastWithdrawalList));
+        bytes32 consumerRole = fastWithdrawalList.CONSUMER_ROLE();
+        vm.prank(admin);
+        fastWithdrawalList.grantRole(consumerRole, address(nativeGateway));
     }
 
     function test_initialize_setsDefaults() public view {
@@ -63,7 +80,12 @@ contract NativeGatewayTest is GatewayBase {
         nativeGateway.sendNativeTokens{value: 0}(recipient);
     }
 
-    function test_sendNativeTokens_withoutOtherSideGateway_sendsToZeroAddress() public {
+    /// @dev Pre-symmetry, an un-configured gateway silently forwarded `sendMessage` to
+    ///      `address(0)` and the bridge accepted it — a footgun that trapped user funds.
+    ///      The bridge now gates `sendMessage` against the gateway registry symmetric with
+    ///      the receive path, and `address(0)` can never be registered, so the bridge
+    ///      rejects the call up-front with {GatewayNotWhitelisted}.
+    function test_sendNativeTokens_withoutOtherSideGateway_revertsOnUnregisteredDestination() public {
         NativeGateway impl = new NativeGateway();
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), abi.encodeCall(NativeGateway.initialize, (admin, address(bridge))));
         NativeGateway localGateway = NativeGateway(payable(address(proxy)));
@@ -71,10 +93,97 @@ contract NativeGatewayTest is GatewayBase {
         vm.deal(user, amount);
 
         vm.prank(user);
+        vm.expectRevert(IFluentBridgeErrors.GatewayNotWhitelisted.selector);
         localGateway.sendNativeTokens{value: amount}(recipient);
+    }
 
-        // Current behavior: no explicit otherSide check in NativeGateway, so bridge accepts message.
-        assertEq(address(bridge).balance, amount);
+    /// @dev Relay helper: encode and deliver a `receiveNativeTokens` message through the bridge.
+    function _relayReceiveNative(uint256 amount) internal returns (bytes32 messageHash) {
+        bytes memory message = abi.encodeCall(NativeGateway.receiveNativeTokens, (user, recipient, amount));
+        uint256 nonce = bridge.getReceivedNonce();
+        uint256 sourceBlock = nextSourceBlock++;
+        messageHash = _bridgeMessageHash(remoteGateway, address(nativeGateway), amount, sourceChainId, sourceBlock, nonce, message);
+        vm.deal(address(bridge), address(bridge).balance + amount);
+        vm.prank(relayer);
+        bridge.receiveMessage(remoteGateway, address(nativeGateway), amount, sourceChainId, sourceBlock, nonce, message);
+    }
+
+    /// @dev With whitelist enabled and the originating batch Preconfirmed, the native asset
+    ///      key not being on the FastWithdrawalList must reject the receive.
+    function test_receiveNativeTokens_marksFailedWhenPreconfirmedAndNativeNotInFastList() public {
+        address nativeKey = nativeGateway.NATIVE_LIMIT_KEY();
+
+        vm.prank(admin);
+        nativeGateway.setWhitelistEnabled(true);
+        _mockBridgePreconfirmed(true);
+
+        bytes32 messageHash = _relayReceiveNative(1 ether);
+        assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
+
+        // Bucket is unregistered, so usage stays at zero.
+        (, uint256 hourlyUsed, , uint256 dailyUsed) = fastWithdrawalList.getUsage(nativeKey);
+        assertEq(hourlyUsed, 0);
+        assertEq(dailyUsed, 0);
+    }
+
+    /// @dev With whitelist enabled but batch Finalized (no Preconfirmed signal), the gate is
+    ///      a no-op even for the unregistered native key.
+    function test_receiveNativeTokens_finalizedBatchSkipsLimitsForUnregisteredNative() public {
+        vm.prank(admin);
+        nativeGateway.setWhitelistEnabled(true);
+        // No mock — bridge defaults to "not preconfirmed".
+
+        bytes32 messageHash = _relayReceiveNative(1 ether);
+        assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Success));
+    }
+
+    function test_receiveNativeTokens_enforcesFastWithdrawalLimits() public {
+        address nativeKey = nativeGateway.NATIVE_LIMIT_KEY();
+
+        vm.prank(admin);
+        fastWithdrawalList.registerToken(nativeKey, 2 ether, 3 ether);
+        vm.prank(admin);
+        nativeGateway.setWhitelistEnabled(true);
+        _mockBridgePreconfirmed(true);
+
+        // Within-limit receive of 1 ether succeeds and consumes the hourly/daily counters.
+        bytes32 okHash = _relayReceiveNative(1 ether);
+        assertEq(uint256(bridge.getReceivedMessage(okHash)), uint256(IFluentBridge.MessageStatus.Success));
+
+        (uint256 currentHourWindow, uint256 hourlyUsed, uint256 currentDayWindow, uint256 dailyUsed) =
+            fastWithdrawalList.getUsage(nativeKey);
+        assertEq(currentHourWindow, block.timestamp / 1 hours);
+        assertEq(hourlyUsed, 1 ether);
+        assertEq(currentDayWindow, block.timestamp / 1 days);
+        assertEq(dailyUsed, 1 ether);
+
+        // Over-hourly-limit receive (1 + 2 > 2) must fail; counters must not advance.
+        bytes32 overHourlyHash = _relayReceiveNative(2 ether);
+        assertEq(uint256(bridge.getReceivedMessage(overHourlyHash)), uint256(IFluentBridge.MessageStatus.Failed));
+
+        (, hourlyUsed, , dailyUsed) = fastWithdrawalList.getUsage(nativeKey);
+        assertEq(hourlyUsed, 1 ether);
+        assertEq(dailyUsed, 1 ether);
+
+        // Next hour, hourly window resets; daily continues to accumulate.
+        vm.warp(block.timestamp + 1 hours);
+        bytes32 nextHourHash = _relayReceiveNative(2 ether);
+        assertEq(uint256(bridge.getReceivedMessage(nextHourHash)), uint256(IFluentBridge.MessageStatus.Success));
+
+        (, hourlyUsed, , dailyUsed) = fastWithdrawalList.getUsage(nativeKey);
+        assertEq(hourlyUsed, 2 ether);
+        assertEq(dailyUsed, 3 ether);
+
+        // Disable hourly, keep daily at 3. Next receive of 1 would push daily to 4 → fail.
+        vm.prank(admin);
+        fastWithdrawalList.setLimit(nativeKey, 0, 3 ether);
+
+        bytes32 overDailyHash = _relayReceiveNative(1 ether);
+        assertEq(uint256(bridge.getReceivedMessage(overDailyHash)), uint256(IFluentBridge.MessageStatus.Failed));
+
+        (, hourlyUsed, , dailyUsed) = fastWithdrawalList.getUsage(nativeKey);
+        assertEq(hourlyUsed, 2 ether);
+        assertEq(dailyUsed, 3 ether);
     }
 
     function test_receiveNativeTokens_viaBridge_transfersValue() public {

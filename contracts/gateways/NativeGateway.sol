@@ -26,6 +26,9 @@ import {INativeGateway} from "../interfaces/gateways/INativeGateway.sol";
  * @dev Admin functions: `rescueNative`.
  */
 contract NativeGateway is GatewayBase, INativeGateway {
+    /// @dev Shared-key slot for native-asset limit config in GatewayBase storage.
+    address public constant NATIVE_LIMIT_KEY = address(0x0000012345678901234567890123456789012345);
+
     // ============ Constructor ============
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -40,7 +43,6 @@ contract NativeGateway is GatewayBase, INativeGateway {
         __GatewayBase_init(initialOwner, bridgeContract);
     }
 
-    /// @inheritdoc INativeGateway
     function sendNativeTokens(address to) external payable nonReentrant {
         require(to != address(0), InvalidRecipient());
         address sender = msg.sender;
@@ -65,6 +67,11 @@ contract NativeGateway is GatewayBase, INativeGateway {
         require(FluentBridge(msg.sender).getNativeSender() == getOtherSideGateway(), MessageFromWrongGateway());
         require(msg.value == amount, InvalidNativeAmount());
         require(to != address(0), InvalidRecipient());
+
+        // Whitelist / hourly / daily quota applies only while the source batch is still
+        // Preconfirmed. Once the originating batch is Finalized the call is unrestricted.
+        // No-op when the whitelist is disabled.
+        _consumeLimit(NATIVE_LIMIT_KEY, amount);
 
         // Forward ETH to recipient — gas is bounded by the bridge's executeGasLimit on first
         // delivery, and by the caller's transaction gas limit on retry via receiveFailedMessage

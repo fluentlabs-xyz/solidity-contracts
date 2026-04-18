@@ -227,6 +227,9 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
             require(getTokenMapping(peggedToken) == originToken, TokenMappingCheckFailed());
         }
 
+        // Consume the token limit
+        _consumeLimit(originToken, amount);
+
         // Mint the pegged token amount to the recipient — this gateway has minter authority
         // because it was set as the owner during _deployPeggedToken
         ERC20PeggedToken(peggedToken).mint(to, amount);
@@ -247,6 +250,9 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         require(to != address(0), InvalidRecipient());
         // Prevent releasing zero tokens — disallow no-op messages that still consume bridge fees
         require(amount > 0, ZeroValueNotAllowed("amount"));
+
+        // Consume the token limit
+        _consumeLimit(originToken, amount);
 
         // Release escrowed origin tokens to the recipient — these were locked during
         // _sendOriginTokens on this chain when the deposit was made.
