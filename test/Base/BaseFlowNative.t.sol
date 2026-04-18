@@ -435,7 +435,7 @@ contract BaseFlowNativeTest is BaseDeployNative {
         bytes32 batchRoot = keccak256(abi.encodePacked(keccak256(abi.encodePacked(header.previousBlockHash, header.blockHash, header.withdrawalRoot, header.depositRoot))));
         BlockDeposit[] memory emptyDeposits = new BlockDeposit[](0);
         vm.prank(relayer);
-        l1Rollup.commitBatch(batchRoot, header.blockHash, 1, emptyDeposits, 1);
+        l1Rollup.commitBatch(batchRoot, header.blockHash, header.blockHash, 1, emptyDeposits, 1);
         bytes32[] memory blobHashes = new bytes32[](1);
         blobHashes[0] = keccak256(abi.encode(blobLabel, batchIndex));
         vm.blobhashes(blobHashes);

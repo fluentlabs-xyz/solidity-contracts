@@ -150,7 +150,7 @@ contract AdminTest is RollupAssertions {
         // Other init events (role grants, window updates) may interleave; expectEmit
         // enforces only the ordered subsequence of our expected events.
         vm.expectEmit(true, false, false, true);
-        emit BatchCommitted(0, expectedRoot, GENESIS_HASH, 1, 0);
+        emit BatchCommitted(0, expectedRoot, GENESIS_HASH, GENESIS_HASH, 1, 0);
         vm.expectEmit(true, false, false, false);
         emit BatchFinalized(0);
 

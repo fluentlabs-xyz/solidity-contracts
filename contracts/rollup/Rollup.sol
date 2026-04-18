@@ -243,14 +243,16 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
     /// @inheritdoc IRollupWrite
     function commitBatch(
         bytes32 batchRoot,
-        bytes32 lastBlockHash,
+        bytes32 fromBlockHash,
+        bytes32 toBlockHash,
         uint24 numberOfBlocks,
         BlockDeposit[] calldata blockDeposits,
         uint8 expectedBlobsCount
     ) external onlyRole(SEQUENCER_ROLE) whenNotPaused nonReentrant {
         RollupStorage storage $ = _getRollupStorage();
         require(batchRoot != bytes32(0), InvalidBatchRoot(batchRoot, bytes32(0)));
-        require(lastBlockHash != bytes32(0), ZeroValueNotAllowed("lastBlockHash"));
+        require(fromBlockHash != bytes32(0), ZeroValueNotAllowed("fromBlockHash"));
+        require(toBlockHash != bytes32(0), ZeroValueNotAllowed("toBlockHash"));
         require(numberOfBlocks > 0, ZeroValueNotAllowed("numberOfBlocks"));
         require(expectedBlobsCount > 0, ZeroValueNotAllowed("expectedBlobsCount"));
         require(!_rollupCorrupted(), RollupCorrupted());
@@ -282,7 +284,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
             cursor = _checkDeposits(cursor, blockDeposits[i]);
         }
 
-        emit BatchCommitted(batchIndex, batchRoot, lastBlockHash, numberOfBlocks, expectedBlobsCount);
+        emit BatchCommitted(batchIndex, batchRoot, fromBlockHash, toBlockHash, numberOfBlocks, expectedBlobsCount);
     }
 
     /// @inheritdoc IRollupWrite

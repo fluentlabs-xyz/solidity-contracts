@@ -672,7 +672,7 @@ contract RollupStorageLayout is
     /**
      * @dev Commits the synthetic genesis batch at index 0. Anchors the chain by recording
      *      a single-leaf Merkle root whose leaf commits to a "block" with
-     *      {blockHash = genesisBlockHash_} and all other header fields zero. Enables
+     *      {blockHash = genesisBlockHash} and all other header fields zero. Enables
      *      {resolveBatchRootChallenge} for batch 1 through the existing Merkle-proof
      *      mechanism against {_batches[0].batchRoot}. Marked {BatchStatus-Finalized} so
      *      {challengeBatchRoot(0)} is rejected by the existing status guard.
@@ -681,12 +681,12 @@ contract RollupStorageLayout is
      *      first real sequencer commit lands at index 1. {_lastFinalizedBatchIndex} remains
      *      at its default value 0, which now semantically means "genesis finalized".
      */
-    function _commitGenesisBatch(bytes32 genesisBlockHash_) internal {
+    function _commitGenesisBatch(bytes32 genesisBlockHash) internal {
         RollupStorage storage $ = _getRollupStorage();
 
         // Single-leaf Merkle root equals the leaf commitment. Matches _computeCommitment
         // over a header with (previousBlockHash=0, blockHash=genesis, wr=ZERO, dr=ZERO).
-        bytes32 genesisCommitment = keccak256(abi.encodePacked(bytes32(0), genesisBlockHash_, ZERO_BYTES_HASH, ZERO_BYTES_HASH));
+        bytes32 genesisCommitment = keccak256(abi.encodePacked(bytes32(0), genesisBlockHash, ZERO_BYTES_HASH, ZERO_BYTES_HASH));
 
         $._batches[0] = BatchRecord({
             batchRoot: genesisCommitment,
@@ -704,7 +704,7 @@ contract RollupStorageLayout is
         // First real batch commits at index 1. Genesis occupies index 0.
         $._nextBatchIndex = 1;
 
-        emit BatchCommitted(0, genesisCommitment, genesisBlockHash_, 1, 0);
+        emit BatchCommitted(0, genesisCommitment, genesisBlockHash, genesisBlockHash, 1, 0);
         emit BatchFinalized(0);
     }
 

@@ -17,7 +17,7 @@ contract CorruptionTest is RollupAssertions {
 
         L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
         vm.prank(sequencer);
-        r.commitBatch(_computeBatchRoot(batch), batch[batch.length - 1].blockHash, uint24(batch.length), new BlockDeposit[](0), 1);
+        r.commitBatch(_computeBatchRoot(batch), batch[0].blockHash, batch[batch.length - 1].blockHash, uint24(batch.length), new BlockDeposit[](0), 1);
 
         vm.roll(block.number + 51);
 
@@ -29,7 +29,7 @@ contract CorruptionTest is RollupAssertions {
 
         L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
         vm.prank(sequencer);
-        r.commitBatch(_computeBatchRoot(batch), batch[batch.length - 1].blockHash, uint24(batch.length), new BlockDeposit[](0), 1);
+        r.commitBatch(_computeBatchRoot(batch), batch[0].blockHash, batch[batch.length - 1].blockHash, uint24(batch.length), new BlockDeposit[](0), 1);
 
         // DA corruption uses strict `>`; boundary block must remain healthy.
         vm.roll(block.number + 50);
@@ -45,7 +45,7 @@ contract CorruptionTest is RollupAssertions {
         uint256 batchIndex = rollup.nextBatchIndex();
         L2BlockHeader[] memory headers = _makeBatch(lastHash);
         vm.prank(sequencer);
-        rollup.commitBatch(_computeBatchRoot(headers), headers[headers.length - 1].blockHash, uint24(headers.length), new BlockDeposit[](0), 1);
+        rollup.commitBatch(_computeBatchRoot(headers), headers[0].blockHash, headers[headers.length - 1].blockHash, uint24(headers.length), new BlockDeposit[](0), 1);
         _submitBlobs(batchIndex, 0);
         _preconfirmBatch(batchIndex);
 
@@ -64,7 +64,7 @@ contract CorruptionTest is RollupAssertions {
         uint256 batchIndex = rollup.nextBatchIndex();
         L2BlockHeader[] memory headers = _makeBatch(lastHash);
         vm.prank(sequencer);
-        rollup.commitBatch(_computeBatchRoot(headers), headers[headers.length - 1].blockHash, uint24(headers.length), new BlockDeposit[](0), 1);
+        rollup.commitBatch(_computeBatchRoot(headers), headers[0].blockHash, headers[headers.length - 1].blockHash, uint24(headers.length), new BlockDeposit[](0), 1);
         _submitBlobs(batchIndex, 0);
         _preconfirmBatch(batchIndex);
 
@@ -84,7 +84,7 @@ contract CorruptionTest is RollupAssertions {
         uint256 batchIndex = rollup.nextBatchIndex();
         L2BlockHeader[] memory headers = _makeBatch(lastHash);
         vm.prank(sequencer);
-        rollup.commitBatch(_computeBatchRoot(headers), headers[headers.length - 1].blockHash, uint24(headers.length), new BlockDeposit[](0), 1);
+        rollup.commitBatch(_computeBatchRoot(headers), headers[0].blockHash, headers[headers.length - 1].blockHash, uint24(headers.length), new BlockDeposit[](0), 1);
         _submitBlobs(batchIndex, 0);
         _preconfirmBatch(batchIndex);
 
@@ -106,7 +106,7 @@ contract CorruptionTest is RollupAssertions {
         uint256 batchIndex = rollup.nextBatchIndex();
         L2BlockHeader[] memory headers = _makeBatch(lastHash);
         vm.prank(sequencer);
-        rollup.commitBatch(_computeBatchRoot(headers), headers[headers.length - 1].blockHash, uint24(headers.length), new BlockDeposit[](0), 1);
+        rollup.commitBatch(_computeBatchRoot(headers), headers[0].blockHash, headers[headers.length - 1].blockHash, uint24(headers.length), new BlockDeposit[](0), 1);
         _submitBlobs(batchIndex, 0);
         _preconfirmBatch(batchIndex);
 
@@ -126,13 +126,13 @@ contract CorruptionTest is RollupAssertions {
         uint256 batchIndex = rollup.nextBatchIndex();
         L2BlockHeader[] memory headers = _makeBatch(lastHash);
         vm.prank(sequencer);
-        rollup.commitBatch(_computeBatchRoot(headers), headers[headers.length - 1].blockHash, uint24(headers.length), new BlockDeposit[](0), 1);
+        rollup.commitBatch(_computeBatchRoot(headers), headers[0].blockHash, headers[headers.length - 1].blockHash, uint24(headers.length), new BlockDeposit[](0), 1);
 
         // batch 3 also accepted — but corruption should trigger on batch 2
         bytes32 lastHash2 = _lastBlockHash(GENESIS_HASH);
         L2BlockHeader[] memory headers3 = _makeBatch(lastHash2);
         vm.prank(sequencer);
-        rollup.commitBatch(_computeBatchRoot(headers3), headers3[headers3.length - 1].blockHash, uint24(headers3.length), new BlockDeposit[](0), 1);
+        rollup.commitBatch(_computeBatchRoot(headers3), headers3[0].blockHash, headers3[headers3.length - 1].blockHash, uint24(headers3.length), new BlockDeposit[](0), 1);
 
         vm.roll(block.number + SUBMIT_BLOBS_WINDOW + 1);
 
@@ -153,7 +153,7 @@ contract CorruptionTest is RollupAssertions {
         L2BlockHeader[] memory batch = _makeBatch(lastHash);
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.RollupCorrupted.selector));
         vm.prank(sequencer);
-        rollup.commitBatch(_computeBatchRoot(batch), batch[batch.length - 1].blockHash, uint24(batch.length), new BlockDeposit[](0), 1);
+        rollup.commitBatch(_computeBatchRoot(batch), batch[0].blockHash, batch[batch.length - 1].blockHash, uint24(batch.length), new BlockDeposit[](0), 1);
     }
 
     function test_submitBlobs_revertsAfterDeadline() public {
@@ -200,7 +200,7 @@ contract CorruptionTest is RollupAssertions {
         bytes32 lastHash1 = _lastBlockHash(GENESIS_HASH);
         L2BlockHeader[] memory batch2Commits = _makeBatch(lastHash1);
         vm.prank(sequencer);
-        rollup.commitBatch(_computeBatchRoot(batch2Commits), batch2Commits[batch2Commits.length - 1].blockHash, uint24(batch2Commits.length), new BlockDeposit[](0), 1);
+        rollup.commitBatch(_computeBatchRoot(batch2Commits), batch2Commits[0].blockHash, batch2Commits[batch2Commits.length - 1].blockHash, uint24(batch2Commits.length), new BlockDeposit[](0), 1);
         uint256 batch2 = batch1 + 1;
         _submitBlobs(batch2, 0);
         _preconfirmBatch(batch2);

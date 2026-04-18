@@ -24,7 +24,7 @@ contract EmergencyPauseTest is RollupAssertions {
 
         vm.expectRevert(abi.encodeWithSelector(PausableUpgradeable.EnforcedPause.selector));
         vm.prank(sequencer);
-        rollup.commitBatch(keccak256("root"), keccak256("last"), 1, new BlockDeposit[](0), 1);
+        rollup.commitBatch(keccak256("root"), keccak256("from"), keccak256("to"), 1, new BlockDeposit[](0), 1);
     }
 
     function test_RevertIf_pause_callerNotEmergencyRole() public {

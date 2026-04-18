@@ -361,7 +361,14 @@ interface IRollupEvents {
     /**
      * @notice Emitted when sequencer commits a new batchRoot via {Rollup-commitBatch}.
      */
-    event BatchCommitted(uint256 indexed batchIndex, bytes32 batchRoot, bytes32 lastBlockHash, uint24 numberOfBlocks, uint256 expectedBlobs);
+    event BatchCommitted(
+        uint256 indexed batchIndex,
+        bytes32 batchRoot,
+        bytes32 fromBlockHash,
+        bytes32 toBlockHash,
+        uint24 numberOfBlocks,
+        uint256 expectedBlobs
+    );
 
     /**
      * @notice Emitted when sequencer submits blob hashes for a batch.
@@ -586,14 +593,15 @@ interface IRollupWrite {
 
     /**
      * @notice Submit a new batch from a precomputed root.
-     * @dev Eager header validation is delegated to {challengeBlock} + SP1; eager chain
-     *      linkage via the dropped `lastBlockHashInBatch` parameter is delegated to
-     *      {resolveBatchRootChallenge} (Q4 in research_v2.md).
+     * @dev Eager header validation is delegated to {challengeBlock} + SP1; chain linkage
+     *      between adjacent batches is enforced at {resolveBatchRootChallenge}.
      * @param batchRoot Merkle root of L2 block header commitments for this batch.
-     * @param lastBlockHash Hash of the last L2 block in this batch; emitted in
-     *                      {IRollupEvents-BatchCommitted} for sequencer cold-start recovery.
-     *                      Untrusted input — verified off-chain via Merkle proof against
-     *                      {batchRoot}, or on-chain via {resolveBatchRootChallenge}.
+     * @param fromBlockHash Hash of the first L2 block in this batch. Emit-only indexer
+     *                      metadata included in {IRollupEvents-BatchCommitted}; not stored
+     *                      or validated against {batchRoot} on-chain beyond a non-zero check.
+     * @param toBlockHash Hash of the last L2 block in this batch. Emit-only indexer
+     *                    metadata included in {IRollupEvents-BatchCommitted}; not stored
+     *                    or validated against {batchRoot} on-chain beyond a non-zero check.
      * @param numberOfBlocks Number of L2 blocks in the batch (sequencer-claimed; bound to
      *                       leaf count via Q3 check at challenge resolution time).
      * @param blockDeposits Per-block deposit bundles for the bridge cursor advance.
@@ -602,7 +610,8 @@ interface IRollupWrite {
      */
     function commitBatch(
         bytes32 batchRoot,
-        bytes32 lastBlockHash,
+        bytes32 fromBlockHash,
+        bytes32 toBlockHash,
         uint24 numberOfBlocks,
         BlockDeposit[] calldata blockDeposits,
         uint8 expectedBlobsCount
