@@ -37,10 +37,10 @@ contract FastWithdrawalList is Initializable, UUPSUpgradeable, AccessControlUpgr
     ///         by {DEFAULT_ADMIN_ROLE} via the inherited {grantRole} / {revokeRole} API.
     bytes32 public constant CONSUMER_ROLE = keccak256("CONSUMER_ROLE");
 
-    /// @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.FastWithdrawalListStorage")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant FAST_WITHDRAWAL_LIST_STORAGE_LOCATION = 0x804f4d4b120b36ce41a8d129d98351a38a3dbf44fcb6b5c99e9a5c63d1ce5d00;
+    /// @dev keccak256(abi.encode(uint256(keccak256("Fluent.storage.FastWithdrawalListStorage")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant FAST_WITHDRAWAL_LIST_STORAGE_LOCATION = 0x2943c2e1bda216c543e8ccb39c2af121ab582536e3918d127406cda20f2b5600;
 
-    /// @custom:storage-location erc7201:fluent.storage.FastWithdrawalListStorage
+    /// @custom:storage-location erc7201:Fluent.storage.FastWithdrawalListStorage
     struct FastWithdrawalListStorage {
         /// @dev Allowlist + per-bucket rate caps, keyed by canonical bucket address.
         mapping(address => LimitConfig) _limits;
