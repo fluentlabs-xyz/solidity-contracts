@@ -20,7 +20,7 @@
         "preconfirmation": "0x9ec3f0d76A6d3847d86374c791C6E170CAd9518D",
         "sp1Verifier": "0x397A5f7f3dBd538f23DE225B51f532c34448dA9B",
         "programVKey": "0x00e34107e4c5284bd4ecc4269c650671038c1e85d9dacb931b534e984f607334",
-        "genesisHash": "0x4fd032b3f5730f5a581b27220bedfda176dc7005072a158eac84c9c4206c9f4e",
+        "genesisHash": "0x7dd092d6e2aba158839db2a264d8049e7518540b342929822aac85f550c18465",
         "submitBlobsWindow": 7200,
         "challengeWindow": 10800,
         "finalizationDelay": 14400,
