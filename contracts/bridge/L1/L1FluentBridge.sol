@@ -7,7 +7,7 @@ import {Rollup} from "../../rollup/Rollup.sol";
 import {MerkleTree} from "../../libraries/MerkleTree.sol";
 import {ExcessivelySafeCall} from "../../libraries/ExcessivelySafeCall.sol";
 
-import {L2BlockHeader} from "../../interfaces/rollup/IRollupTypes.sol";
+import {L2BlockHeader, BatchStatus} from "../../interfaces/rollup/IRollupTypes.sol";
 import {IRollupErrors} from "../../interfaces/rollup/IRollup.sol";
 import {IFluentBridge} from "../../interfaces/bridge/IFluentBridge.sol";
 import {IL1FluentBridge} from "../../interfaces/bridge/IL1FluentBridge.sol";
@@ -216,7 +216,8 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     ) external nonReentrant whenNotPaused {
         // Only finalized batches carry valid state roots — reject unfinalized ones
         // The rollup contract tracks batch lifecycle; finalized means SP1-proven or delay-elapsed
-        require(Rollup(getRollup()).isBatchFinalized(batchIndex), InvalidBlockProof());
+        BatchStatus status = Rollup(getRollup()).getBatch(batchIndex).status;
+        require(status == BatchStatus.Finalized || status == BatchStatus.Preconfirmed, InvalidBatchStatus(batchIndex, uint8(status)));
         // Messages originating from this chain cannot be "received" here — that would be a rollback
         // The chainId check differentiates between L2→L1 (receive) and L1→L2 (rollback) flows
         require(chainId != block.chainid, ForbiddenReceiveRollbackMessage());

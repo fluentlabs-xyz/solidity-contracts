@@ -88,6 +88,12 @@ interface IL1FluentBridge {
      */
     error InsufficientGas();
 
+    /**
+     * @notice Rollup batch with index `batchIndex` is not expected status
+     * @dev selector: 0x0f36c0b9
+     */
+    error InvalidBatchStatus(uint256 batchIndex, uint8 provided);
+
     // ========== Events ==========
 
     /**
