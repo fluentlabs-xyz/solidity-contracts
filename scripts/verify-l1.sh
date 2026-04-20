@@ -18,7 +18,7 @@ ENV="${ENV:-testnet}"
 MANIFEST="deployments/${ENV}/l1.json"
 CONFIG="scripts/config/${ENV}/l1.json"
 RPC="${L1_RPC:?L1_RPC required}"
-CHAIN="${L1_CHAIN:-sepolia}"
+CHAIN="${L1_CHAIN:?L1_CHAIN required}"
 
 [ -f "$MANIFEST" ] || { echo "$MANIFEST not found"; exit 1; }
 [ -f "$CONFIG" ] || { echo "$CONFIG not found"; exit 1; }
