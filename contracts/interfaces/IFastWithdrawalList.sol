@@ -169,7 +169,7 @@ interface IFastWithdrawalList is IFastWithdrawalListErrors, IFastWithdrawalListE
      * @notice Removes a token from the allowlist. Wipes its limit config, usage counters, and
      *         clears any alias pointing into this bucket.
      */
-    function deregisterToken(address token) external;
+    function unregisterToken(address token) external;
 
     /**
      * @notice Updates the caps for an already-registered token. Existing usage in the current

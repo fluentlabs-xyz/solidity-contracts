@@ -144,7 +144,7 @@ contract FastWithdrawalList is Initializable, UUPSUpgradeable, AccessControlUpgr
     }
 
     /// @inheritdoc IFastWithdrawalList
-    function deregisterToken(address token) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function unregisterToken(address token) external onlyRole(DEFAULT_ADMIN_ROLE) {
         FastWithdrawalListStorage storage $ = _getStorage();
         require($._limits[token].registered, TokenNotRegistered(token));
 
