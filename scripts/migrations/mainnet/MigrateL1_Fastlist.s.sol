@@ -154,11 +154,14 @@ contract MigrateL1_Fastlist is DeployBase {
         configs[1] = FastWithdrawalTokenConfig({token: WETH, symbol: "WETH", hourlyLimit: 0, dailyLimit: 0, aliasOf: NATIVE_LIMIT_KEY});
 
         // 18-decimal token with its own bucket.
+        // USD → BLEND conversion at spot price BLEND ≈ $0.10:
+        //   $20,000  / $0.10 =   200,000 BLEND  (hourly)
+        //   $100,000 / $0.10 = 1,000,000 BLEND  (daily)
         configs[2] = FastWithdrawalTokenConfig({
             token: BLEND,
             symbol: "BLEND",
-            hourlyLimit: 20_000e18,
-            dailyLimit: 100_000e18,
+            hourlyLimit: 200_000e18,
+            dailyLimit: 1_000_000e18,
             aliasOf: address(0)
         });
 
