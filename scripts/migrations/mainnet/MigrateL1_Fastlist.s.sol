@@ -166,7 +166,10 @@ contract MigrateL1_Fastlist is DeployBase {
         });
 
         // 8-decimal token.
-        configs[3] = FastWithdrawalTokenConfig({token: WBTC, symbol: "WBTC", hourlyLimit: 20_000e8, dailyLimit: 100_000e8, aliasOf: address(0)});
+        // USD → WBTC conversion at spot price BTC ≈ $74,467 (Apr 20, 2026):
+        //   $20,000  / $74,467 ≈ 0.2686 WBTC → rounded up to 0.27 WBTC (≈ $20,106)
+        //   $100,000 / $74,467 ≈ 1.3429 WBTC → rounded up to 1.35 WBTC (≈ $100,530)
+        configs[3] = FastWithdrawalTokenConfig({token: WBTC, symbol: "WBTC", hourlyLimit: 0.27e8, dailyLimit: 1.35e8, aliasOf: address(0)});
 
         // 6-decimal tokens.
         configs[4] = FastWithdrawalTokenConfig({token: USDC, symbol: "USDC", hourlyLimit: 20_000e6, dailyLimit: 100_000e6, aliasOf: address(0)});
