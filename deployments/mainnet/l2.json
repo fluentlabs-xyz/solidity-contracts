@@ -1,6 +1,6 @@
 {
   "bridge": "0x9CAcf613fC29015893728563f423fD26dCdB8Ddc",
-  "bridge_impl": "0x3236Bd10446ce1DC68118E563baDa25b43781348",
+  "bridge_impl": "0x95c76524803B8EA61c910dc0cB02B76efD6D3791",
   "chainId": 25363,
   "erc20_gateway": "0xFD4C62647A34FF6d6802092F5fbe176099223B61",
   "erc20_gateway_impl": "0x7EafBd621Df027EbefFb7a971120b13A88710494",
