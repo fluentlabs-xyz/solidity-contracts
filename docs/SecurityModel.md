@@ -1,13 +1,21 @@
 # Security Model
 
+> Companion documents: [`Architecture.md`](./Architecture.md) for the
+> end-to-end system design, [`Limitations.md`](./Limitations.md) for a full
+> inventory of known limits and mitigations, and
+> [`BridgeFailuresAndRollback.md`](./BridgeFailuresAndRollback.md) for the
+> message-status state machine.
+
 ## Contract Topology
 
-- `FluentBridge.sol`: cross-chain message transport, nonce tracking, native-value custody, rollback handling, and relayer/proof execution.
-- `ERC20Gateway.sol` and `NativeGateway.sol` (both inherit `GatewayBase.sol`): user-facing asset entrypoints built on top of `FluentBridge`. `ERC20Gateway` locks/escrows origin ERC-20s and mints/burns pegged tokens; `NativeGateway` handles native ETH bridging. Both enforce `onlyFluentBridge` on receive paths.
+- `FluentBridge.sol`: cross-chain message transport, nonce tracking, native-value custody, rollback handling, and relayer/proof execution. Also maintains the **gateway whitelist** (`_gatewayWhitelist`) that gates both outbound sends and inbound receives.
+- `ERC20Gateway.sol` and `NativeGateway.sol` (both inherit `GatewayBase.sol`): user-facing asset entrypoints built on top of `FluentBridge`. `ERC20Gateway` locks/escrows origin ERC-20s and mints/burns pegged tokens; `NativeGateway` handles native ETH bridging. Both enforce `onlyFluentBridge` on receive paths and, when enabled, consult `FastWithdrawalList` for rate limiting.
 - `Rollup.sol` and `RollupStorageLayout.sol`: batch lifecycle, challenges, proofs, corruption detection, and bridge deposit consumption.
 - `GenericTokenFactory.sol`, `ERC20TokenFactory.sol`, `UniversalTokenFactory.sol`: deterministic pegged-token deployment and beacon upgrades.
 - `ERC20PeggedToken.sol` and `UniversalToken.sol`: bridged asset representations controlled by the gateway/factory configuration.
 - `NitroVerifier.sol`, `SP1VerifierGroth16.sol`, `L1BlockOracle.sol`: verifier and oracle trust anchors.
+- `FastWithdrawalList.sol`: rate-limit registry consulted by gateways during optimistic (Preconfirmed-batch) withdrawals. Per-token hourly/daily caps, alias routing (e.g. `WETH → NATIVE_LIMIT_KEY`) so multiple physical tokens can share one bucket.
+- `Blacklist.sol`: optional deposit-side denylist consulted by gateways before `sendTokens` / `sendNativeTokens` forwards to the bridge.
 
 ## Privileged Roles
 
@@ -42,7 +50,9 @@
 
 - `GatewayBase.owner()` (inherited by `ERC20Gateway` and `NativeGateway`)
   - Authorizes UUPS upgrades.
-  - Can change bridge/factory/remote-side routing, update pegged-token mappings, and rescue native ETH.
+  - Can change bridge/factory/remote-side routing, update pegged-token mappings, rescue native ETH.
+  - Can set/clear the `FastWithdrawalList` address (`setFastWithdrawalList`) and flip the rate-limit master switch (`setWhitelistEnabled`).
+  - Can set/clear the `Blacklist` registry (`setBlacklistRegistry`).
 - `GenericTokenFactory.owner()`
   - Can rotate the gateway address (called "PaymentGateway" in factory code for historical reasons).
   - On ERC20 factory deployments, can upgrade the beacon for all deployed pegged tokens.
@@ -50,6 +60,20 @@
   - Can mint, burn, pause, and unpause pegged token supply.
 - `UniversalToken` minter/pauser
   - Can mint, burn, pause, and unpause the L2 universal token representation.
+
+### Registries
+
+- `FluentBridge.DEFAULT_ADMIN_ROLE` additionally manages the **gateway whitelist**:
+  - `registerGateway(address)` / `unregisterGateway(address)` admit/deny a gateway for both directions.
+  - Note: deregistering a gateway can block the nonce queue for L2→L1 withdrawals — see [`Limitations.md § Gateway deregistration DoS`](./Limitations.md#gateway-deregistration-dos-on-l2-l1).
+- `FastWithdrawalList.DEFAULT_ADMIN_ROLE`
+  - Authorizes UUPS upgrades.
+  - `registerToken` / `deregisterToken` / `setLimit` / `setAlias` — configure the bucket layout.
+  - Grants/revokes `CONSUMER_ROLE` via standard OZ `grantRole` / `revokeRole` (each gateway is granted this role during migration).
+- `FastWithdrawalList.CONSUMER_ROLE`
+  - Held by each gateway that calls `consumeUsage`. A compromised consumer can only over-count against a bucket it already has access to; it cannot skip limits.
+- `Blacklist.owner()`
+  - Sets and clears per-address flags used by gateways' `_requireAccountNotBlacklisted` check on deposit.
 
 ## Trust Assumptions
 
@@ -77,26 +101,40 @@
 
 ## Acknowledged Design Trade-Offs
 
-### No withdrawal rate limiting
+### Withdrawal rate limiting (Preconfirmed-batch window only)
 
-Once a batch is finalized, all L2→L1 withdrawals within that batch can be claimed immediately via `receiveMessageWithProof` with no per-period or per-batch cap. The bridge does not implement withdrawal rate limiting because pre-finalization defenses provide a sufficient detection and response window:
+Withdrawals from a **Finalized** batch are unrestricted — the challenge window has passed and the batch is cryptographically settled. Withdrawals from a **Preconfirmed** batch are gated by `FastWithdrawalList`, because the Preconfirmed status is optimistic (Nitro attestation only) and a fraudulent batch can still be challenged or reverted within its window.
 
-- **`finalizationDelay`** (configured to ~48 hours worth of L1 blocks) must elapse before `finalizeBatches` can finalize a batch. This is the primary protection — operators have 48 hours to detect fraud, pause the bridge, or force-revert the batch.
-- **`finalizeWithProofs`** can bypass the delay, but only if **every block** in the batch has been individually proven through `resolveChallenge`, which requires an SP1 ZK proof per block. This path is cryptographically secure — a batch where every block has a valid SP1 proof is guaranteed correct.
-- **`CHALLENGER_ROLE`** can dispute any block within the `challengeWindow`, forcing the prover to submit an SP1 ZK proof or the rollup enters the corrupted state.
-- **`PAUSER_ROLE`** can freeze the bridge if a malicious batch is detected before or after finalization.
-- **`EMERGENCY_ROLE`** can force-revert non-finalized batches via `forceRevertBatch`.
+Gateway-level policy (see `GatewayBase._consumeLimit`):
 
-In summary: a malicious batch can only reach finalization through the delay path (giving operators ~48 hours to respond) or through the proof path (requiring full cryptographic verification of every block). Both paths provide strong guarantees.
+```
+whitelistEnabled == false                                  → no-op
+whitelistEnabled == true && batch not Preconfirmed         → no-op
+whitelistEnabled == true && batch Preconfirmed:
+    token NOT in list    → revert FastWithdrawalNotAllowed
+    token IN list        → FWL.consumeUsage(tokenKey, amount)
+```
 
-If withdrawal rate limiting is needed in the future (e.g., as TVL grows), it can be added as a sliding-window cap on `receiveMessageWithProof` and `rollbackMessageWithProof` without changing the rollup or proof architecture.
+Layered defences against a fraudulent batch reaching the pool:
+
+- **`finalizationDelay`** (~48 hours of L1 blocks) must elapse before `finalizeBatches` can finalize a batch. Operators have that window to detect fraud, pause the bridge, or force-revert the batch.
+- **`finalizeWithProofs`** can bypass the delay only if **every block** in the batch has an SP1 ZK proof (`resolveBlockChallenge`). This is cryptographically secure.
+- **`CHALLENGER_ROLE`** can dispute any block within the challenge window, forcing an SP1 proof or the rollup enters corrupted state.
+- **`FastWithdrawalList`** caps per-token hourly/daily exposure during the Preconfirmed window. Aliasing (e.g. `WETH → NATIVE_LIMIT_KEY`) makes multiple physical tokens share a single bucket so an attacker cannot drain the cap twice across gateways.
+- **`PAUSER_ROLE`** can freeze the bridge.
+- **`EMERGENCY_ROLE`** can `revertBatches` on the rollup.
+
+**Caveat.** `_whitelistEnabled` defaults to `false` on freshly initialized gateways — limits become a no-op until an operator explicitly flips the switch post-migration. See [`Limitations.md § Rate-limit policy`](./Limitations.md#rate-limit-policy-off-by-default).
 
 ### Relayer path is full-trust
 
-The relayer (`RELAYER_ROLE`) can deliver messages via `receiveMessage` with no proof requirement. A compromised relayer can construct messages with arbitrary parameters. Mitigations:
+The relayer (`RELAYER_ROLE`) can deliver messages via `receiveMessage` with no proof requirement. A compromised relayer can construct messages with arbitrary parameters. On L2 this is especially consequential because there is no cryptographic binding back to the L1 sent-message queue; see [`Limitations.md § L2 relayer trust`](./Limitations.md#l2-relayer-trust-is-unconditional).
+
+Mitigations:
 
 - The relayer path is intended as a transitional mechanism. Proof-based delivery (`receiveMessageWithProof`) should be preferred for production L2→L1 traffic.
 - `RELAYER_ROLE` should be assigned to infrastructure controlled by the bridge operator, not to third parties.
+- `emergencyRevokeRelayer` (under `PAUSER_ROLE`) allows fast revocation without waiting for the admin timelock.
 - Consider removing or disabling the relayer path once proof-based delivery covers all message types.
 
 ## Operator Notes

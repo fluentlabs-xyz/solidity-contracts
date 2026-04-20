@@ -12,6 +12,7 @@
 /coverage
 lcov.info
 tasks/
+docs/diagrams/*
 
 # Claude Code
 .claude/
