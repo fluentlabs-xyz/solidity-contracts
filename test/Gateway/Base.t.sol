@@ -74,8 +74,16 @@ abstract contract GatewayBase is Test {
     /// @dev Register an arbitrary gateway on the bridge. The bridge rejects both
     ///      `sendMessage` and `_receiveMessage` whose peer isn't registered; test helpers
     ///      call this before delivering so legitimate receivers aren't rejected mid-flow.
-    ///      Idempotent — the admin setter has no "already registered" check.
+    ///
+    ///      Skips the on-chain call if the gateway is already registered. The contract setter
+    ///      always emits {GatewayRegistered}, which would otherwise interleave with strict
+    ///      `vm.expectEmit` pairs in tests that pre-register before asserting on a downstream
+    ///      flow's events.
     function _registerGateway(address target) internal {
+        (bool isRegOk, bytes memory ret) = address(bridge).staticcall(
+            abi.encodeWithSignature("isGatewayRegistered(address)", target)
+        );
+        if (isRegOk && ret.length == 32 && abi.decode(ret, (bool))) return;
         vm.prank(admin);
         (bool ok, ) = address(bridge).call(abi.encodeWithSignature("registerGateway(address)", target));
         require(ok, "registerGateway failed");

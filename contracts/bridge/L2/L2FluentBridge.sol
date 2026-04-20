@@ -95,11 +95,6 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
         _setFeeTreasury(feeTreasury);
     }
 
-    /// @notice Withdrawals are PAUSED on L2.
-    function sendMessage(address /** to */, bytes calldata /** message */) external payable override whenNotPaused nonReentrant {
-        revert("PAUSED");
-    }
-
     // ============ Fee logic ============
 
     /**

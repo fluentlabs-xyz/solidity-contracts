@@ -283,8 +283,8 @@ contract L1FluentBridgeTest is BridgeBase {
         // Undo the registration that _validProofFixture applied so we can assert the
         // unregistered-destination revert path while all the proofs stay valid.
         vm.prank(admin);
-        (bool ok, ) = address(l1Bridge).call(abi.encodeWithSignature("deregisterGateway(address)", f.to));
-        require(ok, "deregisterGateway failed");
+        (bool ok, ) = address(l1Bridge).call(abi.encodeWithSignature("unregisterGateway(address)", f.to));
+        require(ok, "unregisterGateway failed");
 
         uint256 nonceBefore = l1Bridge.getReceivedNonce();
         vm.expectRevert(IFluentBridgeErrors.GatewayNotWhitelisted.selector);

@@ -56,6 +56,11 @@ contract BridgeCrossChainRollbackTest is BridgeBase {
     ///         rollback emitted) → L1 oracle advances past the committed deadline → retry on L2 emits
     ///         `RollbackMessage` → L1 `rollbackMessageWithProof` refunds the sender.
     function test_receiveFailedMessage_expiredRetryRefundsOnL1() public {
+        // {L1FluentBridge-rollbackMessageWithProof} is intentionally `NOT_IMPLEMENTED` for
+        // this release (see the function's NatSpec): the user-initiated cancel/refund
+        // mechanism that replaces it ships separately. The full L2-side flow this test
+        // exercises is preserved so re-enabling rollback only requires removing the skip.
+        vm.skip(true);
         address sender = makeAddr("sender");
 
         // 1. L1 side: fund sender, call sendMessage to a reverting L2 target.
@@ -66,6 +71,12 @@ contract BridgeCrossChainRollbackTest is BridgeBase {
         vm.deal(sender, value);
         uint256 nonceAtSend = l1Bridge.getNonce();
         uint256 blockAtSend = block.number;
+
+        // Both bridges now gate `sendMessage` and `_receiveMessage` against the gateway
+        // registry. Register the test receiver on both sides so the L1 send and the L2
+        // receive/retry can reach the actual rollback flow under test.
+        _registerOnL1Bridge(address(receiver));
+        _registerOnL2Bridge(address(receiver));
 
         vm.prank(sender);
         l1Bridge.sendMessage{value: value}(address(receiver), payload);
@@ -141,6 +152,11 @@ contract BridgeCrossChainRollbackTest is BridgeBase {
     ///         the second claim against block M reverts with `MessageAlreadyReceived` via the
     ///         `_rollbackMessages[hash] != None` dedup.
     function test_rollbackMessageWithProof_rejectsSecondClaimAfterDoubleEmitOnL2() public {
+        // {L1FluentBridge-rollbackMessageWithProof} is intentionally `NOT_IMPLEMENTED` for
+        // this release (see the function's NatSpec). The dedup invariant under test still
+        // holds in the contract and will be re-asserted once the user-initiated
+        // cancel/refund mechanism that replaces this function lands.
+        vm.skip(true);
         address sender = makeAddr("sender2");
 
         NoopReceiver receiver = new NoopReceiver();
@@ -151,6 +167,12 @@ contract BridgeCrossChainRollbackTest is BridgeBase {
 
         uint256 nonceAtSend = l1Bridge.getNonce();
         uint256 blockAtSend = block.number;
+
+        // Both bridges now gate `sendMessage` and `_receiveMessage` against the gateway
+        // registry. Register the test receiver on both sides so the double-emit + L1 dedup
+        // flow can reach the actual rollback paths under test.
+        _registerOnL1Bridge(address(receiver));
+        _registerOnL2Bridge(address(receiver));
 
         vm.prank(sender);
         l1Bridge.sendMessage(address(receiver), payload);

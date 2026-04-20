@@ -78,10 +78,16 @@ abstract contract L2BridgeFeeBase is Test {
     }
 
     function _decodeSentMessageValue(Vm.Log[] memory logs) internal pure returns (uint256 value) {
-        bytes32 sentMessageTopic = keccak256("SentMessage(address,address,uint256,uint256,uint256,uint256,bytes32,bytes)");
+        // Signature mirrors {IFluentBridgeEvents-SentMessage}: the `fee` field was added between
+        // `value` and `chainId`, so the layout is (value, fee, chainId, validUntilBlockNumber,
+        // nonce, messageHash, data). Sender and to are indexed and live in topics[1..2].
+        bytes32 sentMessageTopic = keccak256("SentMessage(address,address,uint256,uint256,uint256,uint256,uint256,bytes32,bytes)");
         for (uint256 i = 0; i < logs.length; i++) {
             if (logs[i].topics[0] == sentMessageTopic) {
-                (value, , , , ) = abi.decode(logs[i].data, (uint256, uint256, uint256, uint256, bytes32));
+                (value, , , , , , ) = abi.decode(
+                    logs[i].data,
+                    (uint256, uint256, uint256, uint256, uint256, bytes32, bytes)
+                );
                 return value;
             }
         }
@@ -178,7 +184,10 @@ contract SendMessageFeeTest is L2BridgeFeeBase {
         assertEq(bridgeRetained, totalSent - fee, "bridge should retain msg.value minus fee");
     }
 
-    function test_sendMessage_eventValueExcludesFee() public {
+    function test_sendMessage_eventValueIncludesFee() public {
+        // Post-fee-split semantics: `SentMessage.value` is the gross msg.value (cross-chain
+        // value + fee), and `SentMessage.fee` is emitted as a separate field. Consumers that
+        // need the cross-chain value compute `value - fee`. See {IFluentBridgeEvents-SentMessage}.
         uint256 fee = bridge.getSentMessageFee();
         uint256 totalSent = 1 ether;
 
@@ -188,7 +197,8 @@ contract SendMessageFeeTest is L2BridgeFeeBase {
         bridge.sendMessage{value: totalSent}(recipient, "");
 
         uint256 emittedValue = _decodeSentMessageValue(vm.getRecordedLogs());
-        assertEq(emittedValue, totalSent - fee, "event value should be msg.value minus fee");
+        assertEq(emittedValue, totalSent, "event value should equal msg.value (fee inclusive)");
+        assertEq(emittedValue - fee, totalSent - fee, "cross-chain value derives as value - fee");
     }
 
     function test_RevertIf_sendMessage_insufficientValueForFee() public {
@@ -224,8 +234,12 @@ contract SendMessageFeeTest is L2BridgeFeeBase {
         vm.prank(user);
         bridge.sendMessage{value: fee}(recipient, "");
 
+        // Post-fee-split semantics: emitted `value` is the gross msg.value, so when the user
+        // sends exactly the fee the gross value equals the fee and the derived cross-chain
+        // value (`value - fee`) is zero.
         uint256 emittedValue = _decodeSentMessageValue(vm.getRecordedLogs());
-        assertEq(emittedValue, 0, "cross-chain value should be zero when only fee is sent");
+        assertEq(emittedValue, fee, "emitted value should equal fee when only fee is sent");
+        assertEq(emittedValue - fee, 0, "cross-chain value should be zero when only fee is sent");
     }
 
     function testFuzz_sendMessage_feeDeductedCorrectly(uint96 rawGasPrice) public {
@@ -407,8 +421,11 @@ contract RejectEther {
 }
 
 contract L2FluentBridgeTest is L2BridgeFeeBase {
-    /// @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.FluentBridgeStorage")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 internal constant FLUENT_BRIDGE_STORAGE_LOCATION = 0xe2e0b7768cb35928615964d328c094191301065845ac8cd8ffc433ff2eae9300;
+    /// @dev Mirror of {FluentBridgeStorageLayout-FLUENT_BRIDGE_STORAGE_LOCATION}, i.e.
+    ///      keccak256(abi.encode(uint256(keccak256("Fluent.storage.FluentBridgeStorage")) - 1)) & ~bytes32(uint256(0xff)).
+    ///      MUST stay in sync with the contract constant; the test directly pokes
+    ///      `_feeTreasury` at this slot to drive the zero-treasury revert branch.
+    bytes32 internal constant FLUENT_BRIDGE_STORAGE_LOCATION = 0x1d32f057e9fce0670715dab7ddeb05958b1ba8f4bd87a5dcabc7ec5913505500;
 
     function test_RevertIf_chargeSendFee_zeroFeeTreasury() public {
         // Directly zero out the _feeTreasury storage slot (slot offset 6 in the struct)

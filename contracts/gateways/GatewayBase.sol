@@ -243,11 +243,7 @@ abstract contract GatewayBase is Initializable, UUPSUpgradeable, Ownable2StepUpg
      *      Preconfirmed" signal.
      */
     function _isFromPreconfirmedBatch() internal view returns (bool) {
-        address bridgeAddr = _getGatewayBaseStorage()._bridgeContract;
-        // Defensive: during initialization or misconfiguration the bridge can be unset; in
-        // that case there is definitionally no batch context.
-        if (bridgeAddr == address(0)) return false;
-        return IFluentBridgeRead(bridgeAddr).isCurrentBatchPreconfirmed();
+        return IFluentBridgeRead(getBridgeContract()).isCurrentBatchPreconfirmed();
     }
 
     /**

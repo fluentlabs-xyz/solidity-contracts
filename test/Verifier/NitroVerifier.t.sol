@@ -17,8 +17,13 @@ contract NitroVerifierTest is Test {
     function setUp() public {
         attestationVerifier = new MockSp1Verifier();
         verifier = new NitroVerifier(address(attestationVerifier), admin);
-        vm.prank(admin);
+        vm.startPrank(admin);
         verifier.updateProgramVKey(INITIAL_VKEY);
+        // {verifyAttestation} and {revokeAttestation} are gated by ENCLAVE_ATTESTER_ROLE,
+        // a separate role from DEFAULT_ADMIN_ROLE. Grant it to admin so the tests can drive
+        // the attestation flow with a single signer.
+        verifier.grantRole(verifier.ENCLAVE_ATTESTER_ROLE(), admin);
+        vm.stopPrank();
         // Warp past ATTESTATION_MAX_AGE so past-boundary tests do not underflow.
         vm.warp(block.timestamp + 1 days);
     }

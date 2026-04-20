@@ -41,6 +41,7 @@ abstract contract FluentBridge is FluentBridgeStorageLayout, IFluentBridgeWrite 
     /// @inheritdoc IFluentBridgeWrite
     function sendMessage(address to, bytes calldata message) external payable virtual whenNotPaused nonReentrant {
         require(to != address(this) && to != getOtherBridge(), InvalidDestinationAddress());
+        require(_getFluentBridgeStorage()._gatewayWhitelist[to], GatewayNotWhitelisted());
         _beforeSendMessage(to, message);
         uint256 fee = getSentMessageFee();
         require(msg.value >= fee, InsufficientFee());

@@ -97,6 +97,11 @@ contract FluentBridgeTest is GatewayBase {
         vm.prank(admin);
         oracle.updateL1BlockNumber(sourceBlock + 1);
 
+        // Pre-register the receiver so the GatewayRegistered event from the helper does not
+        // interleave with the strict expectEmit pair below. {_retryFailedMessage} keeps an
+        // idempotent re-register call internally.
+        _registerGateway(address(receiver));
+
         vm.expectEmit(true, true, true, true, address(bridge));
         emit IFluentBridgeEvents.RollbackMessage(messageHash, block.number);
         vm.expectEmit(true, true, true, true, address(bridge));
@@ -132,6 +137,10 @@ contract FluentBridgeTest is GatewayBase {
             bridge.getReceivedNonce(),
             payload
         );
+
+        // Pre-register so the GatewayRegistered event from the helper does not interleave
+        // with the strict expectEmit below. {_relayMessage} re-registers idempotently.
+        _registerGateway(address(receiver));
 
         vm.expectEmit(true, true, true, true, address(bridge));
         emit IFluentBridgeEvents.RollbackMessage(expectedHash, firstBlock);

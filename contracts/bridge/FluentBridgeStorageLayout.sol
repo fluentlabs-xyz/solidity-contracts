@@ -276,14 +276,14 @@ contract FluentBridgeStorageLayout is
     }
 
     /**
-     * @notice De-registers a gateway. After this call, both {sendMessage} to the gateway
+     * @notice Unregisters a gateway. After this call, both {sendMessage} to the gateway
      *         and {_receiveMessage} delivery to it will revert with
      *         {GatewayNotWhitelisted}.
-     * @dev In-flight inbound messages cannot complete until the gateway is re-registered.
+     * @dev In-flight inbound messages cannot complete until the gateway is registered again.
      *      In-flight outbound messages already enqueued on L1 are unaffected because the
      *      check only applies at the moment {sendMessage} is called.
      */
-    function deregisterGateway(address gateway) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function unregisterGateway(address gateway) external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(gateway != address(0), ZeroAddressNotAllowed("gateway"));
         _getFluentBridgeStorage()._gatewayWhitelist[gateway] = false;
 

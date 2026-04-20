@@ -6,12 +6,12 @@ import {console2} from "forge-std/console2.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {UnsafeUpgrades} from "openzeppelin-foundry-upgrades/Upgrades.sol";
 
-import {L1FluentBridge} from "../../contracts/bridge/L1/L1FluentBridge.sol";
-import {ERC20Gateway} from "../../contracts/gateways/ERC20Gateway.sol";
-import {NativeGateway} from "../../contracts/gateways/NativeGateway.sol";
-import {FastWithdrawalList} from "../../contracts/fastlist/FastWithdrawalList.sol";
+import {L1FluentBridge} from "../../../contracts/bridge/L1/L1FluentBridge.sol";
+import {ERC20Gateway} from "../../../contracts/gateways/ERC20Gateway.sol";
+import {NativeGateway} from "../../../contracts/gateways/NativeGateway.sol";
+import {FastWithdrawalList} from "../../../contracts/fastlist/FastWithdrawalList.sol";
 
-import {DeployBase} from "../deploy/DeployBase.s.sol";
+import {DeployBase} from "../../deploy/DeployBase.s.sol";
 
 /// @notice Whitelist-feature migration for L1.
 ///
@@ -19,7 +19,7 @@ import {DeployBase} from "../deploy/DeployBase.s.sol";
 ///        1.  Deploys a fresh {FastWithdrawalList} behind a UUPS proxy.
 ///        2.  Upgrades the existing L1FluentBridge implementation to the new one
 ///            (adds `_gatewayWhitelist` mapping, transient `_currentBatchIndex`,
-///            `registerGateway` / `deregisterGateway` admin API, gateway-symmetric
+///            `registerGateway` / `unregisterGateway` admin API, gateway-symmetric
 ///            `GatewayNotWhitelisted` guards on send + receive).
 ///        3.  Upgrades the existing ERC20Gateway and NativeGateway implementations
 ///            (adds `_fastWithdrawalList` storage + `_whitelistEnabled` toggle, drops
