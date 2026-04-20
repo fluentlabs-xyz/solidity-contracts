@@ -256,8 +256,11 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         require(numberOfBlocks > 0, ZeroNumberOfBlocks());
         require(expectedBlobsCount > 0, ZeroExpectedBlobsCount());
         require(!_rollupCorrupted(), RollupCorrupted());
-
         uint256 batchIndex = $._nextBatchIndex;
+        if ($._batches[batchIndex - 1].toBlockHash != bytes32(0)) {
+            require($._batches[batchIndex - 1].toBlockHash == fromBlockHash, InvalidBatchBlockRange());
+        }
+
         uint64 cursor = IL1FluentBridge($._bridge).getSentMessageCursor();
         $._batches[batchIndex] = BatchRecord({
             batchRoot: batchRoot,
@@ -270,7 +273,8 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
             preconfirmationWindowSnapshot: $._preconfirmWindow,
             challengeWindowSnapshot: $._challengeWindow,
             finalizationDelaySnapshot: $._finalizationDelay,
-            numberOfBlocks: numberOfBlocks
+            numberOfBlocks: numberOfBlocks,
+            toBlockHash: toBlockHash
         });
 
         require(batchIndex + 1 <= type(uint64).max, NextBatchIndexOverflow());

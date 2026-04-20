@@ -62,7 +62,7 @@ struct BlockDeposit {
 struct BatchRecord {
     /// @dev Merkle root of L2 block headers for this batch.
     bytes32 batchRoot;
-    // ─── Slot 2: 4 + 1 + 1 + 8 + 3 + 3 + 3 + 3 + 3 = 29 bytes used, 3 bytes free ───
+    // ─── Slot 3: 4 + 1 + 1 + 8 + 3 + 3 + 3 + 3 + 3 = 29 bytes used, 3 bytes free ───
     /// @dev L1 block number recorded when {Rollup-commitBatch} is called.
     uint32 acceptedAtBlock;
     /// @dev Number of blobs the sequencer committed to at submission time.
@@ -84,6 +84,9 @@ struct BatchRecord {
     /// @dev Number of L2 blocks in this batch. Sequencer-claimed at submit; bound to actual
     ///      Merkle leaf count via {Rollup-resolveBatchRootChallenge}.
     uint24 numberOfBlocks;
+    /// @dev Hash of the last L2 block header in this batch. Equals the next batch's
+    ///      `fromBlockHash`, forming the chain continuity link.
+    bytes32 toBlockHash;
 }
 
 /**

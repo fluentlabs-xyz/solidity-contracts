@@ -16,6 +16,12 @@ interface IRollupErrors {
     error RollupCorrupted();
 
     /**
+     * @notice Batch commit does not form a valid chain with the previous batch's block range.
+     * @dev selector: 0x8f64805d
+     */
+    error InvalidBatchBlockRange();
+
+    /**
      * @notice Thrown when emergencyRevokeRole is called with a non-operational role.
      * @dev selector: 0xaecb755c
      */
