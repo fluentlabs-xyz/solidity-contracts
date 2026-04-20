@@ -597,10 +597,7 @@ contract RollupStorageLayout is
         // strict ordering ensures challengers always have time to respond before finalization
         require(newChallengeWindow >= $._preconfirmWindow + MIN_CHALLENGE_WINDOW, ChallengeTooCloseToPreconfirm());
         // strict ordering ensures provers always have time to respond before finalization
-        require(
-            newChallengeWindow <= $._finalizationDelay - MIN_CHALLENGE_RESOLUTION_WINDOW,
-            ChallengeTooCloseToFinalization()
-        );
+        require(newChallengeWindow <= $._finalizationDelay - MIN_CHALLENGE_RESOLUTION_WINDOW, ChallengeTooCloseToFinalization());
 
         emit ChallengeWindowUpdated($._challengeWindow, newChallengeWindow);
         $._challengeWindow = newChallengeWindow;
@@ -617,10 +614,7 @@ contract RollupStorageLayout is
     function _setFinalizationDelay(uint24 newFinalizationDelay) internal {
         RollupStorage storage $ = _getRollupStorage();
         // strict ordering ensures challenges always have time to be submitted and resolved
-        require(
-            newFinalizationDelay >= $._challengeWindow + MIN_CHALLENGE_RESOLUTION_WINDOW,
-            FinalizationTooCloseToChallenge()
-        );
+        require(newFinalizationDelay >= $._challengeWindow + MIN_CHALLENGE_RESOLUTION_WINDOW, FinalizationTooCloseToChallenge());
         emit FinalizationDelayUpdated($._finalizationDelay, newFinalizationDelay);
         $._finalizationDelay = newFinalizationDelay;
     }
@@ -698,7 +692,8 @@ contract RollupStorageLayout is
             preconfirmationWindowSnapshot: 0,
             challengeWindowSnapshot: 0,
             finalizationDelaySnapshot: 0,
-            numberOfBlocks: 1
+            numberOfBlocks: 1,
+            toBlockHash: genesisBlockHash
         });
 
         // First real batch commits at index 1. Genesis occupies index 0.

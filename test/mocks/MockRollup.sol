@@ -40,7 +40,8 @@ contract MockRollup {
                 preconfirmationWindowSnapshot: 0,
                 challengeWindowSnapshot: 0,
                 finalizationDelaySnapshot: 0,
-                numberOfBlocks: 0
+                numberOfBlocks: 0,
+                toBlockHash: bytes32(0)
             });
     }
 }
