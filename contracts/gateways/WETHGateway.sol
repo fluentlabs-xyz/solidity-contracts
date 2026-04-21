@@ -185,7 +185,10 @@ contract WETHGateway is GatewayBase, IWETHGateway {
         uint256 wethGained = IERC20(weth).balanceOf(address(this)) - wethBefore;
         require(wethGained == amount, WrapAccountingMismatch());
 
+        uint256 recipientBefore = IERC20(weth).balanceOf(to);
         IERC20(weth).safeTransfer(to, amount);
+        uint256 recipientGained = IERC20(weth).balanceOf(to) - recipientBefore;
+        require(recipientGained == amount, TransferAccountingMismatch());
 
         emit ReceivedTokens(from, to, amount);
     }

@@ -10,7 +10,13 @@ import {NativeGateway} from "../../contracts/gateways/NativeGateway.sol";
 import {IFluentBridge, IFluentBridgeErrors} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {IGatewayBaseErrors, IGatewayBaseEvents} from "../../contracts/interfaces/gateways/IGatewayBase.sol";
 import {IWETHGateway, IWETHGatewayErrors, IWETHGatewayEvents} from "../../contracts/interfaces/gateways/IWETHGateway.sol";
-import {MockWETH, BadWrapMockWETH, BadUnwrapMockWETH, MockUniversalWETH} from "../../contracts/mocks/MockWETH.sol";
+import {
+    MockWETH,
+    BadWrapMockWETH,
+    BadUnwrapMockWETH,
+    FeeOnTransferMockWETH,
+    MockUniversalWETH
+} from "../../contracts/mocks/MockWETH.sol";
 import {GatewayBase} from "./Base.t.sol";
 
 contract WETHGatewayTest is GatewayBase {
@@ -162,6 +168,51 @@ contract WETHGatewayTest is GatewayBase {
         vm.prank(user);
         vm.expectRevert(IGatewayBaseErrors.ExactFeeRequired.selector);
         wethGateway.sendWETH{value: 1 wei}(recipient, amount);
+    }
+
+    function test_sendWETH_exactNonZeroBridgeFee_succeeds() public {
+        // Make bridge fee deterministic and non-zero: fee = gasLimit * (gasPrice*scalar/1e18 + overhead)
+        // with scalar=0, overhead=1, gasLimit=1 => fee=1.
+        vm.prank(admin);
+        (bool ok, ) = address(bridge).call(abi.encodeWithSignature("setGasPriceConfig(uint256,uint256,uint256)", 1, 0, 1));
+        assertTrue(ok, "setGasPriceConfig failed");
+
+        (bool feeOk, bytes memory feeData) = address(bridge).staticcall(abi.encodeWithSignature("getSentMessageFee()"));
+        assertTrue(feeOk, "getSentMessageFee failed");
+        uint256 fee = abi.decode(feeData, (uint256));
+        assertEq(fee, 1 wei, "unexpected configured bridge fee");
+
+        uint256 amount = 1 ether;
+        vm.deal(user, amount + fee);
+        vm.prank(user);
+        weth.deposit{value: amount}();
+        vm.prank(user);
+        weth.approve(address(wethGateway), amount);
+
+        uint256 bridgeBalBefore = address(bridge).balance;
+        vm.prank(user);
+        wethGateway.sendWETH{value: fee}(recipient, amount);
+
+        // Bridge should retain bridged value only (`amount`), with fee routed internally.
+        assertEq(address(bridge).balance - bridgeBalBefore, amount);
+    }
+
+    function test_RevertIf_sendWETH_feeMismatch_whenBridgeFeeIsNonZero() public {
+        vm.prank(admin);
+        (bool ok, ) = address(bridge).call(abi.encodeWithSignature("setGasPriceConfig(uint256,uint256,uint256)", 1, 0, 1));
+        assertTrue(ok, "setGasPriceConfig failed");
+        (bool feeOk, bytes memory feeData) = address(bridge).staticcall(abi.encodeWithSignature("getSentMessageFee()"));
+        assertTrue(feeOk, "getSentMessageFee failed");
+        assertEq(abi.decode(feeData, (uint256)), 1 wei);
+
+        uint256 amount = 1 ether;
+        _fundUserWithWETH(amount);
+        vm.prank(user);
+        weth.approve(address(wethGateway), amount);
+
+        vm.prank(user);
+        vm.expectRevert(IGatewayBaseErrors.ExactFeeRequired.selector);
+        wethGateway.sendWETH(recipient, amount);
     }
 
     function test_RevertIf_sendWETH_withoutApproval() public {
@@ -331,6 +382,56 @@ contract WETHGatewayTest is GatewayBase {
         // Gateway revert must surface as a bridge-level Failed status; user gets no WETH.
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
         assertEq(bad.balanceOf(recipient), 0);
+    }
+
+    function test_receiveWETH_transferAccountingMismatch_marksFailed() public {
+        FeeOnTransferMockWETH bad = new FeeOnTransferMockWETH();
+        vm.prank(admin);
+        wethGateway.setWETH(address(bad));
+
+        uint256 amount = 1 ether;
+        bytes memory message = abi.encodeCall(IWETHGateway.receiveWETH, (user, recipient, amount));
+        uint256 nonce = bridge.getReceivedNonce();
+        uint256 sourceBlock = nextSourceBlock++;
+        bytes32 messageHash = _bridgeMessageHash(remoteGateway, address(wethGateway), amount, sourceChainId, sourceBlock, nonce, message);
+        vm.deal(address(bridge), amount);
+
+        vm.prank(relayer);
+        bridge.receiveMessage(remoteGateway, address(wethGateway), amount, sourceChainId, sourceBlock, nonce, message);
+
+        // Non-canonical fee-on-transfer token must be rejected to avoid short-changing recipient.
+        assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
+        assertEq(bad.balanceOf(recipient), 0);
+    }
+
+    function test_receiveWETH_retryAfterTransferAccountingMismatch_succeeds() public {
+        FeeOnTransferMockWETH bad = new FeeOnTransferMockWETH();
+        vm.prank(admin);
+        wethGateway.setWETH(address(bad));
+
+        uint256 amount = 1 ether;
+        bytes memory message = abi.encodeCall(IWETHGateway.receiveWETH, (user, recipient, amount));
+        uint256 nonce = bridge.getReceivedNonce();
+        uint256 sourceBlock = nextSourceBlock++;
+        bytes32 messageHash = _bridgeMessageHash(remoteGateway, address(wethGateway), amount, sourceChainId, sourceBlock, nonce, message);
+
+        vm.deal(address(bridge), amount);
+        vm.prank(relayer);
+        bridge.receiveMessage(remoteGateway, address(wethGateway), amount, sourceChainId, sourceBlock, nonce, message);
+
+        assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
+        assertEq(bad.balanceOf(recipient), 0);
+
+        // Reconfigure to canonical WETH and retry failed message.
+        vm.prank(admin);
+        wethGateway.setWETH(address(weth));
+
+        vm.deal(address(bridge), amount);
+        vm.prank(relayer);
+        bridge.receiveFailedMessage(remoteGateway, address(wethGateway), amount, sourceChainId, sourceBlock, nonce, message);
+
+        assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Success));
+        assertEq(weth.balanceOf(recipient), amount);
     }
 
     // ---------- FastWithdrawalList integration (shared NATIVE bucket) ----------
