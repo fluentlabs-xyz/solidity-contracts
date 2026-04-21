@@ -10,7 +10,13 @@ import {NativeGateway} from "../../contracts/gateways/NativeGateway.sol";
 import {IFluentBridge, IFluentBridgeErrors} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {IGatewayBaseErrors, IGatewayBaseEvents} from "../../contracts/interfaces/gateways/IGatewayBase.sol";
 import {IWETHGateway, IWETHGatewayErrors, IWETHGatewayEvents} from "../../contracts/interfaces/gateways/IWETHGateway.sol";
-import {MockWETH, BadWrapMockWETH, BadUnwrapMockWETH, MockUniversalWETH} from "../../contracts/mocks/MockWETH.sol";
+import {
+    MockWETH,
+    BadWrapMockWETH,
+    BadUnwrapMockWETH,
+    FeeOnTransferMockWETH,
+    MockUniversalWETH
+} from "../../contracts/mocks/MockWETH.sol";
 import {GatewayBase} from "./Base.t.sol";
 
 contract WETHGatewayTest is GatewayBase {
@@ -329,6 +335,26 @@ contract WETHGatewayTest is GatewayBase {
         bridge.receiveMessage(remoteGateway, address(wethGateway), amount, sourceChainId, sourceBlock, nonce, message);
 
         // Gateway revert must surface as a bridge-level Failed status; user gets no WETH.
+        assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
+        assertEq(bad.balanceOf(recipient), 0);
+    }
+
+    function test_receiveWETH_transferAccountingMismatch_marksFailed() public {
+        FeeOnTransferMockWETH bad = new FeeOnTransferMockWETH();
+        vm.prank(admin);
+        wethGateway.setWETH(address(bad));
+
+        uint256 amount = 1 ether;
+        bytes memory message = abi.encodeCall(IWETHGateway.receiveWETH, (user, recipient, amount));
+        uint256 nonce = bridge.getReceivedNonce();
+        uint256 sourceBlock = nextSourceBlock++;
+        bytes32 messageHash = _bridgeMessageHash(remoteGateway, address(wethGateway), amount, sourceChainId, sourceBlock, nonce, message);
+        vm.deal(address(bridge), amount);
+
+        vm.prank(relayer);
+        bridge.receiveMessage(remoteGateway, address(wethGateway), amount, sourceChainId, sourceBlock, nonce, message);
+
+        // Non-canonical fee-on-transfer token must be rejected to avoid short-changing recipient.
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
         assertEq(bad.balanceOf(recipient), 0);
     }

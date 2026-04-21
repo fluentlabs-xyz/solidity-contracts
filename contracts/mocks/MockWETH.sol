@@ -74,6 +74,39 @@ contract BadUnwrapMockWETH is ERC20, IWETH {
 }
 
 /**
+ * @title FeeOnTransferMockWETH
+ * @dev Test-only non-canonical WETH: transfer charges 50% fee.
+ */
+contract FeeOnTransferMockWETH is ERC20, IWETH {
+    constructor() ERC20("Fee-on-transfer WETH", "ftWETH") {}
+
+    function deposit() public payable override {
+        _mint(msg.sender, msg.value);
+    }
+
+    function withdraw(uint256 amount) external override {
+        _burn(msg.sender, amount);
+        (bool ok, ) = payable(msg.sender).call{value: amount}("");
+        require(ok, "withdraw failed");
+    }
+
+    function _update(address from, address to, uint256 value) internal virtual override {
+        if (from != address(0) && to != address(0) && value > 0) {
+            uint256 fee = value / 2;
+            uint256 sendAmount = value - fee;
+            super._update(from, address(this), fee);
+            super._update(from, to, sendAmount);
+            return;
+        }
+        super._update(from, to, value);
+    }
+
+    receive() external payable {
+        deposit();
+    }
+}
+
+/**
  * @title MockUniversalWETH
  * @dev Test double for Universal-WETH precompile: `deposit`/`withdraw` plus owner-gated `mint`/`burn`.
  */

@@ -29,6 +29,14 @@ interface IWETHGatewayErrors {
     error WrapAccountingMismatch();
 
     /**
+     * @notice Thrown when recipient token balance does not increase by exactly `amount`
+     *         after the gateway transfers wrapped tokens on receive.
+     * @dev Defends against fee-on-transfer / non-canonical token behavior that would
+     *      silently short-change the recipient.
+     */
+    error TransferAccountingMismatch();
+
+    /**
      * @notice Thrown when a low-level native ETH transfer (rescue path) fails.
      */
     error NativeTransferFailed();
