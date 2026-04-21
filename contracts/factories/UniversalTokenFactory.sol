@@ -11,8 +11,13 @@ import {IGenericTokenFactory} from "../interfaces/IGenericTokenFactory.sol";
  * @author Fluent Labs
  * @notice Deploys Universal (precompile) pegged tokens via CREATE2 using UniversalTokenSDK; used for L2 bridge representation of L1 tokens.
  * @dev Only callable by PaymentGateway or owner. Same external API as {ERC20TokenFactory}: deployToken(gateway, originToken, deployArgs).
- *      deployArgs = abi.encode(name, symbol, decimals, initialSupply, minter, pauser). Salt = keccak256(abi.encodePacked(gateway, originToken)).
+ *      deployArgs = abi.encode(name, symbol, decimals, initialSupply, minter, pauser, wrapped). Salt = keccak256(abi.encodePacked(gateway, originToken)).
  *      No beacon; each deployment is immutable init code from UniversalTokenSDK.createDeploymentData.
+ *
+ *      The `wrapped` flag (7th deploy arg) instructs the L2 precompile to expose WETH9-style
+ *      `deposit()` / `withdraw(uint256)` entrypoints on the deployed token. It must be set
+ *      to `true` when deploying Universal-WETH (paired with {WETHGateway}); it should remain
+ *      `false` for generic bridged ERC20s (paired with {ERC20Gateway}).
  */
 contract UniversalTokenFactory is GenericTokenFactory {
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -52,9 +57,15 @@ contract UniversalTokenFactory is GenericTokenFactory {
      */
     function _deployToken(address gateway, address originToken, bytes calldata deployArgs) internal override returns (address) {
         // Unpack the ABI-encoded deployment parameters from the caller
-        (string memory name, string memory symbol, uint8 decimals, uint256 initialSupply, address minter, address pauser) = _decodeDeployArgs(
-            deployArgs
-        );
+        (
+            string memory name,
+            string memory symbol,
+            uint8 decimals,
+            uint256 initialSupply,
+            address minter,
+            address pauser,
+            bool wrapped
+        ) = _decodeDeployArgs(deployArgs);
 
         // Validate all inputs before spending gas on deployment
         // Gateway must be a valid address — it receives minting authority
@@ -71,7 +82,7 @@ contract UniversalTokenFactory is GenericTokenFactory {
         require(decimals > 0, ZeroValueNotAllowed("decimals"));
 
         // Build init code with the 0x45524320 magic prefix for the L2 precompile
-        bytes memory deploymentData = _deploymentData(name, symbol, decimals, initialSupply, minter, pauser);
+        bytes memory deploymentData = _deploymentData(name, symbol, decimals, initialSupply, minter, pauser, wrapped);
         // Deterministic salt from gateway+origin ensures one pegged token per pair
         bytes32 salt = _calculateSalt(gateway, originToken);
 
@@ -91,8 +102,11 @@ contract UniversalTokenFactory is GenericTokenFactory {
     function getDeployArgs(string memory tokenName, string memory tokenSymbol, uint8 decimals) external view override returns (bytes memory) {
         // Use the caller as both minter and pauser, with zero initial supply
         address deployer = _msgSender();
-        // Pack into the format expected by _decodeDeployArgs and _deployToken
-        return abi.encode(tokenName, tokenSymbol, decimals, 0, deployer, deployer);
+        // Pack into the format expected by _decodeDeployArgs and _deployToken.
+        // `wrapped = false` — generic bridged ERC20s never want WETH9 deposit/withdraw.
+        // Callers that need a wrapped token (e.g. {WETHGateway} bootstrap) must build
+        // the deploy args blob directly with `wrapped = true`.
+        return abi.encode(tokenName, tokenSymbol, decimals, uint256(0), deployer, deployer, false);
     }
 
     // ============ Internal ============
@@ -100,25 +114,36 @@ contract UniversalTokenFactory is GenericTokenFactory {
     /// @inheritdoc GenericTokenFactory
     function _computeTokenAddress(address gateway, address originToken, bytes calldata deployArgs) internal view override returns (address) {
         // Decode the same args that _deployToken would use
-        (string memory name, string memory symbol, uint8 decimals, uint256 initialSupply, address minter, address pauser) = _decodeDeployArgs(
-            deployArgs
-        );
+        (
+            string memory name,
+            string memory symbol,
+            uint8 decimals,
+            uint256 initialSupply,
+            address minter,
+            address pauser,
+            bool wrapped
+        ) = _decodeDeployArgs(deployArgs);
         // Predict the CREATE2 address without deploying — used for pre-registration checks
         return
             Create2.computeAddress(
                 _calculateSalt(gateway, originToken),
-                keccak256(_deploymentData(name, symbol, decimals, initialSupply, minter, pauser))
+                keccak256(_deploymentData(name, symbol, decimals, initialSupply, minter, pauser, wrapped))
             );
     }
 
     /**
-     * @dev Extracts deploy arguments (name, symbol, decimals) from the ABI-encoded payload.
+     * @dev Extracts deploy arguments from the ABI-encoded payload.
+     *      Layout: (string name, string symbol, uint8 decimals, uint256 initialSupply,
+     *               address minter, address pauser, bool wrapped).
      */
     function _decodeDeployArgs(
         bytes calldata deployArgs
-    ) internal pure returns (string memory name, string memory symbol, uint8 decimals, uint256 initialSupply, address minter, address pauser) {
-        // Layout must match the encoding in getDeployArgs: (name, symbol, decimals, supply, minter, pauser)
-        return abi.decode(deployArgs, (string, string, uint8, uint256, address, address));
+    )
+        internal
+        pure
+        returns (string memory name, string memory symbol, uint8 decimals, uint256 initialSupply, address minter, address pauser, bool wrapped)
+    {
+        return abi.decode(deployArgs, (string, string, uint8, uint256, address, address, bool));
     }
 
     /**
@@ -130,17 +155,19 @@ contract UniversalTokenFactory is GenericTokenFactory {
         uint8 decimals,
         uint256 initialSupply,
         address minter,
-        address pauser
+        address pauser,
+        bool wrapped
     ) internal pure returns (bytes memory deploymentData) {
         // 0x45524320 ("ERC ") is the magic prefix the L2 precompile at 0x520008
         // expects as the first 4 bytes of deployment bytecode to identify ERC20 tokens.
-        // The remaining bytes must be abi.encode(bytes32, bytes32, uint8, uint256, address, address)
-        // — fixed-size encoding matching the Rust InitialSettings struct layout.
+        // The remaining bytes must be abi.encode(bytes32, bytes32, uint8, uint256, address, address, bool)
+        // — fixed-size encoding matching the Rust `InitialSettings` struct layout
+        // (token_name, token_symbol, decimals, initial_supply, minter, pauser, wrapped).
         // Using string types here would produce dynamic ABI encoding which the precompile cannot decode.
         return
             abi.encodePacked(
                 bytes4(0x45524320),
-                abi.encode(_stringToBytes32(name), _stringToBytes32(symbol), decimals, initialSupply, minter, pauser)
+                abi.encode(_stringToBytes32(name), _stringToBytes32(symbol), decimals, initialSupply, minter, pauser, wrapped)
             );
     }
 

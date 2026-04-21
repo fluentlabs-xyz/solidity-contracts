@@ -70,7 +70,9 @@ abstract contract WETHGatewayMigration is DeployBase {
         address gwProxy = address(new ERC1967Proxy(address(impl), abi.encodeCall(WETHGateway.initialize, (initialOwner, l2Bridge, address(0)))));
         WETHGateway gateway = WETHGateway(payable(gwProxy));
 
-        bytes memory deployArgs = abi.encode("Wrapped Ether", "WETH", uint8(18), uint256(0), gwProxy, gwProxy);
+        // `wrapped = true` activates the WETH9 `deposit` / `withdraw` surface on the L2
+        // precompile, so {WETHGateway} can wrap/unwrap against it like canonical WETH9.
+        bytes memory deployArgs = abi.encode("Wrapped Ether", "WETH", uint8(18), uint256(0), gwProxy, gwProxy, true);
         address universalWeth = UniversalTokenFactory(universalFactory).deployToken(gwProxy, l1WethOrigin, deployArgs);
 
         gateway.setWETH(universalWeth);
