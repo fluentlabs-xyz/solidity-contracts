@@ -10,6 +10,7 @@ import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/acce
 import {IRollupEvents, IRollupErrors, IRollupRead, IRollupConfig, IRollupAdmin} from "../interfaces/rollup/IRollup.sol";
 import {BatchStatus, BatchRecord, ChallengeRecord, InitConfiguration} from "../interfaces/rollup/IRollupTypes.sol";
 import {Heap} from "../libraries/Heap.sol";
+import {MerkleTree} from "../libraries/MerkleTree.sol";
 
 /**
  * @title RollupStorageLayout
@@ -391,6 +392,44 @@ contract RollupStorageLayout is
     /// @inheritdoc IRollupRead
     function isBatchPreconfirmed(uint256 batchIndex) public view returns (bool) {
         return _getRollupStorage()._batches[batchIndex].status == BatchStatus.Preconfirmed;
+    }
+
+    /// @inheritdoc IRollupRead
+    function verifyBlockInBatch(uint256 batchIndex, bytes32 blockHash, uint256 nonce, bytes calldata proof)
+        external
+        view
+        returns (bool included, uint8 status)
+    {
+        RollupStorage storage $ = _getRollupStorage();
+        BatchRecord storage batch = $._batches[batchIndex];
+        status = uint8(batch.status);
+
+        if (batch.status == BatchStatus.None || batch.batchRoot == bytes32(0)) {
+            return (false, status);
+        }
+        if (proof.length < 96) {
+            return (false, status);
+        }
+
+        uint256 siblingsLen = proof.length - 96;
+        if (siblingsLen % 32 != 0) {
+            return (false, status);
+        }
+
+        bytes32 previousBlockHash;
+        bytes32 withdrawalRoot;
+        bytes32 depositRoot;
+        bytes memory siblings = new bytes(siblingsLen);
+
+        assembly ("memory-safe") {
+            previousBlockHash := calldataload(proof.offset)
+            withdrawalRoot := calldataload(add(proof.offset, 32))
+            depositRoot := calldataload(add(proof.offset, 64))
+            calldatacopy(add(siblings, 32), add(proof.offset, 96), siblingsLen)
+        }
+
+        bytes32 commitment = keccak256(abi.encodePacked(previousBlockHash, blockHash, withdrawalRoot, depositRoot));
+        included = MerkleTree.verifyMerkleProof(batch.batchRoot, commitment, nonce, siblings);
     }
 
     /// @inheritdoc IRollupRead
