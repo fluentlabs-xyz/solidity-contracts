@@ -105,7 +105,7 @@ contract FastWithdrawalListTest is Test {
         vm.expectEmit(true, false, false, false, address(list));
         emit IFastWithdrawalListEvents.TokenDeregistered(token);
         vm.prank(admin);
-        list.deregisterToken(token);
+        list.unregisterToken(token);
 
         assertFalse(list.isRegistered(token));
         (, uint256 usedAfter, , ) = list.getUsage(token);
@@ -115,7 +115,7 @@ contract FastWithdrawalListTest is Test {
     function test_RevertIf_deregisterToken_notRegistered() public {
         vm.prank(admin);
         vm.expectRevert(abi.encodeWithSelector(IFastWithdrawalListErrors.TokenNotRegistered.selector, token));
-        list.deregisterToken(token);
+        list.unregisterToken(token);
     }
 
     // ============ setLimit ============

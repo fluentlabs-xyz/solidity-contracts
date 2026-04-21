@@ -10,6 +10,7 @@ import {IGatewayBaseErrors, IGatewayBaseEvents} from "../../contracts/interfaces
 import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
 import {MockERC20Token} from "../../test/mocks/MockERC20.sol";
 import {MockFeeOnTransferERC20} from "../../test/mocks/MockFeeOnTransferERC20.sol";
+import {MockMutableMetadataERC20} from "../../test/mocks/MockMutableMetadataERC20.sol";
 import {GatewayBase} from "./Base.t.sol";
 
 contract ERC20GatewayTest is GatewayBase {
@@ -422,6 +423,54 @@ contract ERC20GatewayTest is GatewayBase {
     function test_computeTokenAddress_matchesPredictedHelper() public view {
         address predicted = gateway.computeTokenAddress(address(gateway), address(originToken));
         assertEq(predicted, _predictedPegged(), "computeTokenAddress mismatch vs helper");
+    }
+
+    /// @dev First origin send pins metadata; if the origin token later changes `name`/`symbol`,
+    ///      CREATE2 prediction must still match the originally pinned values (no second peg address).
+    function test_metadataPinning_computeTokenAddress_stableAfterOriginMetadataChanges() public {
+        address remoteFactory = makeAddr("remote-universal-factory");
+        address remoteImplementation = makeAddr("remote-implementation");
+
+        vm.prank(admin);
+        gateway.setOtherSide(true, remoteGateway, sourceChainId, remoteImplementation, remoteFactory, address(0));
+
+        MockMutableMetadataERC20 mut = new MockMutableMetadataERC20("First Name", "FST", 1_000 ether, user);
+        address predicted = gateway.computeTokenAddress(address(gateway), address(mut));
+
+        vm.prank(user);
+        mut.approve(address(gateway), 1 ether);
+        vm.prank(user);
+        gateway.sendTokens(address(mut), recipient, 1 ether);
+
+        assertEq(gateway.getPinnedOriginMetadata(address(mut)), abi.encode("FST", "First Name", uint8(18)));
+        assertEq(gateway.computeTokenAddress(address(gateway), address(mut)), predicted);
+
+        mut.setMetadata("Renamed", "RNM");
+        assertEq(mut.name(), "Renamed");
+        assertEq(mut.symbol(), "RNM");
+        assertEq(gateway.computeTokenAddress(address(gateway), address(mut)), predicted);
+
+        vm.prank(user);
+        mut.approve(address(gateway), 1 ether);
+        vm.prank(user);
+        gateway.sendTokens(address(mut), recipient, 1 ether);
+    }
+
+    /// @dev `receivePeggedTokens` pins from the bridge payload; local prediction ignores later live drift.
+    function test_metadataPinning_receivePeggedThen_computeTokenAddress_ignoresLiveMetadataDrift() public {
+        MockMutableMetadataERC20 mut = new MockMutableMetadataERC20("V0 Name", "V0", 1_000 ether, user);
+        address predictedPegged = gateway.computeTokenAddress(address(gateway), address(mut));
+        bytes memory tokenMetadata = abi.encode("V0", "V0 Name", uint8(18));
+        bytes memory message = abi.encodeCall(
+            ERC20Gateway.receivePeggedTokens,
+            (address(mut), predictedPegged, user, recipient, 1 ether, tokenMetadata)
+        );
+        _relayMessage(remoteGateway, address(gateway), 0, message);
+
+        assertEq(gateway.getPinnedOriginMetadata(address(mut)), abi.encode("V0", "V0 Name", uint8(18)));
+
+        mut.setMetadata("V1 Name", "V1");
+        assertEq(gateway.computeTokenAddress(address(gateway), address(mut)), predictedPegged);
     }
 
     // ============ Fee-on-transfer ============

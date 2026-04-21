@@ -58,8 +58,14 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         address _otherSideBeacon;
         /// @dev Origin token address to locally deployed pegged token address.
         mapping(address => address) _tokenMapping;
+        /// @dev First-seen bridge metadata per origin token: `abi.encode(symbol, name, decimals)` —
+        ///      same layout as the cross-chain `tokenMetadata` blob. Used so address prediction and
+        ///      outbound messages stay stable if the origin ERC20's on-chain `name`/`symbol`/`decimals`
+        ///      change after the first bridge interaction (Universal-token CREATE2 init code depends
+        ///      on name/symbol; beacon proxies ignore metadata for the address but init still uses it).
+        mapping(address => bytes) _pinnedMetadataForOrigin;
         /// @dev Reserved for future storage fields.
-        uint256[50] __gap;
+        uint256[49] __gap;
     }
 
     /** @dev Returns the ERC-7201 storage pointer for ERC20 gateway state. */
@@ -149,11 +155,13 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         IERC20(token).safeTransferFrom(from, address(this), amount);
         uint256 actualAmount = IERC20(token).balanceOf(address(this)) - balBefore;
 
-        // Read on-chain token metadata to forward to the destination chain.
-        // The remote gateway needs this to deploy a matching pegged token if one doesn't exist yet.
-        string memory symbol = ERC20(token).symbol();
-        string memory name = ERC20(token).name();
-        uint8 decimals = ERC20(token).decimals();
+        // Use first-seen metadata for this origin so Universal-token CREATE2 predictions and the
+        // bridge payload stay stable if the origin token's on-chain ERC20 metadata is upgraded later.
+        (string memory name, string memory symbol, uint8 decimals) = _resolvedOriginMetadata(token);
+        ERC20GatewayStorage storage $ = _getERC20GatewayStorage();
+        if ($._pinnedMetadataForOrigin[token].length == 0) {
+            $._pinnedMetadataForOrigin[token] = abi.encode(symbol, name, decimals);
+        }
         // ABI-encode metadata into a single bytes blob for cross-chain transport.
         // The receiving gateway decodes this to deploy or verify the pegged token.
         bytes memory rawTokenMetadata = abi.encode(symbol, name, decimals);
@@ -209,6 +217,8 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         // Prevent minting zero tokens — disallow no-op messages that still consume bridge fees
         require(amount > 0, ZeroValueNotAllowed("amount"));
 
+        ERC20GatewayStorage storage $ = _getERC20GatewayStorage();
+
         // Check whether the pegged token contract already exists on this chain by inspecting
         // code size. length == 0 means no contract deployed at that address yet.
         if (peggedToken.code.length == 0) {
@@ -220,11 +230,18 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
             require(newPeggedToken == peggedToken, WrongPeggedToken());
             // Record the pegged-to-origin mapping so future sends from this chain
             // route through _sendPeggedTokens (burn path) instead of _sendOriginTokens
-            _getERC20GatewayStorage()._tokenMapping[peggedToken] = originToken;
+            $._tokenMapping[peggedToken] = originToken;
         } else {
             // Pegged token already deployed — verify the mapping is consistent.
             // Prevents a malicious message from associating a different origin with an existing pegged token.
             require(getTokenMapping(peggedToken) == originToken, TokenMappingCheckFailed());
+        }
+
+        // Pin first-seen metadata only after deploy / mapping checks succeed so a failed receive
+        // leaves no partial state.
+        if ($._pinnedMetadataForOrigin[originToken].length == 0) {
+            (string memory s, string memory n, uint8 d) = abi.decode(tokenMetadata, (string, string, uint8));
+            $._pinnedMetadataForOrigin[originToken] = abi.encode(s, n, d);
         }
 
         // Consume the token limit
@@ -334,30 +351,34 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
 
     /// @inheritdoc IERC20Gateway
     function computeOtherSidePeggedTokenAddress(address gateway, address originToken) external view returns (address) {
-        // Convenience wrapper: reads metadata from the on-chain origin token and delegates
-        // to the internal computation that predicts the pegged token address on the remote chain
-        return
-            _computeOtherSidePeggedTokenAddressWithGateway(
-                gateway,
-                originToken,
-                ERC20(originToken).name(),
-                ERC20(originToken).symbol(),
-                ERC20(originToken).decimals()
-            );
+        (string memory name, string memory symbol, uint8 decimals) = _resolvedOriginMetadata(originToken);
+        return _computeOtherSidePeggedTokenAddressWithGateway(gateway, originToken, name, symbol, decimals);
     }
 
     /// @inheritdoc IERC20Gateway
     function computeTokenAddress(address gateway, address originToken) external view returns (address) {
-        // Convenience wrapper: reads metadata from the on-chain origin token and delegates
-        // to the internal computation that predicts the local pegged token address
-        return
-            _computeTokenAddressWithGateway(
-                gateway,
-                originToken,
-                ERC20(originToken).name(),
-                ERC20(originToken).symbol(),
-                ERC20(originToken).decimals()
-            );
+        (string memory name, string memory symbol, uint8 decimals) = _resolvedOriginMetadata(originToken);
+        return _computeTokenAddressWithGateway(gateway, originToken, name, symbol, decimals);
+    }
+
+    /// @inheritdoc IERC20Gateway
+    function getPinnedOriginMetadata(address originToken) external view returns (bytes memory) {
+        return _getERC20GatewayStorage()._pinnedMetadataForOrigin[originToken];
+    }
+
+    /**
+     * @dev Returns metadata used for CREATE2 / bridge encoding: pinned `abi.encode(symbol, name, decimals)`
+     *      when present, otherwise live reads from `ERC20(originToken)`.
+     */
+    function _resolvedOriginMetadata(address originToken) internal view returns (string memory name, string memory symbol, uint8 decimals) {
+        bytes memory pin = _getERC20GatewayStorage()._pinnedMetadataForOrigin[originToken];
+        if (pin.length > 0) {
+            (symbol, name, decimals) = abi.decode(pin, (string, string, uint8));
+        } else {
+            name = ERC20(originToken).name();
+            symbol = ERC20(originToken).symbol();
+            decimals = ERC20(originToken).decimals();
+        }
     }
 
     // ============ Universal Token Factory ============

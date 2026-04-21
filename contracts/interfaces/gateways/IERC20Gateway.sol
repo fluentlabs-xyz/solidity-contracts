@@ -97,6 +97,16 @@ interface IERC20Gateway is IERC20GatewayErrors {
     function computeTokenAddress(address gateway, address originToken) external view returns (address);
 
     /**
+     * @notice Returns pinned bridge metadata for an origin token, if any.
+     * @dev After the first successful bridge interaction for `originToken`, the gateway stores
+     *      `abi.encode(symbol, name, decimals)` from that first payload so address prediction and
+     *      outbound messages stay stable if the origin ERC20's live `name`/`symbol`/`decimals` change later.
+     * @param originToken The origin token address on this chain.
+     * @return Encoded metadata, or empty bytes if nothing has been pinned yet.
+     */
+    function getPinnedOriginMetadata(address originToken) external view returns (bytes memory);
+
+    /**
      * @notice Returns the token mapping for a given key.
      * @param key The key to get the token mapping for.
      * @return The address of the token mapping.
