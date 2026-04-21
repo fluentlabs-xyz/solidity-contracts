@@ -672,6 +672,19 @@ interface IRollupRead {
      */
     function isBatchPreconfirmed(uint256 batchIndex) external view returns (bool);
 
+    /**
+     * @notice Verifies that `blockHash` is included in `batchIndex` and returns current batch status.
+     * @dev `proof` format is contract-friendly and matches verifier API output:
+     *      `proof = abi.encodePacked(previousBlockHash, withdrawalRoot, depositRoot, merkleSiblings)`.
+     *      `nonce` is the leaf index in the batch Merkle tree.
+     * @return included True if inclusion proof is valid for current `batchRoot`.
+     * @return status Current {BatchStatus} encoded as uint8.
+     */
+    function verifyBlockInBatch(uint256 batchIndex, bytes32 blockHash, uint256 nonce, bytes calldata proof)
+        external
+        view
+        returns (bool included, uint8 status);
+
     // ============ Challenge state ============
 
     /**
