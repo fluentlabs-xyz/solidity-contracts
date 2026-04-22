@@ -136,7 +136,9 @@ contract WETHGateway is GatewayBase, IWETHGateway {
         require(msg.value == fee, ExactFeeRequired());
 
         _requireAccountNotBlacklisted(sender);
-        _requireAccountNotBlacklisted(to);
+        if (sender != to) {
+            _requireAccountNotBlacklisted(to);
+        }
 
         address weth = getWETH();
         require(weth != address(0), WETHNotConfigured());
@@ -193,26 +195,6 @@ contract WETHGateway is GatewayBase, IWETHGateway {
     }
 
     // ============ Admin / Rescue ============
-
-    /// @inheritdoc IWETHGateway
-    function rescueNative(address payable to, uint256 amount) external nonReentrant onlyOwner {
-        require(to != address(0), InvalidRecipient());
-        (bool success, ) = to.call{value: amount}("");
-        require(success, NativeTransferFailed());
-    }
-
-    /// @inheritdoc IWETHGateway
-    function rescueWETH(address to, uint256 amount) external nonReentrant onlyOwner {
-        require(to != address(0), InvalidRecipient());
-        address weth = getWETH();
-        require(weth != address(0), WETHNotConfigured());
-        IERC20(weth).safeTransfer(to, amount);
-    }
-
-    /// @inheritdoc IWETHGateway
-    function setWETH(address newWETH) external onlyOwner {
-        _setWETH(newWETH);
-    }
 
     /// @dev Validates and stores the WETH address. Reverts on zero address.
     function _setWETH(address newWETH) internal {

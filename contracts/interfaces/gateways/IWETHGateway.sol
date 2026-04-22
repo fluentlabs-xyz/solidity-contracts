@@ -100,24 +100,4 @@ interface IWETHGateway is IWETHGatewayErrors, IWETHGatewayEvents {
      * @param amount Amount of WETH to mint to `to`. Must equal `msg.value`.
      */
     function receiveWETH(address from, address to, uint256 amount) external payable;
-
-    /**
-     * @notice Admin rescue for stuck native ETH (e.g. after a failed `WETH.deposit`
-     *         attempt on an upgradeable WETH implementation, or leftover dust from a
-     *         `receiveFailedMessage` retry).
-     */
-    function rescueNative(address payable to, uint256 amount) external;
-
-    /**
-     * @notice Admin rescue for stuck WETH. Mirrors {rescueNative} but for the ERC20 leg.
-     */
-    function rescueWETH(address to, uint256 amount) external;
-
-    /**
-     * @notice Sets the canonical WETH address this gateway unwraps / wraps against.
-     * @dev High-trust admin action; re-pointing WETH mid-flight would strand in-flight
-     *      bridge messages, so only rewire this during maintenance windows with the
-     *      bridge paused.
-     */
-    function setWETH(address newWETH) external;
 }

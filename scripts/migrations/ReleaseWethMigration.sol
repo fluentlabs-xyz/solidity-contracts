@@ -140,20 +140,21 @@ abstract contract ReleaseWethMigration is DeployBase {
         vm.startBroadcast();
         address initialOwner = _initialOwner();
 
-        WETHGateway impl = new WETHGateway();
-        address gwProxy = address(new ERC1967Proxy(address(impl), abi.encodeCall(WETHGateway.initialize, (initialOwner, l2Bridge, address(0)))));
-        WETHGateway gateway = WETHGateway(payable(gwProxy));
-
         // `wrapped = true` activates the WETH9 `deposit` / `withdraw` surface on the L2
         // precompile so {WETHGateway} can wrap/unwrap against it like canonical WETH9.
         bytes memory deployArgs = abi.encode("Wrapped Ether", "WETH", uint8(18), uint256(0), address(0), gwProxy, true);
         address universalWeth = UniversalTokenFactory(universalFactory).deployToken(gwProxy, l1WethOrigin, deployArgs);
 
-        gateway.setWETH(universalWeth);
+        WETHGateway impl = new WETHGateway();
+        address gwProxy = address(new ERC1967Proxy(address(impl), abi.encodeCall(WETHGateway.initialize, (initialOwner, l2Bridge, universalWeth))));
+        WETHGateway gateway = WETHGateway(payable(gwProxy));
+
         gateway.setOtherSideGateway(l1Gateway);
 
         L2FluentBridge(l2Bridge).registerGateway(gwProxy);
-        L2FluentBridge(l2Bridge).registerGateway(l1Gateway);
+        if (gwProxy != l1Gateway) {
+            L2FluentBridge(l2Bridge).registerGateway(l1Gateway);
+        }
 
         vm.stopBroadcast();
 
@@ -187,10 +188,7 @@ abstract contract ReleaseWethMigration is DeployBase {
 
     /// @dev Owner used for freshly deployed WETH gateways. Falls back to `tx.origin`.
     function _initialOwner() internal view returns (address) {
-        try vm.envAddress("WETH_GATEWAY_INITIAL_OWNER") returns (address o) {
-            if (o != address(0)) return o;
-        } catch {}
-        return tx.origin;
+        return 0x9ec3f0d76A6d3847d86374c791C6E170CAd9518D;
     }
 
     /// @dev Returns `address(0)` if the env var is missing or invalid.
