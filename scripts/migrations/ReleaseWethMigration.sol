@@ -42,6 +42,8 @@ abstract contract ReleaseWethMigration is DeployBase {
     /// @dev Manifest directory to use when `ENV` is unset (`testnet` / `mainnet`).
     function _defaultEnv() internal pure virtual returns (string memory);
 
+    address L1_WETH_ADDRESS = 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
+
     // ============ 1. Upgrades ============
 
     /// @notice Step 1 — L1: UUPS-upgrade {ERC20Gateway} to the build in this repo.
@@ -55,6 +57,10 @@ abstract contract ReleaseWethMigration is DeployBase {
         vm.startBroadcast();
         address newImpl = address(new ERC20Gateway());
         UnsafeUpgrades.upgradeProxy(erc20Gateway, newImpl, "");
+
+        ERC20Gateway(erc20Gateway).setBridgingExcludedOrigin(L1_WETH_ADDRESS, true);
+        console2.log("L1 ERC20Gateway: excluded L1 WETH from generic bridge");
+
         vm.stopBroadcast();
 
         console2.log("L1 ERC20Gateway upgraded");
@@ -79,6 +85,7 @@ abstract contract ReleaseWethMigration is DeployBase {
 
         address newFactoryImpl = address(new UniversalTokenFactory());
         UnsafeUpgrades.upgradeProxy(factory, newFactoryImpl, "");
+
         vm.stopBroadcast();
 
         console2.log("L2 upgrades complete");
@@ -139,7 +146,7 @@ abstract contract ReleaseWethMigration is DeployBase {
 
         // `wrapped = true` activates the WETH9 `deposit` / `withdraw` surface on the L2
         // precompile so {WETHGateway} can wrap/unwrap against it like canonical WETH9.
-        bytes memory deployArgs = abi.encode("Wrapped Ether", "WETH", uint8(18), uint256(0), gwProxy, gwProxy, true);
+        bytes memory deployArgs = abi.encode("Wrapped Ether", "WETH", uint8(18), uint256(0), address(0), gwProxy, true);
         address universalWeth = UniversalTokenFactory(universalFactory).deployToken(gwProxy, l1WethOrigin, deployArgs);
 
         gateway.setWETH(universalWeth);
@@ -184,5 +191,14 @@ abstract contract ReleaseWethMigration is DeployBase {
             if (o != address(0)) return o;
         } catch {}
         return tx.origin;
+    }
+
+    /// @dev Returns `address(0)` if the env var is missing or invalid.
+    function _tryEnvAddress(string memory name) internal view returns (address) {
+        try vm.envAddress(name) returns (address a) {
+            return a;
+        } catch {
+            return address(0);
+        }
     }
 }

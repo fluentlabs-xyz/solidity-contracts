@@ -31,9 +31,9 @@ import {IWETHGateway} from "../interfaces/gateways/IWETHGateway.sol";
  *      1. Deploy this contract behind a UUPS proxy on L2.
  *      2. As the {UniversalTokenFactory} owner (owner-bypass of `onlyPaymentGateway`),
  *         call `factory.deployToken(<this>, L1_WETH, abi.encode("Wrapped Ether", "WETH",
- *         18, 0, <this>, <this>))`. The gateway becomes both `minter` and `pauser` of
- *         the resulting Universal-WETH; this is a safety valve — normal flow uses
- *         `deposit`/`withdraw` only — but preserves emergency mint/burn controls.
+ *         18, 0, address(0), <this>, true))`. The outer `minter` field must be `address(0)`
+ *         (factory requirement when `wrapped == true`); `pauser` is typically `<this>` for
+ *         emergency controls. Normal user flow uses `deposit`/`withdraw` only.
  *      3. `setWETH(<universal-weth address>)` on the gateway.
  *      4. Pair both gateways via `setOtherSideGateway` and register both on their
  *         respective bridges.
@@ -56,11 +56,10 @@ import {IWETHGateway} from "../interfaces/gateways/IWETHGateway.sol";
  *      in the same window by racing the gateways — they all consume the same counter.
  *
  * @dev Pegged-WETH collision:
- *      The operator MUST NOT also wire L1 WETH as an origin token on the generic
- *      `ERC20Gateway`. Doing so would let users mint a separate "pegged WETH" whose
- *      address diverges from the Universal-WETH this gateway targets, fragmenting
- *      liquidity. There is no on-chain enforcement — it's purely a deployment-time
- *      invariant.
+ *      The operator should set {ERC20Gateway.setBridgingExcludedOrigin}(L1_WETH, true) on both
+ *      chains so the generic gateway rejects that origin.
+ *      Without it, users could still bridge L1 WETH through `ERC20Gateway` and mint a second
+ *      pegged representation whose address diverges from the Universal-WETH this gateway targets.
  */
 contract WETHGateway is GatewayBase, IWETHGateway {
     using SafeERC20 for IERC20;

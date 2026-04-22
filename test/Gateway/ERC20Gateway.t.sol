@@ -8,6 +8,7 @@ import {ERC20Gateway} from "../../contracts/gateways/ERC20Gateway.sol";
 import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol";
 import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {IGatewayBaseErrors, IGatewayBaseEvents} from "../../contracts/interfaces/gateways/IGatewayBase.sol";
+import {IERC20GatewayErrors} from "../../contracts/interfaces/gateways/IERC20Gateway.sol";
 import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
 import {MockERC20Token} from "../../test/mocks/MockERC20.sol";
 import {MockFeeOnTransferERC20} from "../../test/mocks/MockFeeOnTransferERC20.sol";
@@ -45,6 +46,77 @@ contract ERC20GatewayTest is GatewayBase {
         vm.prank(user);
         gateway.sendTokens(address(originToken), recipient, amount);
 
+        assertEq(originToken.balanceOf(address(gateway)), amount);
+    }
+
+    function test_setBridgingExcludedOrigin_zeroOrigin_reverts() public {
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(IGatewayBaseErrors.ZeroAddressNotAllowed.selector, "originToken"));
+        gateway.setBridgingExcludedOrigin(address(0), true);
+    }
+
+    function test_sendTokens_originPath_revertsWhenBridgingExcluded() public {
+        vm.prank(admin);
+        gateway.setBridgingExcludedOrigin(address(originToken), true);
+
+        vm.prank(user);
+        originToken.approve(address(gateway), 1 ether);
+
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(IERC20GatewayErrors.BridgingExcludedOriginToken.selector, address(originToken)));
+        gateway.sendTokens(address(originToken), recipient, 1 ether);
+    }
+
+    function test_receivePeggedTokens_revertsWhenBridgingExcluded() public {
+        vm.prank(admin);
+        gateway.setBridgingExcludedOrigin(address(originToken), true);
+
+        address predictedPegged = _predictedPegged();
+        bytes memory tokenMetadata = abi.encode("MOCK", "Mock Token", uint8(18));
+        bytes memory message = abi.encodeCall(
+            ERC20Gateway.receivePeggedTokens,
+            (address(originToken), predictedPegged, user, recipient, 1 ether, tokenMetadata)
+        );
+
+        vm.expectRevert(abi.encodeWithSelector(IERC20GatewayErrors.BridgingExcludedOriginToken.selector, address(originToken)));
+        _relayMessage(remoteGateway, address(gateway), 0, message);
+    }
+
+    function test_sendTokens_peggedPath_revertsWhenBridgingExcluded() public {
+        address predictedPegged = _predictedPegged();
+        bytes memory tokenMetadata = abi.encode("MOCK", "Mock Token", uint8(18));
+        bytes memory message = abi.encodeCall(
+            ERC20Gateway.receivePeggedTokens,
+            (address(originToken), predictedPegged, user, user, 10 ether, tokenMetadata)
+        );
+        _relayMessage(remoteGateway, address(gateway), 0, message);
+
+        vm.prank(admin);
+        gateway.setBridgingExcludedOrigin(address(originToken), true);
+
+        ERC20PeggedToken pegged = ERC20PeggedToken(predictedPegged);
+        vm.prank(user);
+        pegged.approve(address(gateway), 1 ether);
+
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(IERC20GatewayErrors.BridgingExcludedOriginToken.selector, address(originToken)));
+        gateway.sendTokens(predictedPegged, recipient, 1 ether);
+    }
+
+    function test_setBridgingExcludedOrigin_clearAllowsBridgingAgain() public {
+        vm.prank(admin);
+        gateway.setBridgingExcludedOrigin(address(originToken), true);
+        assertTrue(gateway.isBridgingExcludedOrigin(address(originToken)));
+
+        vm.prank(admin);
+        gateway.setBridgingExcludedOrigin(address(originToken), false);
+        assertFalse(gateway.isBridgingExcludedOrigin(address(originToken)));
+
+        uint256 amount = 1 ether;
+        vm.prank(user);
+        originToken.approve(address(gateway), amount);
+        vm.prank(user);
+        gateway.sendTokens(address(originToken), recipient, amount);
         assertEq(originToken.balanceOf(address(gateway)), amount);
     }
 

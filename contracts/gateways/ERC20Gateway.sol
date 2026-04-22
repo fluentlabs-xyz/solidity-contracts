@@ -28,6 +28,8 @@ import {GatewayBase} from "./GatewayBase.sol";
  * @dev Supports deterministic pegged-token address derivation for both beacon-proxy and universal-token
  *      deployments using stored remote configuration (`otherSide`, factory, beacon/chainId).
  * @dev Admin controls include remote routing config and token-mapping maintenance.
+ * @dev Canonical L1 WETH should be excluded via {setBridgingExcludedOrigin} so it is only
+ *      bridged through {WETHGateway}, avoiding a second pegged representation on L2.
  */
 contract ERC20Gateway is GatewayBase, IERC20Gateway {
     using SafeERC20 for IERC20;
@@ -65,8 +67,10 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         ///      token that has already been sent, operators should be aware that this map continues
         ///      to serve the address derived under the previous routing until explicitly cleared.
         mapping(address => address) _otherSidePeggedForOrigin;
+        /// @dev L1-origin keys that cannot use this gateway on any leg (e.g. WETH → {WETHGateway} only).
+        mapping(address => bool) _bridgingExcludedOrigins;
         /// @dev Reserved for future storage fields.
-        uint256[49] __gap;
+        uint256[48] __gap;
     }
 
     /** @dev Returns the ERC-7201 storage pointer for ERC20 gateway state. */
@@ -94,6 +98,11 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         // ============ Storage ============
         // Store the local token factory used to deploy pegged token representations on this chain
         _setTokenFactory(tokenFactory);
+    }
+
+    /// @dev Reverts with {BridgingExcludedOriginToken} when `originToken` is reserved (e.g. canonical L1 WETH for {WETHGateway} only).
+    function _requireBridgingAllowedForOrigin(address originToken) internal view {
+        require(!_getERC20GatewayStorage()._bridgingExcludedOrigins[originToken], BridgingExcludedOriginToken(originToken));
     }
 
     // ============ Send Tokens ============
@@ -147,6 +156,7 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
             getOtherSideChainId() != 0 || getOtherSideBeacon() != address(0),
             ZeroAddressNotAllowed("getOtherSideChainId or getOtherSideBeacon")
         );
+        _requireBridgingAllowedForOrigin(token);
 
         // Lock origin tokens in this gateway — they remain escrowed until a future
         // receiveOriginTokens call releases them back to a withdrawer.
@@ -187,6 +197,7 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         // Safety check: a zero origin address would mean a broken mapping — should never happen
         // since sendTokens only calls this path when getTokenMapping(token) != address(0)
         require(originAddress != address(0), ZeroAddressNotAllowed("originAddress"));
+        _requireBridgingAllowedForOrigin(originAddress);
 
         // Burn the pegged tokens from the sender — permanently destroys the local representation.
         // This gateway was set as minter/burner during pegged token deployment.
@@ -221,6 +232,7 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         require(to != address(0), InvalidRecipient());
         // Prevent minting zero tokens — disallow no-op messages that still consume bridge fees
         require(amount > 0, ZeroValueNotAllowed("amount"));
+        _requireBridgingAllowedForOrigin(originToken);
 
         // Check whether the pegged token contract already exists on this chain by inspecting
         // code size. length == 0 means no contract deployed at that address yet.
@@ -263,6 +275,7 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         require(to != address(0), InvalidRecipient());
         // Prevent releasing zero tokens — disallow no-op messages that still consume bridge fees
         require(amount > 0, ZeroValueNotAllowed("amount"));
+        _requireBridgingAllowedForOrigin(originToken);
 
         // Consume the token limit
         _consumeLimit(originToken, amount);
@@ -633,5 +646,18 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         $._otherSideBeacon = otherSideBeacon;
         // Delegate to GatewayBase setter; allows zero for beacon-based routing
         _setOtherSideChainId(otherSideChainId);
+    }
+
+    /// @inheritdoc IERC20Gateway
+    function isBridgingExcludedOrigin(address originToken) external view returns (bool) {
+        return _getERC20GatewayStorage()._bridgingExcludedOrigins[originToken];
+    }
+
+    /// @inheritdoc IERC20Gateway
+    function setBridgingExcludedOrigin(address originToken, bool excluded) external onlyOwner {
+        require(originToken != address(0), ZeroAddressNotAllowed("originToken"));
+        ERC20GatewayStorage storage $ = _getERC20GatewayStorage();
+        emit BridgingExcludedOriginUpdated(originToken, excluded);
+        $._bridgingExcludedOrigins[originToken] = excluded;
     }
 }

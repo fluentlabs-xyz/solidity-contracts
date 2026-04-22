@@ -17,9 +17,19 @@ import {IGenericTokenFactory} from "../interfaces/IGenericTokenFactory.sol";
  *      The `wrapped` flag (7th deploy arg) instructs the L2 precompile to expose WETH9-style
  *      `deposit()` / `withdraw(uint256)` entrypoints on the deployed token. It must be set
  *      to `true` when deploying Universal-WETH (paired with {WETHGateway}); it should remain
- *      `false` for generic bridged ERC20s (paired with {ERC20Gateway}).
+ *      `false` for generic bridged ERC20s (paired with {ERC20Gateway}). For `wrapped == true`,
+ *      the 5th field (`minter`) in `deployArgs` must be `address(0)` — it is the only value
+ *      accepted by {_deploymentData} and keeps CREATE2 prediction aligned with the precompile.
+ *      For `wrapped == true`, `initialSupply` must be `0` so no supply is minted at deploy without bridge backing.
  */
 contract UniversalTokenFactory is GenericTokenFactory {
+    /// @dev When `wrapped` is true, the outer ABI `minter` must be `address(0)` so it
+    ///      matches the V2 precompile payload (minter is always encoded as zero there).
+    error NonZeroMinterWhenWrapped();
+
+    /// @dev Wrapped Universal-WETH must not mint supply at deploy; bridging backs all supply.
+    error NonZeroInitialSupplyWhenWrapped();
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
@@ -66,6 +76,10 @@ contract UniversalTokenFactory is GenericTokenFactory {
             address pauser,
             bool wrapped
         ) = _decodeDeployArgs(deployArgs);
+
+        if (wrapped) {
+            require(initialSupply == 0, NonZeroInitialSupplyWhenWrapped());
+        }
 
         // Validate all inputs before spending gas on deployment
         // Gateway must be a valid address — it receives minting authority
@@ -175,6 +189,7 @@ contract UniversalTokenFactory is GenericTokenFactory {
         address pauser,
         bool wrapped
     ) internal pure returns (bytes memory deploymentData) {
+        require(!(wrapped && minter != address(0)), NonZeroMinterWhenWrapped());
         // 0x45524320 ("ERC ") is the magic prefix the L2 precompile at 0x520008
         // expects as the first 4 bytes of deployment bytecode to identify ERC20 tokens.
         if (!wrapped) {
@@ -187,7 +202,7 @@ contract UniversalTokenFactory is GenericTokenFactory {
         }
         // V2: append `bool wrapped` → 224 bytes after prefix; crosses the precompile's
         // V2 size threshold and enables WETH9 deposit/withdraw on this token.
-        // minter is set to address(0) to avoid the precompile from calling `mint` for Wrapped UST
+        // Precompile minter is always `address(0)`; the outer ABI `minter` must match (enforced above).
         return
             abi.encodePacked(
                 bytes4(0x45524320),

@@ -102,6 +102,11 @@ interface IGatewayBaseEvents {
     event TokenFactoryUpdated(address indexed prevValue, address indexed newValue);
 
     /**
+     * @notice Emitted when {ERC20Gateway}'s per-origin bridging exclusion is toggled.
+     */
+    event BridgingExcludedOriginUpdated(address indexed originToken, bool excluded);
+
+    /**
      * @notice Emitted when the other side gateway is updated.
      */
     event OtherSideGatewayUpdated(address indexed prevValue, address indexed newValue);
