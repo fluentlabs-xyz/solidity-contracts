@@ -416,12 +416,13 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         address pauser
     ) internal pure returns (bytes memory) {
         // 0x45524320 ("ERC ") magic prefix for the L2 precompile at 0x520008.
-        // The remaining bytes are abi.encode(..., bool wrapped) with `wrapped = false` for generic pegged
-        // tokens — must match {UniversalTokenFactory._deploymentData} so CREATE2 prediction matches on-chain.
+        // Must byte-match {UniversalTokenFactory._deploymentData} for `wrapped = false`: the V1 blob
+        // is fixed-size `(bytes32, bytes32, uint8, uint256, address, address)` with NO trailing bool,
+        // so the precompile keeps `deposit` / `withdraw` disabled for generic bridged ERC20s.
         return
             abi.encodePacked(
                 UNIVERSAL_TOKEN_MAGIC_BYTES,
-                abi.encode(_stringToBytes32(name), _stringToBytes32(symbol), decimals, initialSupply, minter, pauser, false)
+                abi.encode(_stringToBytes32(name), _stringToBytes32(symbol), decimals, initialSupply, minter, pauser)
             );
     }
 
