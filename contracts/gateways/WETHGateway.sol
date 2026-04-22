@@ -196,6 +196,11 @@ contract WETHGateway is GatewayBase, IWETHGateway {
 
     // ============ Admin / Rescue ============
 
+    /// @inheritdoc IWETHGateway
+    function setWETH(address newWETH) external onlyOwner {
+        _setWETH(newWETH);
+    }
+
     /// @dev Validates and stores the WETH address. Reverts on zero address.
     function _setWETH(address newWETH) internal {
         require(newWETH != address(0), ZeroAddressNotAllowed("weth"));

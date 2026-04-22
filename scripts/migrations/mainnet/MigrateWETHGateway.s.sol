@@ -6,22 +6,21 @@ import {ReleaseWethMigration} from "../ReleaseWethMigration.sol";
 /// @title ReleaseWethMainnet
 /// @author Fluent Labs
 ///
-/// @notice Ethereum **mainnet** (L1) ↔ Fluent **mainnet** (L2) release migration.
-///         Upgrades {ERC20Gateway} on both chains and {UniversalTokenFactory} on L2,
-///         then deploys and wires {WETHGateway} end-to-end. Default `ENV=mainnet`
-///         (reads `deployments/mainnet/{l1,l2}.json`).
+/// @notice Ethereum **mainnet** (L1) ↔ Fluent **mainnet** (L2) WETH release. Reads
+///         `scripts/config/mainnet/release_weth.json` and `deployments/mainnet/{l1,l2}.json`.
 ///
-/// @dev Canonical L1 WETH9 (reference only — still set `L1_WETH_ADDRESS` explicitly in env):
+/// @dev Canonical L1 WETH9 default in `release_weth.json`:
 ///        `0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2`
 ///
-/// @dev Same five-step flow as testnet; see {ReleaseWethMigration} for env vars:
-///        `L1_WETH_ADDRESS`, `WETH_GATEWAY_L1`, `WETH_GATEWAY_L2`, optional `WETH_GATEWAY_INITIAL_OWNER`.
-///
-/// @dev Forge (example — step 1 on Ethereum mainnet):
+/// @dev Forge (example — first L1 pass on Ethereum mainnet):
 ///        forge script scripts/migrations/mainnet/MigrateWETHGateway.s.sol:ReleaseWethMainnet \
-///          --sig runL1Upgrade --rpc-url "$MAINNET_RPC" --broadcast -vvvv
+///          --sig deployL1 --rpc-url "$MAINNET_RPC" --broadcast -vvvv
 contract ReleaseWethMainnet is ReleaseWethMigration {
-    function _defaultEnv() internal pure override returns (string memory) {
+    function _deploymentManifestEnv() internal pure override returns (string memory) {
         return "mainnet";
+    }
+
+    function _releaseConfigPath() internal pure override returns (string memory) {
+        return "scripts/config/mainnet/release_weth.json";
     }
 }

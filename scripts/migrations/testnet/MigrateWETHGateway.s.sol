@@ -6,23 +6,23 @@ import {ReleaseWethMigration} from "../ReleaseWethMigration.sol";
 /// @title ReleaseWethTestnet
 /// @author Fluent Labs
 ///
-/// @notice Sepolia (L1) ↔ Fluent **testnet** (L2) release migration: upgrades
-///         {ERC20Gateway} on both chains and {UniversalTokenFactory} on L2, then
-///         deploys and wires {WETHGateway} end-to-end. Default `ENV=testnet`
-///         (reads `deployments/testnet/{l1,l2}.json`).
+/// @notice Sepolia (L1) ↔ Fluent **testnet** (L2) WETH release. Reads
+///         `scripts/config/testnet/release_weth.json` and `deployments/testnet/{l1,l2}.json`.
 ///
-/// @dev Five-step broadcast. Run each step against the right RPC in order:
-///        1. `runL1Upgrade`              — L1 RPC (Sepolia).
-///        2. `runL2Upgrade`              — L2 RPC (Fluent testnet).
-///        3. `runL1DeployWethGateway`    — L1 RPC. Needs `L1_WETH_ADDRESS`.
-///        4. `runL2DeployWethGateway`    — L2 RPC. Needs `WETH_GATEWAY_L1`, `L1_WETH_ADDRESS`.
-///        5. `runL1WireWethGateway`      — L1 RPC. Needs `WETH_GATEWAY_L1`, `WETH_GATEWAY_L2`.
+/// @dev Run on the correct RPC with `--broadcast`:
+///        1. `deployL1` — L1 (Sepolia): first pass upgrades + L1 WETH gateway; after updating JSON,
+///           second pass wires L2 peer.
+///        2. `deployL2` — L2 (Fluent testnet): upgrades + Universal WETH + L2 gateway + registration.
 ///
-/// @dev Forge (example — step 1 on Sepolia):
+/// @dev Example:
 ///        forge script scripts/migrations/testnet/MigrateWETHGateway.s.sol:ReleaseWethTestnet \
-///          --sig runL1Upgrade --rpc-url "$SEPOLIA_RPC_URL" --broadcast -vvvv
+///          --sig deployL1 --rpc-url "$SEPOLIA_RPC_URL" --broadcast -vvvv
 contract ReleaseWethTestnet is ReleaseWethMigration {
-    function _defaultEnv() internal pure override returns (string memory) {
+    function _deploymentManifestEnv() internal pure override returns (string memory) {
         return "testnet";
+    }
+
+    function _releaseConfigPath() internal pure override returns (string memory) {
+        return "scripts/config/testnet/release_weth.json";
     }
 }

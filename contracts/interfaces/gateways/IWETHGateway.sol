@@ -74,6 +74,18 @@ interface IWETHGateway is IWETHGatewayErrors, IWETHGatewayEvents {
     function getWETH() external view returns (address);
 
     /**
+     * @notice Sets / updates the canonical WETH contract this gateway wraps/unwraps against.
+     *
+     * @dev Owner-only. Intended for the two-phase bootstrap where {initialize} was called
+     *      with `wethContract = address(0)` so the gateway's proxy address is known before
+     *      the CREATE2 Universal-WETH deploy on L2, and {setWETH} wires it afterwards.
+     *      Reverts with {ZeroAddressNotAllowed} if `newWETH` is the zero address.
+     *
+     * @param newWETH Canonical WETH address on this chain (WETH9-compatible `deposit`/`withdraw`).
+     */
+    function setWETH(address newWETH) external;
+
+    /**
      * @notice Bridges `amount` of this chain's WETH to `to` on the other chain, where it
      *         will be delivered as the remote chain's canonical WETH.
      *
