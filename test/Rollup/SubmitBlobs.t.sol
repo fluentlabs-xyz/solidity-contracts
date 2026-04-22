@@ -28,7 +28,7 @@ contract SubmitBlobsTest is RollupAssertions {
             h[0] = keccak256(abi.encode("blob", batchIndex, call));
             vm.blobhashes(h);
             vm.prank(sequencer);
-            rollup.submitBlobs(batchIndex, 1);
+            rollup.submitBlobs(batchIndex, (call << 8) | 1);
 
             if (call < 2) {
                 assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Committed));
@@ -48,7 +48,7 @@ contract SubmitBlobsTest is RollupAssertions {
             expected[call] = h[0];
             vm.blobhashes(h);
             vm.prank(sequencer);
-            rollup.submitBlobs(batchIndex, 1);
+            rollup.submitBlobs(batchIndex, (call << 8) | 1);
 
             bytes32[] memory stored = rollup.batchBlobHashes(batchIndex);
             assertEq(stored.length, call + 1);
@@ -75,7 +75,7 @@ contract SubmitBlobsTest is RollupAssertions {
         vm.expectEmit(true, false, false, false, address(rollup));
         emit BatchSubmitted(batchIndex);
         vm.prank(sequencer);
-        rollup.submitBlobs(batchIndex, 1);
+        rollup.submitBlobs(batchIndex, (1 << 8) | 1);
     }
 
     function test_RevertIf_submitBlobs_exceedsExpected() public {
@@ -162,7 +162,7 @@ contract SubmitBlobsTest is RollupAssertions {
             h[0] = keccak256(abi.encode("multiBlock", call));
             vm.blobhashes(h);
             vm.prank(sequencer);
-            rollup.submitBlobs(batchIndex, 1);
+            rollup.submitBlobs(batchIndex, (call << 8) | 1);
         }
 
         bytes32[] memory stored = rollup.batchBlobHashes(batchIndex);

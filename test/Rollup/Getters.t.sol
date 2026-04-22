@@ -29,7 +29,7 @@ contract RollupGettersTest is RollupAssertions {
         L2BlockHeader[] memory headers = _makeBatch(GENESIS_HASH);
         uint256 batchIndex = rollup.nextBatchIndex();
         vm.prank(sequencer);
-        rollup.commitBatch(_computeBatchRoot(headers), headers[0].blockHash, headers[headers.length - 1].blockHash, uint24(headers.length), new BlockDeposit[](0), 1);
+        rollup.commitBatch(_computeBatchRoot(headers), GENESIS_HASH, headers[headers.length - 1].blockHash, uint24(headers.length), new BlockDeposit[](0), 1);
         _submitBlobs(batchIndex, 0);
         _preconfirmBatch(batchIndex);
         assertTrue(rollup.isBatchPreconfirmed(batchIndex), "precondition: batch must be preconfirmed");
@@ -50,7 +50,7 @@ contract RollupGettersTest is RollupAssertions {
         L2BlockHeader[] memory headers = _makeBatch(GENESIS_HASH);
         uint256 batchIndex = rollup.nextBatchIndex();
         vm.prank(sequencer);
-        rollup.commitBatch(_computeBatchRoot(headers), headers[0].blockHash, headers[headers.length - 1].blockHash, uint24(headers.length), new BlockDeposit[](0), 1);
+        rollup.commitBatch(_computeBatchRoot(headers), GENESIS_HASH, headers[headers.length - 1].blockHash, uint24(headers.length), new BlockDeposit[](0), 1);
         _submitBlobs(batchIndex, 0);
         _preconfirmBatch(batchIndex);
 
@@ -67,7 +67,7 @@ contract RollupGettersTest is RollupAssertions {
         L2BlockHeader[] memory headers = _makeBatch(GENESIS_HASH);
         uint256 batchIndex = rollup.nextBatchIndex();
         vm.prank(sequencer);
-        rollup.commitBatch(_computeBatchRoot(headers), headers[0].blockHash, headers[headers.length - 1].blockHash, uint24(headers.length), new BlockDeposit[](0), 1);
+        rollup.commitBatch(_computeBatchRoot(headers), GENESIS_HASH, headers[headers.length - 1].blockHash, uint24(headers.length), new BlockDeposit[](0), 1);
 
         MerkleTree.MerkleProof memory p = _buildMerkleProof(headers, 1);
         bytes memory contractProof = abi.encodePacked(headers[1].previousBlockHash, headers[1].withdrawalRoot, headers[1].depositRoot, p.proof);

@@ -29,15 +29,14 @@ contract AcceptBatchTest is RollupAssertions {
     function test_commitBatch_emitsBatchCommittedWithFromAndToHashes() public {
         L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
         bytes32 expectedRoot = _computeBatchRoot(batch);
-        bytes32 expectedFrom = batch[0].blockHash;
         bytes32 expectedTo = batch[batch.length - 1].blockHash;
         uint256 batchIndex = rollup.nextBatchIndex();
 
-        _expectBatchCommitted(batchIndex, expectedRoot, expectedFrom, expectedTo, uint24(batch.length), 1);
+        _expectBatchCommitted(batchIndex, expectedRoot, GENESIS_HASH, expectedTo, uint24(batch.length), 1);
         _acceptBatch(GENESIS_HASH, 0);
     }
 
-    function test_commitBatch_singleBlockBatch_emitsFromEqualsTo() public {
+    function test_commitBatch_singleBlockBatch_emitsParentAsFrom() public {
         L2BlockHeader[] memory batch = new L2BlockHeader[](1);
         batch[0] = L2BlockHeader({
             previousBlockHash: GENESIS_HASH,
@@ -49,15 +48,15 @@ contract AcceptBatchTest is RollupAssertions {
         bytes32 expectedRoot = _computeBatchRoot(batch);
         uint256 batchIndex = rollup.nextBatchIndex();
 
-        _expectBatchCommitted(batchIndex, expectedRoot, batch[0].blockHash, batch[0].blockHash, 1, 1);
+        _expectBatchCommitted(batchIndex, expectedRoot, GENESIS_HASH, batch[0].blockHash, 1, 1);
         BlockDeposit[] memory emptyDeposits = new BlockDeposit[](0);
         vm.prank(sequencer);
-        rollup.commitBatch(expectedRoot, batch[0].blockHash, batch[0].blockHash, 1, emptyDeposits, 1);
+        rollup.commitBatch(expectedRoot, GENESIS_HASH, batch[0].blockHash, 1, emptyDeposits, 1);
     }
 
     function test_commitBatch_multipleBatchesIncrement() public {
         uint256 batch1 = _acceptBatch(GENESIS_HASH, 0);
-        uint256 batch2 = _acceptBatch(GENESIS_HASH, 0);
+        uint256 batch2 = _acceptBatch(_lastBlockHash(GENESIS_HASH), 0);
         assertEq(batch2, batch1 + 1, "second batch index should follow first");
 
         _assertBatchRecord(batch1, BatchStatus.Committed, 1, rollup.getBatch(batch1).batchRoot);
@@ -165,7 +164,7 @@ contract AcceptBatchTest is RollupAssertions {
 
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidDepositRootWithNonZeroCount.selector, uint256(7)));
         vm.prank(sequencer);
-        rollup.commitBatch(batchRoot, batch[0].blockHash, batch[batch.length - 1].blockHash, uint24(batch.length), deposits, 1);
+        rollup.commitBatch(batchRoot, GENESIS_HASH, batch[batch.length - 1].blockHash, uint24(batch.length), deposits, 1);
     }
 
     function test_RevertIf_acceptNextBatch_zeroExpectedBlobsCount() public {

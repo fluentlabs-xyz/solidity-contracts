@@ -29,7 +29,7 @@ contract FinalizeBatchesTest is RollupAssertions {
         _submitBlobs(batch2, 0);
         _preconfirmBatch(batch2);
 
-        bytes32 lastHash2 = _lastBlockHash(GENESIS_HASH);        uint256 batch3 = _acceptBatch(lastHash2, 0);
+        bytes32 lastHash2 = _lastBlockHash(lastHash1);        uint256 batch3 = _acceptBatch(lastHash2, 0);
         _submitBlobs(batch3, 0);
         _preconfirmBatch(batch3);
 
@@ -51,7 +51,7 @@ contract FinalizeBatchesTest is RollupAssertions {
         _submitBlobs(batch2, 0);
         _preconfirmBatch(batch2);
 
-        bytes32 lastHash2 = _lastBlockHash(GENESIS_HASH);        uint256 batch3 = _acceptBatch(lastHash2, 0);
+        bytes32 lastHash2 = _lastBlockHash(lastHash1);        uint256 batch3 = _acceptBatch(lastHash2, 0);
         _submitBlobs(batch3, 0);
         _preconfirmBatch(batch3);
 
@@ -102,7 +102,7 @@ contract FinalizeBatchesTest is RollupAssertions {
 
         vm.roll(block.number + FINALIZATION_DELAY + 1);
 
-        bytes32 lastHash2 = _lastBlockHash(GENESIS_HASH);        uint256 batch3 = _acceptBatch(lastHash2, 0);
+        bytes32 lastHash2 = _lastBlockHash(lastHash1);        uint256 batch3 = _acceptBatch(lastHash2, 0);
         _submitBlobs(batch3, 0);
         _preconfirmBatch(batch3);
         // batch3 accepted at current block — finalization delay not passed
@@ -149,7 +149,7 @@ contract FinalizeBatchesTest is RollupAssertions {
         L2BlockHeader[] memory headers = _makeBatch(lastHash);
         uint256 batchIndex = rollup.nextBatchIndex();
         vm.prank(sequencer);
-        rollup.commitBatch(_computeBatchRoot(headers), headers[0].blockHash, headers[headers.length - 1].blockHash, uint24(headers.length), new BlockDeposit[](0), 1);
+        rollup.commitBatch(_computeBatchRoot(headers), lastHash, headers[headers.length - 1].blockHash, uint24(headers.length), new BlockDeposit[](0), 1);
         _submitBlobs(batchIndex, 0);
         _preconfirmBatch(batchIndex);
 
@@ -179,7 +179,7 @@ contract FinalizeBatchesTest is RollupAssertions {
         L2BlockHeader[] memory headers = _makeBatch(GENESIS_HASH);
         uint256 batchIndex = rollup.nextBatchIndex();
         vm.prank(sequencer);
-        rollup.commitBatch(_computeBatchRoot(headers), headers[0].blockHash, headers[headers.length - 1].blockHash, uint24(headers.length), new BlockDeposit[](0), 1);
+        rollup.commitBatch(_computeBatchRoot(headers), GENESIS_HASH, headers[headers.length - 1].blockHash, uint24(headers.length), new BlockDeposit[](0), 1);
 
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidBatchStatus.selector, batchIndex, uint8(BatchStatus.Committed)));
         rollup.finalizeWithProofs(batchIndex, headers);
@@ -261,7 +261,7 @@ contract FinalizeBatchesTest is RollupAssertions {
         L2BlockHeader[] memory headers = _makeBatch(lastHash);
         uint256 batchIndex = rollup.nextBatchIndex();
         vm.prank(sequencer);
-        rollup.commitBatch(_computeBatchRoot(headers), headers[0].blockHash, headers[headers.length - 1].blockHash, uint24(headers.length), new BlockDeposit[](0), 1);
+        rollup.commitBatch(_computeBatchRoot(headers), lastHash, headers[headers.length - 1].blockHash, uint24(headers.length), new BlockDeposit[](0), 1);
         _submitBlobs(batchIndex, 0);
         _preconfirmBatch(batchIndex);
 

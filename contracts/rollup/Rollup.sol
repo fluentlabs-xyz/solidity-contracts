@@ -302,20 +302,28 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         // Load the running list of already-submitted blob hashes for this batch
         bytes32[] storage blobHashes = $._batchBlobHashes[batchIndex];
 
-        // At least one blob must be submitted per call
-        require(numBlobs > 0, ZeroNumBlobs());
-        // Total submitted blobs (existing + new) must not exceed the declared count from submitBatch
-        require(blobHashes.length + numBlobs <= batch.expectedBlobs, InvalidBlobCount(batch.expectedBlobs, blobHashes.length + numBlobs));
-        // Blobs can only be submitted while the batch is in Committed state
+        // Packed arg: high byte = declared start index, low byte = count of blobs in this call.
+        // Upper bits are reserved — reject anything outside the 16-bit envelope so a malformed
+        // payload cannot be silently reinterpreted as a legacy-format first sidecar.
+        require(numBlobs <= type(uint16).max, InvalidNumBlobs(numBlobs));
+        uint8 declaredStartIndex = uint8(numBlobs >> 8);
+        uint256 n = numBlobs & 0xFF;
+
+        require(n > 0, ZeroNumBlobs());
+        require(blobHashes.length + n <= batch.expectedBlobs, InvalidBlobCount(batch.expectedBlobs, blobHashes.length + n));
         require(batch.status == BatchStatus.Committed, InvalidBatchStatus(batchIndex, uint8(batch.status)));
 
-        // Window is read from the snapshot captured at submission time so later admin updates
-        // never retroactively affect this batch. The > 0 invariant is enforced at the setter.
+        // Strict in-order guard. The caller pre-declares where this sidecar's blobs must start
+        // in the array; the contract only accepts if that matches the current length. No extra
+        // storage — blobHashes.length is already persisted as the array's length word. A plain
+        // count (high byte = 0) is valid only for the first sidecar because declaredStartIndex=0
+        // happens to equal the empty-array length.
+        require(declaredStartIndex == blobHashes.length, OutOfOrderSidecar(declaredStartIndex, uint8(blobHashes.length)));
+
         uint256 deadline = uint256(batch.acceptedAtBlock) + uint256(batch.submitBlobsWindowSnapshot);
         require(block.number <= deadline, SubmitBlobsWindowExceeded(deadline, block.number));
 
-        // Read EIP-4844 versioned blob hashes from this transaction via the BLOBHASH opcode
-        for (uint256 i = 0; i < numBlobs; ++i) {
+        for (uint256 i = 0; i < n; ++i) {
             bytes32 blobHash = _getBlobHash(i);
             // Zero blobhash means the index is out of range — no more blobs in this tx
             require(blobHash != bytes32(0), ZeroBlobHash());
@@ -323,8 +331,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
             blobHashes.push(blobHash);
         }
 
-        // Log progress — allows off-chain monitoring of partial blob submissions
-        emit BatchBlobsSubmitted(batchIndex, numBlobs, blobHashes.length);
+        emit BatchBlobsSubmitted(batchIndex, n, blobHashes.length);
 
         // Transition Committed → Submitted once all expected blobs are recorded
         if (blobHashes.length == batch.expectedBlobs) {

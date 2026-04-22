@@ -43,7 +43,7 @@ contract DepositsTest is RollupAssertions {
         deposits[0] = BlockDeposit({depositRoot: _depositRoot, depositCount: _depositCount});
 
         vm.prank(sequencer);
-        rollup.commitBatch(batchRoot, batch[0].blockHash, batch[batch.length - 1].blockHash, uint24(batch.length), deposits, 1);
+        rollup.commitBatch(batchRoot, GENESIS_HASH, batch[batch.length - 1].blockHash, uint24(batch.length), deposits, 1);
 
         assertEq(uint8(rollup.getBatch(1).status), uint8(BatchStatus.Committed));
         assertEq(depositsBridge.poppedCount(), _depositCount, "not all deposits were popped");
@@ -58,7 +58,7 @@ contract DepositsTest is RollupAssertions {
 
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.DepositRootMismatch.selector, _depositRoot, keccak256("wrong-root")));
         vm.prank(sequencer);
-        rollup.commitBatch(batchRoot, batch[0].blockHash, batch[batch.length - 1].blockHash, uint24(batch.length), deposits, 1);
+        rollup.commitBatch(batchRoot, GENESIS_HASH, batch[batch.length - 1].blockHash, uint24(batch.length), deposits, 1);
     }
 
     /// @dev Regression: commitBatch with multiple blockDeposits must advance the
@@ -122,7 +122,7 @@ contract DepositsTest is RollupAssertions {
 
         // --- act ---
         vm.prank(sequencer);
-        rollup.commitBatch(batchRoot, hash0, hash1, uint24(batch.length), deposits, 1);
+        rollup.commitBatch(batchRoot, GENESIS_HASH, hash1, uint24(batch.length), deposits, 1);
 
         // --- assert ---
         assertEq(uint8(rollup.getBatch(1).status), uint8(BatchStatus.Committed), "batch should be committed");
@@ -137,7 +137,7 @@ contract DepositsTest is RollupAssertions {
         deposits[0] = BlockDeposit({depositRoot: _depositRoot, depositCount: _depositCount});
 
         vm.prank(sequencer);
-        rollup.commitBatch(batchRoot, batch[0].blockHash, batch[batch.length - 1].blockHash, uint24(batch.length), deposits, 1);
+        rollup.commitBatch(batchRoot, GENESIS_HASH, batch[batch.length - 1].blockHash, uint24(batch.length), deposits, 1);
 
         uint256 batchIndex = 1;
         assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Committed));
