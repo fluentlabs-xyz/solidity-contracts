@@ -132,9 +132,6 @@ contract TestFluentDevPrecompile is Script {
         // env `PRIVATE_KEY` to carry a `0x` prefix (devnet `.env` stores it raw).
         vm.startBroadcast();
         address deployer = tx.origin;
-        if (runRoundTrip) {
-            require(deployer.balance >= amount, "deployer balance < TEST_AMOUNT_WEI");
-        }
 
         console2.log("== Fluent L2: Universal precompile (plain + wrapped) ==");
         console2.log("chainId              :", block.chainid);
@@ -183,58 +180,23 @@ contract TestFluentDevPrecompile is Script {
         gateway.setWETH(universalWeth);
         gateway.setOtherSideGateway(address(shim));
 
-        // Step 7 — Drive receiveWETH via the shim (simulated bridge inbound).
-        //          The gateway will call `universalWeth.deposit{value: amount}()` —
-        //          this is the exact precompile path we want to exercise.
-        uint256 gatewayBalBefore = address(gateway).balance;
-        uint256 shimBalBefore = address(shim).balance;
-        uint256 recipientWethBefore = IERC20(universalWeth).balanceOf(deployer);
-
-        shim.triggerReceiveWETH{value: amount}(
-            payable(address(gateway)),
-            address(shim), // native sender must equal `getOtherSideGateway()`
-            deployer,
-            deployer,
-            amount
-        );
-
-        uint256 recipientWethAfterReceive = IERC20(universalWeth).balanceOf(deployer);
-        console2.log("-- after receiveWETH --");
-        console2.log("EOA Universal-WETH   :", recipientWethAfterReceive);
-        console2.log("gateway native bal   :", address(gateway).balance);
-        console2.log("gateway WETH bal     :", IERC20(universalWeth).balanceOf(address(gateway)));
-        console2.log("shim native delta    :", int256(address(shim).balance) - int256(shimBalBefore));
-
-        // Step 8 — Invariants for the deposit leg.
-        require(recipientWethAfterReceive - recipientWethBefore == amount, "receiveWETH: recipient did not receive exact amount");
-        require(address(gateway).balance == gatewayBalBefore, "receiveWETH: gateway retained native");
-        require(IERC20(universalWeth).balanceOf(address(gateway)) == 0, "receiveWETH: gateway retained WETH");
-
-        // Step 9 — Send back: sendWETH → gateway calls `universalWeth.withdraw(amount)`
-        //          → native ETH flows to the shim via `sendMessage{value: amount}`.
-        IERC20(universalWeth).approve(address(gateway), amount);
-
-        uint256 shimBalPreSend = address(shim).balance;
-        gateway.sendWETH(deployer, amount);
-
-        uint256 recipientWethAfterSend = IERC20(universalWeth).balanceOf(deployer);
-        uint256 shimNativeGained = address(shim).balance - shimBalPreSend;
-
-        console2.log("-- after sendWETH --");
-        console2.log("EOA Universal-WETH   :", recipientWethAfterSend);
-        console2.log("gateway native bal   :", address(gateway).balance);
-        console2.log("gateway WETH bal     :", IERC20(universalWeth).balanceOf(address(gateway)));
-        console2.log("shim native gained   :", shimNativeGained);
-
-        // Step 10 — Invariants for the withdraw leg.
-        require(recipientWethAfterReceive - recipientWethAfterSend == amount, "sendWETH: EOA balance did not decrease by exact amount");
-        require(shimNativeGained == amount, "sendWETH: shim did not receive exact native amount");
-        require(address(gateway).balance == gatewayBalBefore, "sendWETH: gateway retained native");
-        require(IERC20(universalWeth).balanceOf(address(gateway)) == 0, "sendWETH: gateway retained WETH");
+        // Steps 7–10 exercise the WETH9 `deposit` / `withdraw` surface on the precompile.
+        // Gated behind `RUN_WETH_ROUNDTRIP` because that surface is not yet live on Fluent
+        // devnet/testnet (precompile reverts with `InvalidOperandOOG` on `deposit()`).
+        // Deploy of both tokens above is always performed so layouts can still be validated.
+        if (runRoundTrip) {
+            _runWethRoundTrip(gateway, shim, universalWeth, deployer, amount);
+        } else {
+            console2.log("-- WETH round-trip SKIPPED (RUN_WETH_ROUNDTRIP != true) --");
+        }
 
         vm.stopBroadcast();
 
-        console2.log("== Round-trip OK (wrapped); plain pegged deployed & metadata OK ==");
+        if (runRoundTrip) {
+            console2.log("== Round-trip OK (wrapped); plain pegged deployed & metadata OK ==");
+        } else {
+            console2.log("== Deploys OK (plain pegged + wrapped Universal-WETH); round-trip skipped ==");
+        }
         console2.log("export TEST_FACTORY=", factory);
         console2.log("export TEST_PLAIN_PEGGED=", plainPegged);
         console2.log("export TEST_GATEWAY=", address(gateway));
@@ -252,11 +214,57 @@ contract TestFluentDevPrecompile is Script {
         return address(proxy);
     }
 
-    /// @dev Same two-phase bootstrap as {WETHGatewayMigration.runL2DeployWethGateway}
+    /// @dev Same two-phase bootstrap as {ReleaseWethMigration.runL2DeployWethGateway}
     ///      but collapsed for the single-broadcast test harness: WETH is wired post-deploy.
     function _deployWETHGateway(address initialOwner, address bridgeContract) internal returns (WETHGateway) {
         WETHGateway impl = new WETHGateway();
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), abi.encodeCall(WETHGateway.initialize, (initialOwner, bridgeContract, address(0))));
         return WETHGateway(payable(address(proxy)));
+    }
+
+    /// @dev `receiveWETH` (precompile `deposit`) + `sendWETH` (precompile `withdraw`) round trip.
+    ///      Extracted so `run()` stays readable and the round trip is easy to gate behind
+    ///      `RUN_WETH_ROUNDTRIP` while deploy smoke tests continue to run unconditionally.
+    function _runWethRoundTrip(WETHGateway gateway, MockFluentBridge shim, address universalWeth, address deployer, uint256 amount) internal {
+        require(deployer.balance >= amount, "deployer balance < TEST_AMOUNT_WEI");
+
+        uint256 gatewayBalBefore = address(gateway).balance;
+        uint256 shimBalBefore = address(shim).balance;
+        uint256 recipientWethBefore = IERC20(universalWeth).balanceOf(deployer);
+
+        // Step 7 — Simulate the bridge inbound: gateway will call `universalWeth.deposit{value:amount}()`.
+        shim.triggerReceiveWETH{value: amount}(payable(address(gateway)), address(shim), deployer, deployer, amount);
+
+        uint256 recipientWethAfterReceive = IERC20(universalWeth).balanceOf(deployer);
+        console2.log("-- after receiveWETH --");
+        console2.log("EOA Universal-WETH   :", recipientWethAfterReceive);
+        console2.log("gateway native bal   :", address(gateway).balance);
+        console2.log("gateway WETH bal     :", IERC20(universalWeth).balanceOf(address(gateway)));
+        console2.log("shim native delta    :", int256(address(shim).balance) - int256(shimBalBefore));
+
+        // Step 8 — Invariants for the deposit leg.
+        require(recipientWethAfterReceive - recipientWethBefore == amount, "receiveWETH: recipient did not receive exact amount");
+        require(address(gateway).balance == gatewayBalBefore, "receiveWETH: gateway retained native");
+        require(IERC20(universalWeth).balanceOf(address(gateway)) == 0, "receiveWETH: gateway retained WETH");
+
+        // Step 9 — Send back: gateway calls `universalWeth.withdraw(amount)` → native ETH → shim.
+        IERC20(universalWeth).approve(address(gateway), amount);
+        uint256 shimBalPreSend = address(shim).balance;
+        gateway.sendWETH(deployer, amount);
+
+        uint256 recipientWethAfterSend = IERC20(universalWeth).balanceOf(deployer);
+        uint256 shimNativeGained = address(shim).balance - shimBalPreSend;
+
+        console2.log("-- after sendWETH --");
+        console2.log("EOA Universal-WETH   :", recipientWethAfterSend);
+        console2.log("gateway native bal   :", address(gateway).balance);
+        console2.log("gateway WETH bal     :", IERC20(universalWeth).balanceOf(address(gateway)));
+        console2.log("shim native gained   :", shimNativeGained);
+
+        // Step 10 — Invariants for the withdraw leg.
+        require(recipientWethAfterReceive - recipientWethAfterSend == amount, "sendWETH: EOA balance did not decrease by exact amount");
+        require(shimNativeGained == amount, "sendWETH: shim did not receive exact native amount");
+        require(address(gateway).balance == gatewayBalBefore, "sendWETH: gateway retained native");
+        require(IERC20(universalWeth).balanceOf(address(gateway)) == 0, "sendWETH: gateway retained WETH");
     }
 }

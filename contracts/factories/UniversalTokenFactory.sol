@@ -187,10 +187,11 @@ contract UniversalTokenFactory is GenericTokenFactory {
         }
         // V2: append `bool wrapped` → 224 bytes after prefix; crosses the precompile's
         // V2 size threshold and enables WETH9 deposit/withdraw on this token.
+        // minter is set to address(0) to avoid the precompile from calling `mint` for Wrapped UST
         return
             abi.encodePacked(
                 bytes4(0x45524320),
-                abi.encode(_stringToBytes32(name), _stringToBytes32(symbol), decimals, initialSupply, minter, pauser, wrapped)
+                abi.encode(_stringToBytes32(name), _stringToBytes32(symbol), decimals, initialSupply, address(0), pauser, wrapped)
             );
     }
 

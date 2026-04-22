@@ -2,6 +2,7 @@
 pragma solidity 0.8.30;
 
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {Vm} from "forge-std/Vm.sol";
 
 import {ERC20Gateway} from "../../contracts/gateways/ERC20Gateway.sol";
 import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol";
@@ -11,6 +12,7 @@ import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
 import {MockERC20Token} from "../../test/mocks/MockERC20.sol";
 import {MockFeeOnTransferERC20} from "../../test/mocks/MockFeeOnTransferERC20.sol";
 import {MockMutableMetadataERC20} from "../../test/mocks/MockMutableMetadataERC20.sol";
+import {IFluentBridgeEvents} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {GatewayBase} from "./Base.t.sol";
 
 contract ERC20GatewayTest is GatewayBase {
@@ -425,52 +427,77 @@ contract ERC20GatewayTest is GatewayBase {
         assertEq(predicted, _predictedPegged(), "computeTokenAddress mismatch vs helper");
     }
 
-    /// @dev First origin send pins metadata; if the origin token later changes `name`/`symbol`,
-    ///      CREATE2 prediction must still match the originally pinned values (no second peg address).
-    function test_metadataPinning_computeTokenAddress_stableAfterOriginMetadataChanges() public {
+    // ============ Origin metadata drift ============
+
+    /// @dev With a Universal-token destination, CREATE2 for the remote pegged address depends on
+    ///      `(name, symbol, decimals)`. The gateway caches the first-computed remote address per
+    ///      origin token and reuses it on every subsequent send — so mutating `name` / `symbol`
+    ///      on the origin ERC20 after the first send must NOT change the address carried in the
+    ///      outbound bridge message (which would otherwise make the remote `receivePeggedTokens`
+    ///      deploy at a new CREATE2 address and revert with {WrongPeggedToken}).
+    function test_sendTokens_originPath_cachedAddressStableAfterSymbolChange() public {
+        // Switch to Universal remote config so the address is sensitive to metadata.
         address remoteFactory = makeAddr("remote-universal-factory");
         address remoteImplementation = makeAddr("remote-implementation");
-
         vm.prank(admin);
         gateway.setOtherSide(true, remoteGateway, sourceChainId, remoteImplementation, remoteFactory, address(0));
 
-        MockMutableMetadataERC20 mut = new MockMutableMetadataERC20("First Name", "FST", 1_000 ether, user);
-        address predicted = gateway.computeTokenAddress(address(gateway), address(mut));
+        // Deploy an origin token with mutable metadata and fund the user.
+        MockMutableMetadataERC20 mut = new MockMutableMetadataERC20("Mutable One", "MUT1", 1_000 ether, user);
 
+        // Snapshot what the address should be under the V1 (pre-send) metadata.
+        address addrBeforeSend = gateway.computeOtherSidePeggedTokenAddress(remoteGateway, address(mut));
+        assertTrue(addrBeforeSend != address(0), "address should be predictable");
+
+        // First send populates the cache.
         vm.prank(user);
-        mut.approve(address(gateway), 1 ether);
+        mut.approve(address(gateway), 2 ether);
+        vm.prank(user);
+        gateway.sendTokens(address(mut), recipient, 1 ether);
+
+        // Now mutate the origin's symbol + name and verify what CREATE2 would produce now
+        // is DIFFERENT from the cached value — otherwise the test is vacuous.
+        mut.setMetadata("Mutable Two", "MUT2");
+        assertEq(mut.symbol(), "MUT2", "symbol should have changed");
+
+        // View must still return the cached address (the short-circuit branch), not a fresh
+        // CREATE2 derived from the new symbol.
+        address addrAfterDrift = gateway.computeOtherSidePeggedTokenAddress(remoteGateway, address(mut));
+        assertEq(addrAfterDrift, addrBeforeSend, "view should return cached address after drift");
+
+        // Second send: capture `SentMessage` and verify the pegged address encoded in the
+        // cross-chain payload is the cached one, not something derived from the new symbol.
+        vm.recordLogs();
         vm.prank(user);
         gateway.sendTokens(address(mut), recipient, 1 ether);
 
-        assertEq(gateway.getPinnedOriginMetadata(address(mut)), abi.encode("FST", "First Name", uint8(18)));
-        assertEq(gateway.computeTokenAddress(address(gateway), address(mut)), predicted);
-
-        mut.setMetadata("Renamed", "RNM");
-        assertEq(mut.name(), "Renamed");
-        assertEq(mut.symbol(), "RNM");
-        assertEq(gateway.computeTokenAddress(address(gateway), address(mut)), predicted);
-
-        vm.prank(user);
-        mut.approve(address(gateway), 1 ether);
-        vm.prank(user);
-        gateway.sendTokens(address(mut), recipient, 1 ether);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        address sentPegged = _peggedFromSentMessage(logs);
+        assertEq(sentPegged, addrBeforeSend, "bridge payload must carry the cached pegged address");
     }
 
-    /// @dev `receivePeggedTokens` pins from the bridge payload; local prediction ignores later live drift.
-    function test_metadataPinning_receivePeggedThen_computeTokenAddress_ignoresLiveMetadataDrift() public {
-        MockMutableMetadataERC20 mut = new MockMutableMetadataERC20("V0 Name", "V0", 1_000 ether, user);
-        address predictedPegged = gateway.computeTokenAddress(address(gateway), address(mut));
-        bytes memory tokenMetadata = abi.encode("V0", "V0 Name", uint8(18));
-        bytes memory message = abi.encodeCall(
-            ERC20Gateway.receivePeggedTokens,
-            (address(mut), predictedPegged, user, recipient, 1 ether, tokenMetadata)
-        );
-        _relayMessage(remoteGateway, address(gateway), 0, message);
-
-        assertEq(gateway.getPinnedOriginMetadata(address(mut)), abi.encode("V0", "V0 Name", uint8(18)));
-
-        mut.setMetadata("V1 Name", "V1");
-        assertEq(gateway.computeTokenAddress(address(gateway), address(mut)), predictedPegged);
+    /// @dev Decode the pegged-token address from the most recent `SentMessage` event carrying a
+    ///      `receivePeggedTokens(address,address,address,address,uint256,bytes)` call.
+    function _peggedFromSentMessage(Vm.Log[] memory logs) internal pure returns (address) {
+        bytes32 topic = IFluentBridgeEvents.SentMessage.selector;
+        for (uint256 i = logs.length; i > 0; i--) {
+            Vm.Log memory log = logs[i - 1];
+            if (log.topics.length > 0 && log.topics[0] == topic) {
+                // `data` = abi.encode(value, fee, chainId, validUntilBlockNumber, nonce, messageHash, data(bytes)).
+                (, , , , , , bytes memory message) = abi.decode(
+                    log.data,
+                    (uint256, uint256, uint256, uint256, uint256, bytes32, bytes)
+                );
+                // Strip the 4-byte selector and decode `(originToken, peggedToken, from, to, amount, tokenMetadata)`.
+                bytes memory args = new bytes(message.length - 4);
+                for (uint256 j = 0; j < args.length; j++) {
+                    args[j] = message[j + 4];
+                }
+                (, address peggedToken, , , , ) = abi.decode(args, (address, address, address, address, uint256, bytes));
+                return peggedToken;
+            }
+        }
+        revert("no SentMessage in logs");
     }
 
     // ============ Fee-on-transfer ============

@@ -97,35 +97,16 @@ interface IERC20Gateway is IERC20GatewayErrors {
     function computeTokenAddress(address gateway, address originToken) external view returns (address);
 
     /**
-     * @notice Returns pinned bridge metadata for an origin token, if any.
-     * @dev After the first successful bridge interaction for `originToken`, the gateway stores
-     *      `abi.encode(symbol, name, decimals)` from that first payload so address prediction and
-     *      outbound messages stay stable if the origin ERC20's live `name`/`symbol`/`decimals` change later.
-     * @param originToken The origin token address on this chain.
-     * @return Encoded metadata, or empty bytes if nothing has been pinned yet.
+     * @notice Returns the origin token for a locally deployed pegged token.
+     * @param peggedToken Address of the pegged ERC20 on this chain.
+     * @return The corresponding origin token on the remote chain, or `address(0)` if
+     *         `peggedToken` is not a registered pegged representation.
      */
-    function getPinnedOriginMetadata(address originToken) external view returns (bytes memory);
-
-    /**
-     * @notice Returns the token mapping for a given key.
-     * @param key The key to get the token mapping for.
-     * @return The address of the token mapping.
-     */
-    function getTokenMapping(address key) external view returns (address);
+    function getTokenMapping(address peggedToken) external view returns (address);
 
     /**
      * @notice Returns the token factory.
      * @return The address of the token factory.
      */
     function getTokenFactory() external view returns (address);
-
-    /**
-     * @notice Returns the cached remote pegged-token address for `(gateway, originToken)`.
-     * @dev Populated by {sendTokens} on the origin path to avoid recomputing CREATE2 on subsequent
-     *      sends. Returns `address(0)` if no entry exists (never sent, or cache invalidated).
-     * @param gateway Remote gateway the cached address was computed against.
-     * @param originToken Origin token address on this chain.
-     * @return The cached remote pegged address, or `address(0)` if unset.
-     */
-    function getOtherSidePeggedForOrigin(address gateway, address originToken) external view returns (address);
 }
