@@ -170,9 +170,7 @@ abstract contract DeployWETHGatewayBase is DeployBase {
     // ============ Internal ============
 
     function _readSide(bool isL1) internal view returns (address bridge, address gatewayOwner) {
-        string memory manifest = vm.readFile(
-            string.concat("deployments/", _deploymentManifestEnv(), isL1 ? "/l1.json" : "/l2.json")
-        );
+        string memory manifest = vm.readFile(string.concat("deployments/", _deploymentManifestEnv(), isL1 ? "/l1.json" : "/l2.json"));
         string memory cfg = vm.readFile(_releaseConfigPath());
         bridge = _readAddr(manifest, "bridge");
         gatewayOwner = _readAddr(cfg, "gateway_initial_owner");
