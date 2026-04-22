@@ -17,7 +17,7 @@ contract ChallengeTest is RollupAssertions {
         headers = _makeBatch(parentHash);
         batchIndex = rollup.nextBatchIndex();
         vm.prank(sequencer);
-        rollup.commitBatch(_computeBatchRoot(headers), headers[0].blockHash, headers[headers.length - 1].blockHash, uint24(headers.length), new BlockDeposit[](0), 1);
+        rollup.commitBatch(_computeBatchRoot(headers), parentHash, headers[headers.length - 1].blockHash, uint24(headers.length), new BlockDeposit[](0), 1);
         _submitBlobs(batchIndex, 0);
         _preconfirmBatch(batchIndex);
     }
@@ -402,7 +402,7 @@ contract ChallengeTest is RollupAssertions {
         _submitBlobs(batch2, 0);
         _preconfirmBatch(batch2);
 
-        bytes32 lastHash2 = _lastBlockHash(GENESIS_HASH);
+        bytes32 lastHash2 = _lastBlockHash(lastHash1);
         (uint256 batchIndex, L2BlockHeader[] memory headers) = _preconfirmedBatchWithHeaders(lastHash2);
         MerkleTree.MerkleProof memory proof = _buildMerkleProof(headers, 0);
         _challengeBlock(batchIndex, headers[0], proof);
@@ -445,7 +445,7 @@ contract ChallengeTest is RollupAssertions {
         L2BlockHeader[] memory headers = _makeBatch(lastHash);
         uint256 batchIndex = rollup.nextBatchIndex();
         vm.prank(sequencer);
-        rollup.commitBatch(_computeBatchRoot(headers), headers[0].blockHash, headers[headers.length - 1].blockHash, uint24(headers.length), new BlockDeposit[](0), 1);
+        rollup.commitBatch(_computeBatchRoot(headers), lastHash, headers[headers.length - 1].blockHash, uint24(headers.length), new BlockDeposit[](0), 1);
         _submitBlobs(batchIndex, 0);
         _preconfirmBatch(batchIndex);
 

@@ -141,7 +141,7 @@ abstract contract RollupActions is RollupBase {
         vm.prank(sequencer);
         rollup.commitBatch(
             batchRoot,
-            batch[0].blockHash,
+            parentHash,
             batch[batch.length - 1].blockHash,
             uint24(batch.length),
             emptyDeposits,

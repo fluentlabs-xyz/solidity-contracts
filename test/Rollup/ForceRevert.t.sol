@@ -77,7 +77,7 @@ contract ForceRevertTest is RollupAssertions {
         _submitBlobs(batch2, 0);
         _preconfirmBatch(batch2);
 
-        bytes32 lastHash2 = _lastBlockHash(GENESIS_HASH);
+        bytes32 lastHash2 = _lastBlockHash(lastHash1);
         uint256 batch3 = _acceptBatch(lastHash2, 0);
         _submitBlobs(batch3, 0);
         _preconfirmBatch(batch3);
@@ -150,7 +150,7 @@ contract ForceRevertTest is RollupAssertions {
         bytes32 lastHash1 = _lastBlockHash(GENESIS_HASH);
         uint256 batch2 = _acceptBatch(lastHash1, 0);
 
-        bytes32 lastHash2 = _lastBlockHash(GENESIS_HASH);
+        bytes32 lastHash2 = _lastBlockHash(lastHash1);
         uint256 batch3 = _acceptBatch(lastHash2, 0);
         _submitBlobs(batch2, 0);
         _preconfirmBatch(batch2);
@@ -161,7 +161,7 @@ contract ForceRevertTest is RollupAssertions {
         assertTrue(_finalizeBatch(batch2));
         assertTrue(_finalizeBatch(batch3));
 
-        bytes32 lastHash3 = _lastBlockHash(GENESIS_HASH);
+        bytes32 lastHash3 = _lastBlockHash(lastHash2);
         uint256 batch4 = _acceptBatch(lastHash3, 0);
 
         // Trying to revert starting from batch2 (which includes finalized batch2 & batch3) should fail.
@@ -369,7 +369,7 @@ contract ForceRevertTest is RollupAssertions {
         assertEq(rollup.getBatch(batch2).sentMessageCursorStart, 0, "snapshot taken before consumes");
 
         // Batch 3: snapshot must be 3 (the cursor after batch2 consumed all 3)
-        bytes32 lastHash2 = _lastBlockHash(GENESIS_HASH);
+        bytes32 lastHash2 = _lastBlockHash(lastHash);
         uint256 batch3 = _acceptBatch(lastHash2, 0);
         assertEq(rollup.getBatch(batch3).sentMessageCursorStart, 3, "snapshot reflects accumulated cursor");
     }
@@ -394,7 +394,7 @@ contract ForceRevertTest is RollupAssertions {
         // batch3 consumes 1 more deposit
         bytes32 c = keccak256("c");
         depositBridge.enqueue(c);
-        bytes32 lastHash2 = _lastBlockHash(GENESIS_HASH);
+        bytes32 lastHash2 = _lastBlockHash(lastHash1);
         (L2BlockHeader[] memory batch3Headers, BlockDeposit[] memory deps3b) = _makeBatchWithDeposits1(lastHash2, c);
         _commitBatch(batch3Headers, deps3b);
 
@@ -436,7 +436,7 @@ contract ForceRevertTest is RollupAssertions {
         vm.prank(sequencer);
         rollup.commitBatch(
             _computeBatchRoot(headers),
-            headers[0].blockHash,
+            headers[0].previousBlockHash,
             headers[headers.length - 1].blockHash,
             uint24(headers.length),
             deposits,

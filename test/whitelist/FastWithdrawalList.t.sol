@@ -89,9 +89,9 @@ contract FastWithdrawalListTest is Test {
         list.registerToken(token, over, 10 ether);
     }
 
-    // ============ deregisterToken ============
+    // ============ unregisterToken ============
 
-    function test_deregisterToken_clearsConfigAndUsage() public {
+    function test_unregisterToken_clearsConfigAndUsage() public {
         vm.prank(admin);
         list.registerToken(token, 1 ether, 10 ether);
 
@@ -105,17 +105,17 @@ contract FastWithdrawalListTest is Test {
         vm.expectEmit(true, false, false, false, address(list));
         emit IFastWithdrawalListEvents.TokenDeregistered(token);
         vm.prank(admin);
-        list.deregisterToken(token);
+        list.unregisterToken(token);
 
         assertFalse(list.isRegistered(token));
         (, uint256 usedAfter, , ) = list.getUsage(token);
         assertEq(usedAfter, 0, "usage must be wiped");
     }
 
-    function test_RevertIf_deregisterToken_notRegistered() public {
+    function test_RevertIf_unregisterToken_notRegistered() public {
         vm.prank(admin);
         vm.expectRevert(abi.encodeWithSelector(IFastWithdrawalListErrors.TokenNotRegistered.selector, token));
-        list.deregisterToken(token);
+        list.unregisterToken(token);
     }
 
     // ============ setLimit ============
