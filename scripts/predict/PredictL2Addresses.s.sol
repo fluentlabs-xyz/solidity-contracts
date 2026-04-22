@@ -129,7 +129,7 @@ contract PredictL2Addresses is Script {
     ) internal pure returns (bytes memory) {
         return abi.encodePacked(
             UNIVERSAL_TOKEN_MAGIC_BYTES,
-            abi.encode(_stringToBytes32(name), _stringToBytes32(symbol), decimals, initialSupply, minter, pauser)
+            abi.encode(_stringToBytes32(name), _stringToBytes32(symbol), decimals, initialSupply, minter, pauser, false)
         );
     }
 

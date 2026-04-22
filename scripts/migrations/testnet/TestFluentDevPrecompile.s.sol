@@ -6,10 +6,10 @@ import {console2} from "forge-std/console2.sol";
 
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
 import {UniversalTokenFactory} from "../../../contracts/factories/UniversalTokenFactory.sol";
 import {WETHGateway} from "../../../contracts/gateways/WETHGateway.sol";
-import {IWETH} from "../../../contracts/interfaces/IWETH.sol";
 import {IWETHGateway} from "../../../contracts/interfaces/gateways/IWETHGateway.sol";
 
 /// @title MockFluentBridge (test shim)
@@ -81,37 +81,36 @@ contract MockFluentBridge {
 /// @title TestFluentDevPrecompile
 /// @author Fluent Labs
 ///
-/// @notice End-to-end harness for the upgraded Universal-token precompile on the Fluent
-///         devnet. Deploys a fresh {UniversalTokenFactory}, a wrapped Universal-token
-///         (the new `wrapped = true` deploy arg activates WETH9-style `deposit` /
-///         `withdraw` on the precompile), a fresh {WETHGateway}, and wires a
-///         {MockFluentBridge} so the deployer EOA can drive both legs directly.
+/// @notice End-to-end harness for the Universal-token precompile on **Fluent devnet**
+///         (`FLUENT_DEV_RPC_URL`). Deploys a fresh {UniversalTokenFactory}, then:
+///
+///         - A **non-wrapped** pegged token (six `deployArgs` fields, matching {ERC20Gateway}),
+///         - A **wrapped** Universal-WETH (seven `deployArgs` fields ending in `true`),
+///           plus {WETHGateway} and {MockFluentBridge} to exercise `deposit` / `withdraw`.
 ///
 /// @dev Flow (single broadcast):
 ///      1. Deploy {UniversalTokenFactory} behind an ERC1967 proxy.
-///      2. Deploy {MockFluentBridge} shim.
-///      3. Deploy {WETHGateway} proxy with `weth = address(0)` (deferred) and
-///         `bridgeContract = shim`.
-///      4. Deploy Universal-WETH via `factory.deployToken(gateway, origin,
-///         abi.encode(name, symbol, 18, 0, gateway, gateway, true))`.
-///      5. `gateway.setWETH(universalWeth)`; `gateway.setOtherSideGateway(shim)`.
-///      6. `shim.triggerReceiveWETH{value: amount}(gateway, shim, EOA, EOA, amount)` →
-///         gateway calls `universalWeth.deposit{value: amount}()` → the EOA's
-///         Universal-WETH balance increases by `amount`.
-///      7. Assert balances: EOA has `amount` Universal-WETH; gateway holds nothing.
-///      8. `universalWeth.approve(gateway, amount); gateway.sendWETH(EOA, amount)` →
-///         gateway calls `universalWeth.withdraw(amount)` → native ETH goes to the
-///         shim via `sendMessage{value: amount}`.
-///      9. Assert final balances: EOA's Universal-WETH is 0, shim has `amount` native.
+///      2. Deploy non-wrapped pegged token: `deployToken(deployer, originPlain, abi.encode(...6))`;
+///         assert ERC20 metadata via {IERC20Metadata}.
+///      3. Deploy {MockFluentBridge} shim.
+///      4. Deploy {WETHGateway} proxy (`weth` deferred, `bridgeContract = shim`).
+///      5. Deploy wrapped Universal-WETH: `deployToken(gateway, originWeth, abi.encode(..., true))`.
+///      6. Wire gateway WETH + `otherSideGateway = shim`.
+///      7–9. `receiveWETH` / `sendWETH` round-trip on wrapped token (native ↔ WETH).
 ///
-/// @dev Run:
-///        forge script scripts/migrations/testnet/TestFluentDevPrecompile.s.sol:TestFluentDevPrecompile \
+/// @dev Run on Fluent devnet (load `.env` first so `FLUENT_DEV_RPC_URL` is set):
+///        source .env && forge script scripts/migrations/testnet/TestFluentDevPrecompile.s.sol:TestFluentDevPrecompile \
 ///          --rpc-url "$FLUENT_DEV_RPC_URL" --broadcast --private-key "$PRIVATE_KEY" -vvv
 ///
 ///      Env (all optional):
-///        - TEST_AMOUNT_WEI   default 0.01 ether (must be <= deployer's devnet balance)
-///        - ORIGIN_TOKEN      default derived from keccak; only used as the CREATE2
-///                            salt input — does not need to exist on L1.
+///        - TEST_AMOUNT_WEI     default 0.01 ether (wrapped leg; must be <= deployer balance)
+///        - ORIGIN_TOKEN        CREATE2 salt for wrapped token (default: keccak label)
+///        - ORIGIN_TOKEN_PLAIN  CREATE2 salt for non-wrapped token (default: distinct keccak)
+///        - RUN_WETH_ROUNDTRIP  "true" to exercise deposit/withdraw (WETH9 surface on the L2
+///                              precompile). Default `false`: skip the round-trip since the
+///                              `deposit()` / `withdraw(uint256)` surface is not yet live on
+///                              Fluent devnet/testnet (`InvalidOperandOOG` inside the precompile).
+///                              The wrapped token is still deployed + metadata-verified regardless.
 contract TestFluentDevPrecompile is Script {
     // ============ Config ============
 
@@ -123,7 +122,9 @@ contract TestFluentDevPrecompile is Script {
 
     function run() external {
         uint256 amount = vm.envOr("TEST_AMOUNT_WEI", DEFAULT_AMOUNT);
-        address originToken = vm.envOr("ORIGIN_TOKEN", address(uint160(uint256(keccak256("fluent-dev-precompile-test-origin")))));
+        address originWeth = vm.envOr("ORIGIN_TOKEN", address(uint160(uint256(keccak256("fluent-dev-precompile-test-origin")))));
+        address originPlain = vm.envOr("ORIGIN_TOKEN_PLAIN", address(uint160(uint256(keccak256("fluent-dev-plain-pegged-origin")))));
+        bool runRoundTrip = vm.envOr("RUN_WETH_ROUNDTRIP", false);
 
         // `tx.origin` under `forge script --private-key` is the signer's wallet
         // address. We resolve it inside the broadcast so the same script works with
@@ -131,44 +132,58 @@ contract TestFluentDevPrecompile is Script {
         // env `PRIVATE_KEY` to carry a `0x` prefix (devnet `.env` stores it raw).
         vm.startBroadcast();
         address deployer = tx.origin;
-        require(deployer.balance >= amount, "deployer balance < TEST_AMOUNT_WEI");
+        if (runRoundTrip) {
+            require(deployer.balance >= amount, "deployer balance < TEST_AMOUNT_WEI");
+        }
 
-        console2.log("== Fluent-dev precompile round-trip ==");
-        console2.log("chainId          :", block.chainid);
-        console2.log("deployer (EOA)   :", deployer);
-        console2.log("origin token     :", originToken);
-        console2.log("amount (wei)     :", amount);
+        console2.log("== Fluent L2: Universal precompile (plain + wrapped) ==");
+        console2.log("chainId              :", block.chainid);
+        console2.log("deployer (EOA)       :", deployer);
+        console2.log("origin (wrapped WETH):", originWeth);
+        console2.log("origin (plain pegged):", originPlain);
+        console2.log("run WETH round-trip  :", runRoundTrip);
+        console2.log("amount (wei, WETH RT):", amount);
 
         // Step 1 — Deploy UniversalTokenFactory (UUPS proxy, deployer is owner).
         address factory = _deployUniversalFactory(deployer);
         console2.log("UniversalTokenFactory:", factory);
 
-        // Step 2 — Deploy the bridge shim. The gateway treats this as both the
+        // Step 2 — Non-wrapped pegged token (six deployArgs). `gateway` in CREATE2 salt is
+        //          the deployer here — only the salt identity; production uses {ERC20Gateway}.
+        bytes memory plainDeployArgs = abi.encode("Fluent Dev Peg", "FDPEG", uint8(18), uint256(0), deployer, deployer, false);
+        address plainPegged = UniversalTokenFactory(factory).deployToken(deployer, originPlain, plainDeployArgs);
+        console2.log("Universal plain PEG  :", plainPegged);
+        require(keccak256(bytes(IERC20Metadata(plainPegged).name())) == keccak256("Fluent Dev Peg"), "plain: name mismatch");
+        require(keccak256(bytes(IERC20Metadata(plainPegged).symbol())) == keccak256("FDPEG"), "plain: symbol mismatch");
+        require(IERC20Metadata(plainPegged).decimals() == 18, "plain: decimals mismatch");
+        console2.log("plain token metadata : OK");
+
+        // Step 3 — Deploy the bridge shim. The gateway treats this as both the
         //          bridge contract AND (via `nativeSender`) the remote-peer gateway,
         //          so all of receiveWETH's trust checks land on a single known address.
         MockFluentBridge shim = new MockFluentBridge();
         console2.log("MockFluentBridge     :", address(shim));
 
-        // Step 3 — Deploy WETHGateway proxy. WETH deferred; bridge = shim.
+        // Step 4 — Deploy WETHGateway proxy. WETH deferred; bridge = shim.
         //          We also pin `otherSideGateway = shim` so `nativeSender` can just be
-        //          the shim itself (see Step 5).
+        //          the shim itself (see Step 6).
         WETHGateway gateway = _deployWETHGateway(deployer, address(shim));
         console2.log("WETHGateway          :", address(gateway));
 
-        // Step 4 — Deploy the Universal-token pegged WETH with `wrapped = true`
+        // Step 5 — Deploy the Universal-token pegged WETH with `wrapped = true`
         //          so the L2 precompile exposes WETH9 `deposit` / `withdraw`.
         //          minter = pauser = gateway (emergency surface only; production flow
         //          uses deposit/withdraw exclusively).
-        bytes memory deployArgs = abi.encode("Wrapped Ether", "WETH", uint8(18), uint256(0), address(gateway), address(gateway), true);
-        address universalWeth = UniversalTokenFactory(factory).deployToken(address(gateway), originToken, deployArgs);
+        bytes memory wethDeployArgs = abi.encode("Wrapped Ether", "WETH", uint8(18), uint256(0), address(0), address(gateway), true);
+        address universalWeth = UniversalTokenFactory(factory).deployToken(address(gateway), originWeth, wethDeployArgs);
         console2.log("Universal-WETH       :", universalWeth);
 
-        // Step 5 — Finish wiring: point gateway at Universal-WETH, set the "other side"
+        // Step 6 — Finish wiring: point gateway at Universal-WETH, set the "other side"
         //          to the shim, matching what `getNativeSender` will return on receive.
         gateway.setWETH(universalWeth);
         gateway.setOtherSideGateway(address(shim));
 
-        // Step 6 — Drive receiveWETH via the shim (simulated bridge inbound).
+        // Step 7 — Drive receiveWETH via the shim (simulated bridge inbound).
         //          The gateway will call `universalWeth.deposit{value: amount}()` —
         //          this is the exact precompile path we want to exercise.
         uint256 gatewayBalBefore = address(gateway).balance;
@@ -190,12 +205,12 @@ contract TestFluentDevPrecompile is Script {
         console2.log("gateway WETH bal     :", IERC20(universalWeth).balanceOf(address(gateway)));
         console2.log("shim native delta    :", int256(address(shim).balance) - int256(shimBalBefore));
 
-        // Step 7 — Invariants for the deposit leg.
+        // Step 8 — Invariants for the deposit leg.
         require(recipientWethAfterReceive - recipientWethBefore == amount, "receiveWETH: recipient did not receive exact amount");
         require(address(gateway).balance == gatewayBalBefore, "receiveWETH: gateway retained native");
         require(IERC20(universalWeth).balanceOf(address(gateway)) == 0, "receiveWETH: gateway retained WETH");
 
-        // Step 8 — Send back: sendWETH → gateway calls `universalWeth.withdraw(amount)`
+        // Step 9 — Send back: sendWETH → gateway calls `universalWeth.withdraw(amount)`
         //          → native ETH flows to the shim via `sendMessage{value: amount}`.
         IERC20(universalWeth).approve(address(gateway), amount);
 
@@ -211,7 +226,7 @@ contract TestFluentDevPrecompile is Script {
         console2.log("gateway WETH bal     :", IERC20(universalWeth).balanceOf(address(gateway)));
         console2.log("shim native gained   :", shimNativeGained);
 
-        // Step 9 — Invariants for the withdraw leg.
+        // Step 10 — Invariants for the withdraw leg.
         require(recipientWethAfterReceive - recipientWethAfterSend == amount, "sendWETH: EOA balance did not decrease by exact amount");
         require(shimNativeGained == amount, "sendWETH: shim did not receive exact native amount");
         require(address(gateway).balance == gatewayBalBefore, "sendWETH: gateway retained native");
@@ -219,8 +234,9 @@ contract TestFluentDevPrecompile is Script {
 
         vm.stopBroadcast();
 
-        console2.log("== Round-trip OK ==");
+        console2.log("== Round-trip OK (wrapped); plain pegged deployed & metadata OK ==");
         console2.log("export TEST_FACTORY=", factory);
+        console2.log("export TEST_PLAIN_PEGGED=", plainPegged);
         console2.log("export TEST_GATEWAY=", address(gateway));
         console2.log("export TEST_UNIVERSAL_WETH=", universalWeth);
         console2.log("export TEST_MOCK_BRIDGE=", address(shim));

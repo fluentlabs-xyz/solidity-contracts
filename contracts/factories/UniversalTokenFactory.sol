@@ -148,6 +148,23 @@ contract UniversalTokenFactory is GenericTokenFactory {
 
     /**
      * @dev Constructs the deployment bytecode with the 0x45524320 magic prefix expected by the L2 precompile.
+     *
+     *      Encoding is version-branched on `wrapped`:
+     *
+     *        - `wrapped == false` → legacy V1 payload (6 fixed fields). Byte-identical to
+     *           the pre-`wrapped` factory output, so bridged ERC20s deployed through either
+     *           factory version land at the same CREATE2 address.
+     *        - `wrapped == true`  → V2 payload (6 fields + `bool wrapped`). Matches the
+     *           size threshold `InitialSettings::decode_with_prefix` uses to activate the
+     *           precompile's WETH9 `deposit` / `withdraw` surface on this token.
+     *
+     *      The Rust precompile gates `deposit` / `withdraw` on
+     *      `contract_metadata().len() >= INITIAL_SETTINGS_V2_SIZE`; emitting the shorter V1
+     *      blob for non-wrapped tokens keeps that gate disabled by construction.
+     *
+     *      Fixed-size (non-dynamic) ABI encoding is mandatory — the precompile decoder
+     *      does not follow dynamic tail offsets. That is why `name` / `symbol` are packed
+     *      as `bytes32`, truncating at 32 bytes.
      */
     function _deploymentData(
         string memory name,
@@ -160,10 +177,16 @@ contract UniversalTokenFactory is GenericTokenFactory {
     ) internal pure returns (bytes memory deploymentData) {
         // 0x45524320 ("ERC ") is the magic prefix the L2 precompile at 0x520008
         // expects as the first 4 bytes of deployment bytecode to identify ERC20 tokens.
-        // The remaining bytes must be abi.encode(bytes32, bytes32, uint8, uint256, address, address, bool)
-        // — fixed-size encoding matching the Rust `InitialSettings` struct layout
-        // (token_name, token_symbol, decimals, initial_supply, minter, pauser, wrapped).
-        // Using string types here would produce dynamic ABI encoding which the precompile cannot decode.
+        if (!wrapped) {
+            // V1: (bytes32, bytes32, uint8, uint256, address, address) — 192 bytes after prefix.
+            return
+                abi.encodePacked(
+                    bytes4(0x45524320),
+                    abi.encode(_stringToBytes32(name), _stringToBytes32(symbol), decimals, initialSupply, minter, pauser)
+                );
+        }
+        // V2: append `bool wrapped` → 224 bytes after prefix; crosses the precompile's
+        // V2 size threshold and enables WETH9 deposit/withdraw on this token.
         return
             abi.encodePacked(
                 bytes4(0x45524320),

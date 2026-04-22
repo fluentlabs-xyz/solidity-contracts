@@ -118,4 +118,14 @@ interface IERC20Gateway is IERC20GatewayErrors {
      * @return The address of the token factory.
      */
     function getTokenFactory() external view returns (address);
+
+    /**
+     * @notice Returns the cached remote pegged-token address for `(gateway, originToken)`.
+     * @dev Populated by {sendTokens} on the origin path to avoid recomputing CREATE2 on subsequent
+     *      sends. Returns `address(0)` if no entry exists (never sent, or cache invalidated).
+     * @param gateway Remote gateway the cached address was computed against.
+     * @param originToken Origin token address on this chain.
+     * @return The cached remote pegged address, or `address(0)` if unset.
+     */
+    function getOtherSidePeggedForOrigin(address gateway, address originToken) external view returns (address);
 }
