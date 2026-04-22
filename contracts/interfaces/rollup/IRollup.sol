@@ -271,6 +271,22 @@ interface IRollupErrors {
     error InvalidBlobCount(uint32 expected, uint256 provided);
 
     /**
+     * @notice Sidecar submitted with a `declaredStartIndex` that does not match the number
+     *         of blob hashes already recorded for this batch — `submitBlobs` calls must be
+     *         strictly in-order, with each call's high-byte start index equal to the current
+     *         `batchBlobHashes.length`.
+     * @dev selector: 0x127b9955
+     */
+    error OutOfOrderSidecar(uint8 declaredStartIndex, uint8 actualStartIndex);
+
+    /**
+     * @notice `submitBlobs` called with a `numBlobs` argument outside the 16-bit envelope
+     *         used to pack (declaredStartIndex, count). Bits ≥ 16 are reserved and must be zero.
+     * @dev selector: 0x05303e0c
+     */
+    error InvalidNumBlobs(uint256 provided);
+
+    /**
      * @notice Batch is not in the expected status for this operation.
      * @dev selector: 0x0f36c0b9
      */
@@ -680,10 +696,12 @@ interface IRollupRead {
      * @return included True if inclusion proof is valid for current `batchRoot`.
      * @return status Current {BatchStatus} encoded as uint8.
      */
-    function verifyBlockInBatch(uint256 batchIndex, bytes32 blockHash, uint256 nonce, bytes calldata proof)
-        external
-        view
-        returns (bool included, uint8 status);
+    function verifyBlockInBatch(
+        uint256 batchIndex,
+        bytes32 blockHash,
+        uint256 nonce,
+        bytes calldata proof
+    ) external view returns (bool included, uint8 status);
 
     // ============ Challenge state ============
 
@@ -789,9 +807,16 @@ interface IRollupWrite {
     /**
      * @notice Submit blob hashes for DA verification of an accepted batch.
      *
-     * @dev The function might be called multiple times to submit multiple blobs for a single batch.
+     * @dev The function may be called multiple times to submit blobs incrementally; each call
+     *      must be strictly in-order (see `numBlobs` encoding below). Upper bits beyond the
+     *      16-bit envelope are reserved and must be zero.
      * @param batchIndex The index of the batch to submit blobs for.
-     * @param numBlobs The number of blobs to submit determined by the caller(authority).
+     * @param numBlobs Packed 16-bit argument: the high byte is the declared start index
+     *                 (must equal the current number of blob hashes already recorded for this
+     *                 batch) and the low byte is the number of blobs submitted in this call.
+     *                 A plain count (high byte = 0) is valid only for the first sidecar of a
+     *                 batch, because `declaredStartIndex=0` matches the empty `batchBlobHashes`
+     *                 length. Bits ≥ 16 must be zero and are rejected with `InvalidNumBlobs`.
      */
     function submitBlobs(uint256 batchIndex, uint256 numBlobs) external;
 
