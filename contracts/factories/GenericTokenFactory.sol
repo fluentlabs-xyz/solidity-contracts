@@ -246,8 +246,4 @@ abstract contract GenericTokenFactory is Initializable, UUPSUpgradeable, Ownable
         // deterministic salt from gateway+origin ensures one pegged token per origin per gateway
         return keccak256(abi.encodePacked(gateway, originToken));
     }
-
-    function removeBridgedToken(address originToken) external onlyOwner {
-        _getGenericTokenFactoryStorage()._bridgedTokens[originToken] = address(0);
-    }
 }

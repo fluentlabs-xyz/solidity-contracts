@@ -104,15 +104,19 @@ abstract contract DeployWETHGatewayBase is DeployBase {
         (address bridge, ) = _readSide(true);
         string memory cfg = vm.readFile(_releaseConfigPath());
         address l1Weth = _readAddr(cfg, "l1_weth");
+        console2.log("BRIDGE: ");
+        console2.logAddress(bridge);
+        console2.log("WETH: ");
+        console2.logAddress(l1Weth);
         require(l1Weth != address(0) && l1Weth.code.length > 0, "release_weth.json: l1_weth has no code");
 
-        address proxy = _predictProxy();
+        address proxy = 0x9C2baa1d32466aceC1AdDD98AA047fB7B6D55622; //_predictProxy();
         require(proxy.code.length > 0, "L1 WETHGateway proxy not deployed yet");
 
         vm.startBroadcast();
         WETHGateway(payable(proxy)).setWETH(l1Weth);
         WETHGateway(payable(proxy)).setOtherSideGateway(proxy);
-        L1FluentBridge(payable(bridge)).registerGateway(proxy);
+//        L1FluentBridge(payable(bridge)).registerGateway(proxy);
         vm.stopBroadcast();
 
         console2.log("L1 WETHGateway wired:", proxy);
@@ -122,12 +126,12 @@ abstract contract DeployWETHGatewayBase is DeployBase {
     ///         is wired separately by {wireL2WETH} after Universal-WETH exists.
     function wireL2() public virtual {
         (address bridge, ) = _readSide(false);
-        address proxy = _predictProxy();
+        address proxy = 0x9C2baa1d32466aceC1AdDD98AA047fB7B6D55622; //_predictProxy();
         require(proxy.code.length > 0, "L2 WETHGateway proxy not deployed yet");
 
         vm.startBroadcast();
         WETHGateway(payable(proxy)).setOtherSideGateway(proxy);
-        L2FluentBridge(payable(bridge)).registerGateway(proxy);
+//        L2FluentBridge(payable(bridge)).registerGateway(proxy);
         vm.stopBroadcast();
 
         console2.log("L2 WETHGateway wired:", proxy);
@@ -139,7 +143,7 @@ abstract contract DeployWETHGatewayBase is DeployBase {
         address universalWeth = _readAddr(cfg, "universal_weth_l2");
         require(universalWeth != address(0) && universalWeth.code.length > 0, "release_weth.json: universal_weth_l2 has no code");
 
-        address proxy = _predictProxy();
+        address proxy = 0x9C2baa1d32466aceC1AdDD98AA047fB7B6D55622; //_predictProxy();
         require(proxy.code.length > 0, "L2 WETHGateway proxy not deployed yet");
 
         vm.startBroadcast();

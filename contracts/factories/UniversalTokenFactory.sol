@@ -216,4 +216,8 @@ contract UniversalTokenFactory is GenericTokenFactory {
             result := mload(add(b, 32))
         }
     }
+
+    function removeBridgedToken(address originToken) external onlyOwner {
+        _getGenericTokenFactoryStorage()._bridgedTokens[originToken] = address(0);
+    }
 }

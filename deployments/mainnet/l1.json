@@ -18,5 +18,7 @@
   "fast_withdrawal_list_proxy": "0x3eFc3c84ecf259Da36E33692f2a107A0AB88D30E",
   "fast_withdrawal_list_impl": "0x94F068ee9A23F3F883bdE060502a46E9C4EeAb25",
   "blacklist_proxy": "0x05C5d46a5e6f92fB9CdA9A8b03E4440A175D1484",
-  "blacklist_impl": "0xB9E397C9506F71590be1f24da3f219bedE38b845"
+  "blacklist_impl": "0xB9E397C9506F71590be1f24da3f219bedE38b845",
+  "weth_gateway_proxy": "0x1e1f5Df9D48e8E88C037e9255a769e77c9fe587b",
+  "weth_gateway_impl": "0x2367d6389A99fC366FB552046E6A2912eD3Ccf68"
 }
