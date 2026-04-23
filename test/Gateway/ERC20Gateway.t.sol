@@ -2,14 +2,18 @@
 pragma solidity 0.8.30;
 
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {Vm} from "forge-std/Vm.sol";
 
 import {ERC20Gateway} from "../../contracts/gateways/ERC20Gateway.sol";
 import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol";
 import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {IGatewayBaseErrors, IGatewayBaseEvents} from "../../contracts/interfaces/gateways/IGatewayBase.sol";
+import {IERC20GatewayErrors} from "../../contracts/interfaces/gateways/IERC20Gateway.sol";
 import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
 import {MockERC20Token} from "../../test/mocks/MockERC20.sol";
 import {MockFeeOnTransferERC20} from "../../test/mocks/MockFeeOnTransferERC20.sol";
+import {MockMutableMetadataERC20} from "../../test/mocks/MockMutableMetadataERC20.sol";
+import {IFluentBridgeEvents} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {GatewayBase} from "./Base.t.sol";
 
 contract ERC20GatewayTest is GatewayBase {
@@ -42,6 +46,77 @@ contract ERC20GatewayTest is GatewayBase {
         vm.prank(user);
         gateway.sendTokens(address(originToken), recipient, amount);
 
+        assertEq(originToken.balanceOf(address(gateway)), amount);
+    }
+
+    function test_setBridgingExcludedOrigin_zeroOrigin_reverts() public {
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(IGatewayBaseErrors.ZeroAddressNotAllowed.selector, "originToken"));
+        gateway.setBridgingExcludedOrigin(address(0), true);
+    }
+
+    function test_sendTokens_originPath_revertsWhenBridgingExcluded() public {
+        vm.prank(admin);
+        gateway.setBridgingExcludedOrigin(address(originToken), true);
+
+        vm.prank(user);
+        originToken.approve(address(gateway), 1 ether);
+
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(IERC20GatewayErrors.BridgingExcludedOriginToken.selector, address(originToken)));
+        gateway.sendTokens(address(originToken), recipient, 1 ether);
+    }
+
+    function test_receivePeggedTokens_revertsWhenBridgingExcluded() public {
+        vm.prank(admin);
+        gateway.setBridgingExcludedOrigin(address(originToken), true);
+
+        address predictedPegged = _predictedPegged();
+        bytes memory tokenMetadata = abi.encode("MOCK", "Mock Token", uint8(18));
+        bytes memory message = abi.encodeCall(
+            ERC20Gateway.receivePeggedTokens,
+            (address(originToken), predictedPegged, user, recipient, 1 ether, tokenMetadata)
+        );
+
+        vm.expectRevert(abi.encodeWithSelector(IERC20GatewayErrors.BridgingExcludedOriginToken.selector, address(originToken)));
+        _relayMessage(remoteGateway, address(gateway), 0, message);
+    }
+
+    function test_sendTokens_peggedPath_revertsWhenBridgingExcluded() public {
+        address predictedPegged = _predictedPegged();
+        bytes memory tokenMetadata = abi.encode("MOCK", "Mock Token", uint8(18));
+        bytes memory message = abi.encodeCall(
+            ERC20Gateway.receivePeggedTokens,
+            (address(originToken), predictedPegged, user, user, 10 ether, tokenMetadata)
+        );
+        _relayMessage(remoteGateway, address(gateway), 0, message);
+
+        vm.prank(admin);
+        gateway.setBridgingExcludedOrigin(address(originToken), true);
+
+        ERC20PeggedToken pegged = ERC20PeggedToken(predictedPegged);
+        vm.prank(user);
+        pegged.approve(address(gateway), 1 ether);
+
+        vm.prank(user);
+        vm.expectRevert(abi.encodeWithSelector(IERC20GatewayErrors.BridgingExcludedOriginToken.selector, address(originToken)));
+        gateway.sendTokens(predictedPegged, recipient, 1 ether);
+    }
+
+    function test_setBridgingExcludedOrigin_clearAllowsBridgingAgain() public {
+        vm.prank(admin);
+        gateway.setBridgingExcludedOrigin(address(originToken), true);
+        assertTrue(gateway.isBridgingExcludedOrigin(address(originToken)));
+
+        vm.prank(admin);
+        gateway.setBridgingExcludedOrigin(address(originToken), false);
+        assertFalse(gateway.isBridgingExcludedOrigin(address(originToken)));
+
+        uint256 amount = 1 ether;
+        vm.prank(user);
+        originToken.approve(address(gateway), amount);
+        vm.prank(user);
+        gateway.sendTokens(address(originToken), recipient, amount);
         assertEq(originToken.balanceOf(address(gateway)), amount);
     }
 
@@ -422,6 +497,79 @@ contract ERC20GatewayTest is GatewayBase {
     function test_computeTokenAddress_matchesPredictedHelper() public view {
         address predicted = gateway.computeTokenAddress(address(gateway), address(originToken));
         assertEq(predicted, _predictedPegged(), "computeTokenAddress mismatch vs helper");
+    }
+
+    // ============ Origin metadata drift ============
+
+    /// @dev With a Universal-token destination, CREATE2 for the remote pegged address depends on
+    ///      `(name, symbol, decimals)`. The gateway caches the first-computed remote address per
+    ///      origin token and reuses it on every subsequent send — so mutating `name` / `symbol`
+    ///      on the origin ERC20 after the first send must NOT change the address carried in the
+    ///      outbound bridge message (which would otherwise make the remote `receivePeggedTokens`
+    ///      deploy at a new CREATE2 address and revert with {WrongPeggedToken}).
+    function test_sendTokens_originPath_cachedAddressStableAfterSymbolChange() public {
+        // Switch to Universal remote config so the address is sensitive to metadata.
+        address remoteFactory = makeAddr("remote-universal-factory");
+        address remoteImplementation = makeAddr("remote-implementation");
+        vm.prank(admin);
+        gateway.setOtherSide(true, remoteGateway, sourceChainId, remoteImplementation, remoteFactory, address(0));
+
+        // Deploy an origin token with mutable metadata and fund the user.
+        MockMutableMetadataERC20 mut = new MockMutableMetadataERC20("Mutable One", "MUT1", 1_000 ether, user);
+
+        // Snapshot what the address should be under the V1 (pre-send) metadata.
+        address addrBeforeSend = gateway.computeOtherSidePeggedTokenAddress(remoteGateway, address(mut));
+        assertTrue(addrBeforeSend != address(0), "address should be predictable");
+
+        // First send populates the cache.
+        vm.prank(user);
+        mut.approve(address(gateway), 2 ether);
+        vm.prank(user);
+        gateway.sendTokens(address(mut), recipient, 1 ether);
+
+        // Now mutate the origin's symbol + name and verify what CREATE2 would produce now
+        // is DIFFERENT from the cached value — otherwise the test is vacuous.
+        mut.setMetadata("Mutable Two", "MUT2");
+        assertEq(mut.symbol(), "MUT2", "symbol should have changed");
+
+        // View must still return the cached address (the short-circuit branch), not a fresh
+        // CREATE2 derived from the new symbol.
+        address addrAfterDrift = gateway.computeOtherSidePeggedTokenAddress(remoteGateway, address(mut));
+        assertEq(addrAfterDrift, addrBeforeSend, "view should return cached address after drift");
+
+        // Second send: capture `SentMessage` and verify the pegged address encoded in the
+        // cross-chain payload is the cached one, not something derived from the new symbol.
+        vm.recordLogs();
+        vm.prank(user);
+        gateway.sendTokens(address(mut), recipient, 1 ether);
+
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        address sentPegged = _peggedFromSentMessage(logs);
+        assertEq(sentPegged, addrBeforeSend, "bridge payload must carry the cached pegged address");
+    }
+
+    /// @dev Decode the pegged-token address from the most recent `SentMessage` event carrying a
+    ///      `receivePeggedTokens(address,address,address,address,uint256,bytes)` call.
+    function _peggedFromSentMessage(Vm.Log[] memory logs) internal pure returns (address) {
+        bytes32 topic = IFluentBridgeEvents.SentMessage.selector;
+        for (uint256 i = logs.length; i > 0; i--) {
+            Vm.Log memory log = logs[i - 1];
+            if (log.topics.length > 0 && log.topics[0] == topic) {
+                // `data` = abi.encode(value, fee, chainId, validUntilBlockNumber, nonce, messageHash, data(bytes)).
+                (, , , , , , bytes memory message) = abi.decode(
+                    log.data,
+                    (uint256, uint256, uint256, uint256, uint256, bytes32, bytes)
+                );
+                // Strip the 4-byte selector and decode `(originToken, peggedToken, from, to, amount, tokenMetadata)`.
+                bytes memory args = new bytes(message.length - 4);
+                for (uint256 j = 0; j < args.length; j++) {
+                    args[j] = message[j + 4];
+                }
+                (, address peggedToken, , , , ) = abi.decode(args, (address, address, address, address, uint256, bytes));
+                return peggedToken;
+            }
+        }
+        revert("no SentMessage in logs");
     }
 
     // ============ Fee-on-transfer ============

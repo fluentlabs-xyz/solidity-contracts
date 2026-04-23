@@ -29,6 +29,12 @@ interface IERC20GatewayErrors {
      * @dev selector: 0xc0260b4c
      */
     error TokenMappingCheckFailed();
+
+    /**
+     * @notice Thrown when `originToken` is configured as excluded from this gateway (e.g. canonical L1 WETH must use {WETHGateway}).
+     * @param originToken The origin address that was rejected.
+     */
+    error BridgingExcludedOriginToken(address originToken);
 }
 
 /**
@@ -97,15 +103,26 @@ interface IERC20Gateway is IERC20GatewayErrors {
     function computeTokenAddress(address gateway, address originToken) external view returns (address);
 
     /**
-     * @notice Returns the token mapping for a given key.
-     * @param key The key to get the token mapping for.
-     * @return The address of the token mapping.
+     * @notice Returns the origin token for a locally deployed pegged token.
+     * @param peggedToken Address of the pegged ERC20 on this chain.
+     * @return The corresponding origin token on the remote chain, or `address(0)` if
+     *         `peggedToken` is not a registered pegged representation.
      */
-    function getTokenMapping(address key) external view returns (address);
+    function getTokenMapping(address peggedToken) external view returns (address);
 
     /**
      * @notice Returns the token factory.
      * @return The address of the token factory.
      */
     function getTokenFactory() external view returns (address);
+
+    /**
+     * @notice Whether this origin key (e.g. canonical L1 WETH) is blocked from this gateway; use a dedicated gateway instead.
+     */
+    function isBridgingExcludedOrigin(address originToken) external view returns (bool);
+
+    /**
+     * @notice Owner-only: exclude or re-allow an origin token for all ERC20 gateway bridging legs.
+     */
+    function setBridgingExcludedOrigin(address originToken, bool excluded) external;
 }

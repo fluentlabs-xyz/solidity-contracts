@@ -28,6 +28,8 @@ import {GatewayBase} from "./GatewayBase.sol";
  * @dev Supports deterministic pegged-token address derivation for both beacon-proxy and universal-token
  *      deployments using stored remote configuration (`otherSide`, factory, beacon/chainId).
  * @dev Admin controls include remote routing config and token-mapping maintenance.
+ * @dev Canonical L1 WETH should be excluded via {setBridgingExcludedOrigin} so it is only
+ *      bridged through {WETHGateway}, avoiding a second pegged representation on L2.
  */
 contract ERC20Gateway is GatewayBase, IERC20Gateway {
     using SafeERC20 for IERC20;
@@ -58,8 +60,17 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         address _otherSideBeacon;
         /// @dev Origin token address to locally deployed pegged token address.
         mapping(address => address) _tokenMapping;
+        /// @dev Cached remote pegged address per origin token. Populated on the first successful
+        ///      {_sendOriginTokens} so subsequent sends skip CREATE2 rehashing. Stale entries will
+        ///      never be produced in steady state, but if remote routing (`otherSideGateway`,
+        ///      `otherSideFactory`, `otherSideBeacon`, `isOtherSideUniversal`) is reconfigured for a
+        ///      token that has already been sent, operators should be aware that this map continues
+        ///      to serve the address derived under the previous routing until explicitly cleared.
+        mapping(address => address) _otherSidePeggedForOrigin;
+        /// @dev L1-origin keys that cannot use this gateway on any leg (e.g. WETH → {WETHGateway} only).
+        mapping(address => bool) _bridgingExcludedOrigins;
         /// @dev Reserved for future storage fields.
-        uint256[50] __gap;
+        uint256[48] __gap;
     }
 
     /** @dev Returns the ERC-7201 storage pointer for ERC20 gateway state. */
@@ -87,6 +98,11 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         // ============ Storage ============
         // Store the local token factory used to deploy pegged token representations on this chain
         _setTokenFactory(tokenFactory);
+    }
+
+    /// @dev Reverts with {BridgingExcludedOriginToken} when `originToken` is reserved (e.g. canonical L1 WETH for {WETHGateway} only).
+    function _requireBridgingAllowedForOrigin(address originToken) internal view {
+        require(!_getERC20GatewayStorage()._bridgingExcludedOrigins[originToken], BridgingExcludedOriginToken(originToken));
     }
 
     // ============ Send Tokens ============
@@ -140,6 +156,7 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
             getOtherSideChainId() != 0 || getOtherSideBeacon() != address(0),
             ZeroAddressNotAllowed("getOtherSideChainId or getOtherSideBeacon")
         );
+        _requireBridgingAllowedForOrigin(token);
 
         // Lock origin tokens in this gateway — they remain escrowed until a future
         // receiveOriginTokens call releases them back to a withdrawer.
@@ -149,18 +166,24 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         IERC20(token).safeTransferFrom(from, address(this), amount);
         uint256 actualAmount = IERC20(token).balanceOf(address(this)) - balBefore;
 
-        // Read on-chain token metadata to forward to the destination chain.
-        // The remote gateway needs this to deploy a matching pegged token if one doesn't exist yet.
-        string memory symbol = ERC20(token).symbol();
+        // Read live ERC20 metadata from the origin token. The cache below pins the CREATE2 address
+        // from the first successful send for this (gateway, origin) pair, so subsequent sends remain
+        // consistent even if the origin ERC20 mutates `name` / `symbol` / `decimals` later.
         string memory name = ERC20(token).name();
+        string memory symbol = ERC20(token).symbol();
         uint8 decimals = ERC20(token).decimals();
-        // ABI-encode metadata into a single bytes blob for cross-chain transport.
-        // The receiving gateway decodes this to deploy or verify the pegged token.
         bytes memory rawTokenMetadata = abi.encode(symbol, name, decimals);
+        ERC20GatewayStorage storage $ = _getERC20GatewayStorage();
 
-        // Deterministically compute the expected pegged token address on the remote chain.
-        // This lets the remote gateway verify that its locally deployed token matches.
-        address peggedTokenOnOtherSide = _computeOtherSidePeggedTokenAddressWithGateway(getOtherSideGateway(), token, name, symbol, decimals);
+        // Fast-path: once we've computed the remote pegged address for this (otherSideGateway, origin)
+        // pair we cache it so subsequent sends skip the CREATE2 rehash. On cache miss fall through
+        // to full computation and populate the cache for next time.
+        address peggedTokenOnOtherSide = $._otherSidePeggedForOrigin[token];
+        if (peggedTokenOnOtherSide == address(0)) {
+            // This lets the remote gateway verify that its locally deployed token matches.
+            peggedTokenOnOtherSide = _computeOtherSidePeggedTokenAddressWithGateway(getOtherSideGateway(), token, name, symbol, decimals);
+            $._otherSidePeggedForOrigin[token] = peggedTokenOnOtherSide;
+        }
 
         // Encode the cross-chain call: destination gateway will call receivePeggedTokens
         // to mint pegged tokens to the recipient
@@ -168,16 +191,17 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
     }
 
     /// @dev Used on L2 to send pegged tokens to the other side.
-    function _sendPeggedTokens(address token, address sender, address from, address to, uint256 amount) internal returns (bytes memory) {
+    function _sendPeggedTokens(address peggedToken, address sender, address from, address to, uint256 amount) internal returns (bytes memory) {
         // Look up the origin token address that this pegged token represents on the remote chain
-        address originAddress = getTokenMapping(token);
+        address originAddress = getTokenMapping(peggedToken);
         // Safety check: a zero origin address would mean a broken mapping — should never happen
         // since sendTokens only calls this path when getTokenMapping(token) != address(0)
         require(originAddress != address(0), ZeroAddressNotAllowed("originAddress"));
+        _requireBridgingAllowedForOrigin(originAddress);
 
         // Burn the pegged tokens from the sender — permanently destroys the local representation.
         // This gateway was set as minter/burner during pegged token deployment.
-        ERC20PeggedToken(token).burn(from, amount);
+        ERC20PeggedToken(peggedToken).burn(from, amount);
 
         // Encode the cross-chain call: destination gateway will call receiveOriginTokens
         // to release the corresponding origin tokens from escrow to the recipient
@@ -208,6 +232,7 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         require(to != address(0), InvalidRecipient());
         // Prevent minting zero tokens — disallow no-op messages that still consume bridge fees
         require(amount > 0, ZeroValueNotAllowed("amount"));
+        _requireBridgingAllowedForOrigin(originToken);
 
         // Check whether the pegged token contract already exists on this chain by inspecting
         // code size. length == 0 means no contract deployed at that address yet.
@@ -250,6 +275,7 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         require(to != address(0), InvalidRecipient());
         // Prevent releasing zero tokens — disallow no-op messages that still consume bridge fees
         require(amount > 0, ZeroValueNotAllowed("amount"));
+        _requireBridgingAllowedForOrigin(originToken);
 
         // Consume the token limit
         _consumeLimit(originToken, amount);
@@ -334,8 +360,10 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
 
     /// @inheritdoc IERC20Gateway
     function computeOtherSidePeggedTokenAddress(address gateway, address originToken) external view returns (address) {
-        // Convenience wrapper: reads metadata from the on-chain origin token and delegates
-        // to the internal computation that predicts the pegged token address on the remote chain
+        // Honor the sender-side cache first so we return the same address future
+        // {_sendOriginTokens} calls will emit in bridge payloads.
+        address cached = _getERC20GatewayStorage()._otherSidePeggedForOrigin[originToken];
+        if (cached != address(0)) return cached;
         return
             _computeOtherSidePeggedTokenAddressWithGateway(
                 gateway,
@@ -401,9 +429,9 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         address pauser
     ) internal pure returns (bytes memory) {
         // 0x45524320 ("ERC ") magic prefix for the L2 precompile at 0x520008.
-        // The remaining bytes must be abi.encode(bytes32, bytes32, uint8, uint256, address, address)
-        // — fixed-size encoding matching the Rust InitialSettings struct layout.
-        // Using string types here would produce dynamic ABI encoding which the precompile cannot decode.
+        // Must byte-match {UniversalTokenFactory._deploymentData} for `wrapped = false`: the V1 blob
+        // is fixed-size `(bytes32, bytes32, uint8, uint256, address, address)` with NO trailing bool,
+        // so the precompile keeps `deposit` / `withdraw` disabled for generic bridged ERC20s.
         return
             abi.encodePacked(
                 UNIVERSAL_TOKEN_MAGIC_BYTES,
@@ -618,5 +646,18 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         $._otherSideBeacon = otherSideBeacon;
         // Delegate to GatewayBase setter; allows zero for beacon-based routing
         _setOtherSideChainId(otherSideChainId);
+    }
+
+    /// @inheritdoc IERC20Gateway
+    function isBridgingExcludedOrigin(address originToken) external view returns (bool) {
+        return _getERC20GatewayStorage()._bridgingExcludedOrigins[originToken];
+    }
+
+    /// @inheritdoc IERC20Gateway
+    function setBridgingExcludedOrigin(address originToken, bool excluded) external onlyOwner {
+        require(originToken != address(0), ZeroAddressNotAllowed("originToken"));
+        ERC20GatewayStorage storage $ = _getERC20GatewayStorage();
+        emit BridgingExcludedOriginUpdated(originToken, excluded);
+        $._bridgingExcludedOrigins[originToken] = excluded;
     }
 }

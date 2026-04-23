@@ -3,7 +3,7 @@
   "bridge_impl": "0x273A4005573809e779889516fD95A078B5f23e57",
   "chainId": 11155111,
   "erc20_gateway": "0xfd4c62647a34ff6d6802092f5fbe176099223b61",
-  "erc20_gateway_impl": "0x648a97b29946b62e9feea63c5134ef6beb82313b",
+  "erc20_gateway_impl": "0x2f61a69507a4A7207A39D4f03F7bbF858b0104cB",
   "factory": "0xf6d49e874cb64b8ee56d6f99bd340134b30ab225",
   "factory_beacon": "0xdd283a04cc711ab9c08d79e665835821beef710b",
   "factory_impl": "0x1c8779d41e89908e888e08d0e5871c9824032c71",
@@ -13,5 +13,8 @@
   "nitro_verifier": "0xbA3d3B60b6f462AA3fb2D63F8B610Fa8825c3019",
   "pegged_impl": "0x57125e0de1dd238154558643b1e78fcbf5ab1a92",
   "rollup": "0x1cF53Fd9CD0b713be29F2b41cA17A943f138727f",
-  "rollup_impl": "0xee635CAF8a270F7073bE56AA5d68A2F3b7DdD733"
+  "rollup_impl": "0xee635CAF8a270F7073bE56AA5d68A2F3b7DdD733",
+  "weth_gateway_proxy": "0x9C2baa1d32466aceC1AdDD98AA047fB7B6D55622",
+  "weth_gateway_impl": "",
+  "weth_token": "0xf45833a668625df12a2a9b03ca4a52f22ebd6c6c"
 }
