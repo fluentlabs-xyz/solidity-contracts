@@ -12,7 +12,9 @@ import {L2FluentBridge} from "../../contracts/bridge/L2/L2FluentBridge.sol";
 import {UniversalTokenFactory} from "../../contracts/factories/UniversalTokenFactory.sol";
 
 /// @title RunReleaseWethL2
-/// @notice One-command L2 flow: deploy WETH gateway, upgrade gateways/factory, deploy Universal-WETH, wire L2 side.
+/// @notice Two-step L2 flow:
+///         - run1(): deploy gateway, upgrade gateways/factory, clear old bridged mapping, wire L2 peer.
+///         - run2(): set L2 WETH on gateway using manually deployed Universal-WETH address.
 ///
 /// @dev Required env vars:
 ///      - ENV_SUFFIX: "testnet" or "mainnet"
@@ -23,9 +25,18 @@ import {UniversalTokenFactory} from "../../contracts/factories/UniversalTokenFac
 /// @dev Optional env vars:
 ///      - TARGET_NONCE: nonce target override (defaults: testnet=41, mainnet=19)
 ///
-/// @dev Example:
+/// @dev Example (step 1):
 ///      forge script scripts/migrations/RunReleaseWethL2.s.sol:RunReleaseWethL2 \
-///        --rpc-url "$L2_RPC" --sender "$DEPLOYER" --broadcast --unlocked --skip-simulation
+///        --sig "run1()" --rpc-url "$L2_RPC" --sender "$DEPLOYER" --broadcast --unlocked --skip-simulation
+///
+/// @dev Example (step 2, explicit arg):
+///      forge script scripts/migrations/RunReleaseWethL2.s.sol:RunReleaseWethL2 \
+///        --sig "run2(address)" 0xYourUniversalWethAddress --rpc-url "$L2_RPC" --sender "$WIRER" --broadcast --unlocked --skip-simulation
+///
+/// @dev Example (step 2, env fallback):
+///      export UNIVERSAL_WETH_L2=0x...
+///      forge script scripts/migrations/RunReleaseWethL2.s.sol:RunReleaseWethL2 \
+///        --sig "run2()" --rpc-url "$L2_RPC" --sender "$WIRER" --broadcast --unlocked --skip-simulation
 contract RunReleaseWethL2 is DeployBase {
     struct Context {
         string env;
@@ -41,7 +52,84 @@ contract RunReleaseWethL2 is DeployBase {
     }
 
     function run() external {
-        Context memory c;
+        _run1();
+    }
+
+    function run1() external {
+        _run1();
+    }
+
+    function _run1() internal {
+        Context memory c = _loadContext();
+        vm.startBroadcast(c.deployer);
+        _bumpNonceTo(c.targetNonce, c.deployer);
+        (address impl, address proxy) = _deployGateway(c.bridge, c.gatewayOwner);
+        vm.stopBroadcast();
+
+        vm.startBroadcast(c.upgrader);
+        _upgradeL2ERC20Gateway(c.erc20);
+        _upgradeL2Factory(c.factory);
+        UniversalTokenFactory(c.factory).removeBridgedToken(c.l1Weth);
+        vm.stopBroadcast();
+
+        vm.startBroadcast(c.wirer);
+        WETHGateway(payable(proxy)).setOtherSideGateway(proxy);
+        L2FluentBridge(payable(c.bridge)).registerGateway(proxy);
+        vm.stopBroadcast();
+
+        console2.log("L2 run1 complete for env:", c.env);
+        console2.log("  deployer          :", c.deployer);
+        console2.log("  upgrader          :", c.upgrader);
+        console2.log("  wirer             :", c.wirer);
+        console2.log("  target nonce      :", c.targetNonce);
+        console2.log("  gateway impl      :", impl);
+        console2.log("  gateway proxy     :", proxy);
+        console2.log("Manual step: deploy Universal-WETH, then run run2() with UNIVERSAL_WETH_L2=<token>.");
+    }
+
+    function run2() external {
+        Context memory c = _loadContext();
+        address universalWeth = _resolveUniversalWeth(c.env);
+        _run2(c, universalWeth);
+    }
+
+    function run2(address universalWeth) external {
+        Context memory c = _loadContext();
+        require(universalWeth != address(0) && universalWeth.code.length > 0, "universal_weth_l2 missing/has no code");
+        _run2(c, universalWeth);
+    }
+
+    function _run2(Context memory c, address universalWeth) internal {
+        address proxy = vm.computeCreateAddress(c.deployer, c.targetNonce + 1);
+        require(proxy.code.length > 0, "L2 WETH gateway proxy missing");
+
+        vm.startBroadcast(c.wirer);
+        WETHGateway(payable(proxy)).setWETH(universalWeth);
+        vm.stopBroadcast();
+
+        console2.log("L2 run2 complete for env:", c.env);
+        console2.log("  wirer             :", c.wirer);
+        console2.log("  gateway proxy     :", proxy);
+        console2.log("  universal_weth_l2 :", universalWeth);
+    }
+
+    function _upgradeL2ERC20Gateway(address erc20) internal {
+        address newImpl = address(new ERC20Gateway());
+        UnsafeUpgrades.upgradeProxy(payable(erc20), newImpl, "");
+    }
+
+    function _upgradeL2Factory(address factory) internal {
+        address newImpl = address(new UniversalTokenFactory());
+        UnsafeUpgrades.upgradeProxy(payable(factory), newImpl, "");
+    }
+
+    function _deployGateway(address bridge, address owner) internal returns (address impl, address proxy) {
+        impl = address(new WETHGateway());
+        bytes memory initData = abi.encodeCall(WETHGateway.initialize, (owner, bridge, address(0)));
+        proxy = address(new ERC1967Proxy(impl, initData));
+    }
+
+    function _loadContext() internal view returns (Context memory c) {
         c.env = _requireEnvSuffix();
         string memory cfg = vm.readFile(_releaseConfigPath(c.env));
         string memory l2Manifest = vm.readFile(_manifestPath(c.env, false));
@@ -62,56 +150,16 @@ contract RunReleaseWethL2 is DeployBase {
         require(c.factory != address(0) && c.factory.code.length > 0, "l2 factory missing");
         require(c.gatewayOwner != address(0), "gateway_initial_owner missing");
         require(c.l1Weth != address(0), "l1_weth missing");
-
-        vm.startBroadcast(c.deployer);
-        _bumpNonceTo(c.targetNonce, c.deployer);
-        (address impl, address proxy) = _deployGateway(c.bridge, c.gatewayOwner);
-        vm.stopBroadcast();
-
-        vm.startBroadcast(c.upgrader);
-        _upgradeL2ERC20Gateway(c.erc20);
-        _upgradeL2Factory(c.factory);
-        address universalWeth = _deployUniversalWeth(c.factory, proxy, c.l1Weth);
-        vm.stopBroadcast();
-
-        vm.startBroadcast(c.wirer);
-        WETHGateway(payable(proxy)).setOtherSideGateway(proxy);
-        L2FluentBridge(payable(c.bridge)).registerGateway(proxy);
-        WETHGateway(payable(proxy)).setWETH(universalWeth);
-        vm.stopBroadcast();
-
-        console2.log("L2 flow complete for env:", c.env);
-        console2.log("  deployer          :", c.deployer);
-        console2.log("  upgrader          :", c.upgrader);
-        console2.log("  wirer             :", c.wirer);
-        console2.log("  target nonce      :", c.targetNonce);
-        console2.log("  gateway impl      :", impl);
-        console2.log("  gateway proxy     :", proxy);
-        console2.log("  universal_weth_l2 :", universalWeth);
-        console2.log("Update release_weth.json universal_weth_l2 with this value.");
     }
 
-    function _upgradeL2ERC20Gateway(address erc20) internal {
-        address newImpl = address(new ERC20Gateway());
-        UnsafeUpgrades.upgradeProxy(payable(erc20), newImpl, "");
-    }
-
-    function _upgradeL2Factory(address factory) internal {
-        address newImpl = address(new UniversalTokenFactory());
-        UnsafeUpgrades.upgradeProxy(payable(factory), newImpl, "");
-    }
-
-    function _deployUniversalWeth(address factory, address wethGateway, address l1Weth) internal returns (address) {
-        // address existing = UniversalTokenFactory(factory).bridgedTokens(l1Weth);
-        // if (existing != address(0)) return existing;
-        bytes memory deployArgs = abi.encode("Wrapped Ether", "WETH", uint8(18), uint256(0), address(0), address(0), true);
-        return UniversalTokenFactory(factory).deployToken(wethGateway, l1Weth, deployArgs);
-    }
-
-    function _deployGateway(address bridge, address owner) internal returns (address impl, address proxy) {
-        impl = address(new WETHGateway());
-        bytes memory initData = abi.encodeCall(WETHGateway.initialize, (owner, bridge, address(0)));
-        proxy = address(new ERC1967Proxy(impl, initData));
+    function _resolveUniversalWeth(string memory env) internal view returns (address universalWeth) {
+        if (vm.envExists("UNIVERSAL_WETH_L2")) {
+            universalWeth = vm.envAddress("UNIVERSAL_WETH_L2");
+        } else {
+            string memory cfg = vm.readFile(_releaseConfigPath(env));
+            universalWeth = _readAddr(cfg, "universal_weth_l2");
+        }
+        require(universalWeth != address(0) && universalWeth.code.length > 0, "universal_weth_l2 missing/has no code");
     }
 
     function _bumpNonceTo(uint256 target, address deployer) internal {
