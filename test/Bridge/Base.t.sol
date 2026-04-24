@@ -57,7 +57,7 @@ abstract contract BridgeBase is Test {
         l1Bridge = L1FluentBridge(payable(address(l1Proxy)));
 
         L1BlockOracle l1BlockOracle = new L1BlockOracle(relayer);
-        L1GasOracle l1GasOracle = new L1GasOracle(relayer);
+        L1GasOracle l1GasOracle = new L1GasOracle(relayer, 30);
         vm.prank(relayer);
         l1BlockOracle.updateL1BlockNumber(1);
 

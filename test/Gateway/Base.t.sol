@@ -40,7 +40,7 @@ abstract contract GatewayBase is Test {
         oracle = new L1BlockOracle(admin);
         vm.prank(admin);
         oracle.updateL1BlockNumber(1);
-        L1GasOracle gasOracle = new L1GasOracle(relayer);
+        L1GasOracle gasOracle = new L1GasOracle(relayer, 30);
 
         L2FluentBridge impl = new L2FluentBridge();
         FluentBridgeStorageLayout.InitConfiguration memory params = FluentBridgeStorageLayout.InitConfiguration({

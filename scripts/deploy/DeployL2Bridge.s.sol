@@ -31,7 +31,7 @@ contract DeployL2Bridge is DeployBase {
     ) internal returns (L2BridgeResult memory r) {
         require(l1BlockOracle != address(0), "L1_BLOCK_ORACLE required");
         require(receiveMessageDeadline > 0, "RECEIVE_MSG_DEADLINE required");
-        r.gasOracle = address(new L1GasOracle(relayerRole));
+        r.gasOracle = address(new L1GasOracle(relayerRole, 30));
         address treasury = feeTreasury == address(0) ? adminRole : feeTreasury;
         FluentBridgeStorageLayout.InitConfiguration memory params = FluentBridgeStorageLayout.InitConfiguration({
             adminRole: adminRole,

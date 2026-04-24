@@ -35,7 +35,7 @@ abstract contract L2BridgeFeeBase is Test {
 
     function setUp() public virtual {
         blockOracle = new L1BlockOracle(relayer);
-        gasOracle = new L1GasOracle(relayer);
+        gasOracle = new L1GasOracle(relayer, 100);
 
         vm.prank(relayer);
         blockOracle.updateL1BlockNumber(1);
@@ -115,9 +115,12 @@ contract GetSentMessageFeeTest is L2BridgeFeeBase {
 
         vm.prank(relayer);
         gasOracle.updateL1GasPrice(60 gwei);
+        assertEq(bridge.getSentMessageFee(), feeBefore, "fee stays on committed price until window elapses");
+
+        vm.warp(block.timestamp + gasOracle.getGasPriceWindow());
 
         uint256 feeAfter = bridge.getSentMessageFee();
-        assertGt(feeAfter, feeBefore, "fee should increase with gas price");
+        assertGt(feeAfter, feeBefore, "fee should increase after the commitment window");
 
         uint256 costPerUnit = (60 gwei * SCALAR) / 1e18 + OVERHEAD;
         assertEq(feeAfter, L1_GAS_LIMIT * costPerUnit, "fee formula mismatch after update");
@@ -227,6 +230,7 @@ contract SendMessageFeeTest is L2BridgeFeeBase {
 
         vm.prank(relayer);
         gasOracle.updateL1GasPrice(gasPrice);
+        vm.warp(block.timestamp + gasOracle.getGasPriceWindow());
 
         uint256 fee = bridge.getSentMessageFee();
         uint256 totalSent = fee + 0.5 ether;
