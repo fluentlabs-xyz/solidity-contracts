@@ -25,7 +25,7 @@ contract DeployAirdrop is Script {
     // ─── Edit these ─────────────────────────────────────────────────────
 
     /// @dev ERC20 to distribute. On Fluent L2 this is typically a UST token.
-    address constant TOKEN = 0xd3BF70d02c6f55f32F8c18DB14aAccdc905984dF;
+    address constant TOKEN = 0x1385B8f55A84f2BdA13EeD4099d29Eae03d553b2;
 
     /// @dev Flat wei amount sent to every recipient on top of their token share.
     uint256 constant ETH_PER_RECIPIENT = 0.001 ether;
@@ -43,7 +43,7 @@ contract DeployAirdrop is Script {
     /// @dev Sum of all tokenAmount values below. Precomputed so the deploy
     ///      logs it without a runtime loop; cross-checked against the array
     ///      in _verifyTotals() to catch copy-paste drift.
-    uint256 constant TOTAL_TOKENS = 9271531832410000000000000;
+    uint256 constant TOTAL_TOKENS = 9271531832360000000000000;
 
     // ────────────────────────────────────────────────────────────────────
 
@@ -65,6 +65,8 @@ contract DeployAirdrop is Script {
         // Broadcast account becomes the Airdrop owner, which is why the same
         // block can call distribute() at the end.
         vm.startBroadcast();
+
+        console2.log(msg.sender);
 
         Airdrop airdrop = new Airdrop(IERC20(TOKEN), ETH_PER_RECIPIENT, recipients, amounts);
         airdropAddr = address(airdrop);
@@ -109,7 +111,7 @@ contract DeployAirdrop is Script {
         recipients[2] = 0x220b522979B9F2Ca0F83663fcfF2ee2426aa449C;
         amounts[2] = 818000000000000000000000;
         recipients[3] = 0x58b80FF10946cFdA425c81F8619c6C1615A517B5;
-        amounts[3] = 591644305100000000000000;
+        amounts[3] = 591644305050000000000000;
         recipients[4] = 0xE1D5B5D299d0A2209B2DF23e49ebf654606bACa8;
         amounts[4] = 570000000000000000000000;
         recipients[5] = 0x61BE15e044725889f2f361447C41F4Ab02972967;
