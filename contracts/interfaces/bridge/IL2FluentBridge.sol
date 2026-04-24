@@ -15,6 +15,11 @@ interface IL2FluentBridge {
      */
     error FailedToDeductFee();
 
+    /**
+     * @notice `l1GasPriceForFee` is outside the L1 gas oracle inclusive band.
+     */
+    error L1GasPriceNotInOracleRange(uint256 price, uint256 minPrice, uint256 maxPrice);
+
     // ========== Events ==========
 
     /**
@@ -74,14 +79,20 @@ interface IL2FluentBridge {
      * @return The address of the L1 block oracle.
      */
     function getL1BlockOracle() external view returns (address);
+
     /**
-     * @notice Get the number of L1 blocks after which a message becomes eligible for rollback.
-     * @return The number of L1 blocks after which a message becomes eligible for rollback.
+     * @notice Update the number of L1 blocks after which an undelivered inbound message
+     *         becomes eligible for rollback on L2.
+     */
+    function setReceiveMessageDeadline(uint256 receiveMessageDeadline) external;
+
+    /**
+     * @notice Current rollback deadline (in L1 blocks) applied to inbound L1->L2 messages.
      */
     function getReceiveMessageDeadline() external view returns (uint256);
+
     /**
-     * @notice Sets the number of L1 blocks after which a message becomes eligible for rollback.
-     * @param newReceiveMessageDeadline The number of L1 blocks after which a message becomes eligible for rollback.
+     * @notice Outbound fee if the message is priced at `l1GasPriceForFee` (must lie in the L1 gas oracle band).
      */
-    function setReceiveMessageDeadline(uint256 newReceiveMessageDeadline) external;
+    function getSentMessageFeeForL1GasPrice(uint256 l1GasPriceForFee) external view returns (uint256);
 }

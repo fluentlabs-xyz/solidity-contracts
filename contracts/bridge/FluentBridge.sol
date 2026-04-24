@@ -43,25 +43,36 @@ abstract contract FluentBridge is FluentBridgeStorageLayout {
      */
     function sendMessage(address to, bytes calldata message) external payable whenNotPaused nonReentrant {
         require(to != address(this) && to != getOtherBridge(), InvalidDestinationAddress());
-        require(msg.value >= getSentMessageFee(), InsufficientFee());
+        // Accept any msg.value inside the oracle-derived fee band [minFee, maxFee].
+        // The fee actually charged is clamped to maxFee, so a stale/over-quoted
+        // msg.value can never be over-collected; any excess above maxFee flows
+        // through as cross-chain native value, preserving value-carrying messages.
+        // On L1 the band collapses to (0, 0), restoring pre-band behaviour.
+        (uint256 minFee, uint256 maxFee) = getSentMessageFeeBand();
+        require(msg.value >= minFee, InsufficientFee());
+        uint256 fee = msg.value > maxFee ? maxFee : msg.value;
 
         address from = msg.sender;
-        uint256 value = msg.value - _chargeSendFee();
+        uint256 value = msg.value - fee;
+        // Snapshot all message parameters before charging the fee because the L2 fee
+        // transfer performs an external call to the treasury. Snapshotting first keeps
+        // any treasury callback from observing or influencing pre-snapshot message state.
         uint256 messageNonce = _takeNextNonce();
         bytes32 messageHash = keccak256(_encodeMessage(from, to, value, block.chainid, block.number, messageNonce, message));
 
+        _chargeSendFee(fee);
         _afterSendMessage(messageHash);
 
         emit SentMessage(from, to, value, block.chainid, block.number, messageNonce, messageHash, message);
     }
 
     /**
-     * @dev Hook for L2 to charge a message fee before the cross-chain value is encoded.
-     *      Returns the fee amount deducted from `msg.value`. Base returns 0 (L1 has no fee).
+     * @dev Hook for L2 to charge the already-computed `fee` after the outbound message has
+     *      been snapshotted. Base is a no-op (L1 has no fee). The base deliberately passes
+     *      the fee through instead of letting the override re-read the oracle, so the
+     *      transfer uses the exact value that `sendMessage` used to derive `value`.
      */
-    function _chargeSendFee() internal virtual returns (uint256) {
-        return 0;
-    }
+    function _chargeSendFee(uint256 fee) internal virtual {}
 
     /**
      * @dev Hook called after message encoding. L1 overrides to enqueue the message hash.

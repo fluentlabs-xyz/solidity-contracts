@@ -115,7 +115,7 @@ abstract contract BaseDeployNative is Test {
 
         l2BlockOracle = new L1BlockOracle(address(this));
         l2BlockOracle.updateL1BlockNumber(1);
-        l2GasOracle = new L1GasOracle(relayer, 30);
+        l2GasOracle = new L1GasOracle(relayer, 0, 0);
 
         FluentBridgeStorageLayout.InitConfiguration memory params = FluentBridgeStorageLayout.InitConfiguration({
             adminRole: admin,
@@ -253,7 +253,7 @@ abstract contract BaseDeployERC20 is Test {
 
         l1BlockOracle = new L1BlockOracle(address(this));
         l1BlockOracle.updateL1BlockNumber(1);
-        l1GasOracle = new L1GasOracle(relayer, 30);
+        l1GasOracle = new L1GasOracle(relayer, 0, 0);
 
         FluentBridgeStorageLayout.InitConfiguration memory params = FluentBridgeStorageLayout.InitConfiguration({
             adminRole: admin,

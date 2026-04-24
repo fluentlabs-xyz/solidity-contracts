@@ -12,31 +12,22 @@ contract DeployL1GasOracle is Script {
     // -------------------------------------------------------------------------
     // Edit these before broadcasting
     // -------------------------------------------------------------------------
-
-    /// @dev Hot key allowed to call `updateL1GasPrice` (must be non-zero). Replace for your chain.
     address internal constant SUBMITTER = 0x1C92DffBCe76670F69007F22A54e31ff3Ab45d5E;
+    uint256 internal constant MIN_L1_GAS_PRICE = 0;
+    uint256 internal constant MAX_L1_GAS_PRICE = 0;
 
-    /// @dev Commitment window in seconds (`1` .. `type(uint32).max`).
-    uint256 internal constant GAS_PRICE_WINDOW_SECONDS = 30;
-
-    // -------------------------------------------------------------------------
-
-    /// @notice Deploys a new `L1GasOracle` with the given submitter and window length.
-    /// @param submitter Address authorized to call `updateL1GasPrice` (must not be zero).
-    /// @param gasPriceWindowSeconds Commitment window in seconds (`1` .. `type(uint32).max`).
-    /// @return oracle The deployed oracle address.
-    function _deployL1GasOracle(address submitter, uint256 gasPriceWindowSeconds) internal returns (address oracle) {
-        require(submitter != address(0), "SUBMITTER required");
-        oracle = address(new L1GasOracle(submitter, gasPriceWindowSeconds));
+    function _deployL1GasOracle(address submitter, uint256 minPrice, uint256 maxPrice) internal returns (address) {
+        return address(new L1GasOracle(submitter, minPrice, maxPrice));
     }
 
     function run() external virtual {
         console2.log("Deploying L1GasOracle");
         console2.log("  submitter:", SUBMITTER);
-        console2.log("  gasPriceWindowSeconds:", GAS_PRICE_WINDOW_SECONDS);
+        console2.log("  minPrice:", MIN_L1_GAS_PRICE);
+        console2.log("  maxPrice:", MAX_L1_GAS_PRICE);
 
         vm.startBroadcast();
-        address oracle = _deployL1GasOracle(SUBMITTER, GAS_PRICE_WINDOW_SECONDS);
+        address oracle = _deployL1GasOracle(SUBMITTER, MIN_L1_GAS_PRICE, MAX_L1_GAS_PRICE);
         vm.stopBroadcast();
 
         console2.log("L1GasOracle deployed:", oracle);

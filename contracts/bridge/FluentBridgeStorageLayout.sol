@@ -175,6 +175,25 @@ contract FluentBridgeStorageLayout is
         return 0;
     }
 
+    /// @inheritdoc IFluentBridgeRead
+    function getSentMessageFeeAndL1GasPriceBasis() public view virtual returns (uint256 fee, uint256 l1GasPriceBasis) {
+        return (getSentMessageFee(), 0);
+    }
+
+    /// @inheritdoc IFluentBridgeRead
+    function getSentMessageFeeBand() public view virtual returns (uint256 minFee, uint256 maxFee) {
+        uint256 fee = getSentMessageFee();
+        return (fee, fee);
+    }
+
+    /// @inheritdoc IFluentBridgeRead
+    /// @dev Base default: no rollup batch concept (L2 and all relayer-delivered paths).
+    ///      Overridden by {L1FluentBridge} to return the Preconfirmed status of the
+    ///      batch index stashed during {receiveMessageWithProof} execution.
+    function isCurrentBatchPreconfirmed() public view virtual returns (bool) {
+        return false;
+    }
+
     // ============ IFluentBridgeAdmin ============
 
     /// @inheritdoc IFluentBridgeAdmin

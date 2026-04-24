@@ -51,6 +51,31 @@ interface IFluentBridgeRead {
      * @notice Fee charged on the next outbound message (0 when no fee applies).
      */
     function getSentMessageFee() external view returns (uint256);
+
+    /**
+     * @notice Same fee as {getSentMessageFee} plus the L1 gas price basis used for that quote.
+     * @dev L1: returns `(fee, 0)`. L2: `l1GasPriceBasis` is the oracle band ceiling (`max`) used for the fee formula.
+     */
+    function getSentMessageFeeAndL1GasPriceBasis() external view returns (uint256 fee, uint256 l1GasPriceBasis);
+
+    /**
+     * @notice Inclusive band of acceptable outbound-message fees.
+     *         `sendMessage` requires `msg.value >= minFee`; the actual fee charged is
+     *         `min(msg.value, maxFee)` and any excess becomes cross-chain native value.
+     * @dev L1: returns `(0, 0)` (no fee). L2: derived from the oracle's `[minL1Price, maxL1Price]` range.
+     */
+    function getSentMessageFeeBand() external view returns (uint256 minFee, uint256 maxFee);
+
+    /**
+     * @notice True iff the currently executing cross-chain message originated from an L1 batch
+     *         whose rollup status is {BatchStatus.Preconfirmed}. False in every other case —
+     *         including {BatchStatus.Finalized}, the L1 relayer path, every L2 receive path,
+     *         and any call made outside an in-flight receive execution.
+     * @dev Used by gateway-level rate limits that are only meaningful during the optimistic
+     *      preconfirmation window. Once the originating batch is Finalized the consumer MUST
+     *      treat the call as unrestricted; outside a receive the return is always false.
+     */
+    function isCurrentBatchPreconfirmed() external view returns (bool);
 }
 
 /**

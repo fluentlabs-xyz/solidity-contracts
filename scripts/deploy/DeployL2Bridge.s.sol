@@ -26,12 +26,14 @@ contract DeployL2Bridge is DeployBase {
         address relayerRole,
         address otherBridge,
         address l1BlockOracle,
+        address gasOracle,
         uint256 receiveMessageDeadline,
         address feeTreasury
     ) internal returns (L2BridgeResult memory r) {
         require(l1BlockOracle != address(0), "L1_BLOCK_ORACLE required");
+        require(gasOracle != address(0), "GAS_ORACLE required");
         require(receiveMessageDeadline > 0, "RECEIVE_MSG_DEADLINE required");
-        r.gasOracle = address(new L1GasOracle(relayerRole, 30));
+        r.gasOracle = gasOracle;
         address treasury = feeTreasury == address(0) ? adminRole : feeTreasury;
         FluentBridgeStorageLayout.InitConfiguration memory params = FluentBridgeStorageLayout.InitConfiguration({
             adminRole: adminRole,
@@ -43,7 +45,7 @@ contract DeployL2Bridge is DeployBase {
             "L2FluentBridge.sol:L2FluentBridge",
             abi.encodeCall(
                 L2FluentBridge.initialize,
-                (abi.encode(params), receiveMessageDeadline, l1BlockOracle, r.gasOracle, 0, 0, 0, treasury)
+                (abi.encode(params), receiveMessageDeadline, l1BlockOracle, gasOracle, 0, 0, 0, treasury)
             )
         );
         r.impl = Upgrades.getImplementationAddress(r.proxy);
@@ -66,14 +68,9 @@ contract DeployL2Bridge is DeployBase {
         console2.log("  receiveMessageDeadline:", receiveMessageDeadline);
 
         vm.startBroadcast();
+        address gasOracle = address(new L1GasOracle(relayerRole, 0, 0));
         L2BridgeResult memory r = _deployL2Bridge(
-            adminRole,
-            pauserRole,
-            relayerRole,
-            otherBridge,
-            l1BlockOracle,
-            receiveMessageDeadline,
-            address(0)
+            adminRole, pauserRole, relayerRole, otherBridge, l1BlockOracle, gasOracle, receiveMessageDeadline, address(0)
         );
         vm.stopBroadcast();
 

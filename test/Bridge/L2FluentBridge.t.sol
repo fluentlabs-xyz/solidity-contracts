@@ -7,7 +7,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 
 import {L2FluentBridge} from "../../contracts/bridge/L2/L2FluentBridge.sol";
 import {FluentBridgeStorageLayout} from "../../contracts/bridge/FluentBridgeStorageLayout.sol";
-import {IFluentBridgeEvents, IFluentBridgeErrors} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
+import {IFluentBridge, IFluentBridgeEvents, IFluentBridgeErrors} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {IL2FluentBridge} from "../../contracts/interfaces/bridge/IL2FluentBridge.sol";
 import {L1BlockOracle} from "../../contracts/oracles/L1BlockOracle.sol";
 import {L1GasOracle} from "../../contracts/oracles/L1GasOracle.sol";
@@ -35,7 +35,7 @@ abstract contract L2BridgeFeeBase is Test {
 
     function setUp() public virtual {
         blockOracle = new L1BlockOracle(relayer);
-        gasOracle = new L1GasOracle(relayer, 100);
+        gasOracle = new L1GasOracle(relayer, 0, 0);
 
         vm.prank(relayer);
         blockOracle.updateL1BlockNumber(1);
@@ -115,12 +115,9 @@ contract GetSentMessageFeeTest is L2BridgeFeeBase {
 
         vm.prank(relayer);
         gasOracle.updateL1GasPrice(60 gwei);
-        assertEq(bridge.getSentMessageFee(), feeBefore, "fee stays on committed price until window elapses");
-
-        vm.warp(block.timestamp + gasOracle.getGasPriceWindow());
 
         uint256 feeAfter = bridge.getSentMessageFee();
-        assertGt(feeAfter, feeBefore, "fee should increase after the commitment window");
+        assertGt(feeAfter, feeBefore, "fee should reflect new L1 gas price immediately (range-based oracle)");
 
         uint256 costPerUnit = (60 gwei * SCALAR) / 1e18 + OVERHEAD;
         assertEq(feeAfter, L1_GAS_LIMIT * costPerUnit, "fee formula mismatch after update");
@@ -230,7 +227,6 @@ contract SendMessageFeeTest is L2BridgeFeeBase {
 
         vm.prank(relayer);
         gasOracle.updateL1GasPrice(gasPrice);
-        vm.warp(block.timestamp + gasOracle.getGasPriceWindow());
 
         uint256 fee = bridge.getSentMessageFee();
         uint256 totalSent = fee + 0.5 ether;
@@ -242,6 +238,69 @@ contract SendMessageFeeTest is L2BridgeFeeBase {
         bridge.sendMessage{value: totalSent}(recipient, "");
 
         assertEq(feeTreasury.balance - treasuryBefore, fee, "treasury receives exact fee");
+    }
+
+    function test_getSentMessageFee_atPriceInRange() public {
+        vm.prank(relayer);
+        gasOracle.updateL1GasPriceRange(10 gwei, 50 gwei);
+        uint256 feeMin = bridge.getSentMessageFeeForL1GasPrice(10 gwei);
+        uint256 feeMax = bridge.getSentMessageFeeForL1GasPrice(50 gwei);
+        assertLt(feeMin, feeMax);
+        assertEq(bridge.getSentMessageFee(), feeMax);
+    }
+
+    function test_sendMessage_chargesExactMsgValueWhenInBand() public {
+        vm.prank(relayer);
+        gasOracle.updateL1GasPriceRange(20 gwei, 40 gwei);
+        (uint256 minFee, uint256 maxFee) = bridge.getSentMessageFeeBand();
+        uint256 midFee = bridge.getSentMessageFeeForL1GasPrice(30 gwei);
+        assertGt(midFee, minFee);
+        assertLt(midFee, maxFee);
+
+        vm.deal(user, midFee);
+        uint256 treasuryBefore = feeTreasury.balance;
+        vm.prank(user);
+        bridge.sendMessage{value: midFee}(recipient, "");
+
+        assertEq(feeTreasury.balance - treasuryBefore, midFee, "treasury receives exactly msg.value when in band");
+    }
+
+    function test_sendMessage_clampsFeeAtMaxFeeAndForwardsRemainderAsValue() public {
+        vm.prank(relayer);
+        gasOracle.updateL1GasPriceRange(20 gwei, 40 gwei);
+        (, uint256 maxFee) = bridge.getSentMessageFeeBand();
+        uint256 crossChainValue = 1 ether;
+        uint256 total = maxFee + crossChainValue;
+
+        vm.deal(user, total);
+        uint256 treasuryBefore = feeTreasury.balance;
+        uint256 bridgeBefore = address(bridge).balance;
+        vm.prank(user);
+        bridge.sendMessage{value: total}(recipient, "");
+
+        assertEq(feeTreasury.balance - treasuryBefore, maxFee, "treasury receives at most maxFee");
+        assertEq(address(bridge).balance - bridgeBefore, crossChainValue, "overpay above maxFee becomes cross-chain value");
+    }
+
+    function test_RevertIf_sendMessage_belowMinFee() public {
+        vm.prank(relayer);
+        gasOracle.updateL1GasPriceRange(20 gwei, 40 gwei);
+        (uint256 minFee, ) = bridge.getSentMessageFeeBand();
+        uint256 tooLow = minFee - 1;
+
+        vm.deal(user, tooLow);
+        vm.prank(user);
+        vm.expectRevert(IFluentBridgeErrors.InsufficientFee.selector);
+        bridge.sendMessage{value: tooLow}(recipient, "");
+    }
+
+    function test_RevertIf_getSentMessageFeeForL1GasPrice_priceOutOfRange() public {
+        vm.prank(relayer);
+        gasOracle.updateL1GasPriceRange(20 gwei, 40 gwei);
+        vm.expectRevert(
+            abi.encodeWithSelector(IL2FluentBridge.L1GasPriceNotInOracleRange.selector, uint256(41 gwei), uint256(20 gwei), uint256(40 gwei))
+        );
+        bridge.getSentMessageFeeForL1GasPrice(41 gwei);
     }
 }
 

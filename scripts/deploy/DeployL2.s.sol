@@ -8,6 +8,7 @@ import {DeployUniversalFactory} from "./DeployUniversalFactory.s.sol";
 import {DeployERC20Gateway} from "./DeployERC20Gateway.s.sol";
 import {DeployNativeGateway} from "./DeployNativeGateway.s.sol";
 import {L1BlockOracle} from "../../contracts/oracles/L1BlockOracle.sol";
+import {L1GasOracle} from "../../contracts/oracles/L1GasOracle.sol";
 import {UniversalTokenFactory} from "../../contracts/factories/UniversalTokenFactory.sol";
 
 /// @notice L2 orchestrator: deploys full stack in dependency order.
@@ -34,13 +35,17 @@ contract DeployL2 is DeployL2Bridge, DeployUniversalFactory, DeployERC20Gateway,
         // 1. L1BlockOracle (plain contract)
         address l1BlockOracle = address(new L1BlockOracle(relayerRole));
 
-        // 2. Bridge
+        // 2. L1GasOracle for L2 fee calculation (range starts collapsed at zero; relayer widens it later)
+        address gasOracle = address(new L1GasOracle(relayerRole, 0, 0));
+
+        // 3. Bridge
         L2BridgeResult memory bridge = _deployL2Bridge(
             adminRole,
             pauserRole,
             relayerRole,
             address(0x1),
             l1BlockOracle,
+            gasOracle,
             receiveMessageDeadline,
             address(0)
         );

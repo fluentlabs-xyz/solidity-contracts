@@ -102,10 +102,14 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
 
     // ============ Fee logic ============
 
-    /// @inheritdoc FluentBridge
-    function _chargeSendFee() internal override returns (uint256) {
-        // Compute the fee based on the current L1 gas price and config parameters
-        uint256 fee = getSentMessageFee();
+    /**
+     * @inheritdoc FluentBridge
+     * @dev `fee` is computed once by the base {FluentBridge-sendMessage} (clamped to the
+     *      oracle-derived `maxFee`) and passed through, so the transfer and the cross-chain
+     *      `value` stay in sync even if the oracle state were to change between calls
+     *      (impossible within a single tx, but defensively consistent).
+     */
+    function _chargeSendFee(uint256 fee) internal override {
         if (fee > 0) {
             // Treasury must be configured before fees can be collected
             address treasury = getFeeTreasury();
@@ -114,14 +118,36 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
             (bool success, ) = treasury.call{value: fee}("");
             require(success, FailedToDeductFee());
         }
-        // Return the fee so the caller can deduct it from the cross-chain value
-        return fee;
     }
 
     /// @inheritdoc IFluentBridgeRead
     function getSentMessageFee() public view override returns (uint256) {
         // Total fee = assumed L1 gas units * per-unit cost (scalar-adjusted L1 price + overhead)
         return getL1GasLimit() * _calculateGasCost();
+    }
+
+    /// @inheritdoc IFluentBridgeRead
+    function getSentMessageFeeAndL1GasPriceBasis() public view override returns (uint256 fee, uint256 l1GasPriceBasis) {
+        l1GasPriceBasis = IL1GasOracle(getL1GasPriceOracle()).getL1GasPrice();
+        fee = getL1GasLimit() * _calculateGasCostAt(l1GasPriceBasis);
+    }
+
+    /// @inheritdoc IFluentBridgeRead
+    function getSentMessageFeeBand() public view override returns (uint256 minFee, uint256 maxFee) {
+        (uint256 minPrice, uint256 maxPrice) = IL1GasOracle(getL1GasPriceOracle()).getL1GasPriceRange();
+        uint256 gasLimit = getL1GasLimit();
+        minFee = gasLimit * _calculateGasCostAt(minPrice);
+        maxFee = gasLimit * _calculateGasCostAt(maxPrice);
+    }
+
+    /// @inheritdoc IL2FluentBridge
+    function getSentMessageFeeForL1GasPrice(uint256 l1GasPriceForFee) public view override returns (uint256) {
+        address oracle = getL1GasPriceOracle();
+        if (!IL1GasOracle(oracle).isL1GasPriceInRange(l1GasPriceForFee)) {
+            (uint256 minP, uint256 maxP) = IL1GasOracle(oracle).getL1GasPriceRange();
+            revert IL2FluentBridge.L1GasPriceNotInOracleRange(l1GasPriceForFee, minP, maxP);
+        }
+        return getL1GasLimit() * _calculateGasCostAt(l1GasPriceForFee);
     }
 
     // ============ Receive hooks ============
@@ -212,13 +238,12 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
 
     /** @dev Computes the L1 gas cost component of the send fee using oracle price and config. */
     function _calculateGasCost() internal view returns (uint256) {
-        // Cache config in memory to avoid repeated SLOAD
+        return _calculateGasCostAt(IL1GasOracle(getL1GasPriceOracle()).getL1GasPrice());
+    }
+
+    /** @dev Per-gas cost for a given L1 gas price (wei per gas) and the bridge scalar config. */
+    function _calculateGasCostAt(uint256 l1GasPrice) internal view returns (uint256) {
         GasPriceConfig memory gasPriceConfig = getGasPriceConfig();
-        // Query the oracle for the current L1 base fee (in wei per gas unit)
-        uint256 l1GasPrice = IL1GasOracle(getL1GasPriceOracle()).getL1GasPrice();
-        // Formula: (l1GasPrice * scalarGasPrice) / 1e18 + overheadGasPrice
-        // 1e18 denominator enables fractional scaling (e.g. 1.5x = 1.5e18)
-        // overheadGasPrice adds a fixed base cost independent of L1 conditions
         return ((l1GasPrice * gasPriceConfig._scalarGasPrice)) / 1e18 + gasPriceConfig._overheadGasPrice;
     }
 

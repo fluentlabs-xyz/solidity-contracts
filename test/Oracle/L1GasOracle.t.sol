@@ -16,24 +16,62 @@ contract L1GasOracleTest is Test {
     function setUp() public {
         owner = address(this);
         submitter = makeAddr("submitter");
-        oracle = new L1GasOracle(submitter, 100);
+        oracle = new L1GasOracle(submitter, 5 gwei, 10 gwei);
     }
 
-    function test_updateL1GasPrice_submitter() public {
+    function test_constructor_storesRange() public view {
+        (uint256 minP, uint256 maxP) = oracle.getL1GasPriceRange();
+        assertEq(minP, 5 gwei);
+        assertEq(maxP, 10 gwei);
+        assertEq(oracle.getL1GasPrice(), 10 gwei);
+    }
+
+    function test_RevertIf_constructor_invalidRange() public {
+        vm.expectRevert(IL1GasOracle.InvalidGasPriceRange.selector);
+        new L1GasOracle(submitter, 10 gwei, 5 gwei);
+    }
+
+    function test_updateL1GasPriceRange_submitter() public {
+        vm.prank(submitter);
+        oracle.updateL1GasPriceRange(1 gwei, 20 gwei);
+        (uint256 minP, uint256 maxP) = oracle.getL1GasPriceRange();
+        assertEq(minP, 1 gwei);
+        assertEq(maxP, 20 gwei);
+        assertEq(oracle.getL1GasPrice(), 20 gwei);
+    }
+
+    function test_updateL1GasPrice_collapsesBand() public {
         vm.prank(submitter);
         oracle.updateL1GasPrice(7 gwei);
-        assertEq(oracle.getL1GasPrice(), 7 gwei);
+        (uint256 minP, uint256 maxP) = oracle.getL1GasPriceRange();
+        assertEq(minP, 7 gwei);
+        assertEq(maxP, 7 gwei);
     }
 
-    function test_RevertIf_updateL1GasPrice_callerNotSubmitter() public {
+    function test_isL1GasPriceInRange() public view {
+        assertTrue(oracle.isL1GasPriceInRange(7 gwei));
+        assertTrue(oracle.isL1GasPriceInRange(5 gwei));
+        assertTrue(oracle.isL1GasPriceInRange(10 gwei));
+        assertFalse(oracle.isL1GasPriceInRange(4 gwei));
+        assertFalse(oracle.isL1GasPriceInRange(11 gwei));
+    }
+
+    function test_RevertIf_updateL1GasPriceRange_callerNotSubmitter() public {
         vm.expectRevert(abi.encodeWithSelector(IL1GasOracle.UnauthorizedSubmitter.selector, user));
         vm.prank(user);
-        oracle.updateL1GasPrice(1);
+        oracle.updateL1GasPriceRange(1, 2);
+    }
+
+    function test_setL1GasPriceRange_owner() public {
+        oracle.setL1GasPriceRange(11 gwei, 15 gwei);
+        assertEq(oracle.getL1GasPrice(), 15 gwei);
     }
 
     function test_setL1GasPrice_owner() public {
-        oracle.setL1GasPrice(11 gwei);
-        assertEq(oracle.getL1GasPrice(), 11 gwei);
+        oracle.setL1GasPrice(9 gwei);
+        (uint256 minP, uint256 maxP) = oracle.getL1GasPriceRange();
+        assertEq(minP, 9 gwei);
+        assertEq(maxP, 9 gwei);
     }
 
     function test_RevertIf_setL1GasPrice_callerNotOwner() public {
@@ -54,64 +92,5 @@ contract L1GasOracleTest is Test {
     function test_RevertIf_setSubmitter_zeroAddress() public {
         vm.expectRevert(abi.encodeWithSelector(IL1GasOracle.ZeroAddressNotAllowed.selector, "submitter"));
         oracle.setSubmitter(address(0));
-    }
-
-    function test_RevertIf_constructor_zeroWindow() public {
-        vm.expectRevert(IL1GasOracle.InvalidGasPriceWindow.selector);
-        new L1GasOracle(submitter, 0);
-    }
-
-    function test_RevertIf_constructor_windowExceedsUint32() public {
-        vm.expectRevert(IL1GasOracle.InvalidGasPriceWindow.selector);
-        new L1GasOracle(submitter, uint256(type(uint32).max) + 1);
-    }
-
-    function test_queuedUpdateActivatesOnlyAfterWindow() public {
-        vm.prank(submitter);
-        oracle.updateL1GasPrice(10 gwei);
-        assertEq(oracle.getL1GasPrice(), 10 gwei);
-
-        vm.prank(submitter);
-        oracle.updateL1GasPrice(99 gwei);
-        assertEq(oracle.getL1GasPrice(), 10 gwei);
-
-        vm.warp(block.timestamp + 100);
-        assertEq(oracle.getL1GasPrice(), 99 gwei);
-    }
-
-    function test_getGasPriceCommitment_tracksWindow() public {
-        vm.prank(submitter);
-        oracle.updateL1GasPrice(5 gwei);
-        (uint256 p, uint256 until) = oracle.getGasPriceCommitment();
-        assertEq(p, 5 gwei);
-        assertEq(until, block.timestamp + 100);
-
-        vm.prank(submitter);
-        oracle.updateL1GasPrice(20 gwei);
-        (p, until) = oracle.getGasPriceCommitment();
-        assertEq(p, 5 gwei);
-        assertEq(until, block.timestamp + 100);
-
-        vm.warp(block.timestamp + 100);
-        (p, until) = oracle.getGasPriceCommitment();
-        assertEq(p, 20 gwei);
-        // At the boundary we are at `virtualEpochStart`; the next commitment edge is one full window ahead.
-        assertEq(until, block.timestamp + oracle.getGasPriceWindow());
-    }
-
-    function test_setGasPriceWindow() public {
-        oracle.setGasPriceWindow(200);
-        assertEq(oracle.getGasPriceWindow(), 200);
-    }
-
-    function test_RevertIf_setGasPriceWindow_zero() public {
-        vm.expectRevert(IL1GasOracle.InvalidGasPriceWindow.selector);
-        oracle.setGasPriceWindow(0);
-    }
-
-    function test_RevertIf_setGasPriceWindow_callerNotOwner() public {
-        vm.expectRevert(abi.encodeWithSelector(Ownable.OwnableUnauthorizedAccount.selector, user));
-        vm.prank(user);
-        oracle.setGasPriceWindow(50);
     }
 }
