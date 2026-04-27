@@ -99,13 +99,13 @@ contract MigrateL2_BridgeAndGateways is DeployBase {
         vm.stopBroadcast();
 
         // Phase 3 — WETH gateway owner (only if proxy configured)
-        if (a.wethGateway != address(0)) {
-            vm.startBroadcast(a.wethGatewayOwner);
-            address newWethImpl = address(new WETHGateway());
-            UnsafeUpgrades.upgradeProxy(payable(a.wethGateway), newWethImpl, "");
-            console2.log("WETHGateway:     ", a.wethGateway, "->", newWethImpl);
-            vm.stopBroadcast();
-        }
+//        if (a.wethGateway != address(0)) {
+//            vm.startBroadcast(a.wethGatewayOwner);
+//            address newWethImpl = address(new WETHGateway());
+//            UnsafeUpgrades.upgradeProxy(payable(a.wethGateway), newWethImpl, "");
+//            console2.log("WETHGateway:     ", a.wethGateway, "->", newWethImpl);
+//            vm.stopBroadcast();
+//        }
 
         // Phase 4 — bridge admin: whitelist local + remote gateways
         vm.startBroadcast(a.bridgeAdmin);
