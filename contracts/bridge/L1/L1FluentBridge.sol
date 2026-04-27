@@ -573,6 +573,4 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         emit DepositProcessingWindowUpdated($._depositProcessingWindow, newDepositProcessingWindow);
         $._depositProcessingWindow = uint64(newDepositProcessingWindow);
     }
-
-    receive() external payable {}
 }
