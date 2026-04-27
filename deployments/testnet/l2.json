@@ -9,9 +9,9 @@
   "l1_block_oracle": "0x19e1b30C792E417BC1827f5E2F288052b5c05e8F",
   "l1_gas_oracle": "0x207FBb4AC5227Ab598B8072BdC1E150dF687AC5B",
   "native_gateway": "0x8976Ca4E0c8467097Da675399fB7DB454a1b56dd",
-  "native_gateway_impl": "0x482Df12fbc3BA7A7f02Aa928e620fd12aF5Fd30e",
+  "native_gateway_impl": "0x2367d6389A99fC366FB552046E6A2912eD3Ccf68",
   "pegged_impl": "0x0000000000000000000000000000000000520008",
   "weth_gateway_proxy": "0x9C2baa1d32466aceC1AdDD98AA047fB7B6D55622",
-  "weth_gateway_impl": "",
+  "weth_gateway_impl": "0xB85006FC5C3D7F678A34C0d5330373b3b6CDF847",
   "weth_token": "0x927c469e58daab257ea60b2d8c37bedd2a203a54"
 }

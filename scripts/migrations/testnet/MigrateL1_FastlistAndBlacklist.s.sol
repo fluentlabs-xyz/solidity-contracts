@@ -34,11 +34,39 @@ struct FastWithdrawalTokenConfig {
  *           2. **Blacklist** — deploy {Blacklist} (UUPS proxy), seed from a text file, wire
  *              both gateways via {GatewayBase.setBlacklistRegistry}.
  *
+ * @dev Multi-signer execution. Two distinct keys are required because the privileged
+ *      surface is split across two access models:
+ *
+ *        - `BRIDGE_ADMIN` — `DEFAULT_ADMIN_ROLE` on the bridge (and initializer/owner of
+ *           the freshly-deployed {FastWithdrawalList} / {Blacklist}). Signs:
+ *             * deploy + initialize FastWithdrawalList,
+ *             * upgrade L1FluentBridge (UUPS gated by `DEFAULT_ADMIN_ROLE`),
+ *             * grantRole(CONSUMER_ROLE, gateway) on the list,
+ *             * bridge.registerGateway(...) for local + remote gateways,
+ *             * registerToken / setAlias on the list,
+ *             * deploy + initialize Blacklist,
+ *             * Blacklist.setBlacklistedBatch(...).
+ *
+ *        - `GATEWAY_OWNER` — `Ownable` owner of {ERC20Gateway} and {NativeGateway}. Signs:
+ *             * upgrade ERC20Gateway (UUPS gated by `Ownable`),
+ *             * upgrade NativeGateway (UUPS gated by `Ownable`),
+ *             * setFastWithdrawalList(list) on both gateways,
+ *             * setBlacklistRegistry(blacklist) on both gateways (if `WIRE_GATEWAYS=true`).
+ *
+ *      The script switches signer per phase via `vm.startBroadcast(address)`. Foundry
+ *      resolves the matching private key from any `--private-keys` flag(s) you pass at
+ *      broadcast time; dry-runs (no `--broadcast`) work without keys because the
+ *      simulator just uses each address as `msg.sender`.
+ *
  * @dev Environment:
  *        `ENV` (optional, default `testnet`) — reads `deployments/<ENV>/l1.json` and `l2.json`.
- *        `INITIAL_OWNER` (required) — Ownable owner for the new {Blacklist} **and** initializer
- *             owner for {FastWithdrawalList}; must also own both L1 gateways so wiring + seeding
- *             succeed in one broadcast (same model as {MigrateL1_Blacklist}).
+ *        `BRIDGE_ADMIN` (required) — bridge admin + initializer of the two new lists.
+ *        `GATEWAY_OWNER` (required) — owner of both L1 gateways (UUPS upgrade + setters).
+ *        `INITIAL_OWNER` (optional) — explicit owner address for the new
+ *             FastWithdrawalList / Blacklist. Defaults to `BRIDGE_ADMIN` (the natural
+ *             choice — the admin/role calls in this script run from `BRIDGE_ADMIN`, so
+ *             the lists' admin must be the same key for grantRole/registerToken/seed
+ *             to succeed).
  *        `BLACKLIST_FILE` (optional) — path to `0x` + 40-hex lines; defaults to
  *             `scripts/config/blacklist/black_list_eth.txt`.
  *        `WIRE_GATEWAYS` (optional, default `true`) — when `false`, skips blacklist gateway wiring
@@ -66,7 +94,9 @@ contract MigrateL1_FastlistAndBlacklist is DeployBase {
         address payable nativeGateway;
         address payable remoteErc20Gateway;
         address payable remoteNativeGateway;
-        address owner;
+        address bridgeAdmin;
+        address gatewayOwner;
+        address listOwner;
         address weth;
         address mockToken;
     }
@@ -86,12 +116,16 @@ contract MigrateL1_FastlistAndBlacklist is DeployBase {
 
         _logPlan(env, addrs, listPath, blacklistEntries.length, wireBlacklistOnGateways);
 
-        vm.startBroadcast();
+        // ===================================================================
+        // Phase 1 — BRIDGE_ADMIN: deploy FastWithdrawalList + upgrade L1 bridge.
+        // List initializer expects msg.sender == its admin (we use `listOwner`,
+        // defaulting to `bridgeAdmin`). Bridge UUPS auth is `DEFAULT_ADMIN_ROLE`.
+        // ===================================================================
+        vm.startBroadcast(addrs.bridgeAdmin);
 
-        // ----- Phase A: Fastlist -----
         FastWithdrawalList listImpl = new FastWithdrawalList();
         ERC1967Proxy listProxy = new ERC1967Proxy(
-            address(listImpl), abi.encodeCall(FastWithdrawalList.initialize, (addrs.owner))
+            address(listImpl), abi.encodeCall(FastWithdrawalList.initialize, (addrs.listOwner))
         );
         FastWithdrawalList list = FastWithdrawalList(address(listProxy));
         console2.log("FastWithdrawalList proxy:", address(list));
@@ -100,6 +134,16 @@ contract MigrateL1_FastlistAndBlacklist is DeployBase {
         address newBridgeImpl = address(new L1FluentBridge());
         UnsafeUpgrades.upgradeProxy(addrs.bridge, newBridgeImpl, "");
         console2.log("L1FluentBridge:", addrs.bridge, "->", newBridgeImpl);
+
+        vm.stopBroadcast();
+
+        // ===================================================================
+        // Phase 2 — GATEWAY_OWNER: upgrade gateway proxies + wire the list.
+        // ERC20Gateway / NativeGateway UUPS auth is `Ownable.onlyOwner`, and so
+        // are setFastWithdrawalList / setBlacklistRegistry — all must be signed
+        // by the gateways' Ownable owner.
+        // ===================================================================
+        vm.startBroadcast(addrs.gatewayOwner);
 
         address newErc20GatewayImpl = address(new ERC20Gateway());
         UnsafeUpgrades.upgradeProxy(addrs.erc20Gateway, newErc20GatewayImpl, "");
@@ -117,6 +161,17 @@ contract MigrateL1_FastlistAndBlacklist is DeployBase {
         NativeGateway(addrs.nativeGateway).setFastWithdrawalList(address(list));
         console2.log("setFastWithdrawalList: erc20Gateway, nativeGateway");
 
+        vm.stopBroadcast();
+
+        // ===================================================================
+        // Phase 3 — BRIDGE_ADMIN: grant CONSUMER_ROLE on the list, register
+        // local + remote gateways on the bridge, register tokens, deploy +
+        // seed Blacklist. All of these are gated by either the new list's
+        // admin role (= listOwner = bridgeAdmin by default) or the bridge's
+        // DEFAULT_ADMIN_ROLE.
+        // ===================================================================
+        vm.startBroadcast(addrs.bridgeAdmin);
+
         bytes32 consumerRole = list.CONSUMER_ROLE();
         list.grantRole(consumerRole, addrs.erc20Gateway);
         list.grantRole(consumerRole, addrs.nativeGateway);
@@ -132,10 +187,9 @@ contract MigrateL1_FastlistAndBlacklist is DeployBase {
 
         _registerFastWithdrawalTokens(list, addrs.weth, addrs.mockToken);
 
-        // ----- Phase B: Blacklist -----
         Blacklist blImpl = new Blacklist();
         ERC1967Proxy blProxy = new ERC1967Proxy(
-            address(blImpl), abi.encodeCall(Blacklist.initialize, (addrs.owner))
+            address(blImpl), abi.encodeCall(Blacklist.initialize, (addrs.listOwner))
         );
         Blacklist blacklist = Blacklist(address(blProxy));
         console2.log("Blacklist proxy:", address(blacklist));
@@ -144,14 +198,21 @@ contract MigrateL1_FastlistAndBlacklist is DeployBase {
         blacklist.setBlacklistedBatch(blacklistEntries, true);
         console2.log("Seeded blacklist entries:", blacklistEntries.length);
 
+        vm.stopBroadcast();
+
+        // ===================================================================
+        // Phase 4 — GATEWAY_OWNER: setBlacklistRegistry on both gateways.
+        // Owner-gated; skipped when WIRE_GATEWAYS=false (operator does it
+        // separately, e.g. via timelock).
+        // ===================================================================
         if (wireBlacklistOnGateways) {
+            vm.startBroadcast(addrs.gatewayOwner);
             ERC20Gateway(addrs.erc20Gateway).setBlacklistRegistry(address(blacklist));
             console2.log("ERC20Gateway.setBlacklistRegistry:  ", addrs.erc20Gateway);
             NativeGateway(addrs.nativeGateway).setBlacklistRegistry(address(blacklist));
             console2.log("NativeGateway.setBlacklistRegistry: ", addrs.nativeGateway);
+            vm.stopBroadcast();
         }
-
-        vm.stopBroadcast();
 
         console2.log("");
         console2.log("== Migration complete ==");
@@ -226,7 +287,12 @@ contract MigrateL1_FastlistAndBlacklist is DeployBase {
         addrs.nativeGateway = payable(_readAddr(l1Manifest, "native_gateway"));
         addrs.remoteErc20Gateway = payable(_readAddr(l2Manifest, "erc20_gateway"));
         addrs.remoteNativeGateway = payable(_readAddr(l2Manifest, "native_gateway"));
-        addrs.owner = vm.envAddress("INITIAL_OWNER");
+        addrs.bridgeAdmin = vm.envAddress("BRIDGE_ADMIN");
+        addrs.gatewayOwner = vm.envAddress("GATEWAY_OWNER");
+        // Default the new lists' owner to BRIDGE_ADMIN so phase 3 calls (grantRole,
+        // registerToken/setAlias, setBlacklistedBatch) succeed under the same signer.
+        // Override via INITIAL_OWNER if you need a separate admin (e.g. a multisig).
+        addrs.listOwner = vm.envOr("INITIAL_OWNER", addrs.bridgeAdmin);
         addrs.weth = _readAddr(l1Manifest, "weth_token");
         addrs.mockToken = _readAddr(l1Manifest, "mock_token");
 
@@ -235,7 +301,9 @@ contract MigrateL1_FastlistAndBlacklist is DeployBase {
         require(addrs.nativeGateway != address(0), "L1 native_gateway address missing in manifest");
         require(addrs.remoteErc20Gateway != address(0), "L2 erc20_gateway address missing in manifest");
         require(addrs.remoteNativeGateway != address(0), "L2 native_gateway address missing in manifest");
-        require(addrs.owner != address(0), "INITIAL_OWNER required");
+        require(addrs.bridgeAdmin != address(0), "BRIDGE_ADMIN required");
+        require(addrs.gatewayOwner != address(0), "GATEWAY_OWNER required");
+        require(addrs.listOwner != address(0), "INITIAL_OWNER (or BRIDGE_ADMIN) required");
     }
 
     function _logPlan(
@@ -246,14 +314,16 @@ contract MigrateL1_FastlistAndBlacklist is DeployBase {
         bool wireBlacklistOnGateways
     ) internal pure {
         console2.log("== MigrateL1_FastlistAndBlacklist (testnet) ==");
-        console2.log("env:                  ", env);
-        console2.log("L1 bridge:            ", addrs.bridge);
-        console2.log("L1 erc20Gateway:      ", addrs.erc20Gateway);
-        console2.log("L1 nativeGateway:     ", addrs.nativeGateway);
-        console2.log("L2 erc20Gateway:      ", addrs.remoteErc20Gateway);
-        console2.log("L2 nativeGateway:     ", addrs.remoteNativeGateway);
-        console2.log("Owner (lists + gates):", addrs.owner);
-        console2.log("WETH (manifest):      ", addrs.weth);
+        console2.log("env:                 ", env);
+        console2.log("L1 bridge:           ", addrs.bridge);
+        console2.log("L1 erc20Gateway:     ", addrs.erc20Gateway);
+        console2.log("L1 nativeGateway:    ", addrs.nativeGateway);
+        console2.log("L2 erc20Gateway:     ", addrs.remoteErc20Gateway);
+        console2.log("L2 nativeGateway:    ", addrs.remoteNativeGateway);
+        console2.log("BRIDGE_ADMIN signer: ", addrs.bridgeAdmin);
+        console2.log("GATEWAY_OWNER signer:", addrs.gatewayOwner);
+        console2.log("New lists' owner:    ", addrs.listOwner);
+        console2.log("WETH (manifest):     ", addrs.weth);
         console2.log("Mock token:          ", addrs.mockToken);
         console2.log("Blacklist file:      ", listPath);
         console2.log("Blacklist entries:   ", blacklistCount);
