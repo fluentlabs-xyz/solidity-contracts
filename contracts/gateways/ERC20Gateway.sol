@@ -110,8 +110,12 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
     /// @inheritdoc IERC20Gateway
     function sendTokens(address token, address to, uint256 amount) external payable nonReentrant {
         address sender = msg.sender;
+        // Cache storage-backed routing addresses once so we do not re-read them after
+        // external token calls in _sendOriginTokens/_sendPeggedTokens.
+        address otherSideGateway = getOtherSideGateway();
+        address bridgeContract = getBridgeContract();
         // Ensure the remote gateway has been configured — cannot route messages without a destination
-        require(getOtherSideGateway() != address(0), ZeroAddressNotAllowed("getOtherSideGateway"));
+        require(otherSideGateway != address(0), ZeroAddressNotAllowed("getOtherSideGateway"));
         // Prevent accidental burns to the zero address on the destination chain
         require(to != address(0), InvalidRecipient());
         // Prevent sending zero tokens — disallow no-op messages that still consume bridge fees
@@ -119,7 +123,7 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         // Exact fee required — excess ETH would become cross-chain native value, but receive
         // functions (receivePeggedTokens/receiveOriginTokens) are not payable, so delivery
         // would permanently fail and lock both the ETH and the bridged tokens
-        require(msg.value == FluentBridge(getBridgeContract()).getSentMessageFee(), ExactFeeRequired());
+        require(msg.value == FluentBridge(bridgeContract).getSentMessageFee(), ExactFeeRequired());
         // Prevent sending tokens to/from blacklisted accounts
         _requireAccountNotBlacklisted(sender);
         _requireAccountNotBlacklisted(to);
@@ -139,7 +143,7 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
 
         // Forward the encoded message to FluentBridge for cross-chain delivery.
         // msg.value is passed through as the bridge fee paid by the caller.
-        FluentBridge(getBridgeContract()).sendMessage{value: msg.value}(getOtherSideGateway(), message);
+        FluentBridge(bridgeContract).sendMessage{value: msg.value}(otherSideGateway, message);
     }
 
     /// @dev Used on L1 to send origin tokens to the other side.
