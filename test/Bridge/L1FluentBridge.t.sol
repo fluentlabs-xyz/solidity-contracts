@@ -5,14 +5,14 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 
 import {L1FluentBridge} from "../../contracts/bridge/L1/L1FluentBridge.sol";
 import {FluentBridgeStorageLayout} from "../../contracts/bridge/FluentBridgeStorageLayout.sol";
-import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
+import {IFluentBridge, IFluentBridgeEvents} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {IL1FluentBridge} from "../../contracts/interfaces/bridge/IL1FluentBridge.sol";
 import {IFluentBridgeErrors} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 import {L2BlockHeader} from "../../contracts/interfaces/rollup/IRollupTypes.sol";
 import {IRollupErrors} from "../../contracts/interfaces/rollup/IRollup.sol";
 import {MockRollup} from "../mocks/MockRollup.sol";
-import {BridgeBase, NoopReceiver} from "./Base.t.sol";
+import {BridgeBase, NoopReceiver, RevertingReceiver} from "./Base.t.sol";
 
 contract L1FluentBridgeTest is BridgeBase {
     address internal otherBridge = makeAddr("otherBridge");
@@ -399,6 +399,74 @@ contract L1FluentBridgeTest is BridgeBase {
             uint8(l1Bridge.getReceivedMessage(f.messageHash)),
             uint8(IFluentBridge.MessageStatus.Success),
             "message should be marked as received"
+        );
+    }
+
+    function test_receiveMessageWithProof_emitsReceivedMessageOnSuccess() public {
+        ProofFixture memory f = _validProofFixture();
+
+        vm.expectEmit(true, true, true, true, address(l1Bridge));
+        emit IFluentBridgeEvents.ReceivedMessage(f.messageHash, true, "");
+
+        _executeReceiveWithProof(f);
+    }
+
+    function test_receiveMessageWithProof_emitsReceivedMessageOnFailure() public {
+        rollup.setFinalized(true);
+
+        address from = makeAddr("l2sender");
+        RevertingReceiver target = new RevertingReceiver();
+        address payable to = payable(address(target));
+        // Gateway whitelist is checked inside _receiveMessage before the call to the
+        // target. Without registration the path short-circuits with GatewayNotWhitelisted
+        // before the emit, defeating the assertion.
+        _registerOnL1Bridge(to);
+
+        uint256 value = 0;
+        uint256 chainId = block.chainid + 1;
+        uint256 validUntilBlockNumber = 1;
+        uint256 messageNonce = 0;
+        bytes memory message = abi.encodeCall(RevertingReceiver.fail, ());
+
+        bytes32 messageHash = keccak256(
+            abi.encode(from, to, value, chainId, validUntilBlockNumber, messageNonce, message)
+        );
+
+        L2BlockHeader memory header = L2BlockHeader({
+            previousBlockHash: bytes32(uint256(1)),
+            blockHash: bytes32(uint256(2)),
+            withdrawalRoot: messageHash,
+            depositRoot: bytes32(0),
+            depositCount: 0
+        });
+
+        bytes32 commitment = keccak256(
+            abi.encodePacked(header.previousBlockHash, header.blockHash, header.withdrawalRoot, header.depositRoot)
+        );
+        rollup.setBatchRoot(1, commitment);
+
+        MerkleTree.MerkleProof memory emptyProof = MerkleTree.MerkleProof(0, "");
+
+        // RevertingReceiver.fail() does `revert("receiver-failed")`, which Solidity encodes
+        // as Error(string) and ExcessivelySafeCall surfaces verbatim.
+        bytes memory expectedReturnData = abi.encodeWithSignature("Error(string)", "receiver-failed");
+
+        vm.expectEmit(true, true, true, true, address(l1Bridge));
+        emit IFluentBridgeEvents.ReceivedMessage(messageHash, false, expectedReturnData);
+
+        vm.prank(relayer);
+        l1Bridge.receiveMessageWithProof(
+            1,
+            header,
+            from,
+            to,
+            value,
+            chainId,
+            validUntilBlockNumber,
+            messageNonce,
+            message,
+            emptyProof,
+            emptyProof
         );
     }
 
