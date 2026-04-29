@@ -118,8 +118,12 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
 
     /// @inheritdoc IFluentBridgeRead
     function getSentMessageFee() public view override returns (uint256) {
-        // Total fee = assumed L1 gas units * per-unit cost (scalar-adjusted L1 price + overhead)
-        return getL1GasLimit() * _calculateGasCost();
+        // Read fee config from storage once and compute fee inline on the hot send path.
+        GasPriceConfig storage gasPriceConfig = _getL2FluentBridgeStorage()._gasPriceConfig;
+        uint256 l1GasPrice = IL1GasOracle(getL1GasPriceOracle()).getL1GasPrice();
+        uint256 perUnitCost = ((l1GasPrice * gasPriceConfig._scalarGasPrice)) / 1e18 + gasPriceConfig._overheadGasPrice;
+        // Total fee = assumed L1 gas units * per-unit cost (scalar-adjusted L1 price + overhead).
+        return gasPriceConfig._l1GasLimit * perUnitCost;
     }
 
     // ============ Receive hooks ============
@@ -199,14 +203,14 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
      * @notice Returns the assumed L1 gas units used for fee calculation.
      */
     function getL1GasLimit() public view returns (uint256) {
-        // Reads via getGasPriceConfig() which loads the full struct into memory
-        return getGasPriceConfig()._l1GasLimit;
+        // Read directly from storage to avoid a full struct memory copy.
+        return _getL2FluentBridgeStorage()._gasPriceConfig._l1GasLimit;
     }
 
     /** @dev Computes the L1 gas cost component of the send fee using oracle price and config. */
     function _calculateGasCost() internal view returns (uint256) {
-        // Cache config in memory to avoid repeated SLOAD
-        GasPriceConfig memory gasPriceConfig = getGasPriceConfig();
+        // Read config from storage to avoid a full struct memory copy.
+        GasPriceConfig storage gasPriceConfig = _getL2FluentBridgeStorage()._gasPriceConfig;
         // Query the oracle for the current L1 base fee (in wei per gas unit)
         uint256 l1GasPrice = IL1GasOracle(getL1GasPriceOracle()).getL1GasPrice();
         // Formula: (l1GasPrice * scalarGasPrice) / 1e18 + overheadGasPrice
