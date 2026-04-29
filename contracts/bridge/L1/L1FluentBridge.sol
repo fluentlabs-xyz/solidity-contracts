@@ -262,7 +262,8 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         _currentBatchIndex = batchIndex;
         // Execute the cross-chain message with gasleft(), forwarding remaining gas
         // _receiveMessage records the outcome (Success/Failed) in storage
-        _receiveMessage(getExecuteGasLimit(), from, to, value, message, messageHash);
+        (bool success, bytes memory data) = _receiveMessage(getExecuteGasLimit(), from, to, value, message, messageHash);
+        emit ReceivedMessage(messageHash, success, data);
         // Clear the transient batch index
         _currentBatchIndex = 0;
     }
