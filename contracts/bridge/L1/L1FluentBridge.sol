@@ -154,7 +154,8 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         uint256 /** chainId */,
         uint256 /** validUntilBlockNumber */,
         uint256 /** messageNonce */,
-        bytes calldata /** message */
+        bytes calldata /** message */,
+        bytes32 /** messageHash */
     ) internal view override returns (bool) {
         // Ensures the bridge has enough balance to cover the value being sent before allowing the message to be sent.
         if (value > 0) require(address(this).balance >= value, InsufficientBridgeBalance(value));
@@ -253,7 +254,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         // Prevent re-entrant calls back into the bridge itself
         require(to != address(this), ForbiddenSelfCall());
         // Hook for subclass logic (e.g. committed expiry check on L2); false = silently skip
-        if (!_beforeReceiveMessage(from, to, value, chainId, validUntilBlockNumber, messageNonce, message)) return;
+        if (!_beforeReceiveMessage(from, to, value, chainId, validUntilBlockNumber, messageNonce, message, messageHash)) return;
         // Stash the originating batch index for the duration of {_receiveMessage} so the
         // downstream gateway can consult {isCurrentBatchPreconfirmed}. Transient storage
         // (EIP-1153) auto-clears at tx end — no manual reset needed, and a revert anywhere

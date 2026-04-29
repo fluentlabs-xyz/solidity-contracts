@@ -134,13 +134,14 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
      *      for later proof-based rollback on L1). Returns false to skip execution.
      */
     function _beforeReceiveMessage(
-        address from,
-        address to,
+        address /* from */,
+        address /* to */,
         uint256 value,
-        uint256 chainId,
+        uint256 /* chainId */,
         uint256 validUntilBlockNumber,
-        uint256 messageNonce,
-        bytes calldata message
+        uint256 /* messageNonce */,
+        bytes calldata /* message */,
+        bytes32 messageHash
     ) internal override returns (bool) {
         // Inbound L1->L2 messages must carry a committed expiry block from L1.
         require(validUntilBlockNumber > 0, ZeroValueNotAllowed("validUntilBlockNumber"));
@@ -151,8 +152,6 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
         // If the oracle returns 0, it means the L1 block number is not available yet. In this case, we cannot perform the deadline check.
         require(l1BlockNumber > 0, ZeroValueNotAllowed("l1BlockNumber"));
 
-        // Reconstruct the message hash to record the outcome in storage
-        bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, validUntilBlockNumber, messageNonce, message));
         // Check whether the message has reached its committed absolute expiry block.
         // The deadline was frozen into the message hash on L1 at send time, so admin
         // updates to the receive-message deadline never retroactively affect this message.

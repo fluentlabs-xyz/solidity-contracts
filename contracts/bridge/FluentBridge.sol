@@ -100,7 +100,7 @@ abstract contract FluentBridge is FluentBridgeStorageLayout, IFluentBridgeWrite 
         require(getReceivedMessage(messageHash) == IFluentBridge.MessageStatus.None, MessageAlreadyReceived());
 
         require(to != address(this), ForbiddenSelfCall());
-        if (!_beforeReceiveMessage(from, to, value, chainId, validUntilBlockNumber, messageNonce, message)) {
+        if (!_beforeReceiveMessage(from, to, value, chainId, validUntilBlockNumber, messageNonce, message, messageHash)) {
             emit ReceivedMessage(messageHash, false, "");
             return;
         }
@@ -123,7 +123,7 @@ abstract contract FluentBridge is FluentBridgeStorageLayout, IFluentBridgeWrite 
         require(getReceivedMessage(messageHash) == IFluentBridge.MessageStatus.Failed, MessageNotFailed());
 
         require(to != address(this), ForbiddenSelfCall());
-        if (!_beforeReceiveMessage(from, to, value, chainId, validUntilBlockNumber, messageNonce, message)) {
+        if (!_beforeReceiveMessage(from, to, value, chainId, validUntilBlockNumber, messageNonce, message, messageHash)) {
             emit RetriedFailedMessage(messageHash, false, "");
             return;
         }
@@ -143,7 +143,8 @@ abstract contract FluentBridge is FluentBridgeStorageLayout, IFluentBridgeWrite 
         uint256 /* _chainId */,
         uint256 /* _validUntilBlockNumber */,
         uint256 /* _messageNonce */,
-        bytes calldata /* _message */
+        bytes calldata /* _message */,
+        bytes32 /* _messageHash */
     ) internal virtual returns (bool) {
         return true;
     }
