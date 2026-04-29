@@ -233,13 +233,14 @@ library Heap {
      * @dev Swaps elements at positions `a` and `b`, updating their 1-based index tracking.
      */
     function _swap(HeapStorage storage self, mapping(bytes32 => uint256) storage commitmentQueueIndex, uint256 a, uint256 b) private {
-        // Classic three-variable swap of the commitment hashes
-        bytes32 tmp = self.data[a];
-        self.data[a] = self.data[b];
-        self.data[b] = tmp;
+        // Cache both values once, then swap and reuse stack values for index updates.
+        bytes32 valueAtA = self.data[a];
+        bytes32 valueAtB = self.data[b];
+        self.data[a] = valueAtB;
+        self.data[b] = valueAtA;
 
         // Keep the index mapping in sync so remove() can locate elements in O(1)
-        commitmentQueueIndex[self.data[a]] = a + 1;
-        commitmentQueueIndex[self.data[b]] = b + 1;
+        commitmentQueueIndex[valueAtB] = a + 1;
+        commitmentQueueIndex[valueAtA] = b + 1;
     }
 }
