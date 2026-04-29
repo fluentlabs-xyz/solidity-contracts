@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
-import {Script, stdJson, console2} from "forge-std/Script.sol";
+import {console2, stdJson} from "forge-std/Script.sol";
 
+import {DeployBase} from "../deploy/DeployBase.s.sol";
 import {WETHGateway} from "../../contracts/gateways/WETHGateway.sol";
 
 /// @dev Minimal surface for {FluentBridge} gateway registration checks.
@@ -20,29 +21,107 @@ interface IERC20GatewayBridgingCheck {
     function isBridgingExcludedOrigin(address originToken) external view returns (bool);
 }
 
-/// @title VerifyWethReleaseDeployment
-/// @author Fluent Labs
+/// @title VerifyDeployments
+/// @notice Single entrypoint for deployment sanity checks (no broadcast).
 ///
-/// @notice Post-migration sanity checks for WETH gateway wiring across L1 and L2.
-///         Runs entirely in Solidity: forks Sepolia (or `L1_RPC`) then Fluent L2 (`FLUENT_TESTNET_RPC_URL`
-///         or `L2_RPC`) and asserts on-chain state matches expectations.
+/// **1) Manifest (`run` / `runManifest`)** — every non-zero address in the manifest JSON must have code.
+///     Uses one chain; pass `--fork-url <RPC>` matching the manifest chain (or rely on default RPC).
 ///
-/// @dev Run (no broadcast):
-///        source .env && forge script scripts/verify/VerifyWethReleaseDeployment.s.sol:VerifyWethReleaseDeployment \
-///          --sig run -vvv
+///     Env: `ENV` (default `testnet`), `LAYER` (`l1` | `l2`), or `MANIFEST_PATH` override.
 ///
-///      Environment:
-///        - `ENV` (default `testnet`) — reads `deployments/<ENV>/l1.json` and `l2.json` for bridge + factory + erc20_gateway.
-///        - `SEPOLIA_RPC_URL` or `L1_RPC` — L1 fork URL (required).
-///        - `FLUENT_TESTNET_RPC_URL` or `L2_RPC` — L2 fork URL (required).
-///        - `WETH_GATEWAY_L1` — L1 WETH gateway proxy (required).
-///        - `WETH_GATEWAY_L2` — L2 WETH gateway proxy (required).
-///        - `L1_WETH_ADDRESS` (optional) — if set: asserted against `WETHGateway.getWETH()` on L1, and both
-///          chains' `ERC20Gateway.isBridgingExcludedOrigin(L1_WETH_ADDRESS)` must be true.
-contract VerifyWethReleaseDeployment is Script {
+/// **2) WETH release (`runWethRelease`)** — dual-fork checks after WETH gateway wiring (L1 Sepolia + Fluent L2).
+///
+///     Env: `ENV`, `WETH_GATEWAY_L1`, `WETH_GATEWAY_L2`, `SEPOLIA_RPC_URL` or `L1_RPC`,
+///     `FLUENT_TESTNET_RPC_URL` / `FLUENT_DEV_RPC_URL` / `L2_RPC`; optional `L1_WETH_ADDRESS`.
+///
+/// @dev Examples:
+///        forge script scripts/verify/VerifyDeployments.s.sol:VerifyDeployments --sig runManifest -vvv \\
+///          --fork-url "$RPC_URL_SEPOLIA_ETH"
+///
+///        source .env && forge script scripts/verify/VerifyDeployments.s.sol:VerifyDeployments \\
+///          --sig runWethRelease -vvv
+contract VerifyDeployments is DeployBase {
     using stdJson for string;
 
-    function run() external {
+    // -------------------------------------------------------------------------
+    // Manifest: every listed address has bytecode
+    // -------------------------------------------------------------------------
+
+    /// @notice Manifest check only; same as `runManifest`.
+    function run() external view {
+        _runManifest();
+    }
+
+    function runManifest() external view {
+        _runManifest();
+    }
+
+    function _runManifest() internal view {
+        string memory path = _manifestPath();
+        string memory json = vm.readFile(path);
+        console2.log("VerifyDeployments: manifest (code presence)");
+        console2.log("  path:", path);
+
+        // Union of address keys across deployments/*/l1.json and l2.json (omit chainId).
+        string[24] memory keys = [
+            "bridge",
+            "bridge_impl",
+            "rollup",
+            "rollup_impl",
+            "nitro_verifier",
+            "factory",
+            "factory_impl",
+            "factory_beacon",
+            "pegged_impl",
+            "erc20_gateway",
+            "erc20_gateway_impl",
+            "native_gateway",
+            "native_gateway_impl",
+            "mock_token",
+            "l1_block_oracle",
+            "l1_gas_oracle",
+            "weth_gateway_proxy",
+            "weth_gateway_impl",
+            "weth_token",
+            "timelock",
+            "fast_withdrawal_list_proxy",
+            "fast_withdrawal_list_impl",
+            "blacklist_proxy",
+            "blacklist_impl"
+        ];
+
+        uint256 checked;
+        uint256 failed;
+        uint256 skipped;
+
+        for (uint256 i = 0; i < keys.length; i++) {
+            address addr = _readAddr(json, keys[i]);
+            if (addr == address(0)) {
+                skipped++;
+                continue;
+            }
+
+            checked++;
+            if (addr.code.length == 0) {
+                console2.log("  FAIL:", keys[i], addr);
+                failed++;
+            } else {
+                console2.log("  OK:  ", keys[i], addr);
+            }
+        }
+
+        console2.log("");
+        console2.log("Checked:", checked);
+        console2.log("Failed:", failed);
+        console2.log("Skipped:", skipped);
+        require(failed == 0, "Deployment verification failed");
+    }
+
+    // -------------------------------------------------------------------------
+    // WETH release: L1 + L2 fork integration checks
+    // -------------------------------------------------------------------------
+
+    function runWethRelease() external {
         string memory env = vm.envOr("ENV", string("testnet"));
         string memory l1Json = vm.readFile(string.concat("deployments/", env, "/l1.json"));
         string memory l2Json = vm.readFile(string.concat("deployments/", env, "/l2.json"));
@@ -61,7 +140,6 @@ contract VerifyWethReleaseDeployment is Script {
         require(l1Erc20Gateway != address(0), "manifest: L1 erc20_gateway missing");
         require(wethGwL1 != address(0) && wethGwL2 != address(0), "WETH_GATEWAY_L1 / WETH_GATEWAY_L2 required");
 
-        // ---------- L1 fork ----------
         string memory l1Rpc = _l1Rpc();
         vm.createSelectFork(l1Rpc);
         console2.log("--- L1 fork ---", l1Rpc);
@@ -96,7 +174,6 @@ contract VerifyWethReleaseDeployment is Script {
             console2.log("L1 ERC20Gateway: L1 WETH excluded OK");
         }
 
-        // ---------- L2 fork ----------
         string memory l2Rpc = _l2Rpc();
         vm.createSelectFork(l2Rpc);
         console2.log("--- L2 fork ---", l2Rpc);
@@ -150,11 +227,12 @@ contract VerifyWethReleaseDeployment is Script {
         return u;
     }
 
-    function _readAddr(string memory json, string memory key) internal view returns (address) {
-        string memory nested = string.concat(".deployment.", key);
-        if (vm.keyExistsJson(json, nested)) return json.readAddress(nested);
-        string memory flat = string.concat(".", key);
-        if (vm.keyExistsJson(json, flat)) return json.readAddress(flat);
-        return address(0);
+    function _manifestPath() internal view returns (string memory) {
+        string memory override_ = vm.envOr("MANIFEST_PATH", string(""));
+        if (bytes(override_).length > 0) return override_;
+
+        string memory env = vm.envOr("ENV", string("testnet"));
+        string memory layer = vm.envString("LAYER");
+        return string.concat("deployments/", env, "/", layer, ".json");
     }
 }

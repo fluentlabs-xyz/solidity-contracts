@@ -283,12 +283,17 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
 
     // ============ Rollback ============
 
-    /// @inheritdoc IL1FluentBridge
-    /// @dev NOT IMPLEMENTED. Rollback of expired L1→L2 deposits is intentionally disabled
-    ///      for this release. The full flow (batch-finalized check, chainId guard, balance
-    ///      early-exit, dedup against received/rollback, two Merkle proofs, refund) is
-    ///      preserved in git history and will be restored together with the user-initiated
-    ///      cancel/refund mechanism that replaces {skipExpiredDeposits}.
+    /**
+     * @inheritdoc IL1FluentBridge
+
+     * @notice NOT IMPLEMENTED.
+
+     * @dev Rollback of expired L1→L2 deposits is intentionally disabled
+     *      for this release. The full flow (batch-finalized check, chainId guard, balance
+     *      early-exit, dedup against received/rollback, two Merkle proofs, refund) is
+     *      preserved in git history and will be restored together with the user-initiated
+     *      cancel/refund mechanism that replaces {skipExpiredDeposits}.
+     */
     function rollbackMessageWithProof(
         uint256 /** batchIndex */,
         L2BlockHeader calldata /** blockHeader */,

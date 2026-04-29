@@ -157,7 +157,11 @@ contract NitroVerifier is AccessControl, INitroVerifier {
      *                         committed inside the SP1 proof.
      * @param proofBytes       Encoded SP1 proof.
      */
-    function verifyAttestation(address expectedPubkey, uint64 attestationTime, bytes calldata proofBytes) external onlyRole(ENCLAVE_ATTESTER_ROLE) {
+    function verifyAttestation(
+        address expectedPubkey,
+        uint64 attestationTime,
+        bytes calldata proofBytes
+    ) external onlyRole(ENCLAVE_ATTESTER_ROLE) {
         require(expectedPubkey != address(0), ZeroAddress());
         require(!verifiedPubkeys[expectedPubkey], PubkeyAlreadyVerified());
 

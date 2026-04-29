@@ -9,10 +9,14 @@ import {IFluentBridge, IFluentBridgeRead} from "../../contracts/interfaces/bridg
 import {IL1FluentBridge} from "../../contracts/interfaces/bridge/IL1FluentBridge.sol";
 import {IL2FluentBridge} from "../../contracts/interfaces/bridge/IL2FluentBridge.sol";
 import {IGenericTokenFactory} from "../../contracts/interfaces/IGenericTokenFactory.sol";
+import {IERC20Gateway} from "../../contracts/interfaces/gateways/IERC20Gateway.sol";
 import {IGatewayBase} from "../../contracts/interfaces/gateways/IGatewayBase.sol";
 import {GenericTokenFactory} from "../../contracts/factories/GenericTokenFactory.sol";
 
-/// @notice L2 bridge views not declared on {IL2FluentBridge}.
+/// @dev Reserved "pegged implementation" system address on Fluent L2 manifests (not an ERC20PeggedToken impl).
+address constant PEGGED_IMPL_L2_PLACEHOLDER = 0x0000000000000000000000000000000000520008;
+
+/// @notice L2 bridge views not yet declared on {IL2FluentBridge} in `contracts/interfaces` (see {L2FluentBridge}).
 interface IL2FluentBridgeSnapshot is IL2FluentBridge {
     function getL1GasPriceOracle() external view returns (address);
 
@@ -34,6 +38,11 @@ interface IERC20GatewaySnapshot {
     function getBridgeContract() external view returns (address);
 }
 
+/// @notice WETH gateway (local WETH + wrap/unwrap) — see {WETHGateway}.
+interface IWETHGatewaySnapshot {
+    function getWETH() external view returns (address);
+}
+
 interface IOwnableSnapshot {
     function owner() external view returns (address);
 
@@ -52,6 +61,9 @@ interface IPausableSnapshot {
 /// - `ENV` (default `testnet`) + `LAYER` (`l1` or `l2`) → `deployments/<ENV>/<LAYER>.json`
 /// - or `MANIFEST_PATH` to override the JSON path
 /// - optional `SNAPSHOT_SCOPE`: `all` | `bridge` | `gateways` | `factories` (default `all`)
+///
+/// L1 vs L2: resolved from manifest `chainId` when present (`1` / `11155111` = L1; other = L2/Fluent),
+///            else falls back to path ending in `/l2.json`.
 contract SnapshotFluentStorage is DeployBase {
     using stdJson for string;
 
@@ -71,11 +83,12 @@ contract SnapshotFluentStorage is DeployBase {
             _snapshotGateways(json, _readAddr(json, "bridge"));
         }
         if (_eq(scope, "all") || _eq(scope, "factories")) {
-            _snapshotFactories(json);
+            _snapshotFactories(json, _isL2Manifest(json, path));
         }
     }
 
     function _snapshotBridge(string memory json, string memory path) internal {
+        bool isL2 = _isL2Manifest(json, path);
         address bridge = _readAddr(json, "bridge");
         console2.log("");
         console2.log("=== FluentBridge (proxy) ===");
@@ -133,7 +146,13 @@ contract SnapshotFluentStorage is DeployBase {
             console2.log("  getNativeSender: <reverted>");
         }
 
-        if (_manifestIsL2(path)) {
+        try IFluentBridgeRead(bridge).isCurrentBatchPreconfirmed() returns (bool v) {
+            console2.log("  isCurrentBatchPreconfirmed:", v);
+        } catch {
+            console2.log("  isCurrentBatchPreconfirmed: <reverted>");
+        }
+
+        if (isL2) {
             IL2FluentBridgeSnapshot l2b = IL2FluentBridgeSnapshot(bridge);
 
             try l2b.getL1BlockOracle() returns (address v) {
@@ -148,9 +167,10 @@ contract SnapshotFluentStorage is DeployBase {
                 console2.log("  [L2] getL1GasPriceOracle: <reverted>");
             }
 
+            // {L2FluentBridge-getGasPriceConfig} returns a struct; ABI-decode as three uint256 fields.
             try l2b.getGasPriceConfig() returns (uint256 oh, uint256 sc, uint256 lim) {
-                console2.log("  [L2] gasPriceConfig overhead:", oh);
-                console2.log("  [L2] gasPriceConfig scalar:", sc);
+                console2.log("  [L2] gasPriceConfig overheadGasPrice:", oh);
+                console2.log("  [L2] gasPriceConfig scalarGasPrice:", sc);
                 console2.log("  [L2] gasPriceConfig l1GasLimit:", lim);
             } catch {
                 console2.log("  [L2] getGasPriceConfig: <reverted>");
@@ -213,6 +233,12 @@ contract SnapshotFluentStorage is DeployBase {
                 console2.log("  [L1] getSentMessageQueueSize: <reverted>");
             }
 
+            try l1b.isOldestUnconsumedExpired() returns (bool v) {
+                console2.log("  [L1] isOldestUnconsumedExpired:", v);
+            } catch {
+                console2.log("  [L1] isOldestUnconsumedExpired: <reverted>");
+            }
+
             address manifestRollup = _readAddr(json, "rollup");
             if (manifestRollup != address(0)) {
                 try l1b.getRollup() returns (address onChain) {
@@ -231,7 +257,13 @@ contract SnapshotFluentStorage is DeployBase {
         _snapshotOneGateway("native_gateway", _readAddr(json, "native_gateway"), manifestBridge);
         address erc20 = _readAddr(json, "erc20_gateway");
         _snapshotOneGateway("erc20_gateway", erc20, manifestBridge);
-        _snapshotErc20GatewayExtras("erc20_gateway", erc20);
+        _snapshotErc20GatewayExtras("erc20_gateway", erc20, json);
+
+        address wethGw = _readAddr(json, "weth_gateway_proxy");
+        if (wethGw != address(0)) {
+            _snapshotOneGateway("weth_gateway_proxy", wethGw, manifestBridge);
+            _snapshotWethGatewayExtras(wethGw);
+        }
     }
 
     function _snapshotOneGateway(string memory label, address gw, address manifestBridge) internal {
@@ -290,7 +322,7 @@ contract SnapshotFluentStorage is DeployBase {
         }
     }
 
-    function _snapshotErc20GatewayExtras(string memory label, address gw) internal {
+    function _snapshotErc20GatewayExtras(string memory label, address gw, string memory json) internal {
         console2.log("");
         console2.log("---", label, "(ERC20-specific) ---");
         console2.log("  address:", gw);
@@ -324,12 +356,41 @@ contract SnapshotFluentStorage is DeployBase {
         } catch {
             console2.log("  getOtherSideBeacon: <reverted>");
         }
+
+        IERC20Gateway ig = IERC20Gateway(gw);
+        address wethTok = _readAddr(json, "weth_token");
+        if (wethTok != address(0)) {
+            try ig.isBridgingExcludedOrigin(wethTok) returns (bool ex) {
+                console2.log("  isBridgingExcludedOrigin(weth_token):", ex);
+            } catch {
+                console2.log("  isBridgingExcludedOrigin(weth_token): <reverted>");
+            }
+        }
     }
 
-    function _snapshotFactories(string memory json) internal {
+    function _snapshotWethGatewayExtras(address gw) internal {
+        console2.log("");
+        console2.log("--- weth_gateway_proxy (WETH-specific) ---");
+        console2.log("  address:", gw);
+        if (gw.code.length == 0) {
+            console2.log("  SKIP: no code");
+            return;
+        }
+        try IWETHGatewaySnapshot(gw).getWETH() returns (address v) {
+            console2.log("  getWETH:", v);
+        } catch {
+            console2.log("  getWETH: <reverted>");
+        }
+    }
+
+    function _snapshotFactories(string memory json, bool isL2) internal {
         address factory = _readAddr(json, "factory");
         console2.log("");
-        console2.log("=== Generic token factory (proxy) ===");
+        if (isL2) {
+            console2.log("=== Token factory - L2 Universal (GenericTokenFactory / proxy) ===");
+        } else {
+            console2.log("=== Token factory - L1 ERC20 pegged (GenericTokenFactory / proxy) ===");
+        }
         console2.log("  address:", factory);
         if (factory.code.length == 0) {
             console2.log("  SKIP: no code");
@@ -379,7 +440,8 @@ contract SnapshotFluentStorage is DeployBase {
         }
 
         address manifestPegged = _readAddr(json, "pegged_impl");
-        if (manifestPegged != address(0)) {
+        // L2 manifests use a reserved placeholder at `pegged_impl`; beacon target still comes from implementation().
+        if (manifestPegged != address(0) && manifestPegged != PEGGED_IMPL_L2_PLACEHOLDER) {
             try f.implementation() returns (address onChain) {
                 if (onChain != manifestPegged) {
                     console2.log("  WARN: manifest pegged_impl != factory implementation()");
@@ -406,10 +468,20 @@ contract SnapshotFluentStorage is DeployBase {
         return string.concat("deployments/", env, "/", layer, ".json");
     }
 
-    function _manifestIsL2(string memory path) internal pure returns (bool) {
+    /// @dev Ethereum mainnet / Sepolia manifests are L1; Fluent L2 uses its own chain IDs (e.g. 20994).
+    function _isL2Manifest(string memory json, string memory path) internal view returns (bool) {
+        if (vm.keyExistsJson(json, ".chainId")) {
+            uint256 cid = json.readUint(".chainId");
+            if (cid == 1 || cid == 11_155_111) return false;
+            return true;
+        }
+        return _manifestIsL2Path(path);
+    }
+
+    function _manifestIsL2Path(string memory path) internal pure returns (bool) {
         bytes memory b = bytes(path);
         if (b.length < 8) return false;
-        return b[b.length - 8] == "/" && b[b.length - 7] == "l" && b[b.length - 6] == "2" && b[b.length - 5] == "."
+        return b[b.length - 8] == bytes1("/") && b[b.length - 7] == "l" && b[b.length - 6] == "2" && b[b.length - 5] == "."
             && b[b.length - 4] == "j" && b[b.length - 3] == "s" && b[b.length - 2] == "o" && b[b.length - 1] == "n";
     }
 

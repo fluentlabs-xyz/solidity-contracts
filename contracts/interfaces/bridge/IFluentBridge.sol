@@ -51,7 +51,6 @@ interface IFluentBridgeRead {
      * @notice Fee charged on the next outbound message (0 when no fee applies).
      */
     function getSentMessageFee() external view returns (uint256);
-
     /**
      * @notice True iff the currently executing cross-chain message originated from an L1 batch
      *         whose rollup status is {BatchStatus.Preconfirmed}. False in every other case —
@@ -109,23 +108,35 @@ interface IFluentBridgeErrors {
      * @dev selector: 0x78bcc63a
      */
     error ZeroValueNotAllowed(string field);
-
     /**
      * @notice Insufficient `msg.value` to cover the outbound message fee.
      * @dev selector: 0x025dbdd4
      */
     error InsufficientFee();
-
     /**
      * @notice Bridge balance too low to cover the native value required by the message.
      */
     error InsufficientBridgeBalance(uint256 required);
-
     /**
      * @notice Gateway is not whitelisted.
      * @dev selector: 0x4185a6fb
      */
     error GatewayNotWhitelisted();
+    /**
+     * @notice Gateway is already registered while registering a new gateway via {registerGateway}.
+     * @dev selector: 0xdd704277
+     */
+    error GatewayAlreadyRegistered();
+    /**
+     * @notice Gateway is not registered while deregistering a gateway via {unregisterGateway}.
+     * @dev selector: 0x162e1dfc
+     */
+    error GatewayNotRegistered();
+    /**
+     * @notice The provided address is not a contract.
+     * @dev selector: 0x09ee12d5
+     */
+    error NotAContract();
 }
 
 /**
@@ -206,7 +217,6 @@ interface IFluentBridgeWrite {
      * @param message Calldata payload to deliver.
      */
     function sendMessage(address to, bytes calldata message) external payable;
-
     /**
      * @notice Receives and executes a relayer-delivered cross-chain message.
      * @dev Enforces sequential nonce, verifies message not already processed,
@@ -229,7 +239,6 @@ interface IFluentBridgeWrite {
         uint256 nonce,
         bytes calldata message
     ) external;
-
     /**
      * @notice Retries a previously failed message. Anyone can call with the original params.
      * @dev Requires message status == Failed. Uses full gasleft() instead of executeGasLimit.
@@ -284,32 +293,28 @@ interface IFluentBridge is IFluentBridgeErrors, IFluentBridgeEvents, IFluentBrid
         Success
     }
 
-    // ---------- Storage / view getters ----------
+    // ============ Functions ============
 
     /**
      * @notice Next outbound message nonce (incremented on each sendMessage).
      * @return The next outbound message nonce.
      */
     function getNonce() external view returns (uint256);
-
     /**
      * @notice Next expected inbound received message nonce (L2 receiveMessage ordering).
      * @return The next expected inbound received message nonce.
      */
     function getReceivedNonce() external view returns (uint256);
-
     /**
      * @notice During receive execution, the address that sent the message on the other chain; otherwise address(0).
      * @return The address that sent the message on the other chain.
      */
     function getNativeSender() external view returns (address);
-
     /**
      * @notice Address of the bridge contract on the other chain.
      * @return The address of the bridge contract on the other chain.
      */
     function getOtherBridge() external view returns (address);
-
     /**
      * @notice Status of a received message by its hash (None, Failed, Success).
      * @param key The hash of the received message.

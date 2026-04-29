@@ -270,6 +270,9 @@ contract FluentBridgeStorageLayout is
      */
     function registerGateway(address gateway) external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(gateway != address(0), ZeroAddressNotAllowed("gateway"));
+        require(gateway.code.length > 0, IsNotContract("gateway"));
+        require(_getFluentBridgeStorage()._gatewayWhitelist[gateway] == false, GatewayAlreadyRegistered());
+
         _getFluentBridgeStorage()._gatewayWhitelist[gateway] = true;
 
         emit GatewayRegistered(gateway);
@@ -285,6 +288,8 @@ contract FluentBridgeStorageLayout is
      */
     function unregisterGateway(address gateway) external onlyRole(DEFAULT_ADMIN_ROLE) {
         require(gateway != address(0), ZeroAddressNotAllowed("gateway"));
+        require(_getFluentBridgeStorage()._gatewayWhitelist[gateway] == true, GatewayNotRegistered());
+
         _getFluentBridgeStorage()._gatewayWhitelist[gateway] = false;
 
         emit GatewayDeregistered(gateway);

@@ -59,57 +59,48 @@ interface IL1FluentBridge {
      * @dev selector: 0x4875ecb8
      */
     error SentMessageQueueEmpty();
-
     /**
      * @notice Sent-message cursor cannot advance by `count` — not enough unconsumed messages remain.
      * @dev selector: 0xc743a919
      */
     error InvalidAdvanceCount(uint256 count, uint256 queueSize);
-
     /**
      * @notice Rewind target is greater than the current sent-message consume cursor.
      * @dev selector: 0x3df1aff3
      */
     error InvalidRewindTarget(uint256 newFront, uint256 currentFront);
-
     /**
      * @notice {getMessageHashesRange} called with `from > to`.
      */
     error InvalidRange(uint64 from, uint64 to);
-
     /**
      * @notice {getMessageHashesRange} end index exceeds the queue back cursor.
      */
     error RangeOutOfBounds(uint64 to, uint64 back);
-
     /**
      * @notice {skipExpiredDeposits} called while the head sent message is still fresh.
      */
     error NoExpiredDeposits();
-
     /**
      * @notice Gas floor reached in {skipExpiredDeposits} loop — call again to continue.
      * @dev selector: 0x1c26714c
      */
     error InsufficientGas();
 
-    // ========== Events ==========
+    // ============ Events ============
 
     /**
      * @notice Emitted when the address of the rollup contract is updated.
      */
     event RollupUpdated(address indexed prevValue, address indexed newValue);
-
     /**
      * @notice Emitted when the L1-owned receive-message deadline is updated.
      */
     event ReceiveMessageDeadlineUpdated(uint256 indexed prevValue, uint256 indexed newValue);
-
     /**
      * @notice Emitted when the L1-owned deposit processing window is updated.
      */
     event DepositProcessingWindowUpdated(uint256 indexed prevValue, uint256 indexed newValue);
-
     /**
      * @notice Emitted for each sent message slot skipped by {skipExpiredDeposits}.
      * @param cursor      Slot index that was skipped.
@@ -118,7 +109,7 @@ interface IL1FluentBridge {
      */
     event DepositSkipped(uint64 indexed cursor, bytes32 indexed messageHash, uint64 expiredAt);
 
-    // ========== Functions ==========
+    // ============ Functions ============
 
     /**
      * @notice Get the address of the rollup contract that lives on L1 and
@@ -126,14 +117,12 @@ interface IL1FluentBridge {
      * @return The address of the rollup contract.
      */
     function getRollup() external view returns (address);
-
     /**
      * @notice Update the address of the rollup contract that lives on L1 and
      *         is used to validate L2 batches and enable proof-based L2 to L1 message delivery.
      * @param newRollup The address of the rollup contract.
      */
     function setRollup(address newRollup) external;
-
     /**
      * @notice Returns the L1-owned receive-message deadline snapshotted into outbound L1->L2 messages at send time.
      *         0 disables the deadline.
@@ -202,7 +191,6 @@ interface IL1FluentBridge {
      *         until the user-initiated cancel/refund mechanism replaces this function.
      */
     function skipExpiredDeposits() external;
-
     /**
      * @notice Moves the sent-message consume cursor forward by `count`. Callable only by the rollup contract.
      * @dev Used during {Rollup-commitBatch} to pop messages that are included in the accepted batch.
@@ -211,7 +199,6 @@ interface IL1FluentBridge {
      * @param count Number of messages to consume (advance the cursor by).
      */
     function advanceSentMessageCursor(uint64 count) external;
-
     /**
      * @notice Reads the next sent-message hash for rollup consumption and advances the consume cursor.
      *         Callable only by the rollup contract.
@@ -220,7 +207,6 @@ interface IL1FluentBridge {
      * @return hash The next message hash in send order.
      */
     function consumeNextSentMessage() external returns (bytes32 hash);
-
     /**
      * @notice Moves the sent-message consume cursor backward to `newFront`. Callable only by the rollup contract.
      * @dev Used during {Rollup-revertBatches} to undo all consumes that belonged to reverted batches.
@@ -229,7 +215,6 @@ interface IL1FluentBridge {
      * @param newFront New consume cursor value. Must be `<=` the current cursor.
      */
     function rewindSentMessageCursor(uint64 newFront) external;
-
     /**
      * @notice Receives and executes a message with Merkle proofs (L1 only; messages from L2 to L1).
      * @param batchIndex Index of the rollup batch containing the message.
@@ -257,7 +242,6 @@ interface IL1FluentBridge {
         MerkleTree.MerkleProof calldata withdrawalProof,
         MerkleTree.MerkleProof calldata blockProof
     ) external;
-
     /**
      * @notice Processes a rollback with Merkle proofs (L1 only; refunds sender when message was not received on L2).
      * @dev Can only be used on the **L1 side** to refund the original sender when a message was not successfully received on L2.
@@ -286,13 +270,11 @@ interface IL1FluentBridge {
         MerkleTree.MerkleProof calldata withdrawalProof,
         MerkleTree.MerkleProof calldata blockProof
     ) external;
-
     /**
      * @notice Number of L1→L2 messages waiting to be consumed by the rollup.
      * @return The number of unconsumed messages: `back - front`.
      */
     function getSentMessageQueueSize() external view returns (uint64);
-
     /**
      * @notice Current sent-message consume cursor (the index of the next message the rollup will consume).
      * @dev The rollup snapshots this value at the start of {Rollup-commitBatch} and rewinds to it

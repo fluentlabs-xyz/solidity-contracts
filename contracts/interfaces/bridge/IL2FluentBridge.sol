@@ -23,7 +23,6 @@ interface IL2FluentBridge {
      * @param newValue The new address of the L1 gas price oracle.
      */
     event L1GasPriceOracleUpdated(address indexed prevValue, address indexed newValue);
-
     /**
      * @notice Emitted when the gas price config is updated.
      * @param prevOverhead The previous overhead gas price.
