@@ -261,7 +261,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         _currentBatchIndex = batchIndex;
         // Execute the cross-chain message with gasleft(), forwarding remaining gas
         // _receiveMessage records the outcome (Success/Failed) in storage
-        _receiveMessage(gasleft(), from, to, value, message, messageHash);
+        _receiveMessage(getExecuteGasLimit(), from, to, value, message, messageHash);
         // Clear the transient batch index
         _currentBatchIndex = 0;
     }
@@ -573,6 +573,4 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         emit DepositProcessingWindowUpdated($._depositProcessingWindow, newDepositProcessingWindow);
         $._depositProcessingWindow = uint64(newDepositProcessingWindow);
     }
-
-    receive() external payable {}
 }

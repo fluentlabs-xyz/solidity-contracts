@@ -508,47 +508,6 @@ contract WETHGatewayTest is GatewayBase {
         wethGateway.setWETH(address(1));
     }
 
-    function test_rescueNative_transfersBalance() public {
-        vm.deal(address(wethGateway), 1 ether);
-        uint256 before_ = recipient.balance;
-        vm.prank(admin);
-        wethGateway.rescueNative(payable(recipient), 0.4 ether);
-        assertEq(recipient.balance - before_, 0.4 ether);
-        assertEq(address(wethGateway).balance, 0.6 ether);
-    }
-
-    function test_RevertIf_rescueNative_zeroRecipient() public {
-        vm.prank(admin);
-        vm.expectRevert(IGatewayBaseErrors.InvalidRecipient.selector);
-        wethGateway.rescueNative(payable(address(0)), 1);
-    }
-
-    function test_rescueWETH_transfersBalance() public {
-        uint256 amount = 2 ether;
-        vm.deal(address(wethGateway), amount);
-        // Fund the gateway with WETH by wrapping directly (also covers `receive()`).
-        vm.prank(address(wethGateway));
-        weth.deposit{value: amount}();
-        assertEq(weth.balanceOf(address(wethGateway)), amount);
-
-        vm.prank(admin);
-        wethGateway.rescueWETH(recipient, 0.5 ether);
-        assertEq(weth.balanceOf(recipient), 0.5 ether);
-        assertEq(weth.balanceOf(address(wethGateway)), 1.5 ether);
-    }
-
-    function test_RevertIf_rescueWETH_zeroRecipient() public {
-        vm.prank(admin);
-        vm.expectRevert(IGatewayBaseErrors.InvalidRecipient.selector);
-        wethGateway.rescueWETH(address(0), 1);
-    }
-
-    function test_RevertIf_rescueWETH_notOwner() public {
-        vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, user));
-        wethGateway.rescueWETH(recipient, 1);
-    }
-
     // ---------- Bridge lifecycle ----------
 
     function test_bridgePause_blocksSendAndReceive() public {

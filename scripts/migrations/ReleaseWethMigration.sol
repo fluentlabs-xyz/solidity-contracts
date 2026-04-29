@@ -67,8 +67,8 @@ abstract contract ReleaseWethMigration is DeployBase {
         string memory cfg = vm.readFile(_releaseConfigPath());
 
         vm.startBroadcast();
-//        _upgradeL2ERC20Gateway();
-//        _upgradeL2Factory();
+        //        _upgradeL2ERC20Gateway();
+        //        _upgradeL2Factory();
         _deployUniversalWETH(cfg);
         vm.stopBroadcast();
     }
@@ -142,15 +142,7 @@ abstract contract ReleaseWethMigration is DeployBase {
 
         // deployArgs layout: (name, symbol, decimals, initialSupply, minter, pauser, wrapped)
         // For wrapped=true the factory requires minter=address(0) and initialSupply=0.
-        bytes memory deployArgs = abi.encode(
-            "Wrapped Ether",
-            "WETH",
-            uint8(18),
-            uint256(0),
-            address(0),
-            address(0),
-            true
-        );
+        bytes memory deployArgs = abi.encode("Wrapped Ether", "WETH", uint8(18), uint256(0), address(0), address(0), true);
         console2.log("DEPLOY PARAMS: ");
         console2.logBytes(deployArgs);
         address universalWeth = UniversalTokenFactory(factory).deployToken(wethGateway, l1Weth, deployArgs);
