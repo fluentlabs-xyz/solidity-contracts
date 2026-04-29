@@ -135,7 +135,7 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         // A mapping means this is a pegged token on the current chain (withdraw path: burn locally).
         if (getTokenMapping(token) == address(0)) {
             // Origin token path: lock tokens in this gateway and encode a receivePeggedTokens call
-            message = _sendOriginTokens(token, sender, sender, to, amount);
+            message = _sendOriginTokens(token, sender, sender, to, amount, otherSideGateway);
         } else {
             // Pegged token path: burn the pegged representation and encode a receiveOriginTokens call
             message = _sendPeggedTokens(token, sender, sender, to, amount);
@@ -147,13 +147,16 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
     }
 
     /// @dev Used on L1 to send origin tokens to the other side.
-    function _sendOriginTokens(address token, address sender, address from, address to, uint256 amount) internal returns (bytes memory) {
-        // Verify remote routing is fully configured — both gateway and factory are needed to
-        // deterministically compute the pegged token address on the destination chain
-        require(
-            getOtherSideGateway() != address(0) && getOtherSideFactory() != address(0),
-            ZeroAddressNotAllowed("getOtherSideGateway or getOtherSideFactory")
-        );
+    function _sendOriginTokens(
+        address token,
+        address sender,
+        address from,
+        address to,
+        uint256 amount,
+        address otherSideGateway
+    ) internal returns (bytes memory) {
+        // `otherSideGateway` is validated once in {sendTokens}; only the factory must be checked here.
+        require(getOtherSideFactory() != address(0), ZeroAddressNotAllowed("getOtherSideFactory"));
         // At least one of chainId (universal path) or beacon (beacon-proxy path) must be set
         // to allow pegged token address computation on the remote chain
         require(
@@ -185,7 +188,7 @@ contract ERC20Gateway is GatewayBase, IERC20Gateway {
         address peggedTokenOnOtherSide = $._otherSidePeggedForOrigin[token];
         if (peggedTokenOnOtherSide == address(0)) {
             // This lets the remote gateway verify that its locally deployed token matches.
-            peggedTokenOnOtherSide = _computeOtherSidePeggedTokenAddressWithGateway(getOtherSideGateway(), token, name, symbol, decimals);
+            peggedTokenOnOtherSide = _computeOtherSidePeggedTokenAddressWithGateway(otherSideGateway, token, name, symbol, decimals);
             $._otherSidePeggedForOrigin[token] = peggedTokenOnOtherSide;
         }
 
