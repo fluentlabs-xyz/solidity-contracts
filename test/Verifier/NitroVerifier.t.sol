@@ -37,6 +37,8 @@ contract NitroVerifierTest is Test {
         bytes32 newVKey = keccak256("new-vkey");
 
         vm.prank(admin);
+        vm.expectEmit(true, true, false, true, address(verifier));
+        emit INitroVerifier.ProgramVKeyUpdated(INITIAL_VKEY, newVKey);
         verifier.updateProgramVKey(newVKey);
 
         assertEq(verifier.getProgramVKey(), newVKey);
@@ -44,7 +46,10 @@ contract NitroVerifierTest is Test {
 
     function test_verifyAttestation_whitelistsPubkey() public {
         address pubkey = makeAddr("pubkey");
-        _attest(pubkey);
+        vm.prank(admin);
+        vm.expectEmit(true, true, false, true, address(verifier));
+        emit INitroVerifier.AttestationVerified(INITIAL_VKEY, pubkey);
+        verifier.verifyAttestation(pubkey, uint64(block.timestamp), hex"1234");
         assertTrue(verifier.verifiedPubkeys(pubkey));
     }
 
@@ -52,6 +57,8 @@ contract NitroVerifierTest is Test {
         address pubkey = makeAddr("pubkey");
         _attest(pubkey);
         vm.prank(admin);
+        vm.expectEmit(true, false, false, true, address(verifier));
+        emit INitroVerifier.AttestationRevoked(pubkey);
         verifier.revokeAttestation(pubkey);
         assertFalse(verifier.verifiedPubkeys(pubkey));
     }

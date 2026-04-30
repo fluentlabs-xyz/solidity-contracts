@@ -11,6 +11,7 @@ import {IFluentBridge, IFluentBridgeEvents, IFluentBridgeErrors} from "../../con
 import {IL2FluentBridge} from "../../contracts/interfaces/bridge/IL2FluentBridge.sol";
 import {L1BlockOracle} from "../../contracts/oracles/L1BlockOracle.sol";
 import {L1GasOracle} from "../../contracts/oracles/L1GasOracle.sol";
+import {NoopReceiver} from "./Base.t.sol";
 
 // ============ Test Base ============
 
@@ -20,7 +21,8 @@ abstract contract L2BridgeFeeBase is Test {
     address internal relayer = makeAddr("relayer");
     address internal feeTreasury = makeAddr("feeTreasury");
     address internal user = makeAddr("user");
-    address internal recipient = makeAddr("recipient");
+    /// @dev Must be a contract: {registerGateway} rejects EOAs.
+    address internal recipient;
 
     L2FluentBridge internal bridge;
     L1BlockOracle internal blockOracle;
@@ -34,6 +36,7 @@ abstract contract L2BridgeFeeBase is Test {
     uint256 internal constant L1_GAS_LIMIT = 100_000;
 
     function setUp() public virtual {
+        recipient = address(new NoopReceiver());
         blockOracle = new L1BlockOracle(relayer);
         gasOracle = new L1GasOracle(relayer);
 
@@ -371,11 +374,7 @@ contract ReceiveMessageNoFeeTest is L2BridgeFeeBase {
 
         address otherBridge = makeAddr("otherBridge");
 
-        // Bridge rejects `_receiveMessage` whose `to` is not a registered gateway.
-        // Register the recipient so the inbound delivery reaches the success path.
-        vm.prank(admin);
-        (bool ok, ) = address(bridge).call(abi.encodeWithSignature("registerGateway(address)", recipient));
-        require(ok, "registerGateway failed");
+        // `recipient` is already registered in L2BridgeFeeBase.setUp().
 
         vm.deal(address(bridge), amount);
         vm.prank(relayer);

@@ -3,7 +3,7 @@ pragma solidity 0.8.30;
 
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 
-import {BridgeBase} from "./Base.t.sol";
+import {BridgeBase, NoopReceiver} from "./Base.t.sol";
 
 contract BridgePauserTest is BridgeBase {
     function _pauseBoth() internal {
@@ -95,7 +95,7 @@ contract BridgePauserTest is BridgeBase {
     }
 
     function test_sendMessage_worksAfterUnpause() public {
-        address dst = makeAddr("dst");
+        address dst = address(new NoopReceiver());
         // Send path is gated by the gateway registry — register so the unpaused send
         // reaches the nonce-bump path this test asserts on.
         _registerOnL2Bridge(dst);

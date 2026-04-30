@@ -29,8 +29,12 @@ contract L1BlockOracleTest is Test {
     }
 
     function test_updateL1BlockNumber_allowsAdvancing() public {
+        vm.expectEmit(true, false, false, true, address(oracle));
+        emit IL1BlockOracle.L1BlockNumberUpdated(100);
         vm.prank(submitter);
         oracle.updateL1BlockNumber(100);
+        vm.expectEmit(true, false, false, true, address(oracle));
+        emit IL1BlockOracle.L1BlockNumberUpdated(101);
         vm.prank(submitter);
         oracle.updateL1BlockNumber(101);
 
@@ -84,6 +88,8 @@ contract L1BlockOracleTest is Test {
 
     function test_setSubmitter_updatesAndEmits() public {
         address newSubmitter = makeAddr("newSubmitter");
+        vm.expectEmit(true, true, false, true, address(oracle));
+        emit IL1BlockOracle.SubmitterUpdated(submitter, newSubmitter);
         oracle.setSubmitter(newSubmitter);
         assertEq(oracle.getSubmitter(), newSubmitter, "submitter should be updated");
         vm.prank(newSubmitter);

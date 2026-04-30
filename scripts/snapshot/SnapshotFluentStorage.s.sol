@@ -15,6 +15,10 @@ import {GenericTokenFactory} from "../../contracts/factories/GenericTokenFactory
 
 /// @dev Reserved "pegged implementation" system address on Fluent L2 manifests (not an ERC20PeggedToken impl).
 address constant PEGGED_IMPL_L2_PLACEHOLDER = 0x0000000000000000000000000000000000520008;
+/// @dev ERC-7201 root slot from {FluentBridgeStorageLayout}.
+bytes32 constant FLUENT_BRIDGE_STORAGE_LOCATION = 0x1d32f057e9fce0670715dab7ddeb05958b1ba8f4bd87a5dcabc7ec5913505500;
+/// @dev ERC-7201 root slot from {L1FluentBridge}.
+bytes32 constant L1_FLUENT_BRIDGE_STORAGE_LOCATION = 0x64776360b34cbf9c591fd7718af261c9ddf17ee353bef9c701b140ff387a6200;
 
 /// @notice L2 bridge views not yet declared on {IL2FluentBridge} in `contracts/interfaces` (see {L2FluentBridge}).
 interface IL2FluentBridgeSnapshot is IL2FluentBridge {
@@ -247,6 +251,47 @@ contract SnapshotFluentStorage is DeployBase {
                     }
                 } catch {}
             }
+        }
+
+        _snapshotBridgeRawSlots(bridge, isL2);
+    }
+
+    /// @notice Raw ERC-7201 slot dump for scalar storage fields.
+    /// @dev Mappings are intentionally omitted because they require keys and are not enumerable on-chain.
+    function _snapshotBridgeRawSlots(address bridge, bool isL2) internal view {
+        console2.log("");
+        console2.log("=== FluentBridge raw storage slots ===");
+        console2.log("  root slot (FluentBridgeStorageLayout):", uint256(FLUENT_BRIDGE_STORAGE_LOCATION));
+
+        uint256 base = uint256(FLUENT_BRIDGE_STORAGE_LOCATION);
+        bytes32 s0 = vm.load(bridge, bytes32(base + 0));
+        bytes32 s1 = vm.load(bridge, bytes32(base + 1));
+        bytes32 s2 = vm.load(bridge, bytes32(base + 2));
+        bytes32 s3 = vm.load(bridge, bytes32(base + 3));
+        bytes32 s4 = vm.load(bridge, bytes32(base + 4));
+        bytes32 s6 = vm.load(bridge, bytes32(base + 6));
+
+        console2.log("  _executeGasLimit:", uint256(s0));
+        console2.log("  _nonce:", uint256(s1));
+        console2.log("  _receivedNonce:", uint256(s2));
+        console2.log("  ___deprecated_nativeSender (raw):", _toAddress(s3));
+        console2.log("  _otherBridge (raw):", _toAddress(s4));
+        console2.log("  _feeTreasury (raw):", _toAddress(s6));
+
+        if (!isL2) {
+            console2.log("  root slot (L1FluentBridgeStorage):", uint256(L1_FLUENT_BRIDGE_STORAGE_LOCATION));
+            uint256 l1base = uint256(L1_FLUENT_BRIDGE_STORAGE_LOCATION);
+            bytes32 l1s1 = vm.load(bridge, bytes32(l1base + 1));
+            bytes32 l1s3 = vm.load(bridge, bytes32(l1base + 3));
+            bytes32 l1s4 = vm.load(bridge, bytes32(l1base + 4));
+            bytes32 l1s5 = vm.load(bridge, bytes32(l1base + 5));
+            bytes32 l1s6 = vm.load(bridge, bytes32(l1base + 6));
+
+            console2.log("  [L1] _rollup (raw):", _toAddress(l1s1));
+            console2.log("  [L1] _sentMessageBack (raw uint64):", uint256(l1s3));
+            console2.log("  [L1] _sentMessageFront (raw uint64):", uint256(l1s4));
+            console2.log("  [L1] _receiveMessageDeadline (raw uint64):", uint256(l1s5));
+            console2.log("  [L1] _depositProcessingWindow (raw uint64):", uint256(l1s6));
         }
     }
 
@@ -487,5 +532,9 @@ contract SnapshotFluentStorage is DeployBase {
 
     function _eq(string memory a, string memory b) internal pure returns (bool) {
         return keccak256(bytes(a)) == keccak256(bytes(b));
+    }
+
+    function _toAddress(bytes32 x) internal pure returns (address) {
+        return address(uint160(uint256(x)));
     }
 }

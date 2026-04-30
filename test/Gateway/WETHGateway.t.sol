@@ -19,6 +19,8 @@ import {
 } from "../../contracts/mocks/MockWETH.sol";
 import {GatewayBase} from "./Base.t.sol";
 
+contract DummyGateway {}
+
 contract WETHGatewayTest is GatewayBase {
     WETHGateway internal wethGateway;
     MockWETH internal weth;
@@ -301,7 +303,7 @@ contract WETHGatewayTest is GatewayBase {
     function test_receiveWETH_wrongGatewaySender_marksFailed() public {
         uint256 amount = 1 ether;
         bytes memory message = abi.encodeCall(IWETHGateway.receiveWETH, (user, recipient, amount));
-        address wrongRemoteGateway = makeAddr("wrongRemoteGateway");
+        address wrongRemoteGateway = address(new DummyGateway());
         uint256 nonce = bridge.getReceivedNonce();
         uint256 sourceBlock = nextSourceBlock++;
         bytes32 messageHash = _bridgeMessageHash(

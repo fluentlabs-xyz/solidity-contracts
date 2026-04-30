@@ -14,14 +14,17 @@ import {MockERC20Token} from "../mocks/MockERC20.sol";
 import {L2FluentBridge} from "../../contracts/bridge/L2/L2FluentBridge.sol";
 import {FastWithdrawalList} from "../../contracts/fastlist/FastWithdrawalList.sol";
 import {IFastWithdrawalList} from "../../contracts/interfaces/IFastWithdrawalList.sol";
+import {NoopReceiver} from "../Bridge/Base.t.sol";
 
 abstract contract GatewayBase is Test {
     address internal admin = makeAddr("admin");
     address internal relayer = makeAddr("relayer");
     address internal user = makeAddr("user");
-    address internal recipient = makeAddr("recipient");
+    /// @dev Must be a contract: {registerGateway} rejects EOAs.
+    address internal recipient;
     address internal remoteBridge = makeAddr("remoteBridge");
-    address internal remoteGateway = makeAddr("remoteGateway");
+    /// @dev Must be a contract: {registerGateway} rejects EOAs.
+    address internal remoteGateway;
 
     uint256 internal sourceChainId;
     /// @dev Starts at 2 so the first test-relayed message has a `validUntilBlockNumber` strictly
@@ -39,6 +42,8 @@ abstract contract GatewayBase is Test {
 
     function setUp() public virtual {
         sourceChainId = block.chainid + 1;
+        recipient = address(new NoopReceiver());
+        remoteGateway = address(new NoopReceiver());
     }
 
     function _deployBridge(uint256 /* receiveMessageDeadline */) internal {
@@ -86,7 +91,12 @@ abstract contract GatewayBase is Test {
         if (isRegOk && ret.length == 32 && abi.decode(ret, (bool))) return;
         vm.prank(admin);
         (bool ok, ) = address(bridge).call(abi.encodeWithSignature("registerGateway(address)", target));
-        require(ok, "registerGateway failed");
+        // Defensive idempotency: if registration reverted because it was already set,
+        // treat it as success for test helpers.
+        if (!ok) {
+            (isRegOk, ret) = address(bridge).staticcall(abi.encodeWithSignature("isGatewayRegistered(address)", target));
+            require(isRegOk && ret.length == 32 && abi.decode(ret, (bool)), "registerGateway failed");
+        }
     }
 
     /// @dev Deploys the shared {FastWithdrawalList} behind a UUPS proxy. Reused by both the

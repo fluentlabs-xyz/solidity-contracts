@@ -183,11 +183,12 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         require(!Rollup(getRollup()).isRollupCorrupted(), IRollupErrors.RollupCorrupted());
     }
 
-    /// @inheritdoc FluentBridge
-    /// @dev Records the message hash in the sent-message storage, freezes the per-message
-    ///      processing deadline at send time, and advances the back cursor. Admin updates to
-    ///      {_depositProcessingWindow} never affect this slot after this point — same
-    ///      frozen-at-send invariant as {_receiveMessageDeadline} (commit `7ee9271`).
+    /**
+     * @dev Records the message hash in the sent-message storage, freezes the per-message
+     *      processing deadline at send time, and advances the back cursor. Admin updates to
+     *      {_depositProcessingWindow} never affect this slot after this point — same
+     *      frozen-at-send invariant as {_receiveMessageDeadline} (commit `7ee9271`).
+     */
     function _afterSendMessage(bytes32 messageHash) internal override {
         L1FluentBridgeStorage storage $ = _getL1FluentBridgeStorage();
         uint64 back = $._sentMessageBack;
@@ -269,14 +270,8 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
     }
 
     /// @inheritdoc IFluentBridgeRead
-    /// @dev True iff a proof-based receive is currently executing and the originating batch's
-    ///      rollup status is {BatchStatus.Preconfirmed}. Returns false when called outside
-    ///      {receiveMessageWithProof} (e.g. by the relayer path, view calls, or on L2).
     function isCurrentBatchPreconfirmed() public view override returns (bool) {
         uint256 idx = _currentBatchIndex;
-        // idx == 0 is the sentinel: no proof-based receive is currently in flight.
-        // Batch index 0 is the reserved genesis slot on {Rollup}, so a real message can
-        // never legitimately reference it — safe to use as the "no context" marker.
         if (idx == 0) return false;
         return Rollup(getRollup()).isBatchPreconfirmed(idx);
     }

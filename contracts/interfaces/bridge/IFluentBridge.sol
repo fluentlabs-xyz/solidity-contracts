@@ -52,7 +52,7 @@ interface IFluentBridgeRead {
      */
     function getSentMessageFee() external view returns (uint256);
     /**
-     * @notice True iff the currently executing cross-chain message originated from an L1 batch
+     * @notice True if the currently executing cross-chain message originated from an L1 batch
      *         whose rollup status is {BatchStatus.Preconfirmed}. False in every other case —
      *         including {BatchStatus.Finalized}, the L1 relayer path, every L2 receive path,
      *         and any call made outside an in-flight receive execution.

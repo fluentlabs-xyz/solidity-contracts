@@ -98,7 +98,6 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
     // ============ Fee logic ============
 
     /**
-     * @inheritdoc FluentBridge
      * @dev `fee` is computed once by the base {FluentBridge-sendMessage} and passed through
      *      to avoid a second oracle read. The value matches the one used to derive `value`
      *      for the outbound message, so the transfer and the cross-chain value stay in sync
@@ -106,14 +105,13 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
      *      tx, but defensively consistent).
      */
     function _chargeSendFee(uint256 fee) internal override {
-        if (fee > 0) {
-            // Treasury must be configured before fees can be collected
-            address treasury = getFeeTreasury();
-            require(treasury != address(0), ZeroAddressNotAllowed("feeTreasury"));
-            // Transfer fee from msg.value to the treasury; reverts if the call fails
-            (bool success, ) = treasury.call{value: fee}("");
-            require(success, FailedToDeductFee());
-        }
+        if (fee == 0) return;
+        // Treasury must be configured before fees can be collected
+        address treasury = getFeeTreasury();
+        require(treasury != address(0), ZeroAddressNotAllowed("feeTreasury"));
+        // Transfer fee from msg.value to the treasury; reverts if the call fails
+        (bool success, ) = treasury.call{value: fee}("");
+        require(success, FailedToDeductFee());
     }
 
     /// @inheritdoc IFluentBridgeRead
@@ -128,7 +126,7 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
 
     // ============ Receive hooks ============
 
-    /** @inheritdoc FluentBridge
+    /**
      * @dev Checks if the message has reached its committed expiry block. If so, marks it
      *      Failed and emits {RollbackMessage} (included in L2BlockHeader.withdrawalRoot
      *      for later proof-based rollback on L1). Returns false to skip execution.
@@ -206,7 +204,9 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
         return _getL2FluentBridgeStorage()._gasPriceConfig._l1GasLimit;
     }
 
-    /** @dev Computes the L1 gas cost component of the send fee using oracle price and config. */
+    /**
+     * @dev Computes the L1 gas cost component of the send fee using oracle price and config.
+     */
     function _calculateGasCost() internal view returns (uint256) {
         // Read config from storage to avoid a full struct memory copy.
         GasPriceConfig storage gasPriceConfig = _getL2FluentBridgeStorage()._gasPriceConfig;
@@ -229,7 +229,8 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
         _setL1BlockOracle(l1BlockOracle);
     }
 
-    /** @dev Stores the L1 block oracle. Always required — every inbound L1->L2 message
+    /**
+     *  @dev Stores the L1 block oracle. Always required — every inbound L1->L2 message
      *       must validate its committed expiry against the L1 block number read from the oracle.
      */
     function _setL1BlockOracle(address l1BlockOracle) internal {
@@ -248,7 +249,9 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
         _setL1GasPriceOracle(l1GasPriceOracle);
     }
 
-    /** @dev Validates and stores the L1 gas price oracle. Reverts on zero address. */
+    /**
+     * @dev Validates and stores the L1 gas price oracle. Reverts on zero address.
+     */
     function _setL1GasPriceOracle(address l1GasPriceOracle) internal {
         // Gas price oracle is always required — fee computation depends on it
         require(l1GasPriceOracle != address(0), ZeroAddressNotAllowed("l1GasPriceOracle"));
@@ -266,7 +269,9 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
         _setGasPriceConfig(overheadGasPrice, scalarGasPrice, l1GasLimit);
     }
 
-    /** @dev Stores gas price parameters and emits update event. */
+    /**
+     * @dev Stores gas price parameters and emits update event.
+     */
     function _setGasPriceConfig(uint256 overheadGasPrice, uint256 scalarGasPrice, uint256 l1GasLimit) internal {
         // Load storage pointer once to batch writes and emit old values
         GasPriceConfig storage $ = _getL2FluentBridgeStorage()._gasPriceConfig;

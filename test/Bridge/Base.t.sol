@@ -16,6 +16,9 @@ import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol
 contract NoopReceiver {
     uint256 public calls;
 
+    /// @dev Allows native bridge delivery with empty calldata (gateway registration requires a contract).
+    receive() external payable {}
+
     function handle() external payable {
         calls += 1;
     }

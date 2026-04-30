@@ -17,7 +17,8 @@ import {BridgeBase, NoopReceiver, RevertingReceiver} from "./Base.t.sol";
 contract L1FluentBridgeTest is BridgeBase {
     address internal otherBridge = makeAddr("otherBridge");
     address internal user = makeAddr("user");
-    address internal receiver = makeAddr("receiver");
+    /// @dev Must be a contract: {registerGateway} rejects EOAs.
+    address internal receiver;
     address internal nonRollup = makeAddr("nonRollup");
 
     MockRollup internal rollup;
@@ -39,6 +40,7 @@ contract L1FluentBridgeTest is BridgeBase {
         );
         l1Bridge = L1FluentBridge(payable(address(proxy)));
 
+        receiver = address(new NoopReceiver());
         // All outbound `sendMessage(...)` calls in this suite target `receiver`. The bridge
         // now gates send destinations via the gateway registry (symmetric with receive), so
         // register it up front. Per-test receivers (e.g. the proof-fixture `NoopReceiver`)

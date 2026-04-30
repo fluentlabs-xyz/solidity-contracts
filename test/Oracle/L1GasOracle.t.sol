@@ -20,6 +20,8 @@ contract L1GasOracleTest is Test {
     }
 
     function test_updateL1GasPrice_submitter() public {
+        vm.expectEmit(false, false, false, true, address(oracle));
+        emit IL1GasOracle.L1GasPriceUpdated(7 gwei);
         vm.prank(submitter);
         oracle.updateL1GasPrice(7 gwei);
         assertEq(oracle.getL1GasPrice(), 7 gwei);
@@ -32,6 +34,8 @@ contract L1GasOracleTest is Test {
     }
 
     function test_setL1GasPrice_owner() public {
+        vm.expectEmit(false, false, false, true, address(oracle));
+        emit IL1GasOracle.L1GasPriceUpdated(11 gwei);
         oracle.setL1GasPrice(11 gwei);
         assertEq(oracle.getL1GasPrice(), 11 gwei);
     }
@@ -44,6 +48,8 @@ contract L1GasOracleTest is Test {
 
     function test_setSubmitter_updatesAndEmits() public {
         address newSubmitter = makeAddr("newSubmitter");
+        vm.expectEmit(true, true, false, true, address(oracle));
+        emit IL1GasOracle.SubmitterUpdated(submitter, newSubmitter);
         oracle.setSubmitter(newSubmitter);
         assertEq(oracle.getSubmitter(), newSubmitter);
         vm.prank(newSubmitter);
