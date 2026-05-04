@@ -10,6 +10,8 @@ import {ISP1Verifier} from "../interfaces/verifiers/ISP1Verifier.sol";
 import {INitroVerifier} from "../interfaces/verifiers/INitroVerifier.sol";
 import {IL1FluentBridge} from "../interfaces/bridge/IL1FluentBridge.sol";
 import {L2BlockHeader, BatchStatus, BatchRecord, ChallengeRecord, BlockDeposit} from "../interfaces/rollup/IRollupTypes.sol";
+import {IncrementalMerkleTree} from "../libraries/IncrementalMerkleTree.sol";
+import {BatchRootResolutionState} from "./RollupStorageLayout.sol";
 
 /**
  * @title Rollup
@@ -57,6 +59,8 @@ import {L2BlockHeader, BatchStatus, BatchRecord, ChallengeRecord, BlockDeposit} 
 contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
     // Attach min-heap operations to the HeapStorage type for the challenge priority queue
     using Heap for Heap.HeapStorage;
+    // Attach streaming Merkle accumulator operations for the chunked batch-root resolution path
+    using IncrementalMerkleTree for IncrementalMerkleTree.Tree;
 
     // ============ Constructor ============
 
@@ -120,7 +124,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
 
         uint256 gasLeft = $._gasLeft;
         // Safety check: finalized batches are immutable and must never be rolled back
-        for (uint256 i = lastAcceptedBatchIndex; i >= toBatchIndex;) {
+        for (uint256 i = lastAcceptedBatchIndex; i >= toBatchIndex; ) {
             require(gasleft() >= gasLeft, InsufficientGas());
             require($._batches[i].status != BatchStatus.Finalized, BatchAlreadyFinalized(i));
             // Inclusive range [lastAcceptedBatchIndex .. toBatchIndex]:
@@ -140,7 +144,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         uint64 rewindTarget = $._batches[toBatchIndex].sentMessageCursorStart;
 
         // Process each batch in reverse order: refund both challenge families and wipe batch storage
-        for (uint256 i = lastAcceptedBatchIndex; i >= toBatchIndex;) {
+        for (uint256 i = lastAcceptedBatchIndex; i >= toBatchIndex; ) {
             totalIncentiveFees += _processRevertBlockChallenges($._batchChallengedBlocks[i], fee);
             totalIncentiveFees += _processRevertBatchRootChallenge(i, fee);
             _cleanupRevertedBatch(i);
@@ -239,6 +243,9 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         delete $._batchProvenBlocks[batchIndex];
         delete $._batchChallengedBlocks[batchIndex];
         delete $._batchBlobHashes[batchIndex];
+        // Wipe any in-progress batch-root resolution accumulator for this batch
+        // so a future batch reusing the same index starts with empty peaks.
+        delete $._batchRootResolution[batchIndex];
     }
 
     /// @inheritdoc IRollupEmergency
@@ -480,68 +487,121 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
     // ============ Prover ============
 
     /// @inheritdoc IRollupWrite
-    function resolveBatchRootChallenge(
+    function appendBatchRootResolutionChunk(
         uint256 batchIndex,
-        L2BlockHeader calldata lastBlockHeaderInPreviousBatch,
-        L2BlockHeader[] calldata blockHeaders,
-        MerkleTree.MerkleProof calldata lastBlockProof
-    ) external nonReentrant whenNotPaused onlyRole(PROVER_ROLE) {
+        L2BlockHeader[] calldata headers
+    ) external whenNotPaused nonReentrant onlyRole(PROVER_ROLE) {
         RollupStorage storage $ = _getRollupStorage();
-        // Cannot resolve challenges when the rollup is corrupted (must force-revert first)
-        require(!_rollupCorrupted(), RollupCorrupted());
+        BatchRecord storage batch = _assertOpenBatchRootChallenge($, batchIndex);
 
-        BatchRecord storage batch = $._batches[batchIndex];
-        require(batch.status == BatchStatus.Challenged, InvalidBatchStatus(batchIndex, uint8(batch.status)));
+        uint256 n = headers.length;
+        // Empty chunks are an off-chain client error — fail loudly rather than no-op.
+        require(n != 0, EmptyHeadersChunk());
 
-        ChallengeRecord storage challenged = $._batchRootChallenges[batchIndex];
-        require(challenged.challenger != address(0), BatchRootNotChallenged(batchIndex));
+        BatchRootResolutionState storage state = $._batchRootResolution[batchIndex];
+        uint256 acc = uint256(state.leavesAccumulated);
+        uint256 target = uint256(batch.numberOfBlocks);
+        // Cap accumulated leaves at the batch's declared block count.
+        require(acc + n <= target, LeavesExceedNumberOfBlocks(acc + n, target));
 
-        require(
-            lastBlockHeaderInPreviousBatch.blockHash == blockHeaders[0].previousBlockHash,
-            InvalidLastBlockHash(lastBlockHeaderInPreviousBatch.blockHash, blockHeaders[0].previousBlockHash)
-        );
-        bytes32 previousBatchRoot = $._batches[batchIndex - 1].batchRoot;
-        // previousBatchNumberOfBlocks - 1 <-- last block number in the previous batch
-        uint32 previousBatchNumberOfBlocks = $._batches[batchIndex - 1].numberOfBlocks;
-        bytes32 lastBlockCommitment = _computeCommitment(lastBlockHeaderInPreviousBatch);
-        // Verify the block is actually part of this batch via Merkle inclusion proof
-        require(
-            MerkleTree.verifyMerkleProof(previousBatchRoot, lastBlockCommitment, previousBatchNumberOfBlocks - 1, lastBlockProof.proof),
-            InvalidBlockProof()
-        );
-
-        // Cache gas floor to prevent an out-of-gas DoS in the validation loop below
-        uint256 gasLeft = $._gasLeft;
-        uint256 batchSize = blockHeaders.length;
-
-        // Phase 1: validate header chain linkage (adjacent block hash pairs; single-block batches skip).
-        // Each header's blockHash must equal the next header's previousBlockHash
-        require(
-            blockHeaders[0].previousBlockHash == lastBlockHeaderInPreviousBatch.blockHash,
-            WrongPreviousBlockHash(lastBlockHeaderInPreviousBatch.blockHash, blockHeaders[0].previousBlockHash)
-        );
-
-        for (uint256 i = 0; i < batchSize - 1; ++i) {
-            // Ensure enough gas remains for each iteration to prevent partial execution
-            require(gasleft() >= gasLeft, InsufficientGas());
-            // Verify the sequential block hash chain — any break means corrupted or misordered headers
-            require(
-                blockHeaders[i].blockHash == blockHeaders[i + 1].previousBlockHash,
-                InvalidBlockSequence(i, blockHeaders[i].blockHash, blockHeaders[i + 1].previousBlockHash)
-            );
+        // Claim ownership on the first chunk; thereafter only the initiator may extend.
+        // Defends against multiple PROVER_ROLE holders racing on the same accumulator
+        // and remains correct if the role gate is later relaxed.
+        bytes32 prevBlockHash;
+        if (acc == 0) {
+            state.prover = _msgSender();
+            // Anchor for the finalize-time cross-batch link check.
+            state.firstBlockPreviousHash = headers[0].previousBlockHash;
+            // Seed prevBlockHash so the i=0 chain check trivially passes — there is
+            // nothing to chain to before the first leaf of the first chunk.
+            prevBlockHash = headers[0].previousBlockHash;
+        } else {
+            require(state.prover == _msgSender(), NotResolutionInitiator(state.prover));
+            // Continuation: the i=0 check verifies linkage to the prior chunk's tail.
+            prevBlockHash = state.lastBlockHash;
         }
 
-        bytes32 batchRoot = _calculateBatchRoot(blockHeaders);
-        require(batch.batchRoot == batchRoot, InvalidBatchRoot(batch.batchRoot, batchRoot));
+        uint256 gasLeft = $._gasLeft;
+        for (uint256 i = 0; i < n; ++i) {
+            // Per-iteration gas guard prevents OOG mid-chunk under malicious sizing.
+            require(gasleft() >= gasLeft, InsufficientGas());
+            L2BlockHeader calldata h = headers[i];
+            // Single chain-linkage check covers both intra-chunk (i > 0) and
+            // cross-chunk (i = 0 of a continuation) cases.
+            require(h.previousBlockHash == prevBlockHash, InvalidBlockSequence(i, prevBlockHash, h.previousBlockHash));
+            bytes32 leaf = keccak256(abi.encodePacked(h.previousBlockHash, h.blockHash, h.withdrawalRoot, h.depositRoot));
+            state.tree.append(leaf);
+            prevBlockHash = h.blockHash;
+        }
 
-        uint256 deposit = challenged.deposit;
+        // forge-lint: disable-next-line(unsafe-typecast)
+        state.leavesAccumulated = uint64(acc + n);
+        state.lastBlockHash = prevBlockHash;
+
+        emit BatchRootResolutionAppended(batchIndex, acc + n, target);
+    }
+
+    /// @inheritdoc IRollupWrite
+    function finalizeBatchRootChallengeResolution(
+        uint256 batchIndex,
+        L2BlockHeader calldata lastBlockHeaderInPreviousBatch,
+        MerkleTree.MerkleProof calldata lastBlockProof
+    ) external whenNotPaused nonReentrant onlyRole(PROVER_ROLE) {
+        RollupStorage storage $ = _getRollupStorage();
+        BatchRecord storage batch = _assertOpenBatchRootChallenge($, batchIndex);
+        ChallengeRecord storage challenge = $._batchRootChallenges[batchIndex];
+
+        BatchRootResolutionState storage state = $._batchRootResolution[batchIndex];
+        // Only the prover that initiated the resolution may finalize it.
+        require(state.prover == _msgSender(), NotResolutionInitiator(state.prover));
+
+        uint256 acc = uint256(state.leavesAccumulated);
+        uint256 target = uint256(batch.numberOfBlocks);
+        // Finalize requires every header to have been submitted via append.
+        require(acc == target, ResolutionLeavesNotComplete(acc, target));
+
+        // Cross-batch linkage: the first chunk's previousBlockHash anchor must match the
+        // tip of the previous batch.
+        require(
+            state.firstBlockPreviousHash == lastBlockHeaderInPreviousBatch.blockHash,
+            InvalidLastBlockHash(state.firstBlockPreviousHash, lastBlockHeaderInPreviousBatch.blockHash)
+        );
+        bytes32 prevBatchRoot = $._batches[batchIndex - 1].batchRoot;
+        uint256 prevLastIndex = uint256($._batches[batchIndex - 1].numberOfBlocks) - 1;
+        bytes32 prevLastCommitment = _computeCommitment(lastBlockHeaderInPreviousBatch);
+        // Verify the previous-batch tip is part of `batches[batchIndex - 1]`'s Merkle tree.
+        require(MerkleTree.verifyMerkleProof(prevBatchRoot, prevLastCommitment, prevLastIndex, lastBlockProof.proof), InvalidBlockProof());
+
+        // Reproduce the batch root from the streaming accumulator and compare.
+        bytes32 root = state.tree.drain();
+        require(batch.batchRoot == root, InvalidBatchRoot(batch.batchRoot, root));
+
+        // `delete challenge` zeros every field; cache the values we still need.
+        BatchStatus previousStatus = challenge.previousStatus;
+        uint256 deposit = challenge.deposit;
+
         $._proverRewards[_msgSender()] += deposit;
-
         $._provenBatchRoots[batchIndex] = true;
         delete $._batchRootChallenges[batchIndex];
-        batch.status = challenged.previousStatus;
+        delete $._batchRootResolution[batchIndex];
+        batch.status = previousStatus;
 
         emit BatchRootChallengeResolved(batchIndex, _msgSender());
+    }
+
+    /// @inheritdoc IRollupWrite
+    function discardBatchRootResolution(uint256 batchIndex) external whenNotPaused nonReentrant onlyRole(PROVER_ROLE) {
+        RollupStorage storage $ = _getRollupStorage();
+        _assertOpenBatchRootChallenge($, batchIndex);
+
+        BatchRootResolutionState storage state = $._batchRootResolution[batchIndex];
+        // Refuse to discard when there's nothing to discard — prevents misleading event emissions.
+        require(state.leavesAccumulated != 0, ResolutionNotInProgress(batchIndex));
+        // Only the prover that initiated the resolution may abandon it.
+        require(state.prover == _msgSender(), NotResolutionInitiator(state.prover));
+
+        delete $._batchRootResolution[batchIndex];
+        emit BatchRootResolutionDiscarded(batchIndex, _msgSender());
     }
 
     /// @inheritdoc IRollupWrite
@@ -687,15 +747,33 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
     // ============ Internal — lifecycle ============
 
     /**
-     * @dev Checks if the rollup is corrupted. Two independent corruption signals:
-     *      1. Deposit liveness: the bridge's oldest unconsumed sent message has missed its
-     *         frozen processing deadline (Q6 defense 2). The bridge owns the timing parameter
-     *         and snapshots; the rollup is a thin consumer reading one boolean.
-     *      2. Batch staleness: deadlines on the oldest non-finalized batch have expired.
+     * @dev Common entry-guard for the three batch-root resolution functions:
+     *      blocks calls under corruption, validates `Challenged` status, and
+     *      asserts an open challenge record. Returns the batch storage pointer
+     *      so callers can read other fields without re-resolving the mapping.
+     */
+    function _assertOpenBatchRootChallenge(RollupStorage storage $, uint256 batchIndex) private view returns (BatchRecord storage batch) {
+        require(!_rollupCorrupted(), RollupCorrupted());
+        batch = $._batches[batchIndex];
+        require(batch.status == BatchStatus.Challenged, InvalidBatchStatus(batchIndex, uint8(batch.status)));
+        require($._batchRootChallenges[batchIndex].challenger != address(0), BatchRootNotChallenged(batchIndex));
+    }
+
+    /**
+     * @dev Two independent corruption signals; either one halts state mutations.
+     *
+     *      1. Bridge deposit liveness — the bridge's oldest unconsumed sent
+     *         message has missed its frozen processing deadline. The bridge owns
+     *         the timing parameter and snapshots; the rollup is a thin consumer
+     *         reading one boolean.
+     *      2. Batch staleness on the oldest non-finalized batch:
      *         - submitBlobsWindow: blob hashes not submitted in time (Committed).
-     *         - challengeWindow: open challenge not resolved before its deadline (Challenged).
-     *      Both window snapshots are frozen at commitBatch time and have a `> 0` invariant
-     *      enforced at their setters (Q6 cleanup), so no `!= 0` defensive guard is needed.
+     *         - challengeWindow: open challenge not resolved before its deadline
+     *           (Challenged).
+     *
+     *      Window snapshots are frozen at commitBatch time and the setters reject
+     *      zero, so the consumer code below trusts them as `> 0` without a
+     *      defensive guard.
      */
     function _rollupCorrupted() internal view returns (bool) {
         RollupStorage storage $ = _getRollupStorage();

@@ -177,6 +177,31 @@ abstract contract RollupActions is RollupBase {
         rollup.challengeBlock{value: CHALLENGE_DEPOSIT}(batchIndex, blockHeader, blockProof);
     }
 
+    function _appendBatchRootChunk(uint256 batchIndex, L2BlockHeader[] memory headers) internal {
+        // Calldata-only param requires staging through an external call.
+        vm.prank(prover);
+        rollup.appendBatchRootResolutionChunk(batchIndex, headers);
+    }
+
+    function _finalizeBatchRootResolution(
+        uint256 batchIndex,
+        L2BlockHeader memory prevBatchHeader,
+        MerkleTree.MerkleProof memory prevProof
+    ) internal {
+        vm.prank(prover);
+        rollup.finalizeBatchRootChallengeResolution(batchIndex, prevBatchHeader, prevProof);
+    }
+
+    function _resolveBatchRootInOneChunk(
+        uint256 batchIndex,
+        L2BlockHeader[] memory headers,
+        L2BlockHeader memory prevBatchHeader,
+        MerkleTree.MerkleProof memory prevProof
+    ) internal {
+        _appendBatchRootChunk(batchIndex, headers);
+        _finalizeBatchRootResolution(batchIndex, prevBatchHeader, prevProof);
+    }
+
     /// @dev expectedBlobs=0 in tests is normalized to a single-blob batch.
     function _fullyFinalizeBatch(bytes32 parentHash) internal returns (uint256 batchIndex) {
         return _fullyFinalizeBatch(parentHash, 0);

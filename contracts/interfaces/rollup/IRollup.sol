@@ -50,7 +50,7 @@ interface IRollupErrors {
 
     /**
      * @notice Batch root has already been proven.
-     * @dev selector:
+     * @dev selector: 0x9dc0ff06
      */
     error BatchRootAlreadyProven(uint256 batchIndex);
 
@@ -294,36 +294,43 @@ interface IRollupErrors {
 
     /**
      * @notice Stored batch Merkle root does not match the root recomputed from the provided headers.
+     * @dev selector: 0x40ac6354
      */
     error InvalidBatchRoot(bytes32 storedRoot, bytes32 computedRoot);
 
     /**
      * @notice Block hash linkage does not match the chain recorded for this batch.
+     * @dev selector: 0x969f9725
      */
     error InvalidLastBlockHash(bytes32 expected, bytes32 provided);
 
     /**
      * @notice Batch already has an active challenge (status `Challenged`).
+     * @dev selector: 0x347d276f
      */
     error BatchAlreadyChallenged(uint256 batchIndex);
 
     /**
      * @notice Batch root was already proven or cannot be challenged in this way.
+     * @dev selector: 0xb0dfa480
      */
     error BatchRootAlreadyChallenged(uint256 batchIndex);
 
     /**
      * @notice No open batch-root challenge exists for this batch.
+     * @dev selector: 0xeaac9259
      */
     error BatchRootNotChallenged(uint256 batchIndex);
 
     /**
      * @notice Cannot open a block challenge while a batch-root challenge is open for this batch.
+     * @dev selector: 0x2edce3c5
      */
     error BatchRootChallengeOpen(uint256 batchIndex);
 
     /**
      * @notice Cannot open a batch-root challenge while block challenges are open for this batch.
+     * @dev selector: 0xcc5e4f31
      */
     error BlockChallengesOpen(uint256 batchIndex);
 
@@ -459,6 +466,41 @@ interface IRollupErrors {
      * @dev selector: 0xc0136839
      */
     error NitroVerifierNotAContract();
+
+    /**
+     * @notice {appendBatchRootResolutionChunk} called with an empty `headers` array.
+     * @dev selector: 0x5263ca5d
+     */
+    error EmptyHeadersChunk();
+
+    /**
+     * @notice Cumulative leaves submitted to the resolution accumulator would exceed
+     *         the batch's declared {BatchRecord-numberOfBlocks}.
+     * @dev selector: 0x013162ec
+     */
+    error LeavesExceedNumberOfBlocks(uint256 wouldBe, uint256 numberOfBlocks);
+
+    /**
+     * @notice {finalizeBatchRootChallengeResolution} called before the accumulator
+     *         has received exactly {BatchRecord-numberOfBlocks} leaves.
+     * @dev selector: 0xb65e73fc
+     */
+    error ResolutionLeavesNotComplete(uint256 accumulated, uint256 expected);
+
+    /**
+     * @notice {discardBatchRootResolution} called with no in-progress resolution
+     *         for the given batch.
+     * @dev selector: 0x773944c6
+     */
+    error ResolutionNotInProgress(uint256 batchIndex);
+
+    /**
+     * @notice Caller is not the prover that initiated the in-progress batch-root
+     *         resolution. Only the address that submitted the first chunk may
+     *         continue, finalize, or discard it.
+     * @dev selector: 0x39d7e820
+     */
+    error NotResolutionInitiator(address initiator);
 }
 
 /**
@@ -588,6 +630,17 @@ interface IRollupEvents {
      * @notice Emitted when a batch root challenge is resolved.
      */
     event BatchRootChallengeResolved(uint256 indexed batchIndex, address indexed prover);
+
+    /**
+     * @notice Emitted when a chunk of headers is appended to an in-progress batch-root
+     *         challenge resolution.
+     */
+    event BatchRootResolutionAppended(uint256 indexed batchIndex, uint256 leavesAccumulated, uint256 leavesTarget);
+
+    /**
+     * @notice Emitted when a prover discards an in-progress batch-root resolution to restart.
+     */
+    event BatchRootResolutionDiscarded(uint256 indexed batchIndex, address indexed prover);
 
     // ============ Rewards ============
 
@@ -849,14 +902,36 @@ interface IRollupWrite {
     // ============ Prover ============
 
     /**
-     * @notice Resolve a batch-root challenge by showing headers that reproduce the committed root.
+     * @notice Append a chunk of L2 block headers to the in-progress batch-root challenge
+     *         resolution for `batchIndex`. Call repeatedly until `leavesAccumulated`
+     *         equals {BatchRecord-numberOfBlocks}, then call {finalizeBatchRootChallengeResolution}.
+     * @dev Validates intra-chunk and inter-chunk chain linkage. The first chunk records
+     *      `headers[0].previousBlockHash` for the finalize-time cross-batch link check.
+     *      Empty `headers` is rejected.
      */
-    function resolveBatchRootChallenge(
+    function appendBatchRootResolutionChunk(uint256 batchIndex, L2BlockHeader[] calldata headers) external;
+
+    /**
+     * @notice Finalize the chunked batch-root challenge resolution: verify the cross-batch
+     *         link, drain the streaming Merkle accumulator, compare against the stored
+     *         {BatchRecord-batchRoot}, award the prover, and restore the batch status.
+     * @param batchIndex The batch under challenge.
+     * @param lastBlockHeaderInPreviousBatch Last header of `batches[batchIndex - 1]`.
+     * @param lastBlockProof Merkle proof of `lastBlockHeaderInPreviousBatch` against
+     *        `batches[batchIndex - 1].batchRoot` at leaf index `numberOfBlocks - 1`.
+     */
+    function finalizeBatchRootChallengeResolution(
         uint256 batchIndex,
         L2BlockHeader calldata lastBlockHeaderInPreviousBatch,
-        L2BlockHeader[] calldata blockHeaders,
         MerkleTree.MerkleProof calldata lastBlockProof
     ) external;
+
+    /**
+     * @notice Discard the in-progress batch-root challenge resolution for `batchIndex`
+     *         so the prover can restart from scratch within the challenge window.
+     *         The challenge record itself is untouched.
+     */
+    function discardBatchRootResolution(uint256 batchIndex) external;
 
     /**
      * @notice Resolve a block challenge by providing SP1 proof.

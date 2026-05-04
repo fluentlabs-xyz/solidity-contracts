@@ -11,6 +11,34 @@ import {IRollupEvents, IRollupErrors, IRollupRead, IRollupConfig, IRollupAdmin} 
 import {BatchStatus, BatchRecord, ChallengeRecord, InitConfiguration} from "../interfaces/rollup/IRollupTypes.sol";
 import {Heap} from "../libraries/Heap.sol";
 import {MerkleTree} from "../libraries/MerkleTree.sol";
+import {IncrementalMerkleTree} from "../libraries/IncrementalMerkleTree.sol";
+
+/**
+ * @dev Per-batch streaming state for chunked batch-root challenge resolution.
+ *      Created lazily on the first {Rollup-appendBatchRootResolutionChunk},
+ *      drained and deleted on {Rollup-finalizeBatchRootChallengeResolution},
+ *      {Rollup-discardBatchRootResolution}, or {Rollup-revertBatches}.
+ *      Lives in mapping-value space, so its layout does not affect the main
+ *      {RollupStorage} slot positions.
+ */
+struct BatchRootResolutionState {
+    // ─── Slot 0: uint64 (8) + address (20) = 28 bytes used, 4 bytes free ───
+    /// @dev Number of header commitments accumulated so far. Finalize requires
+    ///      this to equal {BatchRecord-numberOfBlocks} exactly.
+    uint64 leavesAccumulated;
+    /// @dev Address that submitted the first chunk and "owns" this resolution.
+    ///      Only this address may extend, finalize, or discard the accumulator.
+    ///      Set on the first append and immutable for the lifetime of the state.
+    address prover;
+    /// @dev `headers[0].previousBlockHash` from the first chunk. Finalize asserts
+    ///      it equals `lastBlockHeaderInPreviousBatch.blockHash`.
+    bytes32 firstBlockPreviousHash;
+    /// @dev `blockHash` of the most recent appended header — chain-linkage anchor
+    ///      for the next chunk's `headers[0].previousBlockHash`.
+    bytes32 lastBlockHash;
+    /// @dev Streaming Merkle tree state.
+    IncrementalMerkleTree.Tree tree;
+}
 
 /**
  * @title RollupStorageLayout
@@ -31,6 +59,7 @@ contract RollupStorageLayout is
     IRollupAdmin
 {
     using Heap for Heap.HeapStorage;
+    using IncrementalMerkleTree for IncrementalMerkleTree.Tree;
 
     // ============ Constants ============
 
@@ -242,9 +271,18 @@ contract RollupStorageLayout is
          * @dev whitelist of Nitro enclave verifier contracts allowed for preconfirmation
          */
         mapping(address => bool) _enabledNitroVerifiers;
+        // ============ Batch-root chunked resolution ============
+        /**
+         * @dev Per-batch streaming state for chunked batch-root challenge resolution.
+         *      Appended at the END of {RollupStorage} for upgrade-safe layout (one slot
+         *      consumed from {__gap}). Cleaned by
+         *      {Rollup-finalizeBatchRootChallengeResolution},
+         *      {Rollup-discardBatchRootResolution}, and {Rollup-_cleanupRevertedBatch}.
+         */
+        mapping(uint256 => BatchRootResolutionState) _batchRootResolution;
         // ============ Upgrade gap ============
         /// @dev Reserved storage slots for future upgrades.
-        uint256[25] __gap;
+        uint256[24] __gap;
     }
 
     // ============ Storage Initializer ============
