@@ -2,7 +2,7 @@
 pragma solidity 0.8.30;
 
 import {RollupAssertions} from "./Base.t.sol";
-import {L2BlockHeader, BlockDeposit, BatchStatus, ChallengeRecord} from "../../contracts/interfaces/rollup/IRollupTypes.sol";
+import {L2BlockHeader, L2BlockHeaderV1, BlockDeposit, BatchStatus, ChallengeRecord} from "../../contracts/interfaces/rollup/IRollupTypes.sol";
 import {IRollupErrors} from "../../contracts/interfaces/rollup/IRollup.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
@@ -27,6 +27,20 @@ contract BatchRootChallengeTest is RollupAssertions {
         vm.deal(challenger, CHALLENGE_DEPOSIT);
         vm.prank(challenger);
         rollup.challengeBatchRoot{value: CHALLENGE_DEPOSIT}(batchIndex);
+    }
+
+    /// @dev Project the full L2BlockHeader list onto the compact L2BlockHeaderV1 used by
+    ///      `resolveBatchRootChallenge`. previousBlockHash + depositCount fields are
+    ///      reconstructed/ignored on-chain, so they're stripped here.
+    function _toV1(L2BlockHeader[] memory full) internal pure returns (L2BlockHeaderV1[] memory v1) {
+        v1 = new L2BlockHeaderV1[](full.length);
+        for (uint256 i = 0; i < full.length; ++i) {
+            v1[i] = L2BlockHeaderV1({
+                blockHash: full[i].blockHash,
+                withdrawalRoot: full[i].withdrawalRoot,
+                depositRoot: full[i].depositRoot
+            });
+        }
     }
 
     // ============ challengeBatchRoot — happy paths ============
@@ -92,28 +106,16 @@ contract BatchRootChallengeTest is RollupAssertions {
 
     function test_resolveBatchRootChallenge_firstRealBatch_againstGenesis() public {
         // End-to-end: challenge batch 1 and resolve against the synthetic genesis batch
-        // that was committed at index 0 during initialize.
+        // that was committed at index 0 during initialize. With the V1-compact resolve,
+        // the genesis tip comes straight from `previousBatch.toBlockHash` (= GENESIS_HASH),
+        // so no separate prev-batch header / Merkle proof is passed.
         (uint256 batchIndex, L2BlockHeader[] memory headers) = _submittedBatchWithHeaders(GENESIS_HASH);
         assertEq(batchIndex, 1);
 
         _challengeBatchRoot(batchIndex);
 
-        // Reconstruct the synthetic genesis header as stored by _commitGenesisBatch.
-        L2BlockHeader memory genesisHeader = L2BlockHeader({
-            previousBlockHash: bytes32(0),
-            blockHash: GENESIS_HASH,
-            withdrawalRoot: ZERO_BYTES_HASH,
-            depositRoot: ZERO_BYTES_HASH,
-            depositCount: 0
-        });
-
-        // Single-leaf Merkle tree → proof is empty, nonce = 0 (last leaf index, numberOfBlocks - 1 = 0).
-        // Assumes MerkleTree.verifyMerkleProof accepts empty bytes (zero iterations → returns leaf == root).
-        // If the library ever requires _proof.length > 0, this genesis-batch path breaks silently.
-        MerkleTree.MerkleProof memory emptyProof = MerkleTree.MerkleProof({nonce: 0, proof: ""});
-
         vm.prank(prover);
-        rollup.resolveBatchRootChallenge(batchIndex, genesisHeader, headers, emptyProof);
+        rollup.resolveBatchRootChallenge(batchIndex, _toV1(headers));
 
         _assertProverWithdrawable(prover, CHALLENGE_DEPOSIT);
     }
@@ -169,27 +171,21 @@ contract BatchRootChallengeTest is RollupAssertions {
 
     // ============ resolveBatchRootChallenge — happy path ============
 
-    /// @dev Note: resolveBatchRootChallenge has a known storage ordering issue where
-    ///      `delete _batchRootChallenges[batchIndex]` runs before
-    ///      `batch.status = challenged.previousStatus`, causing previousStatus to read
-    ///      as zero (BatchStatus.None) after the delete. This test verifies current behavior.
     function test_resolveBatchRootChallenge_provesRootAndRewardsProver() public {
         _fullyFinalizeBatch(GENESIS_HASH);
         bytes32 lastHash1 = _lastBlockHash(GENESIS_HASH);
 
-        L2BlockHeader[] memory batch1Headers = _makeBatch(GENESIS_HASH);
         (uint256 batchIndex, L2BlockHeader[] memory headers) = _submittedBatchWithHeaders(lastHash1);
 
         _challengeBatchRoot(batchIndex);
         assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Challenged));
 
-        L2BlockHeader memory lastBlockInPrevBatch = batch1Headers[batch1Headers.length - 1];
-        MerkleTree.MerkleProof memory lastBlockProof = _buildMerkleProof(batch1Headers, batch1Headers.length - 1);
-
         vm.prank(prover);
-        rollup.resolveBatchRootChallenge(batchIndex, lastBlockInPrevBatch, headers, lastBlockProof);
+        rollup.resolveBatchRootChallenge(batchIndex, _toV1(headers));
 
         _assertProverWithdrawable(prover, CHALLENGE_DEPOSIT);
+        // Pre-challenge status must be restored on a successful resolve.
+        assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Submitted), "status should be restored to Submitted");
     }
 
     // ============ resolveBatchRootChallenge — reverts ============
@@ -198,56 +194,42 @@ contract BatchRootChallengeTest is RollupAssertions {
         _fullyFinalizeBatch(GENESIS_HASH);
         bytes32 lastHash1 = _lastBlockHash(GENESIS_HASH);
 
-        L2BlockHeader[] memory batch1Headers = _makeBatch(GENESIS_HASH);
         (uint256 batchIndex, L2BlockHeader[] memory headers) = _submittedBatchWithHeaders(lastHash1);
-
-        L2BlockHeader memory lastBlockInPrevBatch = batch1Headers[batch1Headers.length - 1];
-        MerkleTree.MerkleProof memory lastBlockProof = _buildMerkleProof(batch1Headers, batch1Headers.length - 1);
 
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidBatchStatus.selector, batchIndex, uint8(BatchStatus.Submitted)));
         vm.prank(prover);
-        rollup.resolveBatchRootChallenge(batchIndex, lastBlockInPrevBatch, headers, lastBlockProof);
+        rollup.resolveBatchRootChallenge(batchIndex, _toV1(headers));
     }
 
     function test_RevertIf_resolveBatchRootChallenge_wrongHeaders() public {
         _fullyFinalizeBatch(GENESIS_HASH);
         bytes32 lastHash1 = _lastBlockHash(GENESIS_HASH);
 
-        L2BlockHeader[] memory batch1Headers = _makeBatch(GENESIS_HASH);
         (uint256 batchIndex,) = _submittedBatchWithHeaders(lastHash1);
 
         _challengeBatchRoot(batchIndex);
 
+        // Headers from a different parent: chain reconstruction produces well-formed
+        // commitments but the Merkle root differs from the stored one, so the resolve
+        // reverts with `InvalidBatchRoot`.
         L2BlockHeader[] memory wrongHeaders = _makeBatch(keccak256("wrong"));
-        L2BlockHeader memory lastBlockInPrevBatch = batch1Headers[batch1Headers.length - 1];
-        MerkleTree.MerkleProof memory lastBlockProof = _buildMerkleProof(batch1Headers, batch1Headers.length - 1);
 
-        vm.expectRevert(
-            abi.encodeWithSelector(
-                IRollupErrors.InvalidLastBlockHash.selector,
-                lastBlockInPrevBatch.blockHash,
-                wrongHeaders[0].previousBlockHash
-            )
-        );
+        vm.expectPartialRevert(IRollupErrors.InvalidBatchRoot.selector);
         vm.prank(prover);
-        rollup.resolveBatchRootChallenge(batchIndex, lastBlockInPrevBatch, wrongHeaders, lastBlockProof);
+        rollup.resolveBatchRootChallenge(batchIndex, _toV1(wrongHeaders));
     }
 
     function test_RevertIf_resolveBatchRootChallenge_callerNotProver() public {
         _fullyFinalizeBatch(GENESIS_HASH);
         bytes32 lastHash1 = _lastBlockHash(GENESIS_HASH);
 
-        L2BlockHeader[] memory batch1Headers = _makeBatch(GENESIS_HASH);
         (uint256 batchIndex, L2BlockHeader[] memory headers) = _submittedBatchWithHeaders(lastHash1);
 
         _challengeBatchRoot(batchIndex);
 
-        L2BlockHeader memory lastBlockInPrevBatch = batch1Headers[batch1Headers.length - 1];
-        MerkleTree.MerkleProof memory lastBlockProof = _buildMerkleProof(batch1Headers, batch1Headers.length - 1);
-
         vm.expectRevert(abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, user, rollup.PROVER_ROLE()));
         vm.prank(user);
-        rollup.resolveBatchRootChallenge(batchIndex, lastBlockInPrevBatch, headers, lastBlockProof);
+        rollup.resolveBatchRootChallenge(batchIndex, _toV1(headers));
     }
 
     // ============ Mutual exclusion ============
