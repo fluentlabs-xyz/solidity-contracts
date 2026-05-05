@@ -80,7 +80,7 @@ For each production release:
 3. Assert every target proxy/contract has code before upgrade/configuration.
 4. Assert `block.chainid == scripts/config/<env>/<layer>.json.chainId`.
 5. Dry-run with `scripts/run-chain.sh` first.
-6. Broadcast with `BROADCAST=1` only after reviewing the dry-run transaction list.
+6. Broadcast with `--broadcast` only after reviewing the dry-run transaction list.
 7. Commit updated manifests and verification notes.
 
 For upgrades, prefer OpenZeppelin Foundry Upgrades with storage-layout validation. Use unsafe upgrade helpers only with an explicit opt-in and a documented reason.

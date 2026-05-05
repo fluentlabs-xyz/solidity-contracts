@@ -11,7 +11,7 @@ Fluent is a Layer 2 blockchain that settles on Ethereum. This repository contain
 | `contracts/bridge/` | `FluentBridge` (abstract), `L1FluentBridge`, `L2FluentBridge`, storage layout | Cross-chain message transport: send, receive (relayer), receive-with-proof (L1), rollback, retry |
 | `contracts/gateways/` | `GatewayBase` (abstract), `ERC20Gateway`, `NativeGateway` | User-facing asset entrypoints. Lock/escrow on source, mint/release on destination |
 | `contracts/factories/` | `GenericTokenFactory`, `ERC20TokenFactory`, `UniversalTokenFactory` | Deterministic CREATE2 deployment of pegged tokens on the destination chain |
-| `contracts/tokens/` | `ERC20PeggedToken` | Beacon-proxied pegged ERC-20 representation on L2 |
+| `contracts/tokens/` | `ERC20PeggedToken` | Beacon-proxied pegged ERC-20 representation on the destination chain |
 | `contracts/rollup/` | `Rollup`, `RollupStorageLayout` | L1 rollup: batch lifecycle, challenges, finalization, bridge deposit consumption |
 | `contracts/verifier/` | `NitroVerifier` | Nitro enclave signature verification |
 | `contracts/oracles/` | `L1BlockOracle`, `L1GasOracle` | L2-side oracles for L1 block number (deadline enforcement) and gas price (fee calculation) |
@@ -28,7 +28,7 @@ Upgradeable contracts use the **UUPS proxy** pattern with **ERC-7201 namespaced 
 1. User calls `ERC20Gateway.sendTokens(token, recipient, amount)` with `msg.value` covering the bridge fee.
 2. Gateway escrows the origin token and calls `FluentBridge.sendMessage(remoteGateway, payload)`.
 3. Bridge emits `SentMessage` (sender, to, value, chainId, blockNumber, nonce, messageHash, data). On L1 with rollup configured, the message is also enqueued for later proving.
-4. Off-chain relayer picks up the event and calls `L2FluentBridge.receiveMessage(...)` with the same parameters and matching `msg.value`.
+4. Off-chain relayer picks up the event and calls `L2FluentBridge.receiveMessage(...)` with the same parameters.
 5. L2 bridge delivers the payload to the remote `ERC20Gateway`, which mints a pegged token to the recipient.
 
 ```mermaid
@@ -70,7 +70,7 @@ None → HeadersSubmitted → Accepted → Preconfirmed → Finalized
 |------|-----|-------------|
 | `acceptNextBatch` | `SEQUENCER_ROLE` | Submits L2 block headers for the next batch |
 | `submitBlobs` | `SEQUENCER_ROLE` | Provides EIP-4844 blob hashes for the accepted batch |
-| `preconfirmBatch` | `PRECONFIRMATION_ROLE` | Nitro enclave signature verifies batch integrity |
+| `preconfirmBatch` | `PRECONFIRMATION_ROLE` | Verifies a Nitro enclave signature over batch integrity |
 | `finalizeBatches` | Anyone | Permissionless after `finalizationDelay` L1 blocks |
 | `finalizeWithProofs` | `PROVER_ROLE` | Immediate finalization if all blocks have SP1 proofs |
 | `challengeBlock` | `CHALLENGER_ROLE` | Disputes a specific block; requires ETH deposit |
@@ -97,7 +97,7 @@ Exceeding any active deadline triggers the **corrupted** state. All state-changi
 |----------|------|-------------|
 | **FluentBridge** | `DEFAULT_ADMIN_ROLE` | Authorize UUPS upgrades; configure `otherBridge`, `rollup`, `l1BlockOracle`, `receiveMessageDeadline` |
 | | `PAUSER_ROLE` | Pause/unpause message sends and receives |
-| | `RELAYER_ROLE` | Execute trusted message delivery; retry failed messages |
+| | `RELAYER_ROLE` | Execute trusted message delivery |
 | **Rollup** | `DEFAULT_ADMIN_ROLE` | Authorize UUPS upgrades; rotate bridge/verifier addresses and timing parameters |
 | | `SEQUENCER_ROLE` | Submit batch headers and blob hashes |
 | | `PRECONFIRMATION_ROLE` | Preconfirm batches via Nitro verification |

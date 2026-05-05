@@ -50,9 +50,8 @@ contract Staking is IStaking, StakingContext {
     uint16 internal constant COMMISSION_RATE_MIN_VALUE = 0; // 0%
     uint16 internal constant COMMISSION_RATE_MAX_VALUE = 3000; // 30%
     /**
-     * This gas limit is used for internal transfers, BSC doesn't support berlin and it
-     * might cause problems with smart contracts who used to stake transparent proxies or
-     * beacon proxies that have a lot of expensive SLOAD instructions.
+     * This gas limit is used for internal transfers to contracts that may execute expensive
+     * fallback logic, such as transparent or beacon proxies with multiple SLOAD instructions.
      */
     uint64 internal constant TRANSFER_GAS_LIMIT = 30000;
 
