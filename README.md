@@ -191,6 +191,7 @@ forge coverage --ir-minimum --report lcov
 | **[`docs/BridgeFailuresAndRollback.md`](docs/BridgeFailuresAndRollback.md)** | Complete message lifecycle with state diagrams: trusted delivery, L2 timeout mechanics, target execution failure, retry via `receiveFailedMessage`, L1 proof-based rollback. |
 | **[`docs/UpgradeSafety.md`](docs/UpgradeSafety.md)** | All UUPS proxy and beacon upgrade surfaces, required 6-step upgrade procedure, unsafe scripts, deployment checks, auditor evidence checklist. |
 | **[`docs/Addresses.md`](docs/Addresses.md)** | Deployed contract addresses for Sepolia (L1) and Fluent testnet (L2), chain IDs, RPC endpoints, explorer links, verification instructions. |
+| **[`docs/DeploymentScripts.md`](docs/DeploymentScripts.md)** | Safe Foundry deployment and migration workflow using `CHAIN=...` to derive RPC, config, and manifests. |
 | **[`docs/DeveloperGuide.md`](docs/DeveloperGuide.md)** | Usage examples (deposit/withdraw scripts), extending the system (new gateways, message paths), troubleshooting common errors. |
 
 ---

@@ -57,7 +57,7 @@ contract DeployStaking is DeployBase {
     }
 
     function _readStakingParams() internal view returns (StakingDeployParams memory p) {
-        string memory json = _readConfig(vm.envOr("NETWORK", string("testnet/l2")));
+        (, string memory json) = _readActiveConfig();
         p.initialOwner = vm.envOr("INITIAL_OWNER", json.readAddress(".roles.initialOwner"));
         p.systemRewardAccount = vm.envOr("SYSTEM_REWARD_ACCOUNT", p.initialOwner);
         p.governanceVotingPeriod = uint32(vm.envOr("GOVERNANCE_VOTING_PERIOD", uint256(172_800)));
@@ -194,10 +194,13 @@ contract DeployStaking is DeployBase {
     }
 
     function run() external {
+        TargetChain memory chain = _activeChain();
         StakingDeployParams memory p = _readStakingParams();
         string memory outputPath = vm.envOr("OUTPUT_PATH", string(""));
 
         console2.log("Deploying staking module");
+        console2.log("  chain:", chain.chain);
+        console2.log("  network:", chain.network);
         console2.log("  owner:", p.initialOwner);
         console2.log("  governance voting period:", p.governanceVotingPeriod);
         console2.log("  system reward account:", p.systemRewardAccount);

@@ -29,10 +29,12 @@ contract DeployGovernance is DeployBase {
     }
 
     function _readGovernanceParams() internal view returns (GovernanceDeployParams memory p) {
-        string memory json = _readConfig(vm.envOr("NETWORK", string("testnet/l2")));
+        (, string memory json) = _readActiveConfig();
         p.initialOwner = vm.envOr("INITIAL_OWNER", json.readAddress(".roles.initialOwner"));
         p.staking = IStaking(vm.envAddress("STAKING_ADDRESS"));
         p.chainConfig = IChainConfig(vm.envAddress("CHAIN_CONFIG_ADDRESS"));
+        _assertHasCode(address(p.staking), "STAKING_ADDRESS");
+        _assertHasCode(address(p.chainConfig), "CHAIN_CONFIG_ADDRESS");
         p.votingPeriod = uint32(vm.envOr("GOVERNANCE_VOTING_PERIOD", uint256(172_800)));
     }
 
@@ -47,10 +49,13 @@ contract DeployGovernance is DeployBase {
     }
 
     function run() external {
+        TargetChain memory chain = _activeChain();
         GovernanceDeployParams memory p = _readGovernanceParams();
         string memory outputPath = vm.envOr("OUTPUT_PATH", string(""));
 
         console2.log("Deploying governance");
+        console2.log("  chain:", chain.chain);
+        console2.log("  network:", chain.network);
         console2.log("  owner:", p.initialOwner);
         console2.log("  staking:", address(p.staking));
         console2.log("  chain config:", address(p.chainConfig));
