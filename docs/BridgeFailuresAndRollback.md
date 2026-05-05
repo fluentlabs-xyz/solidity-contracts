@@ -54,7 +54,7 @@ flowchart TD
     D -->|yes| Z[revert ForbiddenSelfCall]
     D -->|no| E[L2: _beforeReceiveMessage]
     E -->|false| F[return early<br/>hash may be Failed]
-    E -->|true| G[_receiveMessage:<br/>call to with gas limit]
+    E -->|true| G[_receiveMessage:<br/>call `to` with gas limit]
     G --> H{call success?}
     H -->|yes| I[Status = Success]
     H -->|no| J[Status = Failed]
@@ -148,7 +148,7 @@ sequenceDiagram
 
 **Nonce:** **`receiveFailedMessage` does not increment `receivedNonce`** — it only retries an existing hash.
 
-**L2 deadline on retry:** If **`_beforeReceiveMessage`** still sees an expired deadline, it writes **`Failed`**, emits **`RollbackMessage`** and **`ReceivedMessage(false, "")`**, returns **`false`**, and **`receiveFailedMessage` exits** without calling **`_receiveMessage`**. Wait until the oracle/deadline window allows delivery, then retry again.
+**L2 deadline on retry:** If **`_beforeReceiveMessage`** still sees an expired deadline, it writes **`Failed`**, emits **`RollbackMessage`** and **`ReceivedMessage(false, "")`**, returns **`false`**, and **`receiveFailedMessage` exits** without calling **`_receiveMessage`**. Retry after oracle correction or a deadline/admin configuration change allows delivery.
 
 ```mermaid
 flowchart TD

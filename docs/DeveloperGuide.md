@@ -55,7 +55,7 @@ Available flags:
 
 ### Step-by-step (manual)
 
-If you prefer running forge scripts directly instead of `deploy.sh`. Phase ordering and manifest paths are detailed in [Deployment order](#deployment-order) below.
+If you prefer running forge scripts directly instead of `deploy.sh`, use the commands below. Phase ordering and manifest paths are detailed in [Deployment order](#deployment-order).
 
 #### 1. Deploy L1 (Sepolia)
 
@@ -92,7 +92,7 @@ gblend script scripts/deploy/SetupL2.s.sol \
 Setup scripts call:
 
 - `bridge.setOtherBridge(remoteBridge)`
-- `bridge.setExecuteGasLimit(bridge.executeGasLimit)` from `scripts/config/<env>/<chain>.json`
+- `bridge.setExecuteGasLimit(bridge.executeGasLimit)` from `scripts/config/<env>/<layer>.json`
 - `erc20Gateway.setOtherSide(isUniversal, remoteGateway, chainId, tokenImpl, factory, beacon)`
 - `nativeGateway.setOtherSideGateway(remoteGateway)`
 
@@ -165,7 +165,7 @@ scripts/config/
 
 Configs contain **static** values only (roles, timing, economics). Dynamic addresses come from deployment manifests or env vars.
 
-To add a new environment: copy `testnet/`, update addresses, run with `NETWORK=mainnet/l1`.
+To add a new environment: copy `testnet/`, update addresses and chain IDs, then run with the matching `NETWORK=<env>/<layer>` value.
 
 ### Environment variables
 
@@ -184,7 +184,7 @@ See `.env.example` for the full list. Key variables:
 
 ### Deployment manifests
 
-Written to `deployments/<env>/<network>.json`. Flat JSON format:
+Written to `deployments/<env>/<layer>.json`. Flat JSON format:
 
 ```json
 {

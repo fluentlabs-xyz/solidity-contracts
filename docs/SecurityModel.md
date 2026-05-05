@@ -7,7 +7,7 @@
 - `Rollup.sol` and `RollupStorageLayout.sol`: batch lifecycle, challenges, proofs, corruption detection, and bridge deposit consumption.
 - `GenericTokenFactory.sol`, `ERC20TokenFactory.sol`, `UniversalTokenFactory.sol`: deterministic pegged-token deployment and beacon upgrades.
 - `ERC20PeggedToken.sol` and `UniversalToken.sol`: bridged asset representations controlled by the gateway/factory configuration.
-- `NitroVerifier.sol`, `SP1VerifierGroth16.sol`, `L1BlockOracle.sol`: verifier and oracle trust anchors.
+- `NitroVerifier.sol`, `SP1VerifierGroth16.sol`, `L1BlockOracle.sol`, `L1GasOracle.sol`: verifier and oracle trust anchors.
 - `Staking.sol`, `StakingPool.sol`, `SystemReward.sol`, `ChainConfig.sol`, `SlashingIndicator.sol`: validator staking, delegation, rewards, slashing, and consensus parameter storage.
 - `Governance.sol` and `FluentTimeLock.sol`: validator-owner governance and optional delayed execution for governed actions.
 
@@ -21,7 +21,7 @@
 - `PAUSER_ROLE`
   - Can pause and unpause message sends and receives.
 - `RELAYER_ROLE`
-  - Can execute trusted-delivery messages and retry failed messages.
+  - Can execute trusted-delivery messages.
   - Must be treated as a high-trust operational role because it chooses when messages are delivered.
 
 ### `Rollup`

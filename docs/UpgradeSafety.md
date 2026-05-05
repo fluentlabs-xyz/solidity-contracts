@@ -20,11 +20,7 @@
 
 ## Unsafe Upgrade Tooling
 
-- `scripts/deploy/DeployLib.s.sol`
-- `scripts/upgrade/UpgradeFluentBridge.s.sol`
-- `scripts/upgrade/UpgradeERC20Beacon.s.sol`
-
-These scripts still use unsafe upgrade helpers in some paths. They now require `ALLOW_UNSAFE_UPGRADES=true` to make operator intent explicit, but they should still be treated as high-risk operational tools.
+Some upgrade scripts expose `UNSAFE_SKIP_STORAGE_CHECK` for emergency/operator-controlled flows. Treat those paths as high-risk: use them only with an explicit reason, record the storage-layout evidence separately, and prefer safe OpenZeppelin upgrade validation whenever possible.
 
 ## Deployment Checks
 

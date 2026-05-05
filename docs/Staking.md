@@ -1,6 +1,6 @@
 # Staking contracts
 
-The staking module ports the legacy validator staking system into the Foundry codebase. It is intended for the Fluent system-contract environment. Shared contract dependencies are constructor-wired immutables, while mutable module state is configured with OpenZeppelin-style initializers. Contracts are UUPS-upgradeable behind ERC-1967 proxies, with upgrade authorization controlled by the configured owner account. Mutable staking state uses ERC-7201 namespaced storage, and validation failures use custom errors instead of revert strings.
+The staking module implements the validator staking system in the Foundry codebase. It is intended for the Fluent system-contract environment. Shared contract dependencies are constructor-wired immutables, while mutable module state is configured with OpenZeppelin-style initializers. Contracts are UUPS-upgradeable behind ERC-1967 proxies, with upgrade authorization controlled by the configured owner account. Mutable staking state uses ERC-7201 namespaced storage, and validation failures use custom errors instead of revert strings.
 
 ## Contract map
 
@@ -40,7 +40,7 @@ The active validator list is sorted by delegated amount and capped by `activeVal
 
 Delegators call `delegate(validator)` with ETH. The contract stores compacted balances using `BALANCE_COMPACT_PRECISION`; stake amounts must be compatible with this precision and the configured minimum staking amount.
 
-Validator rewards arrive through `deposit(validator)`, which is restricted to the block coinbase and zero gas price in the legacy system-contract model. Rewards are split between:
+Validator rewards arrive through `deposit(validator)`, which is restricted to the block coinbase and zero gas price in the system-contract environment. Rewards are split between:
 
 - validator owner commission, based on the validator commission rate; and
 - delegators, proportional to their delegated stake after commission.
@@ -92,7 +92,7 @@ All setters are governance-only and emit before/after events.
 
 The Foundry staking tests in `test/staking/` cover:
 
-- delegation and delegation across epochs;
+- delegation across epochs;
 - undelegation and claimable funds;
 - active validator ordering by delegated amount;
 - rejecting delegation to unknown validators;
