@@ -6,6 +6,7 @@ import {Test} from "forge-std/Test.sol";
 import {ChainConfig} from "../../contracts/staking/ChainConfig.sol";
 import {SlashingIndicator} from "../../contracts/staking/SlashingIndicator.sol";
 import {Staking} from "../../contracts/staking/Staking.sol";
+import {StakingErrors} from "../../contracts/staking/StakingErrors.sol";
 import {StakingPool} from "../../contracts/staking/StakingPool.sol";
 import {SystemReward} from "../../contracts/staking/SystemReward.sol";
 import {IChainConfig} from "../../contracts/staking/interfaces/IChainConfig.sol";
@@ -152,11 +153,11 @@ contract StakingFoundryTest is Test {
         assertEq(validators[0], validator2);
         assertEq(validators[1], validator1);
 
-        vm.expectRevert("Staking: amount is too low");
+        vm.expectRevert(StakingErrors.AmountTooLow.selector);
         vm.prank(staker2);
         staking.undelegate(validator2, 1);
 
-        vm.expectRevert("Staking: amount have a remainder");
+        vm.expectRevert(StakingErrors.WrongAmountPrecision.selector);
         vm.prank(staker2);
         staking.undelegate(validator2, ONE + 1);
 
@@ -214,7 +215,7 @@ contract StakingFoundryTest is Test {
         staking.addValidator(validator1);
         staking.addValidator(validator3);
 
-        vm.expectRevert("Staking: validator not found");
+        vm.expectRevert(StakingErrors.ValidatorNotFound.selector);
         vm.prank(staker1);
         staking.delegate{value: 3 * ONE}(validator2);
     }

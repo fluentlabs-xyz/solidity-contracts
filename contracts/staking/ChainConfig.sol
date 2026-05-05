@@ -7,6 +7,9 @@ import "./StakingContext.sol";
 /// @notice Stores consensus and staking parameters controlled by governance.
 /// @dev Values are consumed by `Staking` and `StakingPool` for epoch, jail, undelegation, and minimum stake logic.
 contract ChainConfig is StakingContext, IChainConfig {
+    bytes32 private constant CHAIN_CONFIG_STORAGE_LOCATION =
+        0x8046150a36ce023dec392c496d6e64fcdc42b4e5054073dafc987cdbcc500e00;
+
     event ActiveValidatorsLengthChanged(uint32 prevValue, uint32 newValue);
     event EpochBlockIntervalChanged(uint32 prevValue, uint32 newValue);
     event MisdemeanorThresholdChanged(uint32 prevValue, uint32 newValue);
@@ -28,7 +31,16 @@ contract ChainConfig is StakingContext, IChainConfig {
         uint256 minStakingAmount;
     }
 
-    ConsensusParams private _consensusParams;
+    /// @custom:storage-location erc7201:Fluent.storage.ChainConfigStorage
+    struct ChainConfigStorage {
+        ConsensusParams consensusParams;
+    }
+
+    function _getChainConfigStorage() private pure returns (ChainConfigStorage storage $) {
+        assembly {
+            $.slot := CHAIN_CONFIG_STORAGE_LOCATION
+        }
+    }
 
     constructor(
         IStaking stakingContract,
@@ -60,101 +72,110 @@ contract ChainConfig is StakingContext, IChainConfig {
         uint256 minStakingAmount
     ) external initializer {
         __StakingContext_init(initialOwner);
-        _consensusParams.activeValidatorsLength = activeValidatorsLength;
+        ChainConfigStorage storage $ = _getChainConfigStorage();
+        $.consensusParams.activeValidatorsLength = activeValidatorsLength;
         emit ActiveValidatorsLengthChanged(0, activeValidatorsLength);
-        _consensusParams.epochBlockInterval = epochBlockInterval;
+        $.consensusParams.epochBlockInterval = epochBlockInterval;
         emit EpochBlockIntervalChanged(0, epochBlockInterval);
-        _consensusParams.misdemeanorThreshold = misdemeanorThreshold;
+        $.consensusParams.misdemeanorThreshold = misdemeanorThreshold;
         emit MisdemeanorThresholdChanged(0, misdemeanorThreshold);
-        _consensusParams.felonyThreshold = felonyThreshold;
+        $.consensusParams.felonyThreshold = felonyThreshold;
         emit FelonyThresholdChanged(0, felonyThreshold);
-        _consensusParams.validatorJailEpochLength = validatorJailEpochLength;
+        $.consensusParams.validatorJailEpochLength = validatorJailEpochLength;
         emit ValidatorJailEpochLengthChanged(0, validatorJailEpochLength);
-        _consensusParams.undelegatePeriod = undelegatePeriod;
+        $.consensusParams.undelegatePeriod = undelegatePeriod;
         emit UndelegatePeriodChanged(0, undelegatePeriod);
-        _consensusParams.minValidatorStakeAmount = minValidatorStakeAmount;
+        $.consensusParams.minValidatorStakeAmount = minValidatorStakeAmount;
         emit MinValidatorStakeAmountChanged(0, minValidatorStakeAmount);
-        _consensusParams.minStakingAmount = minStakingAmount;
+        $.consensusParams.minStakingAmount = minStakingAmount;
         emit MinStakingAmountChanged(0, minStakingAmount);
     }
 
     function getActiveValidatorsLength() external view override returns (uint32) {
-        return _consensusParams.activeValidatorsLength;
+        return _getChainConfigStorage().consensusParams.activeValidatorsLength;
     }
 
     function setActiveValidatorsLength(uint32 newValue) external override onlyFromGovernance {
-        uint32 prevValue = _consensusParams.activeValidatorsLength;
-        _consensusParams.activeValidatorsLength = newValue;
+        ChainConfigStorage storage $ = _getChainConfigStorage();
+        uint32 prevValue = $.consensusParams.activeValidatorsLength;
+        $.consensusParams.activeValidatorsLength = newValue;
         emit ActiveValidatorsLengthChanged(prevValue, newValue);
     }
 
     function getEpochBlockInterval() external view override returns (uint32) {
-        return _consensusParams.epochBlockInterval;
+        return _getChainConfigStorage().consensusParams.epochBlockInterval;
     }
 
     function setEpochBlockInterval(uint32 newValue) external override onlyFromGovernance {
-        uint32 prevValue = _consensusParams.epochBlockInterval;
-        _consensusParams.epochBlockInterval = newValue;
+        ChainConfigStorage storage $ = _getChainConfigStorage();
+        uint32 prevValue = $.consensusParams.epochBlockInterval;
+        $.consensusParams.epochBlockInterval = newValue;
         emit EpochBlockIntervalChanged(prevValue, newValue);
     }
 
     function getMisdemeanorThreshold() external view override returns (uint32) {
-        return _consensusParams.misdemeanorThreshold;
+        return _getChainConfigStorage().consensusParams.misdemeanorThreshold;
     }
 
     function setMisdemeanorThreshold(uint32 newValue) external override onlyFromGovernance {
-        uint32 prevValue = _consensusParams.misdemeanorThreshold;
-        _consensusParams.misdemeanorThreshold = newValue;
+        ChainConfigStorage storage $ = _getChainConfigStorage();
+        uint32 prevValue = $.consensusParams.misdemeanorThreshold;
+        $.consensusParams.misdemeanorThreshold = newValue;
         emit MisdemeanorThresholdChanged(prevValue, newValue);
     }
 
     function getFelonyThreshold() external view override returns (uint32) {
-        return _consensusParams.felonyThreshold;
+        return _getChainConfigStorage().consensusParams.felonyThreshold;
     }
 
     function setFelonyThreshold(uint32 newValue) external override onlyFromGovernance {
-        uint32 prevValue = _consensusParams.felonyThreshold;
-        _consensusParams.felonyThreshold = newValue;
+        ChainConfigStorage storage $ = _getChainConfigStorage();
+        uint32 prevValue = $.consensusParams.felonyThreshold;
+        $.consensusParams.felonyThreshold = newValue;
         emit FelonyThresholdChanged(prevValue, newValue);
     }
 
     function getValidatorJailEpochLength() external view override returns (uint32) {
-        return _consensusParams.validatorJailEpochLength;
+        return _getChainConfigStorage().consensusParams.validatorJailEpochLength;
     }
 
     function setValidatorJailEpochLength(uint32 newValue) external override onlyFromGovernance {
-        uint32 prevValue = _consensusParams.validatorJailEpochLength;
-        _consensusParams.validatorJailEpochLength = newValue;
+        ChainConfigStorage storage $ = _getChainConfigStorage();
+        uint32 prevValue = $.consensusParams.validatorJailEpochLength;
+        $.consensusParams.validatorJailEpochLength = newValue;
         emit ValidatorJailEpochLengthChanged(prevValue, newValue);
     }
 
     function getUndelegatePeriod() external view override returns (uint32) {
-        return _consensusParams.undelegatePeriod;
+        return _getChainConfigStorage().consensusParams.undelegatePeriod;
     }
 
     function setUndelegatePeriod(uint32 newValue) external override onlyFromGovernance {
-        uint32 prevValue = _consensusParams.undelegatePeriod;
-        _consensusParams.undelegatePeriod = newValue;
+        ChainConfigStorage storage $ = _getChainConfigStorage();
+        uint32 prevValue = $.consensusParams.undelegatePeriod;
+        $.consensusParams.undelegatePeriod = newValue;
         emit UndelegatePeriodChanged(prevValue, newValue);
     }
 
     function getMinValidatorStakeAmount() external view returns (uint256) {
-        return _consensusParams.minValidatorStakeAmount;
+        return _getChainConfigStorage().consensusParams.minValidatorStakeAmount;
     }
 
     function setMinValidatorStakeAmount(uint256 newValue) external override onlyFromGovernance {
-        uint256 prevValue = _consensusParams.minValidatorStakeAmount;
-        _consensusParams.minValidatorStakeAmount = newValue;
+        ChainConfigStorage storage $ = _getChainConfigStorage();
+        uint256 prevValue = $.consensusParams.minValidatorStakeAmount;
+        $.consensusParams.minValidatorStakeAmount = newValue;
         emit MinValidatorStakeAmountChanged(prevValue, newValue);
     }
 
     function getMinStakingAmount() external view returns (uint256) {
-        return _consensusParams.minStakingAmount;
+        return _getChainConfigStorage().consensusParams.minStakingAmount;
     }
 
     function setMinStakingAmount(uint256 newValue) external override onlyFromGovernance {
-        uint256 prevValue = _consensusParams.minStakingAmount;
-        _consensusParams.minStakingAmount = newValue;
+        ChainConfigStorage storage $ = _getChainConfigStorage();
+        uint256 prevValue = $.consensusParams.minStakingAmount;
+        $.consensusParams.minStakingAmount = newValue;
         emit MinStakingAmountChanged(prevValue, newValue);
     }
 }

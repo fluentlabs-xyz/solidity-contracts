@@ -7,6 +7,9 @@ import "./StakingContext.sol";
 /// @notice Accumulates system fees and distributes them to configured recipients by share.
 /// @dev Governance must configure shares so they sum to `SHARE_MAX_VALUE`.
 contract SystemReward is ISystemReward, StakingContext {
+    bytes32 private constant SYSTEM_REWARD_STORAGE_LOCATION =
+        0x85de466a486fac3ceb8a96c8f08f407e42a5512799e7ca6bc110e97735605700;
+
     /**
      * Parlia has 100 ether limit for max fee, its better to enable auto claim
      * for the system treasury otherwise it might cause lost of funds
@@ -27,18 +30,26 @@ contract SystemReward is ISystemReward, StakingContext {
     event DistributionShareChanged(address account, uint16 share);
     event FeeClaimed(address account, uint256 amount);
 
-    // total system fee that is available for claim for system needs
-    address internal _systemTreasury;
-    uint256 internal _systemFee;
-
     /// @notice One fee recipient and its share in basis-point-style units.
     struct DistributionShare {
         address account;
         uint16 share;
     }
 
-    // distribution share between holders
-    DistributionShare[] internal _distributionShares;
+    /// @custom:storage-location erc7201:Fluent.storage.SystemRewardStorage
+    struct SystemRewardStorage {
+        // total system fee that is available for claim for system needs
+        address systemTreasury;
+        uint256 systemFee;
+        // distribution share between holders
+        DistributionShare[] distributionShares;
+    }
+
+    function _getSystemRewardStorage() internal pure returns (SystemRewardStorage storage $) {
+        assembly {
+            $.slot := SYSTEM_REWARD_STORAGE_LOCATION
+        }
+    }
 
     constructor(
         IStaking stakingContract,
@@ -67,29 +78,30 @@ contract SystemReward is ISystemReward, StakingContext {
     }
 
     function getDistributionShares() external view returns (DistributionShare[] memory) {
-        return _distributionShares;
+        return _getSystemRewardStorage().distributionShares;
     }
 
     function _updateDistributionShare(address[] calldata accounts, uint16[] calldata shares) internal {
-        require(accounts.length == shares.length, "SystemReward: bad length");
+        if (accounts.length != shares.length) revert BadLength();
+        SystemRewardStorage storage $ = _getSystemRewardStorage();
         // force claim system fee before changing distribution share
         _claimSystemFee();
         uint16 totalShares = 0;
         for (uint256 i = 0; i < accounts.length; i++) {
             address account = accounts[i];
             uint16 share = shares[i];
-            require(share >= SHARE_MIN_VALUE && share <= SHARE_MAX_VALUE, "SystemReward: bad share distribution");
-            if (i >= _distributionShares.length) {
-                _distributionShares.push(DistributionShare(account, share));
+            if (share < SHARE_MIN_VALUE || share > SHARE_MAX_VALUE) revert BadShareDistribution();
+            if (i >= $.distributionShares.length) {
+                $.distributionShares.push(DistributionShare(account, share));
             } else {
-                _distributionShares[i] = DistributionShare(account, share);
+                $.distributionShares[i] = DistributionShare(account, share);
             }
             emit DistributionShareChanged(account, share);
             totalShares += share;
         }
-        require(totalShares == SHARE_MAX_VALUE, "SystemReward: bad share distribution");
-        assembly {
-            sstore(_distributionShares.slot, accounts.length)
+        if (totalShares != SHARE_MAX_VALUE) revert BadShareDistribution();
+        while ($.distributionShares.length > accounts.length) {
+            $.distributionShares.pop();
         }
     }
 
@@ -103,7 +115,7 @@ contract SystemReward is ISystemReward, StakingContext {
     }
 
     function getSystemFee() external view override returns (uint256) {
-        return _systemFee;
+        return _getSystemRewardStorage().systemFee;
     }
 
     function claimSystemFee() external override {
@@ -111,37 +123,39 @@ contract SystemReward is ISystemReward, StakingContext {
     }
 
     receive() external payable {
+        SystemRewardStorage storage $ = _getSystemRewardStorage();
         // increase total system fee
-        _systemFee += msg.value;
+        $.systemFee += msg.value;
         // once max fee threshold is reached lets do force claim
-        if (_systemFee >= TREASURY_AUTO_CLAIM_THRESHOLD) {
+        if ($.systemFee >= TREASURY_AUTO_CLAIM_THRESHOLD) {
             _claimSystemFee();
         }
     }
 
     function _claimSystemFee() internal {
-        uint256 amountToPay = _systemFee;
+        SystemRewardStorage storage $ = _getSystemRewardStorage();
+        uint256 amountToPay = $.systemFee;
         if (amountToPay <= TREASURY_MIN_CLAIM_THRESHOLD) {
             return;
         }
-        _systemFee = 0;
+        $.systemFee = 0;
         // if we have system treasury then its legacy scheme
-        if (_systemTreasury != address(0x00)) {
-            address payable payableTreasury = payable(_systemTreasury);
+        if ($.systemTreasury != address(0x00)) {
+            address payable payableTreasury = payable($.systemTreasury);
             payableTreasury.transfer(amountToPay);
-            emit FeeClaimed(_systemTreasury, amountToPay);
+            emit FeeClaimed($.systemTreasury, amountToPay);
             return;
         }
         // distribute rewards based on the shares
         uint256 totalPaid = 0;
-        for (uint256 i = 0; i < _distributionShares.length; i++) {
-            DistributionShare memory ds = _distributionShares[i];
+        for (uint256 i = 0; i < $.distributionShares.length; i++) {
+            DistributionShare memory ds = $.distributionShares[i];
             uint256 accountFee = amountToPay * ds.share / SHARE_MAX_VALUE;
             payable(ds.account).transfer(accountFee);
             emit FeeClaimed(ds.account, accountFee);
             totalPaid += accountFee;
         }
         // return some dust back to the acc
-        _systemFee = amountToPay - totalPaid;
+        $.systemFee = amountToPay - totalPaid;
     }
 }

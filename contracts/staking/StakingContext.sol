@@ -5,6 +5,8 @@ import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/acces
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
+import "./StakingErrors.sol";
+
 import "./interfaces/IChainConfig.sol";
 import "./interfaces/IGovernance.sol";
 import "./interfaces/ISlashingIndicator.sol";
@@ -15,7 +17,7 @@ import "./interfaces/ISystemReward.sol";
 /// @title Staking system context
 /// @notice Stores staking module dependencies and exposes shared access-control modifiers.
 /// @dev Each concrete staking contract wires shared dependencies through immutable constructor arguments.
-abstract contract StakingContext is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable {
+abstract contract StakingContext is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, StakingErrors {
     IStaking internal immutable _stakingContract;
     ISlashingIndicator internal immutable _slashingIndicatorContract;
     ISystemReward internal immutable _systemRewardContract;
@@ -46,22 +48,22 @@ abstract contract StakingContext is Initializable, UUPSUpgradeable, Ownable2Step
     }
 
     modifier onlyFromCoinbase() {
-        require(msg.sender == block.coinbase, "StakingContext: only coinbase");
+        if (msg.sender != block.coinbase) revert OnlyCoinbase();
         _;
     }
 
     modifier onlyFromSlashingIndicator() {
-        require(msg.sender == address(_slashingIndicatorContract), "StakingContext: only slashing indicator");
+        if (msg.sender != address(_slashingIndicatorContract)) revert OnlySlashingIndicator();
         _;
     }
 
     modifier onlyFromGovernance() {
-        require(IGovernance(msg.sender) == _governanceContract, "StakingContext: only governance");
+        if (IGovernance(msg.sender) != _governanceContract) revert OnlyGovernance();
         _;
     }
 
     modifier onlyZeroGasPrice() {
-        require(tx.gasprice == 0, "StakingContext: only zero gas price");
+        if (tx.gasprice != 0) revert OnlyZeroGasPrice();
         _;
     }
 
