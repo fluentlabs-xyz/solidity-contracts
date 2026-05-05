@@ -49,6 +49,7 @@ contract ChainConfig is StakingContext, IChainConfig {
     {}
 
     function initialize(
+        address initialOwner,
         uint32 activeValidatorsLength,
         uint32 epochBlockInterval,
         uint32 misdemeanorThreshold,
@@ -58,6 +59,7 @@ contract ChainConfig is StakingContext, IChainConfig {
         uint256 minValidatorStakeAmount,
         uint256 minStakingAmount
     ) external initializer {
+        __StakingContext_init(initialOwner);
         _consensusParams.activeValidatorsLength = activeValidatorsLength;
         emit ActiveValidatorsLengthChanged(0, activeValidatorsLength);
         _consensusParams.epochBlockInterval = epochBlockInterval;

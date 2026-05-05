@@ -61,7 +61,9 @@ contract StakingPool is StakingContext, IStakingPool {
         )
     {}
 
-    function initialize() external initializer {}
+    function initialize(address initialOwner) external initializer {
+        __StakingContext_init(initialOwner);
+    }
 
     function getStakedAmount(address validator, address staker) external view returns (uint256) {
         ValidatorPool memory validatorPool = _getValidatorPool(validator);

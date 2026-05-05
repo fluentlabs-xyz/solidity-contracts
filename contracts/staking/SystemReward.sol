@@ -58,7 +58,11 @@ contract SystemReward is ISystemReward, StakingContext {
         )
     {}
 
-    function initialize(address[] calldata accounts, uint16[] calldata shares) external initializer {
+    function initialize(address initialOwner, address[] calldata accounts, uint16[] calldata shares)
+        external
+        initializer
+    {
+        __StakingContext_init(initialOwner);
         _updateDistributionShare(accounts, shares);
     }
 

@@ -91,12 +91,20 @@ contract StakingFoundryTest is Test {
             predictedChainConfig
         );
 
-        staking.initialize(new address[](0), new uint256[](0), uint16(0));
-        slashingIndicator.initialize();
-        systemReward.initialize(_singleton(address(0)), _singleton16(10_000));
-        stakingPool.initialize();
+        staking.initialize(address(this), new address[](0), new uint256[](0), uint16(0));
+        slashingIndicator.initialize(address(this));
+        systemReward.initialize(address(this), _singleton(address(0)), _singleton16(10_000));
+        stakingPool.initialize(address(this));
         chainConfig.initialize(
-            uint32(3), uint32(10), uint32(50), uint32(150), uint32(7), uint32(0), uint256(ONE), uint256(ONE)
+            address(this),
+            uint32(3),
+            uint32(10),
+            uint32(50),
+            uint32(150),
+            uint32(7),
+            uint32(0),
+            uint256(ONE),
+            uint256(ONE)
         );
     }
 

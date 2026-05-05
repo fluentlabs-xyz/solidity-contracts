@@ -142,11 +142,13 @@ contract Staking is IStaking, StakingContext {
         )
     {}
 
-    function initialize(address[] calldata validators, uint256[] calldata initialStakes, uint16 commissionRate)
-        external
-        payable
-        initializer
-    {
+    function initialize(
+        address initialOwner,
+        address[] calldata validators,
+        uint256[] calldata initialStakes,
+        uint16 commissionRate
+    ) external payable initializer {
+        __StakingContext_init(initialOwner);
         require(initialStakes.length == validators.length);
         uint256 totalStakes = 0;
         for (uint256 i = 0; i < validators.length; i++) {

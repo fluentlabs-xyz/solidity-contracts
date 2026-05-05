@@ -2,6 +2,7 @@
 pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {ChainConfig} from "../../contracts/staking/ChainConfig.sol";
 import {IChainConfig} from "../../contracts/staking/interfaces/IChainConfig.sol";
@@ -86,6 +87,51 @@ contract StakingAdditionalTest is Test {
         staking.removeValidator(validator1);
         assertFalse(staking.isValidator(validator1));
         assertEq(staking.getValidators().length, 0);
+    }
+
+    function test_ownerControlsUUPSUpgrade() public {
+        assertEq(staking.owner(), address(this));
+        assertEq(slashingIndicator.owner(), address(this));
+        assertEq(systemReward.owner(), address(this));
+        assertEq(stakingPool.owner(), address(this));
+        assertEq(chainConfig.owner(), address(this));
+
+        uint64 nonce = vm.getNonce(address(this));
+        Staking predictedProxy = Staking(vm.computeCreateAddress(address(this), nonce + 1));
+        Staking implementation = new Staking(
+            predictedProxy,
+            ISlashingIndicator(address(predictedProxy)),
+            ISystemReward(address(predictedProxy)),
+            IStakingPool(address(predictedProxy)),
+            IGovernance(address(this)),
+            IChainConfig(address(predictedProxy))
+        );
+        Staking proxy = Staking(
+            address(
+                new ERC1967Proxy(
+                    address(implementation),
+                    abi.encodeCall(Staking.initialize, (address(this), _emptyAddresses(), _emptyUint256s(), uint16(0)))
+                )
+            )
+        );
+        Staking upgradedImplementation = new Staking(
+            proxy,
+            ISlashingIndicator(address(proxy)),
+            ISystemReward(address(proxy)),
+            IStakingPool(address(proxy)),
+            IGovernance(address(this)),
+            IChainConfig(address(proxy))
+        );
+
+        assertEq(address(proxy), address(predictedProxy));
+        assertEq(proxy.owner(), address(this));
+
+        vm.expectRevert();
+        vm.prank(staker1);
+        proxy.upgradeToAndCall(address(upgradedImplementation), "");
+
+        proxy.upgradeToAndCall(address(upgradedImplementation), "");
+        assertEq(proxy.owner(), address(this));
     }
 
     function test_chainConfigGovernanceSetters() public {
@@ -649,7 +695,7 @@ contract StakingAdditionalTest is Test {
         LegacySystemReward legacy = new LegacySystemReward(
             staking, slashingIndicator, systemReward, stakingPool, IGovernance(address(this)), chainConfig
         );
-        legacy.initialize(_singleton(treasury), _singleton16(10_000));
+        legacy.initialize(address(this), _singleton(treasury), _singleton16(10_000));
         legacy.setSystemTreasury(owner);
 
         uint256 initial = owner.balance;
@@ -723,11 +769,12 @@ contract StakingAdditionalTest is Test {
             predictedChainConfig
         );
 
-        staking.initialize(initialValidators, initialStakes, 0);
-        slashingIndicator.initialize();
-        systemReward.initialize(rewardAccounts, rewardShares);
-        stakingPool.initialize();
+        staking.initialize(address(this), initialValidators, initialStakes, 0);
+        slashingIndicator.initialize(address(this));
+        systemReward.initialize(address(this), rewardAccounts, rewardShares);
+        stakingPool.initialize(address(this));
         chainConfig.initialize(
+            address(this),
             uint32(3),
             epochBlockInterval,
             misdemeanorThreshold,

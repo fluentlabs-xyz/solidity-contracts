@@ -24,7 +24,9 @@ contract SlashingIndicator is ISlashingIndicator, StakingContext {
         )
     {}
 
-    function initialize() external initializer {}
+    function initialize(address initialOwner) external initializer {
+        __StakingContext_init(initialOwner);
+    }
 
     function slash(address validator) external virtual override onlyFromCoinbase {
         // we need this proxy to be compatible with BSC
