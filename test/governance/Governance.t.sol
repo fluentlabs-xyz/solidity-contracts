@@ -97,15 +97,22 @@ contract GovernanceTest is Test {
 
     function _deploy(uint32 votingPeriod) internal {
         uint64 nonce = vm.getNonce(address(this));
-        IStaking predictedStaking = IStaking(vm.computeCreateAddress(address(this), nonce));
+        IStaking predictedStaking = IStaking(vm.computeCreateAddress(address(this), nonce + 1));
         ISlashingIndicator predictedSlashingIndicator =
-            ISlashingIndicator(vm.computeCreateAddress(address(this), nonce + 1));
-        ISystemReward predictedSystemReward = ISystemReward(vm.computeCreateAddress(address(this), nonce + 2));
-        IStakingPool predictedStakingPool = IStakingPool(vm.computeCreateAddress(address(this), nonce + 3));
-        IChainConfig predictedChainConfig = IChainConfig(vm.computeCreateAddress(address(this), nonce + 4));
-        IGovernance predictedGovernance = IGovernance(vm.computeCreateAddress(address(this), nonce + 6));
+            ISlashingIndicator(vm.computeCreateAddress(address(this), nonce + 3));
+        ISystemReward predictedSystemReward = ISystemReward(vm.computeCreateAddress(address(this), nonce + 5));
+        IStakingPool predictedStakingPool = IStakingPool(vm.computeCreateAddress(address(this), nonce + 7));
+        IChainConfig predictedChainConfig = IChainConfig(vm.computeCreateAddress(address(this), nonce + 9));
+        IGovernance predictedGovernance = IGovernance(vm.computeCreateAddress(address(this), nonce + 11));
 
-        staking = new Staking(
+        address[] memory validators = new address[](2);
+        validators[0] = validator1;
+        validators[1] = validator2;
+        uint256[] memory initialStakes = new uint256[](2);
+        initialStakes[0] = ONE;
+        initialStakes[1] = ONE;
+
+        Staking stakingImpl = new Staking(
             predictedStaking,
             predictedSlashingIndicator,
             predictedSystemReward,
@@ -113,7 +120,16 @@ contract GovernanceTest is Test {
             predictedGovernance,
             predictedChainConfig
         );
-        SlashingIndicator slashingIndicator = new SlashingIndicator(
+        staking = Staking(
+            payable(address(
+                    new ERC1967Proxy{value: 2 * ONE}(
+                        address(stakingImpl),
+                        abi.encodeCall(Staking.initialize, (address(this), validators, initialStakes, 0))
+                    )
+                ))
+        );
+
+        SlashingIndicator slashingIndicatorImpl = new SlashingIndicator(
             predictedStaking,
             predictedSlashingIndicator,
             predictedSystemReward,
@@ -121,7 +137,19 @@ contract GovernanceTest is Test {
             predictedGovernance,
             predictedChainConfig
         );
-        SystemReward systemReward = new SystemReward(
+        SlashingIndicator slashingIndicator = SlashingIndicator(
+            address(
+                new ERC1967Proxy(
+                    address(slashingIndicatorImpl), abi.encodeCall(SlashingIndicator.initialize, (address(this)))
+                )
+            )
+        );
+
+        address[] memory rewardAccounts = new address[](1);
+        rewardAccounts[0] = treasury;
+        uint16[] memory rewardShares = new uint16[](1);
+        rewardShares[0] = 10_000;
+        SystemReward systemRewardImpl = new SystemReward(
             predictedStaking,
             predictedSlashingIndicator,
             predictedSystemReward,
@@ -129,7 +157,16 @@ contract GovernanceTest is Test {
             predictedGovernance,
             predictedChainConfig
         );
-        StakingPool stakingPool = new StakingPool(
+        SystemReward systemReward = SystemReward(
+            payable(address(
+                    new ERC1967Proxy(
+                        address(systemRewardImpl),
+                        abi.encodeCall(SystemReward.initialize, (address(this), rewardAccounts, rewardShares))
+                    )
+                ))
+        );
+
+        StakingPool stakingPoolImpl = new StakingPool(
             predictedStaking,
             predictedSlashingIndicator,
             predictedSystemReward,
@@ -137,7 +174,13 @@ contract GovernanceTest is Test {
             predictedGovernance,
             predictedChainConfig
         );
-        chainConfig = new ChainConfig(
+        StakingPool stakingPool = StakingPool(
+            payable(address(
+                    new ERC1967Proxy(address(stakingPoolImpl), abi.encodeCall(StakingPool.initialize, (address(this))))
+                ))
+        );
+
+        ChainConfig chainConfigImpl = new ChainConfig(
             predictedStaking,
             predictedSlashingIndicator,
             predictedSystemReward,
@@ -145,6 +188,15 @@ contract GovernanceTest is Test {
             predictedGovernance,
             predictedChainConfig
         );
+        chainConfig = ChainConfig(
+            address(
+                new ERC1967Proxy(
+                    address(chainConfigImpl),
+                    abi.encodeCall(ChainConfig.initialize, (address(this), 3, 50, 50, 150, 7, 0, ONE, ONE))
+                )
+            )
+        );
+
         Governance governanceImpl = new Governance(predictedStaking, predictedChainConfig);
         governance = Governance(
             payable(address(
@@ -154,22 +206,11 @@ contract GovernanceTest is Test {
                 ))
         );
 
-        address[] memory validators = new address[](2);
-        validators[0] = validator1;
-        validators[1] = validator2;
-        uint256[] memory initialStakes = new uint256[](2);
-        initialStakes[0] = ONE;
-        initialStakes[1] = ONE;
-        staking.initialize{value: 2 * ONE}(address(this), validators, initialStakes, 0);
-        slashingIndicator.initialize(address(this));
-        address[] memory rewardAccounts = new address[](1);
-        rewardAccounts[0] = treasury;
-        uint16[] memory rewardShares = new uint16[](1);
-        rewardShares[0] = 10_000;
-        systemReward.initialize(address(this), rewardAccounts, rewardShares);
-        stakingPool.initialize(address(this));
-        chainConfig.initialize(address(this), 3, 50, 50, 150, 7, 0, ONE, ONE);
-
+        assertEq(address(staking), address(predictedStaking));
+        assertEq(address(slashingIndicator), address(predictedSlashingIndicator));
+        assertEq(address(systemReward), address(predictedSystemReward));
+        assertEq(address(stakingPool), address(predictedStakingPool));
+        assertEq(address(chainConfig), address(predictedChainConfig));
         assertEq(address(governance), address(predictedGovernance));
     }
 }

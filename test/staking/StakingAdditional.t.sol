@@ -682,15 +682,15 @@ contract StakingAdditionalTest is Test {
         uint16[] memory rewardShares
     ) internal {
         uint64 nonce = vm.getNonce(address(this));
-        IStaking predictedStaking = IStaking(vm.computeCreateAddress(address(this), nonce));
+        IStaking predictedStaking = IStaking(vm.computeCreateAddress(address(this), nonce + 1));
         ISlashingIndicator predictedSlashingIndicator =
-            ISlashingIndicator(vm.computeCreateAddress(address(this), nonce + 1));
-        ISystemReward predictedSystemReward = ISystemReward(vm.computeCreateAddress(address(this), nonce + 2));
-        IStakingPool predictedStakingPool = IStakingPool(vm.computeCreateAddress(address(this), nonce + 3));
-        IChainConfig predictedChainConfig = IChainConfig(vm.computeCreateAddress(address(this), nonce + 4));
+            ISlashingIndicator(vm.computeCreateAddress(address(this), nonce + 3));
+        ISystemReward predictedSystemReward = ISystemReward(vm.computeCreateAddress(address(this), nonce + 5));
+        IStakingPool predictedStakingPool = IStakingPool(vm.computeCreateAddress(address(this), nonce + 7));
+        IChainConfig predictedChainConfig = IChainConfig(vm.computeCreateAddress(address(this), nonce + 9));
         IGovernance governance = IGovernance(address(this));
 
-        staking = new Staking(
+        Staking stakingImpl = new Staking(
             predictedStaking,
             predictedSlashingIndicator,
             predictedSystemReward,
@@ -698,54 +698,103 @@ contract StakingAdditionalTest is Test {
             governance,
             predictedChainConfig
         );
-        slashingIndicator = new SlashingIndicator(
-            predictedStaking,
-            predictedSlashingIndicator,
-            predictedSystemReward,
-            predictedStakingPool,
-            governance,
-            predictedChainConfig
-        );
-        systemReward = new SystemReward(
-            predictedStaking,
-            predictedSlashingIndicator,
-            predictedSystemReward,
-            predictedStakingPool,
-            governance,
-            predictedChainConfig
-        );
-        stakingPool = new StakingPool(
-            predictedStaking,
-            predictedSlashingIndicator,
-            predictedSystemReward,
-            predictedStakingPool,
-            governance,
-            predictedChainConfig
-        );
-        chainConfig = new ChainConfig(
-            predictedStaking,
-            predictedSlashingIndicator,
-            predictedSystemReward,
-            predictedStakingPool,
-            governance,
-            predictedChainConfig
+        staking = Staking(
+            payable(address(
+                    new ERC1967Proxy{value: _sum(initialStakes)}(
+                        address(stakingImpl),
+                        abi.encodeCall(Staking.initialize, (address(this), initialValidators, initialStakes, 0))
+                    )
+                ))
         );
 
-        staking.initialize(address(this), initialValidators, initialStakes, 0);
-        slashingIndicator.initialize(address(this));
-        systemReward.initialize(address(this), rewardAccounts, rewardShares);
-        stakingPool.initialize(address(this));
-        chainConfig.initialize(
-            address(this),
-            uint32(3),
-            epochBlockInterval,
-            misdemeanorThreshold,
-            felonyThreshold,
-            validatorJailEpochLength,
-            undelegatePeriod,
-            minValidatorStakeAmount,
-            minStakingAmount
+        SlashingIndicator slashingIndicatorImpl = new SlashingIndicator(
+            predictedStaking,
+            predictedSlashingIndicator,
+            predictedSystemReward,
+            predictedStakingPool,
+            governance,
+            predictedChainConfig
         );
+        slashingIndicator = SlashingIndicator(
+            address(
+                new ERC1967Proxy(
+                    address(slashingIndicatorImpl), abi.encodeCall(SlashingIndicator.initialize, (address(this)))
+                )
+            )
+        );
+
+        SystemReward systemRewardImpl = new SystemReward(
+            predictedStaking,
+            predictedSlashingIndicator,
+            predictedSystemReward,
+            predictedStakingPool,
+            governance,
+            predictedChainConfig
+        );
+        systemReward = SystemReward(
+            payable(address(
+                    new ERC1967Proxy(
+                        address(systemRewardImpl),
+                        abi.encodeCall(SystemReward.initialize, (address(this), rewardAccounts, rewardShares))
+                    )
+                ))
+        );
+
+        StakingPool stakingPoolImpl = new StakingPool(
+            predictedStaking,
+            predictedSlashingIndicator,
+            predictedSystemReward,
+            predictedStakingPool,
+            governance,
+            predictedChainConfig
+        );
+        stakingPool = StakingPool(
+            payable(address(
+                    new ERC1967Proxy(address(stakingPoolImpl), abi.encodeCall(StakingPool.initialize, (address(this))))
+                ))
+        );
+
+        ChainConfig chainConfigImpl = new ChainConfig(
+            predictedStaking,
+            predictedSlashingIndicator,
+            predictedSystemReward,
+            predictedStakingPool,
+            governance,
+            predictedChainConfig
+        );
+        chainConfig = ChainConfig(
+            address(
+                new ERC1967Proxy(
+                    address(chainConfigImpl),
+                    abi.encodeCall(
+                        ChainConfig.initialize,
+                        (
+                            address(this),
+                            uint32(3),
+                            epochBlockInterval,
+                            misdemeanorThreshold,
+                            felonyThreshold,
+                            validatorJailEpochLength,
+                            undelegatePeriod,
+                            minValidatorStakeAmount,
+                            minStakingAmount
+                        )
+                    )
+                )
+            )
+        );
+
+        assertEq(address(staking), address(predictedStaking));
+        assertEq(address(slashingIndicator), address(predictedSlashingIndicator));
+        assertEq(address(systemReward), address(predictedSystemReward));
+        assertEq(address(stakingPool), address(predictedStakingPool));
+        assertEq(address(chainConfig), address(predictedChainConfig));
+    }
+
+    function _sum(uint256[] memory values) internal pure returns (uint256 total) {
+        for (uint256 i = 0; i < values.length; i++) {
+            total += values[i];
+        }
     }
 
     function _sendSystemFee(uint256 amount) internal {
