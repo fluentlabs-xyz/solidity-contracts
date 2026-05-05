@@ -7,6 +7,8 @@ import "./StakingContext.sol";
 /// @notice Manages validator registration, delegation, undelegation, commission, reward claims, active set ordering, and slashing.
 /// @dev Uses epoch snapshots and compacted balances to preserve historical accounting without storing full uint256 stake values.
 contract Staking is IStaking, StakingContext {
+    // ERC-7201 storage namespace:
+    // keccak256(abi.encode(uint256(keccak256("Fluent.storage.StakingStorage")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant STAKING_STORAGE_LOCATION =
         0x4102a9ba7244b40639ebe412c7bfc792b19c048efdf631bf4f130fef80c0df00;
 

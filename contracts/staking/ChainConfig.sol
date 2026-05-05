@@ -7,6 +7,8 @@ import "./StakingContext.sol";
 /// @notice Stores consensus and staking parameters controlled by governance.
 /// @dev Values are consumed by `Staking` and `StakingPool` for epoch, jail, undelegation, and minimum stake logic.
 contract ChainConfig is StakingContext, IChainConfig {
+    // ERC-7201 storage namespace:
+    // keccak256(abi.encode(uint256(keccak256("Fluent.storage.ChainConfigStorage")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant CHAIN_CONFIG_STORAGE_LOCATION =
         0x8046150a36ce023dec392c496d6e64fcdc42b4e5054073dafc987cdbcc500e00;
 

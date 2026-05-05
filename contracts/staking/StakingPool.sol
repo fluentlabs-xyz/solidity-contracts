@@ -11,6 +11,8 @@ import "./Staking.sol";
 /// @notice Lets users pool ETH per validator while the pool handles delegation, reward claiming, and unstake finalization.
 /// @dev Pool shares represent a proportional claim on validator-specific delegated stake plus compounded rewards.
 contract StakingPool is StakingContext, IStakingPool {
+    // ERC-7201 storage namespace:
+    // keccak256(abi.encode(uint256(keccak256("Fluent.storage.StakingPoolStorage")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant STAKING_POOL_STORAGE_LOCATION =
         0x3ec11625092490bee5ebf7f2a26d6921811c497aeda967af2d28f1c0388b4a00;
 

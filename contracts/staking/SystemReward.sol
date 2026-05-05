@@ -7,6 +7,8 @@ import "./StakingContext.sol";
 /// @notice Accumulates system fees and distributes them to configured recipients by share.
 /// @dev Governance must configure shares so they sum to `SHARE_MAX_VALUE`.
 contract SystemReward is ISystemReward, StakingContext {
+    // ERC-7201 storage namespace:
+    // keccak256(abi.encode(uint256(keccak256("Fluent.storage.SystemRewardStorage")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant SYSTEM_REWARD_STORAGE_LOCATION =
         0x85de466a486fac3ceb8a96c8f08f407e42a5512799e7ca6bc110e97735605700;
 
