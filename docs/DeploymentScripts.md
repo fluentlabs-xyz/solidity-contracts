@@ -69,7 +69,7 @@ Staking and governance release parameters live in the selected L2 config file, f
 }
 ```
 
-`DeployStaking` reads these values directly from config. `DeployGovernance` reads `governance.votingPeriod` from config and resolves staking/chain-config addresses from either `governance.staking` / `governance.chainConfig` or the selected deployment manifest.
+`DeployStaking` reads these values directly from config, deploys staking module implementations and ERC-1967 proxies, and wires governance using predicted proxy addresses. `DeployGovernance` reads `governance.votingPeriod` from config and resolves staking/chain-config addresses from either `governance.staking` / `governance.chainConfig` or the selected deployment manifest.
 
 ## Release/migration convention
 

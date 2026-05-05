@@ -71,7 +71,7 @@ Only one pending unstake per user/validator is supported at a time.
 
 `Governance` is an OpenZeppelin Governor-compatible contract. Validator owners can create proposals and vote, while voting power is derived from the active validator's delegated stake at the proposal block. Votes are counted by validator address rather than owner address, so rotating a validator owner during an active proposal cannot double-vote.
 
-The governance contract is UUPS-upgradeable behind an ERC-1967 proxy. Its mutable custom voting-period override uses ERC-7201 namespaced storage.
+The governance contract is UUPS-upgradeable behind an ERC-1967 proxy. Its mutable custom voting-period override uses ERC-7201 namespaced storage. See [`Governance.md`](Governance.md) for the governance-specific voting, upgrade, and timelock notes.
 
 ## Configuration
 
@@ -90,7 +90,7 @@ All setters are governance-only and emit before/after events.
 
 ## Tests
 
-The Foundry test suite in `test/staking/Staking.t.sol` covers:
+The Foundry staking tests in `test/staking/` cover:
 
 - delegation and delegation across epochs;
 - undelegation and claimable funds;
@@ -99,8 +99,8 @@ The Foundry test suite in `test/staking/Staking.t.sol` covers:
 - pooled staking accounting; and
 - pooled reward/claim flow.
 
-Run staking tests with:
+Run staking and governance tests with:
 
 ```sh
-forge test --match-path test/staking/Staking.t.sol -vvv
+forge test --match-contract 'GovernanceTest|StakingFoundryTest|StakingAdditionalTest' -vvv
 ```

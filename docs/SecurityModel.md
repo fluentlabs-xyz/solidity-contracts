@@ -8,6 +8,8 @@
 - `GenericTokenFactory.sol`, `ERC20TokenFactory.sol`, `UniversalTokenFactory.sol`: deterministic pegged-token deployment and beacon upgrades.
 - `ERC20PeggedToken.sol` and `UniversalToken.sol`: bridged asset representations controlled by the gateway/factory configuration.
 - `NitroVerifier.sol`, `SP1VerifierGroth16.sol`, `L1BlockOracle.sol`: verifier and oracle trust anchors.
+- `Staking.sol`, `StakingPool.sol`, `SystemReward.sol`, `ChainConfig.sol`, `SlashingIndicator.sol`: validator staking, delegation, rewards, slashing, and consensus parameter storage.
+- `Governance.sol` and `FluentTimeLock.sol`: validator-owner governance and optional delayed execution for governed actions.
 
 ## Privileged Roles
 
@@ -38,6 +40,19 @@
 - `PROVER_ROLE`
   - Can resolve challenges and claim proof rewards.
 
+### Governance and staking
+
+- `Governance` validator owners
+  - Can propose and vote when they own an active validator.
+  - Voting power is active validator delegated stake at the proposal snapshot.
+  - Votes are counted per validator address to avoid double-voting after owner rotation.
+- `Governance.owner()`
+  - Authorizes UUPS upgrades for the governance proxy.
+- `ChainConfig`, `SystemReward`, and validator administration in `Staking`
+  - Parameter setters and validator set management are restricted to the configured governance contract.
+- `FluentTimeLock`
+  - Optional execution layer for delayed governance actions. It is self-administered after deployment.
+
 ### Gateways / Factories / Tokens
 
 - `GatewayBase.owner()` (inherited by `ERC20Gateway` and `NativeGateway`)
@@ -59,6 +74,7 @@
 - The `L1GasOracle` must return values within a sane range. If the submitter is compromised and posts an extreme gas price, the fee calculation in `getSentMessageFee` can overflow (Solidity 0.8.x checked arithmetic), causing all `sendMessage` calls on L2 to revert and blocking L2→L1 bridge traffic until the oracle owner corrects it via `setL1GasPrice`.
 - Rollup security depends on the active verifier set, Nitro attestation lifecycle, and SP1 program key.
 - Factory and gateway ownership are effectively asset-governance powers and should be multisig-controlled.
+- Staking governance assumes `Staking`, `Governance`, and `ChainConfig` are wired to the intended proxy addresses at deployment. Miswiring immutable dependencies requires redeployment or upgrade planning.
 
 ## Core Invariants
 
@@ -73,6 +89,7 @@
 - Updating remote bridge/gateway/factory configuration.
 - Upgrading UUPS proxies or ERC20 beacon implementations.
 - Updating oracle, verifier, or rollup timing parameters.
+- Changing validator set membership, staking thresholds, jail/slashing parameters, or system reward distribution.
 - Forcing rollup reverts or pausing core contracts.
 
 ## Acknowledged Design Trade-Offs
