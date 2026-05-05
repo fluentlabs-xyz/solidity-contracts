@@ -29,13 +29,30 @@ contract DeployGovernance is DeployBase {
     }
 
     function _readGovernanceParams() internal view returns (GovernanceDeployParams memory p) {
-        (, string memory json) = _readActiveConfig();
+        (TargetChain memory chain, string memory json) = _readActiveConfig();
+        string memory manifest = vm.exists(chain.manifestPath) ? vm.readFile(chain.manifestPath) : string("");
         p.initialOwner = vm.envOr("INITIAL_OWNER", json.readAddress(".roles.initialOwner"));
-        p.staking = IStaking(vm.envAddress("STAKING_ADDRESS"));
-        p.chainConfig = IChainConfig(vm.envAddress("CHAIN_CONFIG_ADDRESS"));
+        p.staking = IStaking(vm.envOr("STAKING_ADDRESS", _readConfiguredOrManifestAddress(json, manifest, "staking")));
+        p.chainConfig = IChainConfig(
+            vm.envOr("CHAIN_CONFIG_ADDRESS", _readConfiguredOrManifestAddress(json, manifest, "chainConfig"))
+        );
         _assertHasCode(address(p.staking), "STAKING_ADDRESS");
         _assertHasCode(address(p.chainConfig), "CHAIN_CONFIG_ADDRESS");
-        p.votingPeriod = uint32(vm.envOr("GOVERNANCE_VOTING_PERIOD", uint256(172_800)));
+        p.votingPeriod = uint32(json.readUint(".governance.votingPeriod"));
+    }
+
+    function _readConfiguredOrManifestAddress(string memory json, string memory manifest, string memory key)
+        internal
+        view
+        returns (address)
+    {
+        string memory configKey = string.concat(".governance.", key);
+        address configured = json.readAddressOr(configKey, address(0));
+        if (configured != address(0)) return configured;
+
+        if (bytes(manifest).length == 0) return address(0);
+        if (keccak256(bytes(key)) == keccak256("chainConfig")) return _readAddr(manifest, "chain_config");
+        return _readAddr(manifest, key);
     }
 
     function _deployGovernance(GovernanceDeployParams memory p) internal returns (GovernanceDeployment memory r) {

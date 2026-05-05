@@ -39,6 +39,38 @@ Supported values:
 
 Before invoking Forge, the wrapper checks that `cast chain-id --rpc-url <resolved RPC>` matches the selected config file. Scripts using `DeployBase._readActiveConfig()` also assert `block.chainid` on-chain during simulation/broadcast.
 
+
+## Staking and governance configuration
+
+Staking and governance release parameters live in the selected L2 config file, for example `scripts/config/mainnet/l2.json`:
+
+```json
+{
+  "staking": {
+    "activeValidatorsLength": 21,
+    "epochBlockInterval": 200,
+    "misdemeanorThreshold": 50,
+    "felonyThreshold": 150,
+    "validatorJailEpochLength": 7,
+    "undelegatePeriod": 0,
+    "minValidatorStakeAmount": "1000000000000000000",
+    "minStakingAmount": "1000000000000000000",
+    "initialValidators": [],
+    "initialStakes": [],
+    "initialCommissionRate": 0,
+    "systemReward": {
+      "accounts": ["0x..."],
+      "shares": [10000]
+    }
+  },
+  "governance": {
+    "votingPeriod": 172800
+  }
+}
+```
+
+`DeployStaking` reads these values directly from config. `DeployGovernance` reads `governance.votingPeriod` from config and resolves staking/chain-config addresses from either `governance.staking` / `governance.chainConfig` or the selected deployment manifest.
+
 ## Release/migration convention
 
 For each production release:

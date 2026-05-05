@@ -44,7 +44,11 @@ contract DeployStaking is DeployBase {
 
     struct StakingDeployParams {
         address initialOwner;
-        address systemRewardAccount;
+        address[] initialValidators;
+        uint256[] initialStakes;
+        uint16 initialCommissionRate;
+        address[] systemRewardAccounts;
+        uint16[] systemRewardShares;
         uint32 governanceVotingPeriod;
         uint32 activeValidatorsLength;
         uint32 epochBlockInterval;
@@ -59,16 +63,37 @@ contract DeployStaking is DeployBase {
     function _readStakingParams() internal view returns (StakingDeployParams memory p) {
         (, string memory json) = _readActiveConfig();
         p.initialOwner = vm.envOr("INITIAL_OWNER", json.readAddress(".roles.initialOwner"));
-        p.systemRewardAccount = vm.envOr("SYSTEM_REWARD_ACCOUNT", p.initialOwner);
-        p.governanceVotingPeriod = uint32(vm.envOr("GOVERNANCE_VOTING_PERIOD", uint256(172_800)));
-        p.activeValidatorsLength = uint32(vm.envOr("STAKING_ACTIVE_VALIDATORS", uint256(21)));
-        p.epochBlockInterval = uint32(vm.envOr("STAKING_EPOCH_BLOCK_INTERVAL", uint256(200)));
-        p.misdemeanorThreshold = uint32(vm.envOr("STAKING_MISDEMEANOR_THRESHOLD", uint256(50)));
-        p.felonyThreshold = uint32(vm.envOr("STAKING_FELONY_THRESHOLD", uint256(150)));
-        p.validatorJailEpochLength = uint32(vm.envOr("STAKING_VALIDATOR_JAIL_EPOCH_LENGTH", uint256(7)));
-        p.undelegatePeriod = uint32(vm.envOr("STAKING_UNDELEGATE_PERIOD", uint256(0)));
-        p.minValidatorStakeAmount = vm.envOr("STAKING_MIN_VALIDATOR_STAKE", uint256(1 ether));
-        p.minStakingAmount = vm.envOr("STAKING_MIN_STAKE", uint256(1 ether));
+        p.initialValidators = json.readAddressArray(".staking.initialValidators");
+        p.initialStakes = json.readUintArray(".staking.initialStakes");
+        p.initialCommissionRate = uint16(json.readUint(".staking.initialCommissionRate"));
+        p.systemRewardAccounts = json.readAddressArray(".staking.systemReward.accounts");
+        p.systemRewardShares = _toUint16Array(json.readUintArray(".staking.systemReward.shares"));
+        p.governanceVotingPeriod = uint32(json.readUint(".governance.votingPeriod"));
+        p.activeValidatorsLength = uint32(json.readUint(".staking.activeValidatorsLength"));
+        p.epochBlockInterval = uint32(json.readUint(".staking.epochBlockInterval"));
+        p.misdemeanorThreshold = uint32(json.readUint(".staking.misdemeanorThreshold"));
+        p.felonyThreshold = uint32(json.readUint(".staking.felonyThreshold"));
+        p.validatorJailEpochLength = uint32(json.readUint(".staking.validatorJailEpochLength"));
+        p.undelegatePeriod = uint32(json.readUint(".staking.undelegatePeriod"));
+        p.minValidatorStakeAmount = json.readUint(".staking.minValidatorStakeAmount");
+        p.minStakingAmount = json.readUint(".staking.minStakingAmount");
+
+        require(p.initialValidators.length == p.initialStakes.length, "staking initial validators/stakes mismatch");
+        require(p.systemRewardAccounts.length == p.systemRewardShares.length, "system reward accounts/shares mismatch");
+    }
+
+    function _toUint16Array(uint256[] memory values) internal pure returns (uint16[] memory out) {
+        out = new uint16[](values.length);
+        for (uint256 i = 0; i < values.length; i++) {
+            require(values[i] <= type(uint16).max, "uint16 overflow");
+            out[i] = uint16(values[i]);
+        }
+    }
+
+    function _sum(uint256[] memory values) internal pure returns (uint256 total) {
+        for (uint256 i = 0; i < values.length; i++) {
+            total += values[i];
+        }
     }
 
     function _deployStaking(StakingDeployParams memory p) internal returns (StakingDeployment memory r) {
@@ -89,12 +114,12 @@ contract DeployStaking is DeployBase {
             governance,
             predictedChainConfig
         );
-        address[] memory validators = new address[](0);
-        uint256[] memory initialStakes = new uint256[](0);
         r.staking = address(
-            new ERC1967Proxy(
+            new ERC1967Proxy{value: _sum(p.initialStakes)}(
                 address(stakingImpl),
-                abi.encodeCall(Staking.initialize, (p.initialOwner, validators, initialStakes, uint16(0)))
+                abi.encodeCall(
+                    Staking.initialize, (p.initialOwner, p.initialValidators, p.initialStakes, p.initialCommissionRate)
+                )
             )
         );
         r.stakingImpl = address(stakingImpl);
@@ -122,14 +147,10 @@ contract DeployStaking is DeployBase {
             governance,
             predictedChainConfig
         );
-        address[] memory rewardAccounts = new address[](1);
-        rewardAccounts[0] = p.systemRewardAccount;
-        uint16[] memory rewardShares = new uint16[](1);
-        rewardShares[0] = 10_000;
         r.systemReward = address(
             new ERC1967Proxy(
                 address(systemRewardImpl),
-                abi.encodeCall(SystemReward.initialize, (p.initialOwner, rewardAccounts, rewardShares))
+                abi.encodeCall(SystemReward.initialize, (p.initialOwner, p.systemRewardAccounts, p.systemRewardShares))
             )
         );
         r.systemRewardImpl = address(systemRewardImpl);
@@ -203,7 +224,8 @@ contract DeployStaking is DeployBase {
         console2.log("  network:", chain.network);
         console2.log("  owner:", p.initialOwner);
         console2.log("  governance voting period:", p.governanceVotingPeriod);
-        console2.log("  system reward account:", p.systemRewardAccount);
+        console2.log("  initial validators:", p.initialValidators.length);
+        console2.log("  system reward accounts:", p.systemRewardAccounts.length);
 
         vm.startBroadcast();
         StakingDeployment memory r = _deployStaking(p);
