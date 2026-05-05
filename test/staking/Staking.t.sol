@@ -2,6 +2,7 @@
 pragma solidity 0.8.30;
 
 import {Test} from "forge-std/Test.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {ChainConfig} from "../../contracts/staking/ChainConfig.sol";
 import {SlashingIndicator} from "../../contracts/staking/SlashingIndicator.sol";
@@ -43,15 +44,15 @@ contract StakingFoundryTest is Test {
         vm.deal(validator4, 1_000 ether);
 
         uint64 nonce = vm.getNonce(address(this));
-        IStaking predictedStaking = IStaking(vm.computeCreateAddress(address(this), nonce));
+        IStaking predictedStaking = IStaking(vm.computeCreateAddress(address(this), nonce + 1));
         ISlashingIndicator predictedSlashingIndicator =
-            ISlashingIndicator(vm.computeCreateAddress(address(this), nonce + 1));
-        ISystemReward predictedSystemReward = ISystemReward(vm.computeCreateAddress(address(this), nonce + 2));
-        IStakingPool predictedStakingPool = IStakingPool(vm.computeCreateAddress(address(this), nonce + 3));
-        IChainConfig predictedChainConfig = IChainConfig(vm.computeCreateAddress(address(this), nonce + 4));
+            ISlashingIndicator(vm.computeCreateAddress(address(this), nonce + 3));
+        ISystemReward predictedSystemReward = ISystemReward(vm.computeCreateAddress(address(this), nonce + 5));
+        IStakingPool predictedStakingPool = IStakingPool(vm.computeCreateAddress(address(this), nonce + 7));
+        IChainConfig predictedChainConfig = IChainConfig(vm.computeCreateAddress(address(this), nonce + 9));
         IGovernance governance = IGovernance(address(this));
 
-        staking = new Staking(
+        Staking stakingImpl = new Staking(
             predictedStaking,
             predictedSlashingIndicator,
             predictedSystemReward,
@@ -59,54 +60,101 @@ contract StakingFoundryTest is Test {
             governance,
             predictedChainConfig
         );
-        slashingIndicator = new SlashingIndicator(
-            predictedStaking,
-            predictedSlashingIndicator,
-            predictedSystemReward,
-            predictedStakingPool,
-            governance,
-            predictedChainConfig
-        );
-        systemReward = new SystemReward(
-            predictedStaking,
-            predictedSlashingIndicator,
-            predictedSystemReward,
-            predictedStakingPool,
-            governance,
-            predictedChainConfig
-        );
-        stakingPool = new StakingPool(
-            predictedStaking,
-            predictedSlashingIndicator,
-            predictedSystemReward,
-            predictedStakingPool,
-            governance,
-            predictedChainConfig
-        );
-        chainConfig = new ChainConfig(
-            predictedStaking,
-            predictedSlashingIndicator,
-            predictedSystemReward,
-            predictedStakingPool,
-            governance,
-            predictedChainConfig
+        staking = Staking(
+            payable(address(
+                    new ERC1967Proxy(
+                        address(stakingImpl),
+                        abi.encodeCall(
+                            Staking.initialize, (address(this), new address[](0), new uint256[](0), uint16(0))
+                        )
+                    )
+                ))
         );
 
-        staking.initialize(address(this), new address[](0), new uint256[](0), uint16(0));
-        slashingIndicator.initialize(address(this));
-        systemReward.initialize(address(this), _singleton(address(0)), _singleton16(10_000));
-        stakingPool.initialize(address(this));
-        chainConfig.initialize(
-            address(this),
-            uint32(3),
-            uint32(10),
-            uint32(50),
-            uint32(150),
-            uint32(7),
-            uint32(0),
-            uint256(ONE),
-            uint256(ONE)
+        SlashingIndicator slashingIndicatorImpl = new SlashingIndicator(
+            predictedStaking,
+            predictedSlashingIndicator,
+            predictedSystemReward,
+            predictedStakingPool,
+            governance,
+            predictedChainConfig
         );
+        slashingIndicator = SlashingIndicator(
+            address(
+                new ERC1967Proxy(
+                    address(slashingIndicatorImpl), abi.encodeCall(SlashingIndicator.initialize, (address(this)))
+                )
+            )
+        );
+
+        SystemReward systemRewardImpl = new SystemReward(
+            predictedStaking,
+            predictedSlashingIndicator,
+            predictedSystemReward,
+            predictedStakingPool,
+            governance,
+            predictedChainConfig
+        );
+        systemReward = SystemReward(
+            payable(address(
+                    new ERC1967Proxy(
+                        address(systemRewardImpl),
+                        abi.encodeCall(
+                            SystemReward.initialize, (address(this), _singleton(address(0)), _singleton16(10_000))
+                        )
+                    )
+                ))
+        );
+
+        StakingPool stakingPoolImpl = new StakingPool(
+            predictedStaking,
+            predictedSlashingIndicator,
+            predictedSystemReward,
+            predictedStakingPool,
+            governance,
+            predictedChainConfig
+        );
+        stakingPool = StakingPool(
+            payable(address(
+                    new ERC1967Proxy(address(stakingPoolImpl), abi.encodeCall(StakingPool.initialize, (address(this))))
+                ))
+        );
+
+        ChainConfig chainConfigImpl = new ChainConfig(
+            predictedStaking,
+            predictedSlashingIndicator,
+            predictedSystemReward,
+            predictedStakingPool,
+            governance,
+            predictedChainConfig
+        );
+        chainConfig = ChainConfig(
+            address(
+                new ERC1967Proxy(
+                    address(chainConfigImpl),
+                    abi.encodeCall(
+                        ChainConfig.initialize,
+                        (
+                            address(this),
+                            uint32(3),
+                            uint32(10),
+                            uint32(50),
+                            uint32(150),
+                            uint32(7),
+                            uint32(0),
+                            uint256(ONE),
+                            uint256(ONE)
+                        )
+                    )
+                )
+            )
+        );
+
+        assertEq(address(staking), address(predictedStaking));
+        assertEq(address(slashingIndicator), address(predictedSlashingIndicator));
+        assertEq(address(systemReward), address(predictedSystemReward));
+        assertEq(address(stakingPool), address(predictedStakingPool));
+        assertEq(address(chainConfig), address(predictedChainConfig));
     }
 
     function test_stakerCanDelegateToValidator() public {
