@@ -4,6 +4,7 @@ pragma solidity 0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
+import {StakingContext} from "../../contracts/staking/StakingContext.sol";
 import {ChainConfig} from "../../contracts/staking/ChainConfig.sol";
 import {IChainConfig} from "../../contracts/staking/interfaces/IChainConfig.sol";
 import {IGovernance} from "../../contracts/staking/interfaces/IGovernance.sol";
@@ -13,7 +14,6 @@ import {IStakingPool} from "../../contracts/staking/interfaces/IStakingPool.sol"
 import {ISystemReward} from "../../contracts/staking/interfaces/ISystemReward.sol";
 import {SlashingIndicator} from "../../contracts/staking/SlashingIndicator.sol";
 import {Staking} from "../../contracts/staking/Staking.sol";
-import {StakingErrors} from "../../contracts/staking/StakingErrors.sol";
 import {StakingPool} from "../../contracts/staking/StakingPool.sol";
 import {SystemReward} from "../../contracts/staking/SystemReward.sol";
 
@@ -130,7 +130,7 @@ contract StakingAdditionalTest is Test {
         assertEq(chainConfig.getMinValidatorStakeAmount(), 2 * ONE);
         assertEq(chainConfig.getMinStakingAmount(), 3 * ONE);
 
-        vm.expectRevert(StakingErrors.OnlyGovernance.selector);
+        vm.expectRevert(StakingContext.OnlyGovernance.selector);
         vm.prank(staker1);
         chainConfig.setActiveValidatorsLength(6);
     }
@@ -216,7 +216,7 @@ contract StakingAdditionalTest is Test {
 
         vm.prank(staker1);
         staking.undelegate(validator1, 5 * ONE);
-        vm.expectRevert(StakingErrors.InsufficientBalance.selector);
+        vm.expectRevert(StakingContext.InsufficientBalance.selector);
         vm.prank(staker1);
         staking.undelegate(validator1, 2 * ONE);
         vm.prank(staker1);
@@ -297,9 +297,9 @@ contract StakingAdditionalTest is Test {
         staking.delegate{value: ONE}(validator1);
         _rollToNextEpoch();
 
-        vm.expectRevert(StakingErrors.DepositIsZero.selector);
+        vm.expectRevert(StakingContext.DepositIsZero.selector);
         _depositReward(validator1, 0);
-        vm.expectRevert(StakingErrors.ValidatorNotFound.selector);
+        vm.expectRevert(StakingContext.ValidatorNotFound.selector);
         _depositReward(validator3, ONE);
 
         _depositReward(validator1, ONE);
@@ -343,13 +343,13 @@ contract StakingAdditionalTest is Test {
 
         vm.prank(staker1);
         staking.delegate{value: 1e10}(validator1);
-        vm.expectRevert(StakingErrors.WrongAmountPrecision.selector);
+        vm.expectRevert(StakingContext.WrongAmountPrecision.selector);
         vm.prank(staker1);
         staking.delegate{value: 1e9}(validator1);
-        vm.expectRevert(StakingErrors.AmountTooLow.selector);
+        vm.expectRevert(StakingContext.AmountTooLow.selector);
         vm.prank(staker1);
         staking.delegate{value: 0}(validator1);
-        vm.expectRevert(StakingErrors.WrongAmountPrecision.selector);
+        vm.expectRevert(StakingContext.WrongAmountPrecision.selector);
         vm.prank(staker1);
         staking.delegate{value: ONE + 1e9}(validator1);
     }
@@ -379,7 +379,7 @@ contract StakingAdditionalTest is Test {
         staking.addValidator(validator1);
         staking.addValidator(validator2);
 
-        vm.expectRevert(StakingErrors.ValidatorNotInJail.selector);
+        vm.expectRevert(StakingContext.ValidatorNotInJail.selector);
         vm.prank(validator1);
         staking.releaseValidatorFromJail(validator2);
 
@@ -391,13 +391,13 @@ contract StakingAdditionalTest is Test {
         assertEq(slashes, 5);
         assertEq(jailedStatus, 3);
 
-        vm.expectRevert(StakingErrors.StillInJail.selector);
+        vm.expectRevert(StakingContext.StillInJail.selector);
         vm.prank(validator2);
         staking.releaseValidatorFromJail(validator2);
 
         _rollToNextEpoch();
         _rollToNextEpoch();
-        vm.expectRevert(StakingErrors.OnlyValidatorOwner.selector);
+        vm.expectRevert(StakingContext.OnlyValidatorOwner.selector);
         vm.prank(validator1);
         staking.releaseValidatorFromJail(validator2);
         vm.prank(validator2);
@@ -426,14 +426,14 @@ contract StakingAdditionalTest is Test {
         staking.addValidator(validator1);
         assertEq(staking.getValidatorByOwner(validator1), validator1);
 
-        vm.expectRevert(StakingErrors.OnlyValidatorOwner.selector);
+        vm.expectRevert(StakingContext.OnlyValidatorOwner.selector);
         vm.prank(validator2);
         staking.changeValidatorOwner(validator1, owner);
         vm.prank(validator1);
         staking.changeValidatorOwner(validator1, owner);
         assertEq(staking.getValidatorByOwner(owner), validator1);
 
-        vm.expectRevert(StakingErrors.OnlyValidatorOwner.selector);
+        vm.expectRevert(StakingContext.OnlyValidatorOwner.selector);
         vm.prank(validator2);
         staking.changeValidatorCommissionRate(validator1, 0);
     }
@@ -453,7 +453,7 @@ contract StakingAdditionalTest is Test {
         assertEq(status, 2);
         assertFalse(staking.isValidatorActive(validator1));
 
-        vm.expectRevert(StakingErrors.NotActiveValidator.selector);
+        vm.expectRevert(StakingContext.NotActiveValidator.selector);
         staking.disableValidator(validator1);
     }
 
@@ -467,7 +467,7 @@ contract StakingAdditionalTest is Test {
         vm.prank(validator1);
         staking.claimValidatorFeeAtEpoch(validator1, epoch);
 
-        vm.expectRevert(StakingErrors.OnlyValidatorOwner.selector);
+        vm.expectRevert(StakingContext.OnlyValidatorOwner.selector);
         vm.prank(staker1);
         staking.claimValidatorFee(validator1);
 
@@ -605,7 +605,7 @@ contract StakingAdditionalTest is Test {
         accounts[0] = treasury;
         shares = new uint16[](1);
         shares[0] = 9_999;
-        vm.expectRevert(StakingErrors.BadShareDistribution.selector);
+        vm.expectRevert(StakingContext.BadShareDistribution.selector);
         systemReward.updateDistributionShare(accounts, shares);
     }
 

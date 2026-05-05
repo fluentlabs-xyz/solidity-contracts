@@ -5,8 +5,6 @@ import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/acces
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
-import "./StakingErrors.sol";
-
 import "./interfaces/IChainConfig.sol";
 import "./interfaces/IGovernance.sol";
 import "./interfaces/ISlashingIndicator.sol";
@@ -17,7 +15,42 @@ import "./interfaces/ISystemReward.sol";
 /// @title Staking system context
 /// @notice Stores staking module dependencies and exposes shared access-control modifiers.
 /// @dev Each concrete staking contract wires shared dependencies through immutable constructor arguments.
-abstract contract StakingContext is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, StakingErrors {
+abstract contract StakingContext is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable {
+    error AmountTooLow();
+    error BadCommissionRate();
+    error BadLength();
+    error BadShareDistribution();
+    error DepositIsZero();
+    error DelegationQueueEmpty();
+    error DelegationQueueNotEmpty();
+    error InitialStakeBalanceMismatch();
+    error InitialStakeTooLow();
+    error InsufficientBalance();
+    error InvalidClaimEpoch();
+    error NotActiveValidator();
+    error NotEnoughBalance();
+    error NotEnoughShares();
+    error NotPendingValidator();
+    error NotReady();
+    error NothingToClaim();
+    error NothingToUnstake();
+    error OnlyCoinbase();
+    error OnlyGovernance();
+    error OnlySlashingIndicator();
+    error OnlyStakingContract();
+    error OnlyValidatorOwner();
+    error OnlyZeroGasPrice();
+    error PendingUndelegate();
+    error SafeTransferFailed();
+    error StillInJail();
+    error UnsafeTransferFailed();
+    error ValidatorAlreadyExists();
+    error ValidatorNotFound();
+    error ValidatorNotInJail();
+    error ValidatorOwnerAlreadyInUse();
+    error WrongAmountPrecision();
+    error ZeroAmount();
+
     IStaking internal immutable _stakingContract;
     ISlashingIndicator internal immutable _slashingIndicatorContract;
     ISystemReward internal immutable _systemRewardContract;
