@@ -40,24 +40,25 @@ contract SystemReward is ISystemReward, StakingContext {
     // distribution share between holders
     DistributionShare[] internal _distributionShares;
 
-    function initialize(
-        address[] calldata accounts,
-        uint16[] calldata shares,
+    constructor(
         IStaking stakingContract,
         ISlashingIndicator slashingIndicatorContract,
         ISystemReward systemRewardContract,
         IStakingPool stakingPoolContract,
         IGovernance governanceContract,
         IChainConfig chainConfigContract
-    ) external initializer {
-        __StakingContext_init(
+    )
+        StakingContext(
             stakingContract,
             slashingIndicatorContract,
             systemRewardContract,
             stakingPoolContract,
             governanceContract,
             chainConfigContract
-        );
+        )
+    {}
+
+    function initialize(address[] calldata accounts, uint16[] calldata shares) external initializer {
         _updateDistributionShare(accounts, shares);
     }
 

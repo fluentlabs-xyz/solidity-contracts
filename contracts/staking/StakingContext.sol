@@ -12,25 +12,23 @@ import "./interfaces/ISystemReward.sol";
 
 /// @title Staking system context
 /// @notice Stores staking module dependencies and exposes shared access-control modifiers.
-/// @dev Each concrete staking contract wires dependencies from its own OpenZeppelin initializer.
+/// @dev Each concrete staking contract wires shared dependencies through immutable constructor arguments.
 abstract contract StakingContext is Initializable {
-    IStaking internal _stakingContract;
-    ISlashingIndicator internal _slashingIndicatorContract;
-    ISystemReward internal _systemRewardContract;
-    IStakingPool internal _stakingPoolContract;
-    IGovernance internal _governanceContract;
-    IChainConfig internal _chainConfigContract;
+    IStaking internal immutable _stakingContract;
+    ISlashingIndicator internal immutable _slashingIndicatorContract;
+    ISystemReward internal immutable _systemRewardContract;
+    IStakingPool internal immutable _stakingPoolContract;
+    IGovernance internal immutable _governanceContract;
+    IChainConfig internal immutable _chainConfigContract;
 
-    uint256[50] private __gap;
-
-    function __StakingContext_init(
+    constructor(
         IStaking stakingContract,
         ISlashingIndicator slashingIndicatorContract,
         ISystemReward systemRewardContract,
         IStakingPool stakingPoolContract,
         IGovernance governanceContract,
         IChainConfig chainConfigContract
-    ) internal onlyInitializing {
+    ) {
         _stakingContract = stakingContract;
         _slashingIndicatorContract = slashingIndicatorContract;
         _systemRewardContract = systemRewardContract;

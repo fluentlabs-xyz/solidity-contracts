@@ -8,7 +8,12 @@ import {SlashingIndicator} from "../../contracts/staking/SlashingIndicator.sol";
 import {Staking} from "../../contracts/staking/Staking.sol";
 import {StakingPool} from "../../contracts/staking/StakingPool.sol";
 import {SystemReward} from "../../contracts/staking/SystemReward.sol";
+import {IChainConfig} from "../../contracts/staking/interfaces/IChainConfig.sol";
 import {IGovernance} from "../../contracts/staking/interfaces/IGovernance.sol";
+import {ISlashingIndicator} from "../../contracts/staking/interfaces/ISlashingIndicator.sol";
+import {IStaking} from "../../contracts/staking/interfaces/IStaking.sol";
+import {IStakingPool} from "../../contracts/staking/interfaces/IStakingPool.sol";
+import {ISystemReward} from "../../contracts/staking/interfaces/ISystemReward.sol";
 
 contract StakingFoundryTest is Test {
     uint256 internal constant ONE = 1 ether;
@@ -36,54 +41,62 @@ contract StakingFoundryTest is Test {
         vm.deal(validator3, 1_000 ether);
         vm.deal(validator4, 1_000 ether);
 
-        staking = new Staking();
-        slashingIndicator = new SlashingIndicator();
-        systemReward = new SystemReward();
-        stakingPool = new StakingPool();
-        chainConfig = new ChainConfig();
+        uint64 nonce = vm.getNonce(address(this));
+        IStaking predictedStaking = IStaking(vm.computeCreateAddress(address(this), nonce));
+        ISlashingIndicator predictedSlashingIndicator =
+            ISlashingIndicator(vm.computeCreateAddress(address(this), nonce + 1));
+        ISystemReward predictedSystemReward = ISystemReward(vm.computeCreateAddress(address(this), nonce + 2));
+        IStakingPool predictedStakingPool = IStakingPool(vm.computeCreateAddress(address(this), nonce + 3));
+        IChainConfig predictedChainConfig = IChainConfig(vm.computeCreateAddress(address(this), nonce + 4));
+        IGovernance governance = IGovernance(address(this));
 
-        staking.initialize(
-            new address[](0),
-            new uint256[](0),
-            uint16(0),
-            staking,
-            slashingIndicator,
-            systemReward,
-            stakingPool,
-            IGovernance(address(this)),
-            chainConfig
+        staking = new Staking(
+            predictedStaking,
+            predictedSlashingIndicator,
+            predictedSystemReward,
+            predictedStakingPool,
+            governance,
+            predictedChainConfig
         );
-        slashingIndicator.initialize(
-            staking, slashingIndicator, systemReward, stakingPool, IGovernance(address(this)), chainConfig
+        slashingIndicator = new SlashingIndicator(
+            predictedStaking,
+            predictedSlashingIndicator,
+            predictedSystemReward,
+            predictedStakingPool,
+            governance,
+            predictedChainConfig
         );
-        systemReward.initialize(
-            _singleton(address(0)),
-            _singleton16(10_000),
-            staking,
-            slashingIndicator,
-            systemReward,
-            stakingPool,
-            IGovernance(address(this)),
-            chainConfig
+        systemReward = new SystemReward(
+            predictedStaking,
+            predictedSlashingIndicator,
+            predictedSystemReward,
+            predictedStakingPool,
+            governance,
+            predictedChainConfig
         );
-        stakingPool.initialize(
-            staking, slashingIndicator, systemReward, stakingPool, IGovernance(address(this)), chainConfig
+        stakingPool = new StakingPool(
+            predictedStaking,
+            predictedSlashingIndicator,
+            predictedSystemReward,
+            predictedStakingPool,
+            governance,
+            predictedChainConfig
         );
+        chainConfig = new ChainConfig(
+            predictedStaking,
+            predictedSlashingIndicator,
+            predictedSystemReward,
+            predictedStakingPool,
+            governance,
+            predictedChainConfig
+        );
+
+        staking.initialize(new address[](0), new uint256[](0), uint16(0));
+        slashingIndicator.initialize();
+        systemReward.initialize(_singleton(address(0)), _singleton16(10_000));
+        stakingPool.initialize();
         chainConfig.initialize(
-            uint32(3),
-            uint32(10),
-            uint32(50),
-            uint32(150),
-            uint32(7),
-            uint32(0),
-            uint256(ONE),
-            uint256(ONE),
-            staking,
-            slashingIndicator,
-            systemReward,
-            stakingPool,
-            IGovernance(address(this)),
-            chainConfig
+            uint32(3), uint32(10), uint32(50), uint32(150), uint32(7), uint32(0), uint256(ONE), uint256(ONE)
         );
     }
 

@@ -6,6 +6,24 @@ import "../Staking.sol";
 /// @title Test staking implementation
 /// @notice Exposes governance/coinbase/slashing-restricted hooks for tests by bypassing production access checks.
 contract MockStaking is Staking {
+    constructor(
+        IStaking stakingContract,
+        ISlashingIndicator slashingIndicatorContract,
+        ISystemReward systemRewardContract,
+        IStakingPool stakingPoolContract,
+        IGovernance governanceContract,
+        IChainConfig chainConfigContract
+    )
+        Staking(
+            stakingContract,
+            slashingIndicatorContract,
+            systemRewardContract,
+            stakingPoolContract,
+            governanceContract,
+            chainConfigContract
+        )
+    {}
+
     function addValidator(address account) external override {
         _addValidator(account, account, ValidatorStatus.Active, 0, 0, _nextEpoch());
     }

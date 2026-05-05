@@ -4,13 +4,36 @@ pragma solidity 0.8.30;
 import {Test} from "forge-std/Test.sol";
 
 import {ChainConfig} from "../../contracts/staking/ChainConfig.sol";
+import {IChainConfig} from "../../contracts/staking/interfaces/IChainConfig.sol";
 import {IGovernance} from "../../contracts/staking/interfaces/IGovernance.sol";
+import {ISlashingIndicator} from "../../contracts/staking/interfaces/ISlashingIndicator.sol";
+import {IStaking} from "../../contracts/staking/interfaces/IStaking.sol";
+import {IStakingPool} from "../../contracts/staking/interfaces/IStakingPool.sol";
+import {ISystemReward} from "../../contracts/staking/interfaces/ISystemReward.sol";
 import {SlashingIndicator} from "../../contracts/staking/SlashingIndicator.sol";
 import {Staking} from "../../contracts/staking/Staking.sol";
 import {StakingPool} from "../../contracts/staking/StakingPool.sol";
 import {SystemReward} from "../../contracts/staking/SystemReward.sol";
 
 contract LegacySystemReward is SystemReward {
+    constructor(
+        IStaking stakingContract,
+        ISlashingIndicator slashingIndicatorContract,
+        ISystemReward systemRewardContract,
+        IStakingPool stakingPoolContract,
+        IGovernance governanceContract,
+        IChainConfig chainConfigContract
+    )
+        SystemReward(
+            stakingContract,
+            slashingIndicatorContract,
+            systemRewardContract,
+            stakingPoolContract,
+            governanceContract,
+            chainConfigContract
+        )
+    {}
+
     function setSystemTreasury(address treasury) external {
         _systemTreasury = treasury;
     }
@@ -623,17 +646,10 @@ contract StakingAdditionalTest is Test {
     }
 
     function test_legacySystemRewardTreasuryClaimPath() public {
-        LegacySystemReward legacy = new LegacySystemReward();
-        legacy.initialize(
-            _singleton(treasury),
-            _singleton16(10_000),
-            staking,
-            slashingIndicator,
-            systemReward,
-            stakingPool,
-            IGovernance(address(this)),
-            chainConfig
+        LegacySystemReward legacy = new LegacySystemReward(
+            staking, slashingIndicator, systemReward, stakingPool, IGovernance(address(this)), chainConfig
         );
+        legacy.initialize(_singleton(treasury), _singleton16(10_000));
         legacy.setSystemTreasury(owner);
 
         uint256 initial = owner.balance;
@@ -657,39 +673,60 @@ contract StakingAdditionalTest is Test {
         address[] memory rewardAccounts,
         uint16[] memory rewardShares
     ) internal {
-        staking = new Staking();
-        slashingIndicator = new SlashingIndicator();
-        systemReward = new SystemReward();
-        stakingPool = new StakingPool();
-        chainConfig = new ChainConfig();
+        uint64 nonce = vm.getNonce(address(this));
+        IStaking predictedStaking = IStaking(vm.computeCreateAddress(address(this), nonce));
+        ISlashingIndicator predictedSlashingIndicator =
+            ISlashingIndicator(vm.computeCreateAddress(address(this), nonce + 1));
+        ISystemReward predictedSystemReward = ISystemReward(vm.computeCreateAddress(address(this), nonce + 2));
+        IStakingPool predictedStakingPool = IStakingPool(vm.computeCreateAddress(address(this), nonce + 3));
+        IChainConfig predictedChainConfig = IChainConfig(vm.computeCreateAddress(address(this), nonce + 4));
+        IGovernance governance = IGovernance(address(this));
 
-        staking.initialize(
-            initialValidators,
-            initialStakes,
-            0,
-            staking,
-            slashingIndicator,
-            systemReward,
-            stakingPool,
-            IGovernance(address(this)),
-            chainConfig
+        staking = new Staking(
+            predictedStaking,
+            predictedSlashingIndicator,
+            predictedSystemReward,
+            predictedStakingPool,
+            governance,
+            predictedChainConfig
         );
-        slashingIndicator.initialize(
-            staking, slashingIndicator, systemReward, stakingPool, IGovernance(address(this)), chainConfig
+        slashingIndicator = new SlashingIndicator(
+            predictedStaking,
+            predictedSlashingIndicator,
+            predictedSystemReward,
+            predictedStakingPool,
+            governance,
+            predictedChainConfig
         );
-        systemReward.initialize(
-            rewardAccounts,
-            rewardShares,
-            staking,
-            slashingIndicator,
-            systemReward,
-            stakingPool,
-            IGovernance(address(this)),
-            chainConfig
+        systemReward = new SystemReward(
+            predictedStaking,
+            predictedSlashingIndicator,
+            predictedSystemReward,
+            predictedStakingPool,
+            governance,
+            predictedChainConfig
         );
-        stakingPool.initialize(
-            staking, slashingIndicator, systemReward, stakingPool, IGovernance(address(this)), chainConfig
+        stakingPool = new StakingPool(
+            predictedStaking,
+            predictedSlashingIndicator,
+            predictedSystemReward,
+            predictedStakingPool,
+            governance,
+            predictedChainConfig
         );
+        chainConfig = new ChainConfig(
+            predictedStaking,
+            predictedSlashingIndicator,
+            predictedSystemReward,
+            predictedStakingPool,
+            governance,
+            predictedChainConfig
+        );
+
+        staking.initialize(initialValidators, initialStakes, 0);
+        slashingIndicator.initialize();
+        systemReward.initialize(rewardAccounts, rewardShares);
+        stakingPool.initialize();
         chainConfig.initialize(
             uint32(3),
             epochBlockInterval,
@@ -698,13 +735,7 @@ contract StakingAdditionalTest is Test {
             validatorJailEpochLength,
             undelegatePeriod,
             minValidatorStakeAmount,
-            minStakingAmount,
-            staking,
-            slashingIndicator,
-            systemReward,
-            stakingPool,
-            IGovernance(address(this)),
-            chainConfig
+            minStakingAmount
         );
     }
 

@@ -43,23 +43,25 @@ contract StakingPool is StakingContext, IStakingPool {
     // allocated shares (validator => staker => shares)
     mapping(address => mapping(address => uint256)) _stakerShares;
 
-    function initialize(
+    constructor(
         IStaking stakingContract,
         ISlashingIndicator slashingIndicatorContract,
         ISystemReward systemRewardContract,
         IStakingPool stakingPoolContract,
         IGovernance governanceContract,
         IChainConfig chainConfigContract
-    ) external initializer {
-        __StakingContext_init(
+    )
+        StakingContext(
             stakingContract,
             slashingIndicatorContract,
             systemRewardContract,
             stakingPoolContract,
             governanceContract,
             chainConfigContract
-        );
-    }
+        )
+    {}
+
+    function initialize() external initializer {}
 
     function getStakedAmount(address validator, address staker) external view returns (uint256) {
         ValidatorPool memory validatorPool = _getValidatorPool(validator);

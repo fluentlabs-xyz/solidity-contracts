@@ -6,6 +6,24 @@ import "../SystemReward.sol";
 /// @title Test system reward implementation
 /// @notice Exposes reward distribution updates without governance restrictions for tests.
 contract MockSystemReward is SystemReward {
+    constructor(
+        IStaking stakingContract,
+        ISlashingIndicator slashingIndicatorContract,
+        ISystemReward systemRewardContract,
+        IStakingPool stakingPoolContract,
+        IGovernance governanceContract,
+        IChainConfig chainConfigContract
+    )
+        SystemReward(
+            stakingContract,
+            slashingIndicatorContract,
+            systemRewardContract,
+            stakingPoolContract,
+            governanceContract,
+            chainConfigContract
+        )
+    {}
+
     function updateDistributionShare(address[] calldata accounts, uint16[] calldata shares) external virtual override {
         _updateDistributionShare(accounts, shares);
     }

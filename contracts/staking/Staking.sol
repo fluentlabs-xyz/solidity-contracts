@@ -124,25 +124,29 @@ contract Staking is IStaking, StakingContext {
     // mapping with validator snapshots per each epoch (validator -> epoch -> snapshot)
     mapping(address => mapping(uint64 => ValidatorSnapshot)) internal _validatorSnapshots;
 
-    function initialize(
-        address[] calldata validators,
-        uint256[] calldata initialStakes,
-        uint16 commissionRate,
+    constructor(
         IStaking stakingContract,
         ISlashingIndicator slashingIndicatorContract,
         ISystemReward systemRewardContract,
         IStakingPool stakingPoolContract,
         IGovernance governanceContract,
         IChainConfig chainConfigContract
-    ) external payable initializer {
-        __StakingContext_init(
+    )
+        StakingContext(
             stakingContract,
             slashingIndicatorContract,
             systemRewardContract,
             stakingPoolContract,
             governanceContract,
             chainConfigContract
-        );
+        )
+    {}
+
+    function initialize(address[] calldata validators, uint256[] calldata initialStakes, uint16 commissionRate)
+        external
+        payable
+        initializer
+    {
         require(initialStakes.length == validators.length);
         uint256 totalStakes = 0;
         for (uint256 i = 0; i < validators.length; i++) {

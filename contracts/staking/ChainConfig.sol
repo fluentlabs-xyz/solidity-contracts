@@ -30,6 +30,24 @@ contract ChainConfig is StakingContext, IChainConfig {
 
     ConsensusParams private _consensusParams;
 
+    constructor(
+        IStaking stakingContract,
+        ISlashingIndicator slashingIndicatorContract,
+        ISystemReward systemRewardContract,
+        IStakingPool stakingPoolContract,
+        IGovernance governanceContract,
+        IChainConfig chainConfigContract
+    )
+        StakingContext(
+            stakingContract,
+            slashingIndicatorContract,
+            systemRewardContract,
+            stakingPoolContract,
+            governanceContract,
+            chainConfigContract
+        )
+    {}
+
     function initialize(
         uint32 activeValidatorsLength,
         uint32 epochBlockInterval,
@@ -38,22 +56,8 @@ contract ChainConfig is StakingContext, IChainConfig {
         uint32 validatorJailEpochLength,
         uint32 undelegatePeriod,
         uint256 minValidatorStakeAmount,
-        uint256 minStakingAmount,
-        IStaking stakingContract,
-        ISlashingIndicator slashingIndicatorContract,
-        ISystemReward systemRewardContract,
-        IStakingPool stakingPoolContract,
-        IGovernance governanceContract,
-        IChainConfig chainConfigContract
+        uint256 minStakingAmount
     ) external initializer {
-        __StakingContext_init(
-            stakingContract,
-            slashingIndicatorContract,
-            systemRewardContract,
-            stakingPoolContract,
-            governanceContract,
-            chainConfigContract
-        );
         _consensusParams.activeValidatorsLength = activeValidatorsLength;
         emit ActiveValidatorsLengthChanged(0, activeValidatorsLength);
         _consensusParams.epochBlockInterval = epochBlockInterval;

@@ -6,23 +6,25 @@ import "./StakingContext.sol";
 /// @title Slashing indicator
 /// @notice Coinbase-only adapter that reports validator faults to `Staking`.
 contract SlashingIndicator is ISlashingIndicator, StakingContext {
-    function initialize(
+    constructor(
         IStaking stakingContract,
         ISlashingIndicator slashingIndicatorContract,
         ISystemReward systemRewardContract,
         IStakingPool stakingPoolContract,
         IGovernance governanceContract,
         IChainConfig chainConfigContract
-    ) external initializer {
-        __StakingContext_init(
+    )
+        StakingContext(
             stakingContract,
             slashingIndicatorContract,
             systemRewardContract,
             stakingPoolContract,
             governanceContract,
             chainConfigContract
-        );
-    }
+        )
+    {}
+
+    function initialize() external initializer {}
 
     function slash(address validator) external virtual override onlyFromCoinbase {
         // we need this proxy to be compatible with BSC
