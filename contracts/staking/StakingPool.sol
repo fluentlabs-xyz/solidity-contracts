@@ -216,7 +216,7 @@ contract StakingPool is StakingContext, IStakingPool {
         uint256 shares = pendingUnstake.shares;
         // make sure user have pending unstake
         if (pendingUnstake.epoch == 0) revert NothingToClaim();
-        if (pendingUnstake.epoch > _stakingContract.currentEpoch()) revert NotReady();
+        if (pendingUnstake.epoch > _stakingContract.currentEpoch()) revert EpochIsNotReady(pendingUnstake.epoch);
         // updates shares and validator pool params
         $.stakerShares[validator][msg.sender] -= shares;
         ValidatorPool memory validatorPool = _getValidatorPool(validator);

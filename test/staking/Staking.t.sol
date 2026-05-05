@@ -201,7 +201,7 @@ contract StakingFoundryTest is Test {
         assertEq(validators[0], validator2);
         assertEq(validators[1], validator1);
 
-        vm.expectRevert(StakingContext.AmountTooLow.selector);
+        vm.expectRevert(abi.encodeWithSelector(StakingContext.AmountTooLow.selector, 1));
         vm.prank(staker2);
         staking.undelegate(validator2, 1);
 
@@ -263,7 +263,7 @@ contract StakingFoundryTest is Test {
         staking.addValidator(validator1);
         staking.addValidator(validator3);
 
-        vm.expectRevert(StakingContext.ValidatorNotFound.selector);
+        vm.expectRevert(abi.encodeWithSelector(StakingContext.ValidatorNotFound.selector, validator2));
         vm.prank(staker1);
         staking.delegate{value: 3 * ONE}(validator2);
     }

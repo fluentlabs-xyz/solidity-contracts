@@ -299,7 +299,7 @@ contract StakingAdditionalTest is Test {
 
         vm.expectRevert(StakingContext.DepositIsZero.selector);
         _depositReward(validator1, 0);
-        vm.expectRevert(StakingContext.ValidatorNotFound.selector);
+        vm.expectRevert(abi.encodeWithSelector(StakingContext.ValidatorNotFound.selector, validator3));
         _depositReward(validator3, ONE);
 
         _depositReward(validator1, ONE);
@@ -346,7 +346,7 @@ contract StakingAdditionalTest is Test {
         vm.expectRevert(StakingContext.WrongAmountPrecision.selector);
         vm.prank(staker1);
         staking.delegate{value: 1e9}(validator1);
-        vm.expectRevert(StakingContext.AmountTooLow.selector);
+        vm.expectRevert(abi.encodeWithSelector(StakingContext.AmountTooLow.selector, 0));
         vm.prank(staker1);
         staking.delegate{value: 0}(validator1);
         vm.expectRevert(StakingContext.WrongAmountPrecision.selector);
@@ -379,7 +379,7 @@ contract StakingAdditionalTest is Test {
         staking.addValidator(validator1);
         staking.addValidator(validator2);
 
-        vm.expectRevert(StakingContext.ValidatorNotInJail.selector);
+        vm.expectRevert(abi.encodeWithSelector(StakingContext.ValidatorNotInJail.selector, validator2));
         vm.prank(validator1);
         staking.releaseValidatorFromJail(validator2);
 
@@ -391,13 +391,13 @@ contract StakingAdditionalTest is Test {
         assertEq(slashes, 5);
         assertEq(jailedStatus, 3);
 
-        vm.expectRevert(StakingContext.StillInJail.selector);
+        vm.expectRevert(abi.encodeWithSelector(StakingContext.StillInJail.selector, validator2));
         vm.prank(validator2);
         staking.releaseValidatorFromJail(validator2);
 
         _rollToNextEpoch();
         _rollToNextEpoch();
-        vm.expectRevert(StakingContext.OnlyValidatorOwner.selector);
+        vm.expectRevert(abi.encodeWithSelector(StakingContext.OnlyValidatorOwner.selector, validator2));
         vm.prank(validator1);
         staking.releaseValidatorFromJail(validator2);
         vm.prank(validator2);
@@ -426,14 +426,14 @@ contract StakingAdditionalTest is Test {
         staking.addValidator(validator1);
         assertEq(staking.getValidatorByOwner(validator1), validator1);
 
-        vm.expectRevert(StakingContext.OnlyValidatorOwner.selector);
+        vm.expectRevert(abi.encodeWithSelector(StakingContext.OnlyValidatorOwner.selector, validator1));
         vm.prank(validator2);
         staking.changeValidatorOwner(validator1, owner);
         vm.prank(validator1);
         staking.changeValidatorOwner(validator1, owner);
         assertEq(staking.getValidatorByOwner(owner), validator1);
 
-        vm.expectRevert(StakingContext.OnlyValidatorOwner.selector);
+        vm.expectRevert(abi.encodeWithSelector(StakingContext.OnlyValidatorOwner.selector, owner));
         vm.prank(validator2);
         staking.changeValidatorCommissionRate(validator1, 0);
     }
@@ -475,7 +475,7 @@ contract StakingAdditionalTest is Test {
         vm.prank(validator1);
         staking.claimValidatorFeeAtEpoch(validator1, epoch);
 
-        vm.expectRevert(StakingContext.OnlyValidatorOwner.selector);
+        vm.expectRevert(abi.encodeWithSelector(StakingContext.OnlyValidatorOwner.selector, validator1));
         vm.prank(staker1);
         staking.claimValidatorFee(validator1);
 
@@ -613,7 +613,7 @@ contract StakingAdditionalTest is Test {
         accounts[0] = treasury;
         shares = new uint16[](1);
         shares[0] = 9_999;
-        vm.expectRevert(StakingContext.BadShareDistribution.selector);
+        vm.expectRevert(abi.encodeWithSelector(StakingContext.BadShareDistribution.selector, uint16(9_999)));
         systemReward.updateDistributionShare(accounts, shares);
     }
 

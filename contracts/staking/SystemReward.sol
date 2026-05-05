@@ -83,7 +83,7 @@ contract SystemReward is ISystemReward, StakingContext {
     }
 
     function _updateDistributionShare(address[] calldata accounts, uint16[] calldata shares) internal {
-        if (accounts.length != shares.length) revert BadLength();
+        if (accounts.length != shares.length) revert MalformedInputLength();
         SystemRewardStorage storage $ = _getSystemRewardStorage();
         // force claim system fee before changing distribution share
         _claimSystemFee();
@@ -91,7 +91,7 @@ contract SystemReward is ISystemReward, StakingContext {
         for (uint256 i = 0; i < accounts.length; i++) {
             address account = accounts[i];
             uint16 share = shares[i];
-            if (share < SHARE_MIN_VALUE || share > SHARE_MAX_VALUE) revert BadShareDistribution();
+            if (share < SHARE_MIN_VALUE || share > SHARE_MAX_VALUE) revert BadShareDistribution(share);
             if (i >= $.distributionShares.length) {
                 $.distributionShares.push(DistributionShare(account, share));
             } else {
@@ -100,7 +100,7 @@ contract SystemReward is ISystemReward, StakingContext {
             emit DistributionShareChanged(account, share);
             totalShares += share;
         }
-        if (totalShares != SHARE_MAX_VALUE) revert BadShareDistribution();
+        if (totalShares != SHARE_MAX_VALUE) revert BadShareDistribution(totalShares);
         while ($.distributionShares.length > accounts.length) {
             $.distributionShares.pop();
         }
