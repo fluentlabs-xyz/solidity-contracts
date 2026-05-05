@@ -10,6 +10,12 @@ import {Staking} from "../../contracts/staking/Staking.sol";
 import {StakingPool} from "../../contracts/staking/StakingPool.sol";
 import {SystemReward} from "../../contracts/staking/SystemReward.sol";
 
+contract LegacySystemReward is SystemReward {
+    function setSystemTreasury(address treasury) external {
+        _systemTreasury = treasury;
+    }
+}
+
 contract StakingAdditionalTest is Test {
     uint256 internal constant ONE = 1 ether;
 
@@ -41,6 +47,13 @@ contract StakingAdditionalTest is Test {
     }
 
     function test_canAddAndRemoveValidator() public {
+        assertEq(address(staking.getStaking()), address(staking));
+        assertEq(address(staking.getSlashingIndicator()), address(slashingIndicator));
+        assertEq(address(staking.getSystemReward()), address(systemReward));
+        assertEq(address(staking.getStakingPool()), address(stakingPool));
+        assertEq(address(staking.getGovernance()), address(this));
+        assertEq(address(staking.getChainConfig()), address(chainConfig));
+
         assertFalse(staking.isValidator(validator1));
         staking.addValidator(validator1);
         assertTrue(staking.isValidator(validator1));
@@ -50,6 +63,47 @@ contract StakingAdditionalTest is Test {
         staking.removeValidator(validator1);
         assertFalse(staking.isValidator(validator1));
         assertEq(staking.getValidators().length, 0);
+    }
+
+    function test_chainConfigGovernanceSetters() public {
+        chainConfig.setActiveValidatorsLength(5);
+        chainConfig.setEpochBlockInterval(11);
+        chainConfig.setMisdemeanorThreshold(51);
+        chainConfig.setFelonyThreshold(151);
+        chainConfig.setValidatorJailEpochLength(8);
+        chainConfig.setUndelegatePeriod(2);
+        chainConfig.setMinValidatorStakeAmount(2 * ONE);
+        chainConfig.setMinStakingAmount(3 * ONE);
+
+        assertEq(chainConfig.getActiveValidatorsLength(), 5);
+        assertEq(chainConfig.getEpochBlockInterval(), 11);
+        assertEq(chainConfig.getMisdemeanorThreshold(), 51);
+        assertEq(chainConfig.getFelonyThreshold(), 151);
+        assertEq(chainConfig.getValidatorJailEpochLength(), 8);
+        assertEq(chainConfig.getUndelegatePeriod(), 2);
+        assertEq(chainConfig.getMinValidatorStakeAmount(), 2 * ONE);
+        assertEq(chainConfig.getMinStakingAmount(), 3 * ONE);
+
+        vm.expectRevert("StakingContext: only governance");
+        vm.prank(staker1);
+        chainConfig.setActiveValidatorsLength(6);
+    }
+
+    function test_statusAndDelegationViewsForEmptyAndHistoricalEpochs() public {
+        (uint256 delegated, uint64 atEpoch) = staking.getValidatorDelegation(validator1, staker1);
+        assertEq(delegated, 0);
+        assertEq(atEpoch, 0);
+
+        staking.addValidator(validator1);
+        vm.prank(staker1);
+        staking.delegate{value: ONE}(validator1);
+        _rollToNextEpoch();
+
+        (,, uint256 historicalDelegated,,,,,,) = staking.getValidatorStatusAtEpoch(validator1, staking.currentEpoch());
+        assertEq(historicalDelegated, ONE);
+        assertTrue(staking.isValidatorActive(validator1));
+        assertFalse(staking.isValidatorActive(validator2));
+        assertEq(staking.getPendingValidatorFee(validator2), 0);
     }
 
     function test_removeValidatorFromBeginningMiddleAndEnd() public {
@@ -338,6 +392,53 @@ contract StakingAdditionalTest is Test {
         staking.changeValidatorCommissionRate(validator1, 0);
     }
 
+    function test_disableValidatorAndPendingRewardViews() public {
+        staking.addValidator(validator1);
+        vm.prank(staker1);
+        staking.delegate{value: ONE}(validator1);
+        _rollToNextEpoch();
+        _depositReward(validator1, ONE);
+
+        assertEq(staking.getPendingDelegatorFee(validator1, staker1), ONE);
+        assertEq(staking.getPendingValidatorFee(validator1), 0);
+
+        staking.disableValidator(validator1);
+        (, uint8 status,,,,,,,) = staking.getValidatorStatus(validator1);
+        assertEq(status, 2);
+        assertFalse(staking.isValidatorActive(validator1));
+
+        vm.expectRevert("Staking: not active validator");
+        staking.disableValidator(validator1);
+    }
+
+    function test_epochBoundedClaimsAndUnsafeTransferPath() public {
+        staking.addValidator(validator1);
+        _rollToNextEpoch();
+        _depositReward(validator1, ONE);
+        _rollToNextEpoch();
+
+        uint64 epoch = staking.currentEpoch();
+        vm.prank(validator1);
+        staking.claimValidatorFeeAtEpoch(validator1, epoch);
+
+        vm.expectRevert("Staking: only validator owner");
+        vm.prank(staker1);
+        staking.claimValidatorFee(validator1);
+
+        epoch = staking.currentEpoch();
+        vm.expectRevert();
+        vm.prank(validator1);
+        staking.claimValidatorFeeAtEpoch(validator1, epoch + 1);
+
+        epoch = staking.currentEpoch();
+        vm.prank(validator1);
+        staking.claimDelegatorFeeAtEpoch(validator1, epoch);
+        epoch = staking.currentEpoch();
+        vm.expectRevert();
+        vm.prank(validator1);
+        staking.claimDelegatorFeeAtEpoch(validator1, epoch + 1);
+    }
+
     function test_delegatorCanClaimNewRewardsWithoutNewDelegations() public {
         _deploy(
             5, 50, 150, 7, 0, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
@@ -487,6 +588,31 @@ contract StakingAdditionalTest is Test {
         staking.claimDelegatorFee(validator1);
     }
 
+    function test_stakingPoolViewsAndPendingClaimableRewards() public {
+        staking.addValidator(validator1);
+        assertEq(stakingPool.getRatio(validator1), 1e18);
+
+        vm.prank(staker1);
+        stakingPool.stake{value: 10 * ONE}(validator1);
+        _rollToNextEpoch();
+        _depositReward(validator1, ONE);
+        _rollToNextEpoch();
+
+        vm.prank(staker2);
+        stakingPool.stake{value: ONE}(validator1);
+
+        assertGt(stakingPool.getShares(validator1, staker1), 0);
+        StakingPool.ValidatorPool memory pool = stakingPool.getValidatorPool(validator1);
+        assertEq(pool.validatorAddress, validator1);
+        assertEq(pool.totalStakedAmount, 12 * ONE);
+
+        vm.prank(staker1);
+        stakingPool.unstake(validator1, ONE);
+        assertEq(stakingPool.claimableRewards(validator1, staker1), ONE);
+
+        assertEq(stakingPool.claimableRewards(validator1, staker2), 0);
+    }
+
     function test_systemFeeAutoClaimAfterThreshold() public {
         uint256 initial = treasury.balance;
         _sendSystemFee(49 ether);
@@ -494,6 +620,28 @@ contract StakingAdditionalTest is Test {
         _sendSystemFee(2 ether);
         assertEq(treasury.balance, initial + 51 ether);
         assertEq(systemReward.getSystemFee(), 0);
+    }
+
+    function test_legacySystemRewardTreasuryClaimPath() public {
+        LegacySystemReward legacy = new LegacySystemReward();
+        legacy.initialize(
+            _singleton(treasury),
+            _singleton16(10_000),
+            staking,
+            slashingIndicator,
+            systemReward,
+            stakingPool,
+            IGovernance(address(this)),
+            chainConfig
+        );
+        legacy.setSystemTreasury(owner);
+
+        uint256 initial = owner.balance;
+        (bool success,) = address(legacy).call{value: 1 ether}("");
+        require(success, "legacy system fee transfer failed");
+        legacy.claimSystemFee();
+        assertEq(owner.balance, initial + 1 ether);
+        assertEq(legacy.getSystemFee(), 0);
     }
 
     function _deploy(
