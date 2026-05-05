@@ -777,6 +777,7 @@ contract Staking is IStaking, StakingContext {
         StakingStorage storage $ = _getStakingStorage();
         Validator memory validator = $.validatorsMap[validatorAddress];
         if (validator.ownerAddress != msg.sender) revert OnlyValidatorOwner();
+        if (newOwner == address(0)) revert ZeroAddress();
         if ($.validatorOwners[newOwner] != address(0x00)) revert ValidatorOwnerAlreadyInUse();
         delete $.validatorOwners[validator.ownerAddress];
         validator.ownerAddress = newOwner;

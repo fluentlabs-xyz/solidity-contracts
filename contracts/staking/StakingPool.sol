@@ -138,6 +138,13 @@ contract StakingPool is StakingContext, IStakingPool {
         uint256 unclaimedRewards = _stakingContract.getDelegatorFee(validatorPool.validatorAddress, address(this));
         // adjust values based on total dust and pending unstakes
         unclaimedRewards += validatorPool.dustRewards;
+        // Pending user claims fully reserve what we just claimed: nothing to compound this
+        // cycle. Keep dust rolling forward so it can combine with future rewards instead of
+        // underflowing the subtraction below and DoS-ing every pool operation while any
+        // user has an outstanding unstake.
+        if (validatorPool.pendingUnstake >= unclaimedRewards) {
+            return (0, validatorPool.dustRewards);
+        }
         unclaimedRewards -= validatorPool.pendingUnstake;
         // split balance into stake and dust
         stakedAmount = (unclaimedRewards / BALANCE_COMPACT_PRECISION) * BALANCE_COMPACT_PRECISION;

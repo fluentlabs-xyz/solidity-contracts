@@ -438,6 +438,14 @@ contract StakingAdditionalTest is Test {
         staking.changeValidatorCommissionRate(validator1, 0);
     }
 
+    function test_RevertIf_changeValidatorOwner_newOwnerIsZero() public {
+        staking.addValidator(validator1);
+
+        vm.expectRevert(StakingContext.ZeroAddress.selector);
+        vm.prank(validator1);
+        staking.changeValidatorOwner(validator1, address(0));
+    }
+
     function test_disableValidatorAndPendingRewardViews() public {
         staking.addValidator(validator1);
         vm.prank(staker1);
@@ -657,6 +665,26 @@ contract StakingAdditionalTest is Test {
         assertEq(stakingPool.claimableRewards(validator1, staker1), ONE);
 
         assertEq(stakingPool.claimableRewards(validator1, staker2), 0);
+    }
+
+    function test_stakingPool_secondStakerCanStakeWhileFirstHasPendingUnstake() public {
+        staking.addValidator(validator1);
+
+        vm.prank(staker1);
+        stakingPool.stake{value: 10 * ONE}(validator1);
+        _rollToNextEpoch();
+
+        vm.prank(staker1);
+        stakingPool.unstake(validator1, ONE);
+
+        vm.prank(staker2);
+        stakingPool.stake{value: ONE}(validator1);
+
+        _rollToNextEpoch();
+        vm.prank(staker2);
+        stakingPool.stake{value: ONE}(validator1);
+
+        assertEq(stakingPool.getStakedAmount(validator1, staker2), 2 * ONE, "staker2 stake amount");
     }
 
     function test_systemFeeAutoClaimAfterThreshold() public {
