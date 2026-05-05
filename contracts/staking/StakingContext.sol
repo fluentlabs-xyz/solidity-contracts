@@ -50,6 +50,7 @@ abstract contract StakingContext is Initializable, UUPSUpgradeable, Ownable2Step
     error ValidatorOwnerAlreadyInUse(address);
     error WrongAmountPrecision();
     error ZeroAmount();
+    error OwnerCantBeZero();
 
     IStaking internal immutable _stakingContract;
     ISlashingIndicator internal immutable _slashingIndicatorContract;

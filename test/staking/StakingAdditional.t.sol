@@ -441,7 +441,7 @@ contract StakingAdditionalTest is Test {
     function test_RevertIf_changeValidatorOwner_newOwnerIsZero() public {
         staking.addValidator(validator1);
 
-        vm.expectRevert(StakingContext.ZeroAddress.selector);
+        vm.expectRevert(StakingContext.OwnerCantBeZero.selector);
         vm.prank(validator1);
         staking.changeValidatorOwner(validator1, address(0));
     }
