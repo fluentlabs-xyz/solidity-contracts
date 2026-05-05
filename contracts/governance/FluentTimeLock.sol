@@ -12,9 +12,7 @@ import {TimelockController} from "@openzeppelin/contracts/governance/TimelockCon
  *      change the timelock's own configuration (delay, roles).
  */
 contract FluentTimeLock is TimelockController {
-    constructor(
-        uint256 minDelay,
-        address[] memory proposers,
-        address[] memory executors
-    ) TimelockController(minDelay, proposers, executors, address(0)) {}
+    constructor(uint256 minDelay, address[] memory proposers, address[] memory executors)
+        TimelockController(minDelay, proposers, executors, address(0))
+    {}
 }

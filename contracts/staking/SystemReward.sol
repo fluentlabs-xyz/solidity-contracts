@@ -40,8 +40,6 @@ contract SystemReward is ISystemReward, StakingContext {
 
     /// @custom:storage-location erc7201:Fluent.storage.SystemRewardStorage
     struct SystemRewardStorage {
-        // total system fee that is available for claim for system needs
-        address systemTreasury;
         uint256 systemFee;
         // distribution share between holders
         DistributionShare[] distributionShares;
@@ -143,13 +141,6 @@ contract SystemReward is ISystemReward, StakingContext {
             return;
         }
         $.systemFee = 0;
-        // if we have system treasury then its legacy scheme
-        if ($.systemTreasury != address(0x00)) {
-            address payable payableTreasury = payable($.systemTreasury);
-            payableTreasury.transfer(amountToPay);
-            emit FeeClaimed($.systemTreasury, amountToPay);
-            return;
-        }
         // distribute rewards based on the shares
         uint256 totalPaid = 0;
         for (uint256 i = 0; i < $.distributionShares.length; i++) {

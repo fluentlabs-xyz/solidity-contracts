@@ -11,6 +11,7 @@ The staking module ports the legacy validator staking system into the Foundry co
 | `SystemReward` | Receives system fees and distributes them by governance-configured shares. |
 | `ChainConfig` | Governance-controlled consensus/staking parameters such as epoch length, active validator count, jail duration, and minimum stake sizes. |
 | `SlashingIndicator` | Coinbase-only entrypoint that forwards slash events into `Staking`. |
+| `Governance` | Validator-owner Governor whose voting power comes from active validator stake and whose votes are counted per validator. |
 | `StakingContext` | Shared immutable dependency holder for staking, governance, chain config, system reward, owner-controlled UUPS upgrades, and custom-error access-control helpers. |
 
 ## Epoch model
@@ -64,7 +65,13 @@ Only one pending unstake per user/validator is supported at a time.
 
 ## System rewards
 
-`SystemReward` receives ETH system fees and stores them as `_systemFee`. Fees can be claimed manually or automatically once the auto-claim threshold is reached. Governance configures distribution accounts and basis-point-style shares; total shares must equal 100% (`10000`).
+`SystemReward` receives ETH system fees and stores them in ERC-7201 namespaced storage. Fees can be claimed manually or automatically once the auto-claim threshold is reached. Governance configures distribution accounts and basis-point-style shares; total shares must equal 100% (`10000`).
+
+## Governance
+
+`Governance` is an OpenZeppelin Governor-compatible contract. Validator owners can create proposals and vote, while voting power is derived from the active validator's delegated stake at the proposal block. Votes are counted by validator address rather than owner address, so rotating a validator owner during an active proposal cannot double-vote.
+
+The governance contract is UUPS-upgradeable behind an ERC-1967 proxy. Its mutable custom voting-period override uses ERC-7201 namespaced storage.
 
 ## Configuration
 

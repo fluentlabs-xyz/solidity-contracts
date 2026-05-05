@@ -5,6 +5,7 @@ import {stdJson} from "forge-std/StdJson.sol";
 import {console2} from "forge-std/console2.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
+import {Governance} from "../../contracts/governance/Governance.sol";
 import {ChainConfig} from "../../contracts/staking/ChainConfig.sol";
 import {SlashingIndicator} from "../../contracts/staking/SlashingIndicator.sol";
 import {Staking} from "../../contracts/staking/Staking.sol";
@@ -37,12 +38,14 @@ contract DeployStaking is DeployBase {
         address stakingPoolImpl;
         address chainConfig;
         address chainConfigImpl;
+        address governance;
+        address governanceImpl;
     }
 
     struct StakingDeployParams {
         address initialOwner;
-        address governance;
         address systemRewardAccount;
+        uint32 governanceVotingPeriod;
         uint32 activeValidatorsLength;
         uint32 epochBlockInterval;
         uint32 misdemeanorThreshold;
@@ -56,8 +59,8 @@ contract DeployStaking is DeployBase {
     function _readStakingParams() internal view returns (StakingDeployParams memory p) {
         string memory json = _readConfig(vm.envOr("NETWORK", string("testnet/l2")));
         p.initialOwner = vm.envOr("INITIAL_OWNER", json.readAddress(".roles.initialOwner"));
-        p.governance = vm.envOr("STAKING_GOVERNANCE", p.initialOwner);
         p.systemRewardAccount = vm.envOr("SYSTEM_REWARD_ACCOUNT", p.initialOwner);
+        p.governanceVotingPeriod = uint32(vm.envOr("GOVERNANCE_VOTING_PERIOD", uint256(172_800)));
         p.activeValidatorsLength = uint32(vm.envOr("STAKING_ACTIVE_VALIDATORS", uint256(21)));
         p.epochBlockInterval = uint32(vm.envOr("STAKING_EPOCH_BLOCK_INTERVAL", uint256(200)));
         p.misdemeanorThreshold = uint32(vm.envOr("STAKING_MISDEMEANOR_THRESHOLD", uint256(50)));
@@ -76,7 +79,7 @@ contract DeployStaking is DeployBase {
         ISystemReward predictedSystemReward = ISystemReward(vm.computeCreateAddress(tx.origin, nonce + 5));
         IStakingPool predictedStakingPool = IStakingPool(vm.computeCreateAddress(tx.origin, nonce + 7));
         IChainConfig predictedChainConfig = IChainConfig(vm.computeCreateAddress(tx.origin, nonce + 9));
-        IGovernance governance = IGovernance(p.governance);
+        IGovernance governance = IGovernance(vm.computeCreateAddress(tx.origin, nonce + 11));
 
         Staking stakingImpl = new Staking(
             predictedStaking,
@@ -178,6 +181,16 @@ contract DeployStaking is DeployBase {
         require(r.systemReward == address(predictedSystemReward), "system reward proxy prediction mismatch");
         require(r.stakingPool == address(predictedStakingPool), "staking pool proxy prediction mismatch");
         require(r.chainConfig == address(predictedChainConfig), "chain config proxy prediction mismatch");
+
+        Governance governanceImpl = new Governance(predictedStaking, predictedChainConfig);
+        r.governance = address(
+            new ERC1967Proxy(
+                address(governanceImpl),
+                abi.encodeCall(Governance.initialize, (p.initialOwner, p.governanceVotingPeriod))
+            )
+        );
+        r.governanceImpl = address(governanceImpl);
+        require(r.governance == address(governance), "governance proxy prediction mismatch");
     }
 
     function run() external {
@@ -186,7 +199,7 @@ contract DeployStaking is DeployBase {
 
         console2.log("Deploying staking module");
         console2.log("  owner:", p.initialOwner);
-        console2.log("  governance:", p.governance);
+        console2.log("  governance voting period:", p.governanceVotingPeriod);
         console2.log("  system reward account:", p.systemRewardAccount);
 
         vm.startBroadcast();
@@ -210,6 +223,8 @@ contract DeployStaking is DeployBase {
         console2.log("  impl:", r.stakingPoolImpl);
         console2.log("ChainConfig deployed:", r.chainConfig);
         console2.log("  impl:", r.chainConfigImpl);
+        console2.log("Governance deployed:", r.governance);
+        console2.log("  impl:", r.governanceImpl);
     }
 
     function _writeDeployment(StakingDeployment memory r, string memory outputPath) internal {
@@ -223,6 +238,8 @@ contract DeployStaking is DeployBase {
         out = vm.serializeAddress("deployment", "staking_pool_impl", r.stakingPoolImpl);
         out = vm.serializeAddress("deployment", "chain_config", r.chainConfig);
         out = vm.serializeAddress("deployment", "chain_config_impl", r.chainConfigImpl);
+        out = vm.serializeAddress("deployment", "governance", r.governance);
+        out = vm.serializeAddress("deployment", "governance_impl", r.governanceImpl);
         vm.writeJson(out, outputPath);
     }
 }

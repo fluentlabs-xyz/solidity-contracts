@@ -17,30 +17,6 @@ import {StakingErrors} from "../../contracts/staking/StakingErrors.sol";
 import {StakingPool} from "../../contracts/staking/StakingPool.sol";
 import {SystemReward} from "../../contracts/staking/SystemReward.sol";
 
-contract LegacySystemReward is SystemReward {
-    constructor(
-        IStaking stakingContract,
-        ISlashingIndicator slashingIndicatorContract,
-        ISystemReward systemRewardContract,
-        IStakingPool stakingPoolContract,
-        IGovernance governanceContract,
-        IChainConfig chainConfigContract
-    )
-        SystemReward(
-            stakingContract,
-            slashingIndicatorContract,
-            systemRewardContract,
-            stakingPoolContract,
-            governanceContract,
-            chainConfigContract
-        )
-    {}
-
-    function setSystemTreasury(address treasury) external {
-        _getSystemRewardStorage().systemTreasury = treasury;
-    }
-}
-
 contract StakingAdditionalTest is Test {
     uint256 internal constant ONE = 1 ether;
 
@@ -690,21 +666,6 @@ contract StakingAdditionalTest is Test {
         _sendSystemFee(2 ether);
         assertEq(treasury.balance, initial + 51 ether);
         assertEq(systemReward.getSystemFee(), 0);
-    }
-
-    function test_legacySystemRewardTreasuryClaimPath() public {
-        LegacySystemReward legacy = new LegacySystemReward(
-            staking, slashingIndicator, systemReward, stakingPool, IGovernance(address(this)), chainConfig
-        );
-        legacy.initialize(address(this), _singleton(treasury), _singleton16(10_000));
-        legacy.setSystemTreasury(owner);
-
-        uint256 initial = owner.balance;
-        (bool success,) = address(legacy).call{value: 1 ether}("");
-        require(success, "legacy system fee transfer failed");
-        legacy.claimSystemFee();
-        assertEq(owner.balance, initial + 1 ether);
-        assertEq(legacy.getSystemFee(), 0);
     }
 
     function _deploy(
