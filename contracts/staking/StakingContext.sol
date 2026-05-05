@@ -39,6 +39,8 @@ abstract contract StakingContext is Initializable, UUPSUpgradeable, Ownable2Step
         _stakingPoolContract = stakingPoolContract;
         _governanceContract = governanceContract;
         _chainConfigContract = chainConfigContract;
+        // Disable initializer for UUPS proxy contract
+        _disableInitializers();
     }
 
     function __StakingContext_init(address initialOwner) internal onlyInitializing {

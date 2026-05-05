@@ -53,6 +53,7 @@ contract Governance is
     constructor(IStaking stakingContract, IChainConfig chainConfigContract) {
         _stakingContract = stakingContract;
         _chainConfigContract = chainConfigContract;
+        // Disable initializer for UUPS proxy contract
         _disableInitializers();
     }
 
