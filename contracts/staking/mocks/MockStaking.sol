@@ -5,7 +5,7 @@ import "../Staking.sol";
 
 /// @title Test staking implementation
 /// @notice Exposes governance/coinbase/slashing-restricted hooks for tests by bypassing production access checks.
-contract FakeStaking is Staking {
+contract MockStaking is Staking {
     function addValidator(address account) external override {
         _addValidator(account, account, ValidatorStatus.Active, 0, 0, _nextEpoch());
     }
