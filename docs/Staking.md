@@ -1,6 +1,6 @@
 # Staking contracts
 
-The staking module ports the legacy validator staking system into the Foundry codebase. It is intended for the Fluent system-contract environment and is wired through the shared `Injector` dependency container.
+The staking module ports the legacy validator staking system into the Foundry codebase. It is intended for the Fluent system-contract environment and is wired with OpenZeppelin-style initializers.
 
 ## Contract map
 
@@ -11,7 +11,7 @@ The staking module ports the legacy validator staking system into the Foundry co
 | `SystemReward` | Receives system fees and distributes them by governance-configured shares. |
 | `ChainConfig` | Governance-controlled consensus/staking parameters such as epoch length, active validator count, jail duration, and minimum stake sizes. |
 | `SlashingIndicator` | Coinbase-only entrypoint that forwards slash events into `Staking`. |
-| `Injector` | Initialization helper that injects addresses for staking, governance, chain config, system reward, runtime upgrade, and related system contracts. |
+| `StakingContext` | Shared dependency holder for staking, governance, chain config, system reward, and access-control helpers. |
 
 ## Epoch model
 

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 pragma solidity ^0.8.0;
 
-import "./Injector.sol";
+import "./StakingContext.sol";
 
 /// @title System fee distributor
 /// @notice Accumulates system fees and distributes them to configured recipients by share.
 /// @dev Governance must configure shares so they sum to `SHARE_MAX_VALUE`.
-contract SystemReward is ISystemReward, InjectorContextHolder {
+contract SystemReward is ISystemReward, StakingContext {
     /**
      * Parlia has 100 ether limit for max fee, its better to enable auto claim
      * for the system treasury otherwise it might cause lost of funds
@@ -40,9 +40,24 @@ contract SystemReward is ISystemReward, InjectorContextHolder {
     // distribution share between holders
     DistributionShare[] internal _distributionShares;
 
-    constructor(bytes memory constructorParams) InjectorContextHolder(constructorParams) {}
-
-    function ctor(address[] calldata accounts, uint16[] calldata shares) external whenNotInitialized {
+    function initialize(
+        address[] calldata accounts,
+        uint16[] calldata shares,
+        IStaking stakingContract,
+        ISlashingIndicator slashingIndicatorContract,
+        ISystemReward systemRewardContract,
+        IStakingPool stakingPoolContract,
+        IGovernance governanceContract,
+        IChainConfig chainConfigContract
+    ) external initializer {
+        __StakingContext_init(
+            stakingContract,
+            slashingIndicatorContract,
+            systemRewardContract,
+            stakingPoolContract,
+            governanceContract,
+            chainConfigContract
+        );
         _updateDistributionShare(accounts, shares);
     }
 

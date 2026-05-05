@@ -3,15 +3,14 @@ pragma solidity ^0.8.0;
 
 import "./interfaces/IStaking.sol";
 import "./interfaces/IStakingPool.sol";
-import "./interfaces/IInjector.sol";
 
-import "./Injector.sol";
+import "./StakingContext.sol";
 import "./Staking.sol";
 
 /// @title Share-based pooled staking
 /// @notice Lets users pool ETH per validator while the pool handles delegation, reward claiming, and unstake finalization.
 /// @dev Pool shares represent a proportional claim on validator-specific delegated stake plus compounded rewards.
-contract StakingPool is InjectorContextHolder, IStakingPool {
+contract StakingPool is StakingContext, IStakingPool {
     /**
      * This value must the same as in Staking smart contract
      */
@@ -44,9 +43,23 @@ contract StakingPool is InjectorContextHolder, IStakingPool {
     // allocated shares (validator => staker => shares)
     mapping(address => mapping(address => uint256)) _stakerShares;
 
-    constructor(bytes memory constructorParams) InjectorContextHolder(constructorParams) {}
-
-    function ctor() external whenNotInitialized {}
+    function initialize(
+        IStaking stakingContract,
+        ISlashingIndicator slashingIndicatorContract,
+        ISystemReward systemRewardContract,
+        IStakingPool stakingPoolContract,
+        IGovernance governanceContract,
+        IChainConfig chainConfigContract
+    ) external initializer {
+        __StakingContext_init(
+            stakingContract,
+            slashingIndicatorContract,
+            systemRewardContract,
+            stakingPoolContract,
+            governanceContract,
+            chainConfigContract
+        );
+    }
 
     function getStakedAmount(address validator, address staker) external view returns (uint256) {
         ValidatorPool memory validatorPool = _getValidatorPool(validator);
@@ -148,7 +161,7 @@ contract StakingPool is InjectorContextHolder, IStakingPool {
         uint256 shares = amount * _calcRatio(validatorPool) / 1e18;
         require(shares <= _stakerShares[validator][msg.sender], "StakingPool: not enough shares");
         // save new undelegate
-        IChainConfig chainConfig = IInjector(address(_stakingContract)).getChainConfig();
+        IChainConfig chainConfig = _chainConfigContract;
         _pendingUnstakes[validator][msg.sender] = PendingUnstake({
             amount: amount, shares: shares, epoch: _stakingContract.nextEpoch() + chainConfig.getUndelegatePeriod()
         });

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 pragma solidity ^0.8.0;
 
-import "./Injector.sol";
+import "./StakingContext.sol";
 
 /// @title Staking chain configuration
 /// @notice Stores consensus and staking parameters controlled by governance.
 /// @dev Values are consumed by `Staking` and `StakingPool` for epoch, jail, undelegation, and minimum stake logic.
-contract ChainConfig is InjectorContextHolder, IChainConfig {
+contract ChainConfig is StakingContext, IChainConfig {
     event ActiveValidatorsLengthChanged(uint32 prevValue, uint32 newValue);
     event EpochBlockIntervalChanged(uint32 prevValue, uint32 newValue);
     event MisdemeanorThresholdChanged(uint32 prevValue, uint32 newValue);
@@ -30,9 +30,7 @@ contract ChainConfig is InjectorContextHolder, IChainConfig {
 
     ConsensusParams private _consensusParams;
 
-    constructor(bytes memory constructorParams) InjectorContextHolder(constructorParams) {}
-
-    function ctor(
+    function initialize(
         uint32 activeValidatorsLength,
         uint32 epochBlockInterval,
         uint32 misdemeanorThreshold,
@@ -40,8 +38,22 @@ contract ChainConfig is InjectorContextHolder, IChainConfig {
         uint32 validatorJailEpochLength,
         uint32 undelegatePeriod,
         uint256 minValidatorStakeAmount,
-        uint256 minStakingAmount
-    ) external whenNotInitialized {
+        uint256 minStakingAmount,
+        IStaking stakingContract,
+        ISlashingIndicator slashingIndicatorContract,
+        ISystemReward systemRewardContract,
+        IStakingPool stakingPoolContract,
+        IGovernance governanceContract,
+        IChainConfig chainConfigContract
+    ) external initializer {
+        __StakingContext_init(
+            stakingContract,
+            slashingIndicatorContract,
+            systemRewardContract,
+            stakingPoolContract,
+            governanceContract,
+            chainConfigContract
+        );
         _consensusParams.activeValidatorsLength = activeValidatorsLength;
         emit ActiveValidatorsLengthChanged(0, activeValidatorsLength);
         _consensusParams.epochBlockInterval = epochBlockInterval;

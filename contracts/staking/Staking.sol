@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-only
 pragma solidity ^0.8.0;
 
-import "./Injector.sol";
+import "./StakingContext.sol";
 
 /// @title Validator staking
 /// @notice Manages validator registration, delegation, undelegation, commission, reward claims, active set ordering, and slashing.
 /// @dev Uses epoch snapshots and compacted balances to preserve historical accounting without storing full uint256 stake values.
-contract Staking is IStaking, InjectorContextHolder {
+contract Staking is IStaking, StakingContext {
     /**
      * This constant indicates precision of storing compact balances in the storage or floating point. Since default
      * balance precision is 256 bits it might gain some overhead on the storage because we don't need to store such huge
@@ -124,12 +124,25 @@ contract Staking is IStaking, InjectorContextHolder {
     // mapping with validator snapshots per each epoch (validator -> epoch -> snapshot)
     mapping(address => mapping(uint64 => ValidatorSnapshot)) internal _validatorSnapshots;
 
-    constructor(bytes memory constructorParams) InjectorContextHolder(constructorParams) {}
-
-    function ctor(address[] calldata validators, uint256[] calldata initialStakes, uint16 commissionRate)
-        external
-        whenNotInitialized
-    {
+    function initialize(
+        address[] calldata validators,
+        uint256[] calldata initialStakes,
+        uint16 commissionRate,
+        IStaking stakingContract,
+        ISlashingIndicator slashingIndicatorContract,
+        ISystemReward systemRewardContract,
+        IStakingPool stakingPoolContract,
+        IGovernance governanceContract,
+        IChainConfig chainConfigContract
+    ) external payable initializer {
+        __StakingContext_init(
+            stakingContract,
+            slashingIndicatorContract,
+            systemRewardContract,
+            stakingPoolContract,
+            governanceContract,
+            chainConfigContract
+        );
         require(initialStakes.length == validators.length);
         uint256 totalStakes = 0;
         for (uint256 i = 0; i < validators.length; i++) {

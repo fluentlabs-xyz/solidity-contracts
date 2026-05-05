@@ -9,8 +9,6 @@ import {Staking} from "../../contracts/staking/Staking.sol";
 import {StakingPool} from "../../contracts/staking/StakingPool.sol";
 import {SystemReward} from "../../contracts/staking/SystemReward.sol";
 import {IGovernance} from "../../contracts/staking/interfaces/IGovernance.sol";
-import {IRuntimeUpgrade} from "../../contracts/staking/interfaces/IRuntimeUpgrade.sol";
-import {IDeployerProxy} from "../../contracts/staking/interfaces/IDeployerProxy.sol";
 
 contract StakingFoundryTest is Test {
     uint256 internal constant ONE = 1 ether;
@@ -38,76 +36,54 @@ contract StakingFoundryTest is Test {
         vm.deal(validator3, 1_000 ether);
         vm.deal(validator4, 1_000 ether);
 
-        staking =
-            new Staking(abi.encodeWithSelector(Staking.ctor.selector, new address[](0), new uint256[](0), uint16(0)));
-        slashingIndicator = new SlashingIndicator(abi.encodeWithSelector(SlashingIndicator.ctor.selector));
-        systemReward = new SystemReward(
-            abi.encodeWithSelector(SystemReward.ctor.selector, _singleton(address(0)), _singleton16(10_000))
-        );
-        stakingPool = new StakingPool(abi.encodeWithSelector(StakingPool.ctor.selector));
-        chainConfig = new ChainConfig(
-            abi.encodeWithSelector(
-                ChainConfig.ctor.selector,
-                uint32(3),
-                uint32(10),
-                uint32(50),
-                uint32(150),
-                uint32(7),
-                uint32(0),
-                uint256(ONE),
-                uint256(ONE)
-            )
-        );
+        staking = new Staking();
+        slashingIndicator = new SlashingIndicator();
+        systemReward = new SystemReward();
+        stakingPool = new StakingPool();
+        chainConfig = new ChainConfig();
 
-        staking.initManually(
+        staking.initialize(
+            new address[](0),
+            new uint256[](0),
+            uint16(0),
             staking,
             slashingIndicator,
             systemReward,
             stakingPool,
             IGovernance(address(this)),
-            chainConfig,
-            IRuntimeUpgrade(address(0)),
-            IDeployerProxy(address(0))
+            chainConfig
         );
-        slashingIndicator.initManually(
-            staking,
-            slashingIndicator,
-            systemReward,
-            stakingPool,
-            IGovernance(address(this)),
-            chainConfig,
-            IRuntimeUpgrade(address(0)),
-            IDeployerProxy(address(0))
+        slashingIndicator.initialize(
+            staking, slashingIndicator, systemReward, stakingPool, IGovernance(address(this)), chainConfig
         );
-        systemReward.initManually(
+        systemReward.initialize(
+            _singleton(address(0)),
+            _singleton16(10_000),
             staking,
             slashingIndicator,
             systemReward,
             stakingPool,
             IGovernance(address(this)),
-            chainConfig,
-            IRuntimeUpgrade(address(0)),
-            IDeployerProxy(address(0))
+            chainConfig
         );
-        stakingPool.initManually(
-            staking,
-            slashingIndicator,
-            systemReward,
-            stakingPool,
-            IGovernance(address(this)),
-            chainConfig,
-            IRuntimeUpgrade(address(0)),
-            IDeployerProxy(address(0))
+        stakingPool.initialize(
+            staking, slashingIndicator, systemReward, stakingPool, IGovernance(address(this)), chainConfig
         );
-        chainConfig.initManually(
+        chainConfig.initialize(
+            uint32(3),
+            uint32(10),
+            uint32(50),
+            uint32(150),
+            uint32(7),
+            uint32(0),
+            uint256(ONE),
+            uint256(ONE),
             staking,
             slashingIndicator,
             systemReward,
             stakingPool,
             IGovernance(address(this)),
-            chainConfig,
-            IRuntimeUpgrade(address(0)),
-            IDeployerProxy(address(0))
+            chainConfig
         );
     }
 
