@@ -94,7 +94,8 @@ contract ChainConfig is StakingContext, IChainConfig {
     }
 
     function getActiveValidatorsLength() external view override returns (uint32) {
-        return _getChainConfigStorage().consensusParams.activeValidatorsLength;
+        ChainConfigStorage storage $ = _getChainConfigStorage();
+        return $.consensusParams.activeValidatorsLength;
     }
 
     function setActiveValidatorsLength(uint32 newValue) external override onlyFromGovernance {
@@ -105,7 +106,8 @@ contract ChainConfig is StakingContext, IChainConfig {
     }
 
     function getEpochBlockInterval() external view override returns (uint32) {
-        return _getChainConfigStorage().consensusParams.epochBlockInterval;
+        ChainConfigStorage storage $ = _getChainConfigStorage();
+        return $.consensusParams.epochBlockInterval;
     }
 
     function setEpochBlockInterval(uint32 newValue) external override onlyFromGovernance {
@@ -116,7 +118,8 @@ contract ChainConfig is StakingContext, IChainConfig {
     }
 
     function getMisdemeanorThreshold() external view override returns (uint32) {
-        return _getChainConfigStorage().consensusParams.misdemeanorThreshold;
+        ChainConfigStorage storage $ = _getChainConfigStorage();
+        return $.consensusParams.misdemeanorThreshold;
     }
 
     function setMisdemeanorThreshold(uint32 newValue) external override onlyFromGovernance {
@@ -127,7 +130,8 @@ contract ChainConfig is StakingContext, IChainConfig {
     }
 
     function getFelonyThreshold() external view override returns (uint32) {
-        return _getChainConfigStorage().consensusParams.felonyThreshold;
+        ChainConfigStorage storage $ = _getChainConfigStorage();
+        return $.consensusParams.felonyThreshold;
     }
 
     function setFelonyThreshold(uint32 newValue) external override onlyFromGovernance {
@@ -138,7 +142,8 @@ contract ChainConfig is StakingContext, IChainConfig {
     }
 
     function getValidatorJailEpochLength() external view override returns (uint32) {
-        return _getChainConfigStorage().consensusParams.validatorJailEpochLength;
+        ChainConfigStorage storage $ = _getChainConfigStorage();
+        return $.consensusParams.validatorJailEpochLength;
     }
 
     function setValidatorJailEpochLength(uint32 newValue) external override onlyFromGovernance {
@@ -149,7 +154,8 @@ contract ChainConfig is StakingContext, IChainConfig {
     }
 
     function getUndelegatePeriod() external view override returns (uint32) {
-        return _getChainConfigStorage().consensusParams.undelegatePeriod;
+        ChainConfigStorage storage $ = _getChainConfigStorage();
+        return $.consensusParams.undelegatePeriod;
     }
 
     function setUndelegatePeriod(uint32 newValue) external override onlyFromGovernance {
@@ -160,7 +166,8 @@ contract ChainConfig is StakingContext, IChainConfig {
     }
 
     function getMinValidatorStakeAmount() external view returns (uint256) {
-        return _getChainConfigStorage().consensusParams.minValidatorStakeAmount;
+        ChainConfigStorage storage $ = _getChainConfigStorage();
+        return $.consensusParams.minValidatorStakeAmount;
     }
 
     function setMinValidatorStakeAmount(uint256 newValue) external override onlyFromGovernance {
@@ -171,7 +178,8 @@ contract ChainConfig is StakingContext, IChainConfig {
     }
 
     function getMinStakingAmount() external view returns (uint256) {
-        return _getChainConfigStorage().consensusParams.minStakingAmount;
+        ChainConfigStorage storage $ = _getChainConfigStorage();
+        return $.consensusParams.minStakingAmount;
     }
 
     function setMinStakingAmount(uint256 newValue) external override onlyFromGovernance {

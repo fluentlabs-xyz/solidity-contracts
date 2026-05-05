@@ -80,12 +80,14 @@ contract StakingPool is StakingContext, IStakingPool {
     }
 
     function getStakedAmount(address validator, address staker) external view returns (uint256) {
+        StakingPoolStorage storage $ = _getStakingPoolStorage();
         ValidatorPool memory validatorPool = _getValidatorPool(validator);
-        return _getStakingPoolStorage().stakerShares[validator][staker] * 1e18 / _calcRatio(validatorPool);
+        return $.stakerShares[validator][staker] * 1e18 / _calcRatio(validatorPool);
     }
 
     function getShares(address validator, address staker) external view returns (uint256) {
-        return _getStakingPoolStorage().stakerShares[validator][staker];
+        StakingPoolStorage storage $ = _getStakingPoolStorage();
+        return $.stakerShares[validator][staker];
     }
 
     function getValidatorPool(address validator) external view returns (ValidatorPool memory) {
@@ -102,6 +104,7 @@ contract StakingPool is StakingContext, IStakingPool {
     }
 
     modifier advanceStakingRewards(address validator) {
+        StakingPoolStorage storage $ = _getStakingPoolStorage();
         {
             ValidatorPool memory validatorPool = _getValidatorPool(validator);
             // claim rewards from staking contract
@@ -115,13 +118,14 @@ contract StakingPool is StakingContext, IStakingPool {
             validatorPool.totalStakedAmount += stakedAmount;
             validatorPool.dustRewards = dustRewards;
             // save validator pool changes
-            _getStakingPoolStorage().validatorPools[validator] = validatorPool;
+            $.validatorPools[validator] = validatorPool;
         }
         _;
     }
 
     function _getValidatorPool(address validator) internal view returns (ValidatorPool memory) {
-        ValidatorPool memory validatorPool = _getStakingPoolStorage().validatorPools[validator];
+        StakingPoolStorage storage $ = _getStakingPoolStorage();
+        ValidatorPool memory validatorPool = $.validatorPools[validator];
         validatorPool.validatorAddress = validator;
         return validatorPool;
     }
@@ -194,7 +198,8 @@ contract StakingPool is StakingContext, IStakingPool {
     }
 
     function claimableRewards(address validator, address staker) external view override returns (uint256) {
-        return _getStakingPoolStorage().pendingUnstakes[validator][staker].amount;
+        StakingPoolStorage storage $ = _getStakingPoolStorage();
+        return $.pendingUnstakes[validator][staker].amount;
     }
 
     function claim(address validator) external override advanceStakingRewards(validator) {

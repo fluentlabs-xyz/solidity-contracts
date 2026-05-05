@@ -80,7 +80,8 @@ contract SystemReward is ISystemReward, StakingContext {
     }
 
     function getDistributionShares() external view returns (DistributionShare[] memory) {
-        return _getSystemRewardStorage().distributionShares;
+        SystemRewardStorage storage $ = _getSystemRewardStorage();
+        return $.distributionShares;
     }
 
     function _updateDistributionShare(address[] calldata accounts, uint16[] calldata shares) internal {
@@ -117,7 +118,8 @@ contract SystemReward is ISystemReward, StakingContext {
     }
 
     function getSystemFee() external view override returns (uint256) {
-        return _getSystemRewardStorage().systemFee;
+        SystemRewardStorage storage $ = _getSystemRewardStorage();
+        return $.systemFee;
     }
 
     function claimSystemFee() external override {
