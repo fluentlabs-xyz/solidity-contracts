@@ -1,0 +1,175 @@
+// SPDX-License-Identifier: Apache-2.0
+pragma solidity 0.8.30;
+
+import {Test} from "forge-std/Test.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {IGovernor} from "@openzeppelin/contracts/governance/IGovernor.sol";
+
+import {Governance} from "../../contracts/governance/Governance.sol";
+import {ChainConfig} from "../../contracts/staking/ChainConfig.sol";
+import {IGovernance} from "../../contracts/staking/interfaces/IGovernance.sol";
+import {IChainConfig} from "../../contracts/staking/interfaces/IChainConfig.sol";
+import {ISlashingIndicator} from "../../contracts/staking/interfaces/ISlashingIndicator.sol";
+import {IStaking} from "../../contracts/staking/interfaces/IStaking.sol";
+import {IStakingPool} from "../../contracts/staking/interfaces/IStakingPool.sol";
+import {ISystemReward} from "../../contracts/staking/interfaces/ISystemReward.sol";
+import {SlashingIndicator} from "../../contracts/staking/SlashingIndicator.sol";
+import {Staking} from "../../contracts/staking/Staking.sol";
+import {StakingPool} from "../../contracts/staking/StakingPool.sol";
+import {SystemReward} from "../../contracts/staking/SystemReward.sol";
+
+contract GovernanceTest is Test {
+    uint256 internal constant ONE = 1 ether;
+
+    Staking internal staking;
+    ChainConfig internal chainConfig;
+    Governance internal governance;
+
+    address internal owner = makeAddr("owner");
+    address internal treasury = makeAddr("treasury");
+    address internal validator1 = makeAddr("validator1");
+    address internal validator2 = makeAddr("validator2");
+    address internal owner1 = makeAddr("owner1");
+    address internal owner2 = makeAddr("owner2");
+
+    function setUp() public {
+        vm.deal(address(this), 100 ether);
+        vm.deal(validator1, 100 ether);
+        vm.deal(validator2, 100 ether);
+        _deploy(5);
+    }
+
+    function test_votingPowerFollowsValidatorOwners() public {
+        assertEq(governance.getVotingSupply(), 2 * ONE);
+        assertEq(governance.getVotingPower(validator1), ONE);
+        assertEq(governance.getVotingPower(validator2), ONE);
+
+        vm.prank(validator1);
+        staking.changeValidatorOwner(validator1, owner1);
+        vm.prank(validator2);
+        staking.changeValidatorOwner(validator2, owner2);
+
+        assertEq(governance.getVotingSupply(), 2 * ONE);
+        assertEq(governance.getVotingPower(owner1), ONE);
+        assertEq(governance.getVotingPower(owner2), ONE);
+        assertEq(governance.getVotingPower(validator1), 0);
+    }
+
+    function test_ownerSwitchCannotDoubleVote() public {
+        address[] memory targets = new address[](1);
+        targets[0] = owner;
+        uint256[] memory values = new uint256[](1);
+        bytes[] memory calldatas = new bytes[](1);
+        calldatas[0] = hex"";
+
+        vm.prank(validator1);
+        uint256 proposalId = governance.propose(targets, values, calldatas, "empty proposal");
+
+        vm.roll(block.number + 1);
+        vm.prank(validator1);
+        governance.castVote(proposalId, 1);
+        assertEq(uint8(governance.state(proposalId)), uint8(IGovernor.ProposalState.Active));
+
+        vm.prank(validator1);
+        staking.changeValidatorOwner(validator1, owner1);
+
+        vm.expectRevert();
+        vm.prank(owner1);
+        governance.castVote(proposalId, 1);
+
+        vm.roll(block.number + governance.votingPeriod() + 1);
+        assertEq(uint8(governance.state(proposalId)), uint8(IGovernor.ProposalState.Defeated));
+    }
+
+    function test_customVotingPeriodAppliesToProposal() public {
+        address[] memory targets = new address[](1);
+        targets[0] = owner;
+        uint256[] memory values = new uint256[](1);
+        bytes[] memory calldatas = new bytes[](1);
+        calldatas[0] = hex"";
+
+        vm.prank(validator1);
+        uint256 proposalId = governance.proposeWithCustomVotingPeriod(targets, values, calldatas, "short proposal", 2);
+
+        assertEq(governance.proposalDeadline(proposalId), governance.proposalSnapshot(proposalId) + 2);
+        assertEq(governance.votingPeriod(), 5);
+    }
+
+    function _deploy(uint32 votingPeriod) internal {
+        uint64 nonce = vm.getNonce(address(this));
+        IStaking predictedStaking = IStaking(vm.computeCreateAddress(address(this), nonce));
+        ISlashingIndicator predictedSlashingIndicator =
+            ISlashingIndicator(vm.computeCreateAddress(address(this), nonce + 1));
+        ISystemReward predictedSystemReward = ISystemReward(vm.computeCreateAddress(address(this), nonce + 2));
+        IStakingPool predictedStakingPool = IStakingPool(vm.computeCreateAddress(address(this), nonce + 3));
+        IChainConfig predictedChainConfig = IChainConfig(vm.computeCreateAddress(address(this), nonce + 4));
+        IGovernance predictedGovernance = IGovernance(vm.computeCreateAddress(address(this), nonce + 6));
+
+        staking = new Staking(
+            predictedStaking,
+            predictedSlashingIndicator,
+            predictedSystemReward,
+            predictedStakingPool,
+            predictedGovernance,
+            predictedChainConfig
+        );
+        SlashingIndicator slashingIndicator = new SlashingIndicator(
+            predictedStaking,
+            predictedSlashingIndicator,
+            predictedSystemReward,
+            predictedStakingPool,
+            predictedGovernance,
+            predictedChainConfig
+        );
+        SystemReward systemReward = new SystemReward(
+            predictedStaking,
+            predictedSlashingIndicator,
+            predictedSystemReward,
+            predictedStakingPool,
+            predictedGovernance,
+            predictedChainConfig
+        );
+        StakingPool stakingPool = new StakingPool(
+            predictedStaking,
+            predictedSlashingIndicator,
+            predictedSystemReward,
+            predictedStakingPool,
+            predictedGovernance,
+            predictedChainConfig
+        );
+        chainConfig = new ChainConfig(
+            predictedStaking,
+            predictedSlashingIndicator,
+            predictedSystemReward,
+            predictedStakingPool,
+            predictedGovernance,
+            predictedChainConfig
+        );
+        Governance governanceImpl = new Governance(predictedStaking, predictedChainConfig);
+        governance = Governance(
+            payable(address(
+                    new ERC1967Proxy(
+                        address(governanceImpl), abi.encodeCall(Governance.initialize, (address(this), votingPeriod))
+                    )
+                ))
+        );
+
+        address[] memory validators = new address[](2);
+        validators[0] = validator1;
+        validators[1] = validator2;
+        uint256[] memory initialStakes = new uint256[](2);
+        initialStakes[0] = ONE;
+        initialStakes[1] = ONE;
+        staking.initialize{value: 2 * ONE}(address(this), validators, initialStakes, 0);
+        slashingIndicator.initialize(address(this));
+        address[] memory rewardAccounts = new address[](1);
+        rewardAccounts[0] = treasury;
+        uint16[] memory rewardShares = new uint16[](1);
+        rewardShares[0] = 10_000;
+        systemReward.initialize(address(this), rewardAccounts, rewardShares);
+        stakingPool.initialize(address(this));
+        chainConfig.initialize(address(this), 3, 50, 50, 150, 7, 0, ONE, ONE);
+
+        assertEq(address(governance), address(predictedGovernance));
+    }
+}

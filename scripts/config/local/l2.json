@@ -20,5 +20,29 @@
         "normalDelay": 60,
         "emergencyDelay": 10,
         "safe": "0x0000000000000000000000000000000000000000"
+    },
+    "staking": {
+        "activeValidatorsLength": 21,
+        "epochBlockInterval": 200,
+        "misdemeanorThreshold": 50,
+        "felonyThreshold": 150,
+        "validatorJailEpochLength": 7,
+        "undelegatePeriod": 0,
+        "minValidatorStakeAmount": "1000000000000000000",
+        "minStakingAmount": "1000000000000000000",
+        "initialValidators": [],
+        "initialStakes": [],
+        "initialCommissionRate": 0,
+        "systemReward": {
+            "accounts": [
+                "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+            ],
+            "shares": [
+                10000
+            ]
+        }
+    },
+    "governance": {
+        "votingPeriod": 172800
     }
 }
