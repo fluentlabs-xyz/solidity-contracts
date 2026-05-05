@@ -16,9 +16,10 @@ Fluent is a Layer 2 blockchain that settles on Ethereum. This repository contain
 | `contracts/verifier/` | `NitroVerifier` | Nitro enclave signature verification |
 | `contracts/oracles/` | `L1BlockOracle`, `L1GasOracle` | L2-side oracles for L1 block number (deadline enforcement) and gas price (fee calculation) |
 | `contracts/staking/` | `Staking`, `StakingPool`, `SystemReward`, `ChainConfig`, `SlashingIndicator` | Validator staking, delegation, reward distribution, slashing, and governance-controlled consensus parameters |
+| `contracts/governance/` | `Governance`, `FluentTimeLock` | Validator-owner governance and optional timelocked execution |
 | `contracts/libraries/` | `Heap`, `Queue`, `MerkleTree`, `ExcessivelySafeCall` | Min-heap (challenge queue), FIFO (sent messages), Merkle proofs, safe external calls |
 
-All contracts use **UUPS proxy** pattern with **ERC-7201 namespaced storage**. Interfaces in `contracts/interfaces/` are the source of truth for function signatures, errors, and events.
+Upgradeable contracts use the **UUPS proxy** pattern with **ERC-7201 namespaced storage**. Interfaces in `contracts/interfaces/` are the source of truth for function signatures, errors, and events.
 
 ### Message lifecycle
 
@@ -106,8 +107,11 @@ Exceeding any active deadline triggers the **corrupted** state. All state-changi
 | **Gateways** | `owner()` | Authorize UUPS upgrades; configure bridge/factory routing and token mappings |
 | **Factories** | `owner()` | Rotate gateway address; upgrade beacon (ERC20 factory) |
 | **NitroVerifier** | `DEFAULT_ADMIN_ROLE` | Manage enclave public keys and VKEY |
+| **Staking / ChainConfig / SystemReward** | governance contract | Manage validator set, staking parameters, and system reward distribution |
+| **Governance** | validator owners | Propose and vote with active validator stake |
+| **Governance** | `owner()` | Authorize UUPS upgrades |
 
-For full trust assumptions, invariants, and operator notes, see [`docs/SecurityModel.md`](docs/SecurityModel.md). For the validator staking module, see [`docs/Staking.md`](docs/Staking.md).
+For full trust assumptions, invariants, and operator notes, see [`docs/SecurityModel.md`](docs/SecurityModel.md). For validator staking and governance, see [`docs/Staking.md`](docs/Staking.md) and [`docs/Governance.md`](docs/Governance.md).
 
 ---
 
@@ -178,6 +182,8 @@ forge coverage --ir-minimum --report lcov
 | `test/libraries/` | Heap, Queue, MerkleTree, ExcessivelySafeCall (4 test files) |
 | `test/factories/` | ERC20TokenFactory (1 test file) |
 | `test/tokens/` | ERC20PeggedToken (1 test file) |
+| `test/staking/` | Validator staking, rewards, slashing, pooled staking, UUPS ownership |
+| `test/governance/` | Validator-owner voting power, owner rotation, custom voting period |
 | `test/mocks/` | 7 mock contracts used across test suites |
 | `test/helpers/` | Shared test utilities (WithdrawalMerkle) |
 
@@ -192,6 +198,8 @@ forge coverage --ir-minimum --report lcov
 | **[`docs/UpgradeSafety.md`](docs/UpgradeSafety.md)** | All UUPS proxy and beacon upgrade surfaces, required 6-step upgrade procedure, unsafe scripts, deployment checks, auditor evidence checklist. |
 | **[`docs/Addresses.md`](docs/Addresses.md)** | Deployed contract addresses for Sepolia (L1) and Fluent testnet (L2), chain IDs, RPC endpoints, explorer links, verification instructions. |
 | **[`docs/DeploymentScripts.md`](docs/DeploymentScripts.md)** | Safe Foundry deployment and migration workflow using `CHAIN=...` to derive RPC, config, and manifests. |
+| **[`docs/Staking.md`](docs/Staking.md)** | Validator staking module, delegation/reward flow, slashing, pooled staking, and chain config. |
+| **[`docs/Governance.md`](docs/Governance.md)** | Validator-owner governance, voting-power model, UUPS upgrade notes, and timelock usage. |
 | **[`docs/DeveloperGuide.md`](docs/DeveloperGuide.md)** | Usage examples (deposit/withdraw scripts), extending the system (new gateways, message paths), troubleshooting common errors. |
 
 ---
