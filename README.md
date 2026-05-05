@@ -15,6 +15,7 @@ Fluent is a Layer 2 blockchain that settles on Ethereum. This repository contain
 | `contracts/rollup/` | `Rollup`, `RollupStorageLayout` | L1 rollup: batch lifecycle, challenges, finalization, bridge deposit consumption |
 | `contracts/verifier/` | `NitroVerifier` | Nitro enclave signature verification |
 | `contracts/oracles/` | `L1BlockOracle`, `L1GasOracle` | L2-side oracles for L1 block number (deadline enforcement) and gas price (fee calculation) |
+| `contracts/staking/` | `Staking`, `StakingPool`, `SystemReward`, `ChainConfig`, `SlashingIndicator` | Validator staking, delegation, reward distribution, slashing, and governance-controlled consensus parameters |
 | `contracts/libraries/` | `Heap`, `Queue`, `MerkleTree`, `ExcessivelySafeCall` | Min-heap (challenge queue), FIFO (sent messages), Merkle proofs, safe external calls |
 
 All contracts use **UUPS proxy** pattern with **ERC-7201 namespaced storage**. Interfaces in `contracts/interfaces/` are the source of truth for function signatures, errors, and events.
@@ -106,7 +107,7 @@ Exceeding any active deadline triggers the **corrupted** state. All state-changi
 | **Factories** | `owner()` | Rotate gateway address; upgrade beacon (ERC20 factory) |
 | **NitroVerifier** | `DEFAULT_ADMIN_ROLE` | Manage enclave public keys and VKEY |
 
-For full trust assumptions, invariants, and operator notes, see [`docs/SecurityModel.md`](docs/SecurityModel.md).
+For full trust assumptions, invariants, and operator notes, see [`docs/SecurityModel.md`](docs/SecurityModel.md). For the validator staking module, see [`docs/Staking.md`](docs/Staking.md).
 
 ---
 

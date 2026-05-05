@@ -13,6 +13,8 @@ import "./interfaces/IStakingPool.sol";
 import "./interfaces/IInjector.sol";
 import "./interfaces/IDeployerProxy.sol";
 
+/// @title Initialization guard for staking system contracts
+/// @notice Provides one-time initialization modifiers used by the injector-based system-contract pattern.
 abstract contract AlreadyInit {
     // flag indicating is smart contract initialized already
     bool internal _init;
@@ -34,6 +36,9 @@ abstract contract AlreadyInit {
     }
 }
 
+/// @title Staking system dependency holder
+/// @notice Stores references to staking module system contracts and exposes common access-control modifiers.
+/// @dev Production initialization uses fixed system addresses; tests can call `initManually` with explicit mocks.
 abstract contract InjectorContextHolder is AlreadyInit, IInjector {
     // system smart contract constructor
     bytes internal _ctor;

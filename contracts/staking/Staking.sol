@@ -3,6 +3,9 @@ pragma solidity ^0.8.0;
 
 import "./Injector.sol";
 
+/// @title Validator staking
+/// @notice Manages validator registration, delegation, undelegation, commission, reward claims, active set ordering, and slashing.
+/// @dev Uses epoch snapshots and compacted balances to preserve historical accounting without storing full uint256 stake values.
 contract Staking is IStaking, InjectorContextHolder {
     /**
      * This constant indicates precision of storing compact balances in the storage or floating point. Since default
@@ -64,6 +67,7 @@ contract Staking is IStaking, InjectorContextHolder {
     event Claimed(address indexed validator, address indexed staker, uint256 amount, uint64 epoch);
     event Redelegated(address indexed validator, address indexed staker, uint256 amount, uint256 dust, uint64 epoch);
 
+    /// @notice Validator lifecycle states used by staking and active-set selection.
     enum ValidatorStatus {
         NotFound,
         Active,
@@ -71,6 +75,7 @@ contract Staking is IStaking, InjectorContextHolder {
         Jail
     }
 
+    /// @notice Per-epoch validator accounting snapshot.
     struct ValidatorSnapshot {
         uint96 totalRewards;
         uint112 totalDelegated;
@@ -78,6 +83,7 @@ contract Staking is IStaking, InjectorContextHolder {
         uint16 commissionRate;
     }
 
+    /// @notice Mutable validator metadata independent from per-epoch accounting snapshots.
     struct Validator {
         address validatorAddress;
         address ownerAddress;
@@ -87,16 +93,19 @@ contract Staking is IStaking, InjectorContextHolder {
         uint64 claimedAt;
     }
 
+    /// @notice Effective delegated amount at an epoch.
     struct DelegationOpDelegate {
         uint112 amount;
         uint64 epoch;
     }
 
+    /// @notice Pending undelegation amount that matures at an epoch.
     struct DelegationOpUndelegate {
         uint112 amount;
         uint64 epoch;
     }
 
+    /// @notice Delegation and undelegation queues for one delegator/validator pair.
     struct ValidatorDelegation {
         DelegationOpDelegate[] delegateQueue;
         uint64 delegateGap;

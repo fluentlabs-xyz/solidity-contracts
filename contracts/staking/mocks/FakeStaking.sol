@@ -3,6 +3,8 @@ pragma solidity ^0.8.0;
 
 import "../Staking.sol";
 
+/// @title Test staking implementation
+/// @notice Exposes governance/coinbase/slashing-restricted hooks for tests by bypassing production access checks.
 contract FakeStaking is Staking {
     constructor(bytes memory ctor) Staking(ctor) {}
 

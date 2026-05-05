@@ -3,6 +3,8 @@ pragma solidity ^0.8.0;
 
 import "../SystemReward.sol";
 
+/// @title Test system reward implementation
+/// @notice Exposes reward distribution updates without governance restrictions for tests.
 contract FakeSystemReward is SystemReward {
     constructor(bytes memory constructorParams) SystemReward(constructorParams) {}
 

@@ -3,6 +3,9 @@ pragma solidity ^0.8.0;
 
 import "./Injector.sol";
 
+/// @title System fee distributor
+/// @notice Accumulates system fees and distributes them to configured recipients by share.
+/// @dev Governance must configure shares so they sum to `SHARE_MAX_VALUE`.
 contract SystemReward is ISystemReward, InjectorContextHolder {
     /**
      * Parlia has 100 ether limit for max fee, its better to enable auto claim
@@ -28,6 +31,7 @@ contract SystemReward is ISystemReward, InjectorContextHolder {
     address internal _systemTreasury;
     uint256 internal _systemFee;
 
+    /// @notice One fee recipient and its share in basis-point-style units.
     struct DistributionShare {
         address account;
         uint16 share;

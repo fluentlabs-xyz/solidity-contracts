@@ -3,6 +3,9 @@ pragma solidity ^0.8.0;
 
 import "./Injector.sol";
 
+/// @title Staking chain configuration
+/// @notice Stores consensus and staking parameters controlled by governance.
+/// @dev Values are consumed by `Staking` and `StakingPool` for epoch, jail, undelegation, and minimum stake logic.
 contract ChainConfig is InjectorContextHolder, IChainConfig {
     event ActiveValidatorsLengthChanged(uint32 prevValue, uint32 newValue);
     event EpochBlockIntervalChanged(uint32 prevValue, uint32 newValue);
@@ -13,6 +16,7 @@ contract ChainConfig is InjectorContextHolder, IChainConfig {
     event MinValidatorStakeAmountChanged(uint256 prevValue, uint256 newValue);
     event MinStakingAmountChanged(uint256 prevValue, uint256 newValue);
 
+    /// @notice Snapshot of all mutable consensus parameters used by the staking module.
     struct ConsensusParams {
         uint32 activeValidatorsLength;
         uint32 epochBlockInterval;

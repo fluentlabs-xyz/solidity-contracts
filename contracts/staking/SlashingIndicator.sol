@@ -3,6 +3,8 @@ pragma solidity ^0.8.0;
 
 import "./Injector.sol";
 
+/// @title Slashing indicator
+/// @notice Coinbase-only adapter that reports validator faults to `Staking`.
 contract SlashingIndicator is ISlashingIndicator, InjectorContextHolder {
     constructor(bytes memory constructorParams) InjectorContextHolder(constructorParams) {}
 

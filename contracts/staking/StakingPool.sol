@@ -8,6 +8,9 @@ import "./interfaces/IInjector.sol";
 import "./Injector.sol";
 import "./Staking.sol";
 
+/// @title Share-based pooled staking
+/// @notice Lets users pool ETH per validator while the pool handles delegation, reward claiming, and unstake finalization.
+/// @dev Pool shares represent a proportional claim on validator-specific delegated stake plus compounded rewards.
 contract StakingPool is InjectorContextHolder, IStakingPool {
     /**
      * This value must the same as in Staking smart contract
@@ -18,6 +21,7 @@ contract StakingPool is InjectorContextHolder, IStakingPool {
     event Unstake(address indexed validator, address indexed staker, uint256 amount);
     event Claim(address indexed validator, address indexed staker, uint256 amount);
 
+    /// @notice Accounting state for one validator pool.
     struct ValidatorPool {
         address validatorAddress;
         uint256 sharesSupply;
@@ -26,6 +30,7 @@ contract StakingPool is InjectorContextHolder, IStakingPool {
         uint256 pendingUnstake;
     }
 
+    /// @notice One outstanding unstake request for a staker and validator.
     struct PendingUnstake {
         uint256 amount;
         uint256 shares;
