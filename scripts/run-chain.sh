@@ -11,12 +11,12 @@ set -euo pipefail
 #   CHAIN=L2_TESTNET ./scripts/run-chain.sh scripts/deploy/DeployGovernance.s.sol:DeployGovernance -- -vvvv
 #
 # Supported CHAIN values:
-#   L1_MAINNET  -> MAINNET_RPC
-#   L2_MAINNET  -> FLUENT_MAINNET_RPC or L2_MAINNET_RPC
-#   L1_TESTNET  -> L1_TESTNET_RPC or SEPOLIA_RPC_URL or L1_RPC
-#   L2_TESTNET  -> FLUENT_TESTNET_RPC_URL or L2_TESTNET_RPC or L2_RPC
-#   LOCAL_L1    -> LOCAL_L1_RPC or L1_RPC or http://localhost:8545
-#   LOCAL_L2    -> LOCAL_L2_RPC or L2_RPC or http://localhost:8546
+#   L1_MAINNET  -> https://ethereum-rpc.publicnode.com
+#   L1_SEPOLIA  -> https://ethereum-sepolia-rpc.publicnode.com
+#   L2_MAINNET  -> https://rpc.fluent.xyz
+#   L2_TESTNET  -> https://rpc.testnet.fluent.xyz
+#   LOCAL_L1    -> LOCAL_L1_RPC or http://localhost:8545
+#   LOCAL_L2    -> LOCAL_L2_RPC or http://localhost:8546
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -33,6 +33,11 @@ CHAIN="${CHAIN:?CHAIN required, e.g. L2_MAINNET}"
 DEPLOYER="${DEPLOYER:-}"
 BROADCAST="${BROADCAST:-0}"
 VERIFY="${VERIFY:-0}"
+
+readonly RPC_L1_MAINNET="https://ethereum-rpc.publicnode.com"
+readonly RPC_L1_SEPOLIA="https://ethereum-sepolia-rpc.publicnode.com"
+readonly RPC_L2_MAINNET="https://rpc.fluent.xyz"
+readonly RPC_L2_TESTNET="https://rpc.testnet.fluent.xyz"
 
 usage() {
     cat >&2 <<'EOF'
@@ -56,42 +61,30 @@ if [[ "${1:-}" == "--" ]]; then
     shift
 fi
 
-rpc_from() {
-    local value=""
-    for name in "$@"; do
-        value="${!name:-}"
-        if [[ -n "$value" ]]; then
-            printf '%s' "$value"
-            return 0
-        fi
-    done
-    return 1
-}
-
 case "$CHAIN" in
     L1_MAINNET)
         ENV_NAME=mainnet; LAYER=l1; NETWORK=mainnet/l1; FORGE_BIN=${L1_FORGE:-forge}
-        RPC_URL="$(rpc_from MAINNET_RPC L1_MAINNET_RPC L1_RPC || true)"
+        RPC_URL="$RPC_L1_MAINNET"
         ;;
     L2_MAINNET)
         ENV_NAME=mainnet; LAYER=l2; NETWORK=mainnet/l2; FORGE_BIN=${L2_FORGE:-gblend}
-        RPC_URL="$(rpc_from FLUENT_MAINNET_RPC L2_MAINNET_RPC L2_RPC || true)"
+        RPC_URL="$RPC_L2_MAINNET"
         ;;
-    L1_TESTNET)
+    L1_SEPOLIA|L1_TESTNET)
         ENV_NAME=testnet; LAYER=l1; NETWORK=testnet/l1; FORGE_BIN=${L1_FORGE:-forge}
-        RPC_URL="$(rpc_from L1_TESTNET_RPC SEPOLIA_RPC_URL RPC_URL_SEPOLIA_ETH L1_RPC || true)"
+        RPC_URL="$RPC_L1_SEPOLIA"
         ;;
     L2_TESTNET)
         ENV_NAME=testnet; LAYER=l2; NETWORK=testnet/l2; FORGE_BIN=${L2_FORGE:-gblend}
-        RPC_URL="$(rpc_from FLUENT_TESTNET_RPC_URL L2_TESTNET_RPC FLUENT_DEV_RPC_URL L2_RPC || true)"
+        RPC_URL="$RPC_L2_TESTNET"
         ;;
     LOCAL_L1)
         ENV_NAME=local; LAYER=l1; NETWORK=local/l1; FORGE_BIN=${L1_FORGE:-forge}
-        RPC_URL="$(rpc_from LOCAL_L1_RPC L1_RPC || true)"; RPC_URL="${RPC_URL:-http://localhost:8545}"
+        RPC_URL="${LOCAL_L1_RPC:-http://localhost:8545}"
         ;;
     LOCAL_L2)
         ENV_NAME=local; LAYER=l2; NETWORK=local/l2; FORGE_BIN=${L2_FORGE:-forge}
-        RPC_URL="$(rpc_from LOCAL_L2_RPC L2_RPC || true)"; RPC_URL="${RPC_URL:-http://localhost:8546}"
+        RPC_URL="${LOCAL_L2_RPC:-http://localhost:8546}"
         ;;
     *)
         echo "Unsupported CHAIN '$CHAIN'" >&2
@@ -99,7 +92,6 @@ case "$CHAIN" in
         ;;
 esac
 
-[[ -n "$RPC_URL" ]] || { echo "No RPC env configured for CHAIN=$CHAIN" >&2; exit 2; }
 [[ -f "scripts/config/${NETWORK}.json" ]] || { echo "Missing scripts/config/${NETWORK}.json" >&2; exit 2; }
 
 expected_chain_id="$(python3 - <<PY

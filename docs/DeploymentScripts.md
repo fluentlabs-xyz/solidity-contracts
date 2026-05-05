@@ -18,7 +18,7 @@ DEPLOYER=deployer \
 ./scripts/run-chain.sh --broadcast scripts/migrations/MigrateStaking.s.sol:MigrateStaking
 ```
 
-The wrapper derives all of the following from `CHAIN`:
+The wrapper derives all of the following from `CHAIN` and uses built-in public RPC constants for non-local chains:
 
 - RPC URL env var
 - `NETWORK` (`mainnet/l2`, `testnet/l2`, etc.)
@@ -28,12 +28,12 @@ The wrapper derives all of the following from `CHAIN`:
 
 Supported values:
 
-| CHAIN | Config | RPC env |
+| CHAIN | Config | RPC |
 |-------|--------|---------|
-| `L1_MAINNET` | `scripts/config/mainnet/l1.json` | `MAINNET_RPC` |
-| `L2_MAINNET` | `scripts/config/mainnet/l2.json` | `FLUENT_MAINNET_RPC` or `L2_MAINNET_RPC` |
-| `L1_TESTNET` | `scripts/config/testnet/l1.json` | `L1_TESTNET_RPC`, `SEPOLIA_RPC_URL`, or `L1_RPC` |
-| `L2_TESTNET` | `scripts/config/testnet/l2.json` | `FLUENT_TESTNET_RPC_URL`, `L2_TESTNET_RPC`, or `L2_RPC` |
+| `L1_MAINNET` | `scripts/config/mainnet/l1.json` | `https://ethereum-rpc.publicnode.com` |
+| `L1_SEPOLIA` | `scripts/config/testnet/l1.json` | `https://ethereum-sepolia-rpc.publicnode.com` |
+| `L2_MAINNET` | `scripts/config/mainnet/l2.json` | `https://rpc.fluent.xyz` |
+| `L2_TESTNET` | `scripts/config/testnet/l2.json` | `https://rpc.testnet.fluent.xyz` |
 | `LOCAL_L1` | `scripts/config/local/l1.json` | `LOCAL_L1_RPC` or `http://localhost:8545` |
 | `LOCAL_L2` | `scripts/config/local/l2.json` | `LOCAL_L2_RPC` or `http://localhost:8546` |
 

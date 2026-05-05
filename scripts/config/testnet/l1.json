@@ -1,5 +1,5 @@
 {
-    "chainId": 1,
+    "chainId": 11155111,
     "roles": {
         "initialOwner": "0x9ec3f0d76A6d3847d86374c791C6E170CAd9518D",
         "admin": "0x9ec3f0d76A6d3847d86374c791C6E170CAd9518D",

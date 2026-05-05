@@ -18,7 +18,7 @@ abstract contract DeployBase is Script {
 
     /// @dev Resolves the deployment target from CHAIN. `NETWORK` is still accepted for older scripts,
     ///      but release/migration flows should use CHAIN so the wrapper can also select the matching RPC.
-    ///      Supported CHAIN values: L1_MAINNET, L2_MAINNET, L1_TESTNET, L2_TESTNET, LOCAL_L1, LOCAL_L2.
+    ///      Supported CHAIN values: L1_MAINNET, L1_SEPOLIA, L2_MAINNET, L2_TESTNET, LOCAL_L1, LOCAL_L2.
     function _activeChain() internal view returns (TargetChain memory c) {
         string memory chain = vm.envOr("CHAIN", string(""));
         if (bytes(chain).length == 0) {
@@ -36,7 +36,7 @@ abstract contract DeployBase is Script {
             } else if (h == keccak256("L2_MAINNET")) {
                 c.envName = "mainnet";
                 c.layer = "l2";
-            } else if (h == keccak256("L1_TESTNET")) {
+            } else if (h == keccak256("L1_SEPOLIA") || h == keccak256("L1_TESTNET")) {
                 c.envName = "testnet";
                 c.layer = "l1";
             } else if (h == keccak256("L2_TESTNET")) {
