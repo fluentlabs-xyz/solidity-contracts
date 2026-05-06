@@ -13,5 +13,17 @@
   "pegged_impl": "0x0000000000000000000000000000000000520008",
   "weth_gateway_proxy": "0x9C2baa1d32466aceC1AdDD98AA047fB7B6D55622",
   "weth_gateway_impl": "0xB85006FC5C3D7F678A34C0d5330373b3b6CDF847",
-  "weth_token": "0x927C469E58Daab257Ea60B2D8c37bEDD2a203A54"
+  "weth_token": "0x927C469E58Daab257Ea60B2D8c37bEDD2a203A54",
+  "staking_proxy": "0xf785a8DEC17efC7BDCe59De2E9fD6e9462fdeb4E",
+  "staking_impl": "0x0A7100e9D411a2Ce387dc02F7407EAA67E066C2b",
+  "slashing_indicator_proxy": "0xdAD7248af40Ec230bfE5d3417C2a3D212ed5CFB4",
+  "slashing_indicator_impl": "0xC464c1544F57C3FA9d617547680aA97fEf8575c6",
+  "system_reward_proxy": "0x875aAC2D4ee66d8147B955310eAD785e7b43466a",
+  "system_reward_impl": "0x5db72B46A28030e60DB7d23AA9D15b576A518B83",
+  "staking_pool_proxy": "0x513658f418C5C089F9309830Aeb82d029992687b",
+  "staking_pool_impl": "0xC139fbE9aa84d17320DA8f82D75Ea6E3a73Fb12d",
+  "chain_config_proxy": "0xECF83Eb6Ea3c05C65Eb35EA7DB23441B7fBb968B",
+  "chain_config_impl": "0x4caCAD73D552F1E1A131890EC2033C4e9a547186",
+  "governance proxy": "0x14858e93Eab35327eD56898C2eE1A6f8c9bb73C5",
+  "governance_impl": "0x49FBceE90Ca1D13859072742d27A5B9b8155e17A"
 }

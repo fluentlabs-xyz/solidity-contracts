@@ -67,7 +67,7 @@ case "$CHAIN" in
         RPC_URL="$RPC_L1_MAINNET"
         ;;
     L2_MAINNET)
-        ENV_NAME=mainnet; LAYER=l2; NETWORK=mainnet/l2; FORGE_BIN=${L2_FORGE:-gblend}
+        ENV_NAME=mainnet; LAYER=l2; NETWORK=mainnet/l2; FORGE_BIN=${L2_FORGE:-forge}
         RPC_URL="$RPC_L2_MAINNET"
         ;;
     L1_SEPOLIA|L1_TESTNET)
@@ -75,7 +75,7 @@ case "$CHAIN" in
         RPC_URL="$RPC_L1_SEPOLIA"
         ;;
     L2_TESTNET)
-        ENV_NAME=testnet; LAYER=l2; NETWORK=testnet/l2; FORGE_BIN=${L2_FORGE:-gblend}
+        ENV_NAME=testnet; LAYER=l2; NETWORK=testnet/l2; FORGE_BIN=${L2_FORGE:-forge}
         RPC_URL="$RPC_L2_TESTNET"
         ;;
     LOCAL_L1)

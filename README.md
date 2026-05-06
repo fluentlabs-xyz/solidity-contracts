@@ -200,6 +200,7 @@ forge coverage --ir-minimum --report lcov
 | **[`docs/DeploymentScripts.md`](docs/DeploymentScripts.md)** | Safe Foundry deployment and migration workflow using `CHAIN=...` to derive RPC, config, and manifests. |
 | **[`docs/Staking.md`](docs/Staking.md)** | Validator staking module, delegation/reward flow, slashing, pooled staking, and chain config. |
 | **[`docs/Governance.md`](docs/Governance.md)** | Validator-owner governance, voting-power model, UUPS upgrade notes, and timelock usage. |
+| **[`docs/FrontendIntegration.md`](docs/FrontendIntegration.md)** | Frontend integration guide for StakingPool-based staking and validator-owner governance. |
 | **[`docs/DeveloperGuide.md`](docs/DeveloperGuide.md)** | Usage examples (deposit/withdraw scripts), extending the system (new gateways, message paths), troubleshooting common errors. |
 
 ---
