@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.30;
 
-import {L2BlockHeader, BatchRecord, ChallengeRecord, BlockDeposit} from "./IRollupTypes.sol";
+import {L2BlockHeader, L2BlockHeaderV1, BatchRecord, ChallengeRecord, BlockDeposit} from "./IRollupTypes.sol";
 import {MerkleTree} from "../../libraries/MerkleTree.sol";
 
 /**
@@ -50,7 +50,7 @@ interface IRollupErrors {
 
     /**
      * @notice Batch root has already been proven.
-     * @dev selector:
+     * @dev selector: 0x9dc0ff06
      */
     error BatchRootAlreadyProven(uint256 batchIndex);
 
@@ -294,36 +294,43 @@ interface IRollupErrors {
 
     /**
      * @notice Stored batch Merkle root does not match the root recomputed from the provided headers.
+     * @dev selector: 0x40ac6354
      */
     error InvalidBatchRoot(bytes32 storedRoot, bytes32 computedRoot);
 
     /**
      * @notice Block hash linkage does not match the chain recorded for this batch.
+     * @dev selector: 0x969f9725
      */
     error InvalidLastBlockHash(bytes32 expected, bytes32 provided);
 
     /**
      * @notice Batch already has an active challenge (status `Challenged`).
+     * @dev selector: 0x347d276f
      */
     error BatchAlreadyChallenged(uint256 batchIndex);
 
     /**
      * @notice Batch root was already proven or cannot be challenged in this way.
+     * @dev selector: 0xb0dfa480
      */
     error BatchRootAlreadyChallenged(uint256 batchIndex);
 
     /**
      * @notice No open batch-root challenge exists for this batch.
+     * @dev selector: 0xeaac9259
      */
     error BatchRootNotChallenged(uint256 batchIndex);
 
     /**
      * @notice Cannot open a block challenge while a batch-root challenge is open for this batch.
+     * @dev selector: 0x2edce3c5
      */
     error BatchRootChallengeOpen(uint256 batchIndex);
 
     /**
      * @notice Cannot open a batch-root challenge while block challenges are open for this batch.
+     * @dev selector: 0xcc5e4f31
      */
     error BlockChallengesOpen(uint256 batchIndex);
 
@@ -849,14 +856,21 @@ interface IRollupWrite {
     // ============ Prover ============
 
     /**
-     * @notice Resolve a batch-root challenge by showing headers that reproduce the committed root.
+     * @notice Resolve a batch-root challenge by replaying the batch's leaves and verifying
+     *         that they reproduce the stored {BatchRecord-batchRoot}. On success the
+     *         batch is restored to its pre-challenge status and the prover is credited
+     *         with the challenger's deposit.
+     * @dev Compact `L2BlockHeaderV1[]` is used so a full {MAX_BATCH_SIZE}-block batch fits
+     *      in a single tx's calldata budget. `previousBlockHash` is omitted from the
+     *      payload — the contract reconstructs it: `headers[0]`'s anchor is
+     *      `batches[batchIndex - 1].toBlockHash`, and each subsequent header chains from
+     *      the previous header's `blockHash`. Any deviation from the sequencer's original
+     *      header stream surfaces as a Merkle-root mismatch.
+     * @param batchIndex Index of the batch with an open batch-root challenge.
+     * @param blockHeaders Compact headers in submission order. Length must equal
+     *        {BatchRecord-numberOfBlocks}.
      */
-    function resolveBatchRootChallenge(
-        uint256 batchIndex,
-        L2BlockHeader calldata lastBlockHeaderInPreviousBatch,
-        L2BlockHeader[] calldata blockHeaders,
-        MerkleTree.MerkleProof calldata lastBlockProof
-    ) external;
+    function resolveBatchRootChallenge(uint256 batchIndex, L2BlockHeaderV1[] calldata blockHeaders) external;
 
     /**
      * @notice Resolve a block challenge by providing SP1 proof.
@@ -885,12 +899,12 @@ interface IRollupWrite {
 
     /**
      * @notice Finalize a batch early by proving all its blocks have valid SP1 proofs.
-     * @dev Skips the cooldown period. Caller supplies all L2BlockHeaders to reconstruct
-     *      the batchRoot and verify each commitment exists in provenBlocks.
+     * @dev Skips the cooldown period. Caller supplies compact L2BlockHeaderV1 payload
+     *      to reconstruct the batchRoot and verify each commitment exists in provenBlocks.
      * @param batchIndex The batch to finalize.
-     * @param blockHeaders All L2 block headers in the batch in submission order.
+     * @param blockHeaders All compact L2 block headers in the batch in submission order.
      */
-    function finalizeWithProofs(uint256 batchIndex, L2BlockHeader[] calldata blockHeaders) external;
+    function finalizeWithProofs(uint256 batchIndex, L2BlockHeaderV1[] calldata blockHeaders) external;
 
     /**
      * @notice Claim reward as challenger (deposit + incentive fee if challenge was valid).

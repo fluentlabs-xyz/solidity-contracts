@@ -44,6 +44,24 @@ struct L2BlockHeader {
 }
 
 /**
+ * @dev Calldata-compact projection of {L2BlockHeader} used by
+ *      {Rollup-resolveBatchRootChallenge}. Drops `previousBlockHash` — the contract
+ *      reconstructs it from chain context (previous batch's `toBlockHash` for the
+ *      first header; each preceding header's `blockHash` for the rest) — and drops
+ *      `depositCount`, which is not part of the leaf commitment. The remaining three
+ *      fields are exactly those that participate in the keccak commitment hashed
+ *      into the batch's Merkle leaf.
+ */
+struct L2BlockHeaderV1 {
+    /// @dev Hash of the current block's contents.
+    bytes32 blockHash;
+    /// @dev Merkle root of L2→L1 withdrawals in this block (binds Nitro / SP1 verification).
+    bytes32 withdrawalRoot;
+    /// @dev Merkle root of L1→L2 deposit messages in this block.
+    bytes32 depositRoot;
+}
+
+/**
  * @dev Per-block deposit bundle consumed from the L1 bridge during batch submission.
  *      Parallel-array convention with the L2 block headers reconstructed from blob DA;
  *      block-binding stays implicit and is enforced transitively by {Rollup-challengeBlock}

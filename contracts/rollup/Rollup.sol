@@ -9,7 +9,7 @@ import {IRollupWrite, IRollupEmergency} from "../interfaces/rollup/IRollup.sol";
 import {ISP1Verifier} from "../interfaces/verifiers/ISP1Verifier.sol";
 import {INitroVerifier} from "../interfaces/verifiers/INitroVerifier.sol";
 import {IL1FluentBridge} from "../interfaces/bridge/IL1FluentBridge.sol";
-import {L2BlockHeader, BatchStatus, BatchRecord, ChallengeRecord, BlockDeposit} from "../interfaces/rollup/IRollupTypes.sol";
+import {L2BlockHeader, L2BlockHeaderV1, BatchStatus, BatchRecord, ChallengeRecord, BlockDeposit} from "../interfaces/rollup/IRollupTypes.sol";
 
 /**
  * @title Rollup
@@ -120,7 +120,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
 
         uint256 gasLeft = $._gasLeft;
         // Safety check: finalized batches are immutable and must never be rolled back
-        for (uint256 i = lastAcceptedBatchIndex; i >= toBatchIndex;) {
+        for (uint256 i = lastAcceptedBatchIndex; i >= toBatchIndex; ) {
             require(gasleft() >= gasLeft, InsufficientGas());
             require($._batches[i].status != BatchStatus.Finalized, BatchAlreadyFinalized(i));
             // Inclusive range [lastAcceptedBatchIndex .. toBatchIndex]:
@@ -140,7 +140,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         uint64 rewindTarget = $._batches[toBatchIndex].sentMessageCursorStart;
 
         // Process each batch in reverse order: refund both challenge families and wipe batch storage
-        for (uint256 i = lastAcceptedBatchIndex; i >= toBatchIndex;) {
+        for (uint256 i = lastAcceptedBatchIndex; i >= toBatchIndex; ) {
             totalIncentiveFees += _processRevertBlockChallenges($._batchChallengedBlocks[i], fee);
             totalIncentiveFees += _processRevertBatchRootChallenge(i, fee);
             _cleanupRevertedBatch(i);
@@ -176,15 +176,20 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
 
     /**
      * @dev Iterates open block challenges for `batchIndex` during {revertBatches}: refunds
-     *      challenger deposit + incentive fee (credited via the pull pattern), and wipes
-     *      per-commitment challenge state. Renamed from `_processRevertChallenged` per Q5+A2;
-     *      sibling helper {_processRevertBatchRootChallenge} handles the batch-root family.
+     *      challenger deposit + incentive fee (credited via the pull pattern), removes each
+     *      commitment from the corruption-detection heap, and wipes per-commitment
+     *      challenge / proven-block state. The sibling helper {_processRevertBatchRootChallenge}
+     *      handles the batch-root challenge family separately.
      * @return totalFees Sum of incentive fees credited to challengers in this batch.
      */
     function _processRevertBlockChallenges(bytes32[] storage challengedBlocks, uint256 fee) internal returns (uint256 totalFees) {
         RollupStorage storage $ = _getRollupStorage();
+
+        uint256 gasLeft = $._gasLeft;
+        uint256 numberOfChallengedBlocks = challengedBlocks.length;
         // Iterate every challenged block commitment in this batch
-        for (uint256 i = 0; i < challengedBlocks.length; i++) {
+        for (uint256 i = 0; i < numberOfChallengedBlocks; ) {
+            require(gasleft() >= gasLeft, InsufficientGas());
             bytes32 commitment = challengedBlocks[i];
             ChallengeRecord storage challenge = $._blockChallenges[commitment];
             // Cache challenger address — used for both existence check and reward credit
@@ -205,13 +210,16 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
             // Wipe challenge and proof state for this commitment
             delete $._blockChallenges[commitment];
             delete $._provenBlocks[commitment];
+            unchecked {
+                ++i;
+            }
         }
     }
 
     /**
-     * @dev Refunds the active batch-root challenger for `batchIndex` during {revertBatches}.
-     *      Q5: closes G4 — previously the batch-root challenger deposit was silently slashed
-     *      because the cleanup path used the wrong storage map and the wrong queue.
+     * @dev Refunds the active batch-root challenger for `batchIndex` during {revertBatches}:
+     *      credits `deposit + incentiveFee` to the challenger and wipes the challenge record.
+     *      No-op if no batch-root challenge is open for this batch.
      * @return totalFees Incentive fee credited (0 if no batch-root challenge open).
      */
     function _processRevertBatchRootChallenge(uint256 batchIndex, uint256 fee) internal returns (uint256 totalFees) {
@@ -221,14 +229,14 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
             $._challengerRewards[rec.challenger] += uint256(rec.deposit) + fee;
             totalFees += fee;
             delete $._batchRootChallenges[batchIndex];
-            delete $._provenBatchRoots[batchIndex];
         }
     }
 
     /**
      * @dev Deletes all per-batch storage associated with `batchIndex` during {revertBatches}:
-     *      blob hashes, challenged blocks, proven blocks, batch record. Per-challenge state
-     *      is wiped by the two refund helpers above before this is called.
+     *      the {BatchRecord}, the proven-blocks list, the challenged-blocks list, recorded
+     *      blob hashes, and the batch-root proven flag. Per-challenge records and the heap
+     *      entries they own are wiped by the two refund helpers above before this is called.
      *
      *      Bridge cursor rewind happens once at the end of {revertBatches}, not per-batch,
      *      so this function does not touch the bridge.
@@ -239,6 +247,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         delete $._batchProvenBlocks[batchIndex];
         delete $._batchChallengedBlocks[batchIndex];
         delete $._batchBlobHashes[batchIndex];
+        delete $._provenBatchRoots[batchIndex];
     }
 
     /// @inheritdoc IRollupEmergency
@@ -266,6 +275,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         require(fromBlockHash != bytes32(0), ZeroFromBlockHash());
         require(toBlockHash != bytes32(0), ZeroToBlockHash());
         require(numberOfBlocks > 0, ZeroNumberOfBlocks());
+        require(numberOfBlocks <= MAX_BATCH_SIZE, BatchSizeTooLarge(numberOfBlocks));
         require(expectedBlobsCount > 0, ZeroExpectedBlobsCount());
         require(!_rollupCorrupted(), RollupCorrupted());
         uint256 batchIndex = $._nextBatchIndex;
@@ -295,9 +305,12 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
 
         uint256 numberOfBlocksWithDeposits = blockDeposits.length;
         uint256 gasLeft = $._gasLeft;
-        for (uint256 i = 0; i < numberOfBlocksWithDeposits; ++i) {
+        for (uint256 i = 0; i < numberOfBlocksWithDeposits; ) {
             require(gasleft() >= gasLeft, InsufficientGas());
             cursor = _checkDeposits(cursor, blockDeposits[i]);
+            unchecked {
+                ++i;
+            }
         }
 
         emit BatchCommitted(batchIndex, batchRoot, fromBlockHash, toBlockHash, numberOfBlocks, expectedBlobsCount);
@@ -335,12 +348,15 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         uint256 deadline = uint256(batch.acceptedAtBlock) + uint256(batch.submitBlobsWindowSnapshot);
         require(block.number <= deadline, SubmitBlobsWindowExceeded(deadline, block.number));
 
-        for (uint256 i = 0; i < n; ++i) {
+        for (uint256 i = 0; i < n; ) {
             bytes32 blobHash = _getBlobHash(i);
             // Zero blobhash means the index is out of range — no more blobs in this tx
             require(blobHash != bytes32(0), ZeroBlobHash());
             // Append to persistent storage; later used by Nitro/SP1 verifiers for data binding
             blobHashes.push(blobHash);
+            unchecked {
+                ++i;
+            }
         }
 
         emit BatchBlobsSubmitted(batchIndex, n, blobHashes.length);
@@ -482,9 +498,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
     /// @inheritdoc IRollupWrite
     function resolveBatchRootChallenge(
         uint256 batchIndex,
-        L2BlockHeader calldata lastBlockHeaderInPreviousBatch,
-        L2BlockHeader[] calldata blockHeaders,
-        MerkleTree.MerkleProof calldata lastBlockProof
+        L2BlockHeaderV1[] calldata blockHeaders
     ) external nonReentrant whenNotPaused onlyRole(PROVER_ROLE) {
         RollupStorage storage $ = _getRollupStorage();
         // Cannot resolve challenges when the rollup is corrupted (must force-revert first)
@@ -496,50 +510,21 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         ChallengeRecord storage challenged = $._batchRootChallenges[batchIndex];
         require(challenged.challenger != address(0), BatchRootNotChallenged(batchIndex));
 
-        require(
-            lastBlockHeaderInPreviousBatch.blockHash == blockHeaders[0].previousBlockHash,
-            InvalidLastBlockHash(lastBlockHeaderInPreviousBatch.blockHash, blockHeaders[0].previousBlockHash)
-        );
-        bytes32 previousBatchRoot = $._batches[batchIndex - 1].batchRoot;
-        // previousBatchNumberOfBlocks - 1 <-- last block number in the previous batch
-        uint32 previousBatchNumberOfBlocks = $._batches[batchIndex - 1].numberOfBlocks;
-        bytes32 lastBlockCommitment = _computeCommitment(lastBlockHeaderInPreviousBatch);
-        // Verify the block is actually part of this batch via Merkle inclusion proof
-        require(
-            MerkleTree.verifyMerkleProof(previousBatchRoot, lastBlockCommitment, previousBatchNumberOfBlocks - 1, lastBlockProof.proof),
-            InvalidBlockProof()
-        );
+        BatchRecord storage previousBatch = $._batches[batchIndex - 1];
 
-        // Cache gas floor to prevent an out-of-gas DoS in the validation loop below
-        uint256 gasLeft = $._gasLeft;
-        uint256 batchSize = blockHeaders.length;
-
-        // Phase 1: validate header chain linkage (adjacent block hash pairs; single-block batches skip).
-        // Each header's blockHash must equal the next header's previousBlockHash
-        require(
-            blockHeaders[0].previousBlockHash == lastBlockHeaderInPreviousBatch.blockHash,
-            WrongPreviousBlockHash(lastBlockHeaderInPreviousBatch.blockHash, blockHeaders[0].previousBlockHash)
-        );
-
-        for (uint256 i = 0; i < batchSize - 1; ++i) {
-            // Ensure enough gas remains for each iteration to prevent partial execution
-            require(gasleft() >= gasLeft, InsufficientGas());
-            // Verify the sequential block hash chain — any break means corrupted or misordered headers
-            require(
-                blockHeaders[i].blockHash == blockHeaders[i + 1].previousBlockHash,
-                InvalidBlockSequence(i, blockHeaders[i].blockHash, blockHeaders[i + 1].previousBlockHash)
-            );
-        }
-
-        bytes32 batchRoot = _calculateBatchRoot(blockHeaders);
+        bytes32 batchRoot = _calculateBatchRootV1(previousBatch.toBlockHash, blockHeaders);
         require(batch.batchRoot == batchRoot, InvalidBatchRoot(batch.batchRoot, batchRoot));
 
+        // Cache values BEFORE delete — `challenged` is a storage pointer; after `delete`
+        // every field reads back as default (e.g. previousStatus → BatchStatus.None),
+        // which would leave the batch frozen instead of restored to its pre-challenge status.
         uint256 deposit = challenged.deposit;
-        $._proverRewards[_msgSender()] += deposit;
+        BatchStatus previousStatus = challenged.previousStatus;
 
+        $._proverRewards[_msgSender()] += deposit;
         $._provenBatchRoots[batchIndex] = true;
         delete $._batchRootChallenges[batchIndex];
-        batch.status = challenged.previousStatus;
+        batch.status = previousStatus;
 
         emit BatchRootChallengeResolved(batchIndex, _msgSender());
     }
@@ -599,18 +584,22 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         uint256 from = uint256($._lastFinalizedBatchIndex) + 1;
         uint256 gasLeft = $._gasLeft;
         // Attempt to finalize each batch in order; stop at the first ineligible batch
-        for (uint256 i = from; i <= toBatchIndex; ++i) {
+        for (uint256 i = from; i <= toBatchIndex; ) {
             require(gasleft() >= gasLeft, InsufficientGas());
             // _tryFinalizeBatch returns false if the batch is not yet eligible (delay not met)
             if (!_tryFinalizeBatch(i)) break;
-            ++finalized;
+            unchecked {
+                ++finalized;
+                ++i;
+            }
         }
     }
 
     /// @inheritdoc IRollupWrite
-    function finalizeWithProofs(uint256 batchIndex, L2BlockHeader[] calldata blockHeaders) external whenNotPaused {
+    function finalizeWithProofs(uint256 batchIndex, L2BlockHeaderV1[] calldata blockHeaders) external whenNotPaused {
         RollupStorage storage $ = _getRollupStorage();
         BatchRecord storage batch = $._batches[batchIndex];
+        BatchRecord storage previousBatch = $._batches[batchIndex - 1];
 
         // Only Preconfirmed batches can be finalized (not Committed, Submitted, Challenged)
         require(batch.status == BatchStatus.Preconfirmed, InvalidBatchStatus(batchIndex, uint8(batch.status)));
@@ -619,13 +608,20 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
 
         // Verify supplied headers reconstruct the accepted batchRoot — prevents
         // submitting an arbitrary set of headers that weren't in the original batch
-        require(_calculateBatchRoot(blockHeaders) == batch.batchRoot, InvalidBlockProof());
+        require(_calculateBatchRootV1(previousBatch.toBlockHash, blockHeaders) == batch.batchRoot, InvalidBlockProof());
 
         // Verify every block commitment in the batch has been proven via SP1
         // This is the key difference from finalizeBatches: proofs replace the time delay
-        for (uint256 i = 0; i < blockHeaders.length; ++i) {
-            bytes32 commitment = _computeCommitment(blockHeaders[i]);
+        bytes32 previousBlockHash = previousBatch.toBlockHash;
+        for (uint256 i = 0; i < blockHeaders.length; ) {
+            bytes32 commitment = keccak256(
+                abi.encodePacked(previousBlockHash, blockHeaders[i].blockHash, blockHeaders[i].withdrawalRoot, blockHeaders[i].depositRoot)
+            );
             require($._provenBlocks[commitment], BlockNotProven(commitment));
+            previousBlockHash = blockHeaders[i].blockHash;
+            unchecked {
+                ++i;
+            }
         }
 
         // State transition: Preconfirmed → Finalized
@@ -844,12 +840,13 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         // Allocate in-memory array for the root verification at the end of the loop
         bytes32[] memory depositIds = new bytes32[](blockDeposit.depositCount);
 
-        for (uint256 i = 0; i < blockDeposit.depositCount; ++i) {
+        for (uint256 i = 0; i < blockDeposit.depositCount; ) {
             // External call to the bridge: advances the consume cursor and returns the next hash.
             // Called after all state writes in commitBatch (CEI) under nonReentrant guard
             depositIds[i] = IL1FluentBridge($._bridge).getMessageAt(sentMessageCursor);
             unchecked {
-                sentMessageCursor++;
+                ++sentMessageCursor;
+                ++i;
             }
         }
 
@@ -880,8 +877,9 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
      */
     function _calculateBatchRoot(L2BlockHeader[] calldata headers) private pure returns (bytes32) {
         // Allocate a flat byte array for all leaf hashes (32 bytes each)
-        bytes memory leafs = new bytes(headers.length * 32);
-        for (uint256 i = 0; i < headers.length; ++i) {
+        uint256 numberOfHeaders = headers.length;
+        bytes memory leafs = new bytes(numberOfHeaders * 32);
+        for (uint256 i = 0; i < numberOfHeaders; ) {
             // Each leaf is the keccak commitment of the block header's four fields
             bytes32 hash = keccak256(
                 abi.encodePacked(headers[i].previousBlockHash, headers[i].blockHash, headers[i].withdrawalRoot, headers[i].depositRoot)
@@ -891,8 +889,48 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
             assembly ("memory-safe") {
                 mstore(add(add(leafs, 32), mul(i, 32)), hash)
             }
+            unchecked {
+                ++i;
+            }
         }
         // Build the Merkle tree from the flat leaf array and return the root
+        return MerkleTree.calculateMerkleRoot(leafs);
+    }
+
+    /**
+     * @dev Reconstructs the batch's Merkle root from the compact `L2BlockHeaderV1[]`
+     *      payload. Each leaf commits to four fields:
+     *      `keccak256(previousBlockHash || blockHash || withdrawalRoot || depositRoot)`,
+     *      the same formula used by the sequencer when computing `BatchRecord.batchRoot`.
+     *
+     *      `previousBlockHash` is not carried in `L2BlockHeaderV1` — it is reconstructed
+     *      from chain context: the caller supplies `prevBlockHash` for `headers[0]` (it
+     *      must equal the previous batch's `toBlockHash`); for each subsequent header
+     *      the previous header's `blockHash` is used.
+     *
+     * @param prevBlockHash Chain anchor: previousBlockHash for `headers[0]` —
+     *        typically `batches[batchIndex - 1].toBlockHash`.
+     * @return Merkle root of the reconstructed leaf list, to be compared against
+     *         `BatchRecord.batchRoot`.
+     */
+    function _calculateBatchRootV1(bytes32 prevBlockHash, L2BlockHeaderV1[] calldata headers) private pure returns (bytes32) {
+        // Allocate a flat byte array for all leaf hashes (32 bytes each)
+        uint256 numberOfHeaders = headers.length;
+        bytes memory leafs = new bytes(numberOfHeaders * 32);
+        for (uint256 i = 0; i < numberOfHeaders; ) {
+            bytes32 hash = keccak256(abi.encodePacked(prevBlockHash, headers[i].blockHash, headers[i].withdrawalRoot, headers[i].depositRoot));
+            // Direct memory write avoids the overhead of abi.encodePacked in a loop;
+            // offset: skip the 32-byte length prefix of `leafs`, then write at slot i
+            assembly ("memory-safe") {
+                mstore(add(add(leafs, 32), mul(i, 32)), hash)
+            }
+            // Carry chain forward: the next iteration's leaf must hash with this header's
+            // blockHash as its previousBlockHash.
+            prevBlockHash = headers[i].blockHash;
+            unchecked {
+                ++i;
+            }
+        }
         return MerkleTree.calculateMerkleRoot(leafs);
     }
 

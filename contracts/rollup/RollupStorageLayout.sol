@@ -81,6 +81,14 @@ contract RollupStorageLayout is
     uint32 public constant MAX_GAS_LEFT = 30_000_000;
 
     /**
+     * @dev Hard cap on `numberOfBlocks` per batch. Bounded so the compact
+     *      `L2BlockHeaderV1[]` payload of {Rollup-resolveBatchRootChallenge}
+     *      (96 bytes/element) fits in a single tx's ~128 KB calldata budget:
+     *      1024 × 96 = 98 KB. Enforced at {Rollup-commitBatch}.
+     */
+    uint256 public constant MAX_BATCH_SIZE = 1024;
+
+    /**
      * @dev Minimum number of L1 blocks for the preconfirmation window to ensure challengers have time to respond before the challenge window elapses.
      *      ~12h
      */
