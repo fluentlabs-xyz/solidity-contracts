@@ -7,9 +7,10 @@ import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/Pau
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 
-import {IRollupEvents, IRollupErrors, IRollupRead, IRollupConfig, IRollupAdmin} from "../interfaces/IRollup.sol";
-import {BatchStatus, BatchRecord, ChallengeRecord, InitConfiguration} from "../interfaces/IRollupTypes.sol";
+import {IRollupEvents, IRollupErrors, IRollupRead, IRollupConfig, IRollupAdmin} from "../interfaces/rollup/IRollup.sol";
+import {BatchStatus, BatchRecord, ChallengeRecord, InitConfiguration} from "../interfaces/rollup/IRollupTypes.sol";
 import {Heap} from "../libraries/Heap.sol";
+import {MerkleTree} from "../libraries/MerkleTree.sol";
 
 /**
  * @title RollupStorageLayout
@@ -59,17 +60,59 @@ contract RollupStorageLayout is
     bytes32 public constant PROVER_ROLE = keccak256("PROVER_ROLE");
 
     /**
-     * @dev Default gas left per block header iteration in acceptNextBatch.
+     * @dev Default gas left per block header iteration in resolveBatchRootChallenge.
      */
     uint32 public constant DEFAULT_GAS_LEFT = 1_000_000;
 
-    /// @dev keccak256 of empty bytes — used to detect zero-message roots.
-    bytes32 public constant ZERO_BYTES_HASH = 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
+    /**
+     * @dev Upper bound on {incentiveFee} so `challenge.deposit + fee` cannot overflow uint256
+     *      during {forceRevertBatch} reward crediting.
+     */
+    uint256 public constant MAX_INCENTIVE_FEE = 100 ether;
 
     /**
-     * @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.RollupStorage")) - 1)) & ~bytes32(uint256(0xff))
+     * @dev Minimum challenge deposit to maintain an economic barrier against spam challenges.
      */
-    bytes32 private constant ROLLUP_STORAGE_LOCATION = 0x3c5cb8ff22ae9906a910cecced8ac84ef594b2ee1cab438e85f81b70bddcc700;
+    uint256 public constant MIN_CHALLENGE_DEPOSIT_AMOUNT = 0.001 ether;
+
+    /**
+     * @dev Maximum gas-left threshold; above the L1 block gas limit, `gasleft() >= _gasLeft` is never true.
+     */
+    uint32 public constant MAX_GAS_LEFT = 30_000_000;
+
+    /**
+     * @dev Hard cap on `numberOfBlocks` per batch. Bounded so the compact
+     *      `L2BlockHeaderV1[]` payload of {Rollup-resolveBatchRootChallenge}
+     *      (96 bytes/element) fits in a single tx's ~128 KB calldata budget:
+     *      1024 × 96 = 98 KB. Enforced at {Rollup-commitBatch}.
+     */
+    uint256 public constant MAX_BATCH_SIZE = 1024;
+
+    /**
+     * @dev Minimum number of L1 blocks for the preconfirmation window to ensure challengers have time to respond before the challenge window elapses.
+     *      ~12h
+     */
+    uint256 public constant MIN_PRECONFIRMATION_WINDOW = 3600;
+
+    /**
+     * @dev Minimum number of L1 blocks for the challenge window to ensure provers have time to respond before the finalization delay elapses.
+     *      ~12h
+     */
+    uint256 public constant MIN_CHALLENGE_WINDOW = 3600;
+
+    /**
+     * @dev Time buffer in blocks between challenge window end and finalization delay to guarantee provers have time to respond.
+     *      ~24h
+     */
+    uint256 public constant MIN_CHALLENGE_RESOLUTION_WINDOW = 3600;
+
+    /**
+     * @dev keccak256 of empty bytes — used to detect zero-message roots.
+     */
+    bytes32 public constant ZERO_BYTES_HASH = 0xc5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470;
+
+    /// @dev keccak256(abi.encode(uint256(keccak256("Fluent.storage.RollupStorage")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant ROLLUP_STORAGE_LOCATION = 0xcd2a0570d1e71ca5f3a527e38e69bcfbb101d71118c7b7b11bd050ca5ff84000;
 
     // ============ Storage ============
 
@@ -77,96 +120,80 @@ contract RollupStorageLayout is
      * @dev Packed rollup state. All mutable storage is in this struct, accessed via
      *      {_getRollupStorage}. Fields are append-only for upgrade safety.
      */
-    /// @custom:storage-location erc7201:fluent.storage.RollupStorage
+    /// @custom:storage-location erc7201:Fluent.storage.RollupStorage
     struct RollupStorage {
-        // ─── Slot 1: address(20) + uint96(12) = 32 ───
+        // ─── Slot 1: address(20) + uint64(8) = 28 ───
         /**
          * @dev L1 FluentBridge contract; source of deposit messages consumed during batch acceptance
          */
         address _bridge;
         /**
-         * @dev incremented on each acceptNextBatch; starts at 1 (index 0 holds the genesis hash)
+         * @dev incremented on each commitBatch; starts at 1
          */
-        uint96 _nextBatchIndex;
-        // ─── Slot 2: address(20) + 12 bytes padding ───
+        uint64 _nextBatchIndex;
+        // ─── Slot 2: address(20) + uint24(3) + uint24(3) + uint24(3) + uint24(3) = 32 ───
         /**
          * @dev SP1 verifier contract used for ZK proof validation during challenge resolution
          */
         address _sp1Verifier;
+        /**
+         * @dev Number of L1 blocks after batch acceptance during which challenges can be submitted
+         *      and proofs verified. After this window elapses, the batch becomes eligible for
+         *      finalization via finalizeBatches. Must be greater than challengeWindow to
+         *      guarantee challengers always have a full challengeWindow to respond.
+         */
+        uint24 _finalizationDelay;
+        /**
+         * @dev Batch-wide challenge window measured from acceptance: all challenges for a batch
+         *      must be submitted AND resolved before acceptedAtBlock + _challengeWindow.
+         *      The deadline is shared — a late challenge leaves the prover less time to respond.
+         *      Must be strictly less than {_finalizationDelay}.
+         */
+        uint24 _challengeWindow;
+        /**
+         * @dev Maximum number of L1 blocks after batch acceptance for the sequencer to submit
+         *      all expected blob hashes via submitBlobs. Exceeding this deadline without
+         *      completing DA submission triggers the corrupted state. Set to 0 to disable.
+         */
+        uint24 _submitBlobsWindow;
+        /**
+         * @dev Number of L1 blocks after batch acceptance for the sequencer to preconfirm the batch.
+         *      Preconfirmation is an optional safety mechanism that allows the sequencer to signal
+         *      that a batch is valid before the challenge window elapses. If enabled, preconfirmation
+         *      must happen after blob submission completes (when both are enabled) and before the
+         *      challenge window elapses to give challengers time to respond. Set to 0 to disable.
+         */
+        uint24 _preconfirmWindow;
         // ─── Slot 3: bytes32(32) ───
         /**
          * @dev SP1 program verification key; binds proofs to the current rollup program
          */
         bytes32 _programVKey;
-        // ─── Slot 4: 4 × uint64 = 32 ───
+        // ─── Slot 4: uint128(16) + uint128(16) = 32 ───
         /**
-         * @dev Number of L1 blocks after batch acceptance during which challenges can be submitted
-         *          and proofs verified. After this window elapses, the batch becomes eligible for
-         *          finalization via `finalizeBatches`. Must be greater than `challengeWindow` to
-         *          guarantee challengers always have a full `challengeWindow` to respond.
+         * @dev ETH deposit required to open a challenge; awarded to prover on resolution.
+         *      uint128 caps at ~3.4e20 ETH — practically unbounded for deposit amounts.
          */
-        uint64 _finalizationDelay;
+        uint128 _challengeDepositAmount;
         /**
-         * @dev Batch-wide challenge window measured from acceptance: all challenges for a batch
-         *      must be submitted AND resolved before `acceptedAtBlock + _challengeWindow`.
-         *      The deadline is shared — a late challenge leaves the prover less time to respond.
-         *      Must be strictly less than {_finalizationDelay}.
+         * @dev ETH reward paid to challengers during force revert (on top of deposit refund).
+         *      uint128 caps at ~3.4e20 ETH — practically unbounded for incentive fees.
          */
-        uint64 _challengeWindow;
-        /**
-         * @dev Maximum number of L1 blocks after batch acceptance for the sequencer to submit
-         *      all expected blob hashes via `submitBlobs`. Exceeding this deadline without
-         *      completing DA submission triggers the corrupted state. Set to 0 to disable.
-         */
-        uint64 _submitBlobsWindow;
-        /**
-         * @dev Maximum number of L1 blocks after batch acceptance for the preconfirmation service
-         *      to call `preconfirmBatch`. Both `submitBlobsWindow` and this deadline are measured
-         *      from `acceptedAtBlock`, so this value must exceed `submitBlobsWindow` to give the
-         *      preconfirmation service time to act after DA submission completes. Set to 0 to disable.
-         */
-        uint64 _preconfirmWindow;
-        // ─── Slot 5: uint256(32) ───
-        /**
-         * @dev ETH deposit required to open a challenge; awarded to prover on resolution
-         */
-        uint256 _challengeDepositAmount;
-        // ─── Slot 6: uint256(32) ───
-        /**
-         * @dev ETH reward paid to challengers during force revert (on top of deposit refund)
-         */
-        uint256 _incentiveFee;
-        // ─── Slot 7: uint64(8) + uint64(8) + uint32(4) + uint32(4) + uint32(4) = 28 bytes ───
+        uint128 _incentiveFee;
+        // ─── Slot 5: uint64(8) + uint32(4) = 12, 20 bytes free ───
         /**
          * @dev highest batch index with Finalized status; enforces sequential finalization
          */
         uint64 _lastFinalizedBatchIndex;
         /**
-         * @dev Reserved for future deposit-tracking upgrades. Kept in storage to avoid layout churn.
-         */
-        uint64 _lastDepositAcceptedBlockNumber;
-        /**
-         * @dev minimum gasleft() required per block header iteration in acceptNextBatch
+         * @dev minimum gasleft() required per block header iteration in resolveBatchRootChallenge
          */
         uint32 _gasLeft;
-        /**
-         * @dev max L1 blocks between deposit creation and its inclusion in a batch
-         */
-        uint32 _acceptDepositDeadline;
-        // ============ Emergency revert pagination ============
-        /**
-         * @dev Max batch size to prevent OOG during paginated force revert. Should be >= 1.
-         */
-        uint32 _maxForceRevertBatchSize;
         // ============ Per-batch records ============
         /**
          * @dev packed per-batch state (root, accepted block, expected blobs, status)
          */
         mapping(uint256 => BatchRecord) _batches;
-        /**
-         * @dev chain-linking hash; index 0 holds genesis, index N holds last block hash of batch N
-         */
-        mapping(uint256 => bytes32) _lastBlockHashInBatch;
         /**
          * @dev EIP-4844 versioned blob hashes recorded per batch for proof binding
          */
@@ -185,25 +212,33 @@ contract RollupStorageLayout is
          */
         mapping(bytes32 => bool) _provenBlocks;
         /**
-         * @dev active challenge records keyed by block commitment hash
+         * @dev tracks which batch roots have been challenged; prevents duplicate challenges
          */
-        mapping(bytes32 => ChallengeRecord) _challenges;
+        mapping(uint256 => bool) _provenBatchRoots;
         /**
-         * @dev min-heap of challenged commitments ordered by deadline for corruption detection
+         * @dev active block challenge records keyed by block commitment hash
          */
-        Heap.HeapStorage _challengeQueue;
+        mapping(bytes32 => ChallengeRecord) _blockChallenges;
         /**
-         * @dev heap priority map: commitment → deadline (used by Heap for ordering)
+         * @dev active challenge records keyed by batch root index
          */
-        mapping(bytes32 => uint256) _challengePriority;
+        mapping(uint256 => ChallengeRecord) _batchRootChallenges;
         /**
-         * @dev Heap position map: commitment hash to 1-based index within {_challengeQueue}.
+         * @dev min-heap of block commitments ordered by deadline for corruption detection
+         */
+        Heap.HeapStorage _blockChallengeQueue;
+        /**
+         * @dev heap priority map: block commitment → deadline (used by Heap for ordering)
+         */
+        mapping(bytes32 => uint256) _blockChallengePriority;
+        /**
+         * @dev Heap position map: block commitment hash to 1-based index within {_blockChallengeQueue}.
          *      Zero means not in heap. Used by {Heap} for O(log n) removal.
          */
-        mapping(bytes32 => uint256) _challengeQueueIndex;
+        mapping(bytes32 => uint256) _blockChallengeQueueIndex;
         // ============ Reward balances ============
         /**
-         * @dev ETH balances claimable by challengers after force revert
+         * @dev ETH balances claimable by challengers after force revert of a block challenge
          */
         mapping(address => uint256) _challengerRewards;
         /**
@@ -224,73 +259,63 @@ contract RollupStorageLayout is
 
     /**
      * @dev Initializes rollup storage from ABI-encoded {InitConfiguration}.
-     *      Called once from {Rollup.initialize} via the UUPS proxy.
+     *      Called once from {Rollup.initialize} via the UUPS proxy. Parent
+     *      initializers (ReentrancyGuard, AccessControl, Pausable, UUPS) are
+     *      invoked from {Rollup.initialize} before this function runs.
      */
+    /// @custom:oz-upgrades-unsafe-allow missing-initializer-call
     function __RollupStorage_init(bytes memory data) internal onlyInitializing {
-        RollupStorage storage $ = _getRollupStorage();
-
         // ABI-decode the monolithic init struct passed by the proxy deployer
         InitConfiguration memory params = abi.decode(data, (InitConfiguration));
 
         // ─── Deadline invariants ───
         // all window values are stored as uint64/uint32; reject values that would silently truncate
-        require(params.submitBlobsWindow <= type(uint64).max, InvalidWindowConfig("submitBlobsWindow out of range"));
-        require(params.preconfirmWindow <= type(uint64).max, InvalidWindowConfig("preconfirmWindow out of range"));
-        require(params.challengeWindow <= type(uint64).max, InvalidWindowConfig("challengeWindow out of range"));
-        require(params.finalizationDelay <= type(uint64).max, InvalidWindowConfig("finalizationDelay out of range"));
-        require(params.acceptDepositDeadline <= type(uint32).max, InvalidWindowConfig("acceptDepositDeadline out of range"));
-        require(params.maxForceRevertBatchSize <= type(uint32).max, InvalidWindowConfig("maxForceRevertBatchSize out of range"));
-        // preconfirmation must happen after blob submission completes (when both are enabled)
-        if (params.submitBlobsWindow != 0 && params.preconfirmWindow != 0) {
-            require(params.preconfirmWindow > params.submitBlobsWindow, InvalidWindowConfig("preconfirmWindow must exceed submitBlobsWindow"));
-        }
-        // set blob submission and preconfirmation windows before challenge/finalization
-        // because the setters cross-validate against each other
-        _setSubmitBlobsWindow(uint64(params.submitBlobsWindow));
-        _setPreconfirmWindow(uint64(params.preconfirmWindow));
-        // challenge window must be strictly less to guarantee full finalization delay
-        require(params.challengeWindow < params.finalizationDelay, InvalidWindowConfig("challengeWindow must be less than finalizationDelay"));
-        _setChallengeWindow(uint64(params.challengeWindow));
-        _setFinalizationDelay(uint64(params.finalizationDelay));
-
-        _setAcceptDepositDeadline(uint32(params.acceptDepositDeadline));
+        require(params.submitBlobsWindow <= type(uint24).max, SubmitBlobsWindowOutOfBounds());
+        require(params.preconfirmWindow <= type(uint24).max, PreconfirmWindowOutOfBounds());
+        require(params.challengeWindow <= type(uint24).max, ChallengeWindowOutOfBounds());
+        require(params.finalizationDelay <= type(uint24).max, FinalizationDelayOutOfBounds());
+        // Init order is dictated by setter cross-validation: each setter reads
+        // previously-stored values, so dependencies must be initialized first.
+        // preconfirmWindow → submitBlobsWindow → finalizationDelay → challengeWindow
+        _setPreconfirmWindow(uint24(params.preconfirmWindow));
+        _setSubmitBlobsWindow(uint24(params.submitBlobsWindow));
+        _setFinalizationDelay(uint24(params.finalizationDelay));
+        _setChallengeWindow(uint24(params.challengeWindow));
 
         // ─── Role setup ───
         // admin is the only required address; other roles fall back to admin if unset
-        require(params.admin != address(0), ZeroAddressNotAllowed("admin"));
-        address emergencyRole = params.emergency != address(0) ? params.emergency : params.admin;
-        address challengerRole = params.challenger != address(0) ? params.challenger : params.admin;
-        address proverRole = params.prover != address(0) ? params.prover : params.admin;
-        address sequencerRole = params.sequencer != address(0) ? params.sequencer : params.admin;
-        address preconfirmationRole = params.preconfirmationRole != address(0) ? params.preconfirmationRole : params.admin;
+        require(params.admin != address(0), ZeroAdmin());
+        address fallback_ = params.admin;
 
-        // grant all required roles; DEFAULT_ADMIN_ROLE controls role management
-        _grantRole(DEFAULT_ADMIN_ROLE, params.admin);
-        _grantRole(EMERGENCY_ROLE, emergencyRole);
-        _grantRole(CHALLENGER_ROLE, challengerRole);
-        _grantRole(PROVER_ROLE, proverRole);
-        _grantRole(SEQUENCER_ROLE, sequencerRole);
-        _grantRole(PRECONFIRMATION_ROLE, preconfirmationRole);
-
+        _grantRoles(
+            [DEFAULT_ADMIN_ROLE, EMERGENCY_ROLE, CHALLENGER_ROLE, PROVER_ROLE, SEQUENCER_ROLE, PRECONFIRMATION_ROLE],
+            [
+                fallback_,
+                params.emergency != address(0) ? params.emergency : fallback_,
+                params.challenger != address(0) ? params.challenger : fallback_,
+                params.prover != address(0) ? params.prover : fallback_,
+                params.sequencer != address(0) ? params.sequencer : fallback_,
+                params.preconfirmationRole != address(0) ? params.preconfirmationRole : fallback_
+            ]
+        );
         // ─── Storage setup ───
-        // genesis hash anchors the chain-linking hash at batch index 0
-        require(params.genesisHash != bytes32(0), ZeroValueNotAllowed("genesisHash"));
-        $._lastBlockHashInBatch[0] = params.genesisHash;
-        // first real batch starts at index 1; index 0 is reserved for genesis
-        $._nextBatchIndex = 1;
-        _setMaxForceRevertBatchSize(uint32(params.maxForceRevertBatchSize));
 
         // external dependency addresses validated within their respective setters
         _setBridge(params.bridge);
         _setSp1Verifier(params.sp1Verifier);
         _setProgramVKey(params.programVKey);
-        // nitro verifier is optional at init time; can be added later via admin
-        if (params.nitroVerifier != address(0)) _enableNitroVerifier(params.nitroVerifier);
+        _enableNitroVerifier(params.nitroVerifier);
+
+        // Genesis anchor — committed as a synthetic batch at index 0. Enables
+        // resolveBatchRootChallenge for batch 1 via the standard Merkle-proof path and
+        // gives the sequencer a bootstrap anchor via the BatchCommitted(0) event.
+        require(params.genesisBlockHash != bytes32(0), ZeroGenesisBlockHash());
+        _commitGenesisBatch(params.genesisBlockHash);
 
         // economic parameters for the challenge/incentive mechanism
         _setChallengeDepositAmount(params.challengeDepositAmount);
         _setIncentiveFee(params.incentiveFee);
-        // default gas threshold prevents unbounded iteration in acceptNextBatch
+        // default gas threshold prevents unbounded iteration in resolveBatchRootChallenge
         _setGasLeft(DEFAULT_GAS_LEFT);
     }
 
@@ -339,12 +364,6 @@ contract RollupStorageLayout is
     }
 
     /// @inheritdoc IRollupConfig
-    function acceptDepositDeadline() public view returns (uint256) {
-        // widened to uint256; stored as uint32 since L1 block counts fit in 32 bits
-        return uint256(_getRollupStorage()._acceptDepositDeadline);
-    }
-
-    /// @inheritdoc IRollupConfig
     function submitBlobsWindow() public view returns (uint256) {
         // zero means the DA submission deadline is disabled
         return uint256(_getRollupStorage()._submitBlobsWindow);
@@ -374,11 +393,6 @@ contract RollupStorageLayout is
     }
 
     /// @inheritdoc IRollupRead
-    function lastBlockHashInBatch(uint256 batchIndex) public view returns (bytes32) {
-        return _getRollupStorage()._lastBlockHashInBatch[batchIndex];
-    }
-
-    /// @inheritdoc IRollupRead
     function isBatchFinalized(uint256 batchIndex) public view returns (bool) {
         return _getRollupStorage()._batches[batchIndex].status == BatchStatus.Finalized;
     }
@@ -389,33 +403,74 @@ contract RollupStorageLayout is
     }
 
     /// @inheritdoc IRollupRead
-    function getChallenge(bytes32 commitment) public view returns (ChallengeRecord memory) {
-        return _getRollupStorage()._challenges[commitment];
+    function verifyBlockInBatch(uint256 batchIndex, bytes32 blockHash, uint256 nonce, bytes calldata proof)
+        external
+        view
+        returns (bool included, uint8 status)
+    {
+        RollupStorage storage $ = _getRollupStorage();
+        BatchRecord storage batch = $._batches[batchIndex];
+        status = uint8(batch.status);
+
+        if (batch.status == BatchStatus.None || batch.batchRoot == bytes32(0)) {
+            return (false, status);
+        }
+        if (proof.length < 96) {
+            return (false, status);
+        }
+
+        uint256 siblingsLen = proof.length - 96;
+        if (siblingsLen % 32 != 0) {
+            return (false, status);
+        }
+
+        bytes32 previousBlockHash;
+        bytes32 withdrawalRoot;
+        bytes32 depositRoot;
+        bytes memory siblings = new bytes(siblingsLen);
+
+        assembly ("memory-safe") {
+            previousBlockHash := calldataload(proof.offset)
+            withdrawalRoot := calldataload(add(proof.offset, 32))
+            depositRoot := calldataload(add(proof.offset, 64))
+            calldatacopy(add(siblings, 32), add(proof.offset, 96), siblingsLen)
+        }
+
+        bytes32 commitment = keccak256(abi.encodePacked(previousBlockHash, blockHash, withdrawalRoot, depositRoot));
+        included = MerkleTree.verifyMerkleProof(batch.batchRoot, commitment, nonce, siblings);
     }
 
     /// @inheritdoc IRollupRead
-    function challengeQueue() public view returns (bytes32[] memory) {
-        RollupStorage storage $ = _getRollupStorage();
-        uint256 size = $._challengeQueue.length();
-        if (size == 0) return new bytes32[](0);
+    function getChallenge(bytes32 commitment) public view returns (ChallengeRecord memory) {
+        return _getRollupStorage()._blockChallenges[commitment];
+    }
 
+    /// @inheritdoc IRollupRead
+    function blockChallengeQueue() public view returns (bytes32[] memory) {
+        RollupStorage storage $ = _getRollupStorage();
+        uint256 size = $._blockChallengeQueue.length();
         // copy heap contents into a memory array for external consumption
         bytes32[] memory queue = new bytes32[](size);
         for (uint256 i = 0; i < size; ++i) {
-            queue[i] = $._challengeQueue.at(i);
+            queue[i] = $._blockChallengeQueue.at(i);
         }
 
         return queue;
     }
 
     /// @inheritdoc IRollupRead
-    function challengeQueueLength() public view returns (uint256) {
-        return _getRollupStorage()._challengeQueue.length();
+    function blockChallengeQueueLength() public view returns (uint256) {
+        return _getRollupStorage()._blockChallengeQueue.length();
     }
 
     /// @inheritdoc IRollupRead
-    function challengeQueueAt(uint256 index) public view returns (bytes32) {
-        return _getRollupStorage()._challengeQueue.at(index);
+    function blockChallengeQueueAt(uint256 index) public view returns (bytes32) {
+        return _getRollupStorage()._blockChallengeQueue.at(index);
+    }
+
+    /// @inheritdoc IRollupRead
+    function getBatchRootChallenge(uint256 batchIndex) public view returns (ChallengeRecord memory) {
+        return _getRollupStorage()._batchRootChallenges[batchIndex];
     }
 
     /// @inheritdoc IRollupRead
@@ -461,7 +516,7 @@ contract RollupStorageLayout is
     /** @dev Validates and stores a new bridge address. Reverts on zero address. */
     function _setBridge(address newBridge) internal {
         RollupStorage storage $ = _getRollupStorage();
-        require(newBridge != address(0), ZeroAddressNotAllowed("bridge"));
+        require(newBridge != address(0), ZeroBridge());
         // emit old -> new for off-chain indexers before writing storage
         emit BridgeUpdated($._bridge, newBridge);
         $._bridge = newBridge;
@@ -474,10 +529,10 @@ contract RollupStorageLayout is
 
     /** @dev Validates and stores a new SP1 verifier address. Reverts on zero address or non-contract. */
     function _setSp1Verifier(address newVerifier) internal {
-        require(newVerifier != address(0), ZeroAddressNotAllowed("sp1Verifier"));
+        require(newVerifier != address(0), ZeroSp1Verifier());
         RollupStorage storage $ = _getRollupStorage();
         // must be a deployed contract to prevent calls to an EOA during proof verification
-        require(newVerifier.code.length != 0, NotAContract("sp1Verifier"));
+        require(newVerifier.code.length != 0, Sp1VerifierNotAContract());
         emit SP1VerifierUpdated($._sp1Verifier, newVerifier);
         $._sp1Verifier = newVerifier;
     }
@@ -490,7 +545,7 @@ contract RollupStorageLayout is
     /** @dev Stores a new SP1 program verification key. Reverts on zero value. */
     function _setProgramVKey(bytes32 newVKey) internal {
         // zero vKey would cause all SP1 proofs to be trivially accepted or rejected
-        require(newVKey != bytes32(0), ZeroValueNotAllowed("programVKey"));
+        require(newVKey != bytes32(0), ZeroProgramVKey());
         RollupStorage storage $ = _getRollupStorage();
         emit ProgramVKeyUpdated($._programVKey, newVKey);
         $._programVKey = newVKey;
@@ -503,9 +558,9 @@ contract RollupStorageLayout is
 
     /** @dev Adds a Nitro verifier to the enabled set. Reverts on zero address, non-contract, or already enabled. */
     function _enableNitroVerifier(address verifier) internal {
-        require(verifier != address(0), ZeroAddressNotAllowed("nitroVerifier"));
+        require(verifier != address(0), ZeroNitroVerifier());
         // must be a deployed contract — EOAs cannot verify Nitro attestations
-        require(verifier.code.length != 0, NotAContract("nitroVerifier"));
+        require(verifier.code.length != 0, NitroVerifierNotAContract());
         // prevent duplicate enables that would emit misleading events
         require(!_getRollupStorage()._enabledNitroVerifiers[verifier], NitroVerifierAlreadyEnabled(verifier));
         _getRollupStorage()._enabledNitroVerifiers[verifier] = true;
@@ -519,7 +574,7 @@ contract RollupStorageLayout is
 
     /** @dev Removes a Nitro verifier from the enabled set. Reverts if not currently enabled. */
     function _disableNitroVerifier(address verifier) internal {
-        require(verifier != address(0), ZeroAddressNotAllowed("verifier"));
+        require(verifier != address(0), ZeroVerifier());
         // only disable verifiers that are actually in the enabled set
         require(_getRollupStorage()._enabledNitroVerifiers[verifier], NitroVerifierNotEnabled(verifier));
         _getRollupStorage()._enabledNitroVerifiers[verifier] = false;
@@ -534,84 +589,79 @@ contract RollupStorageLayout is
     /** @dev Stores the minimum gasleft threshold. Reverts on zero value. */
     function _setGasLeft(uint32 newGasLeft) internal {
         RollupStorage storage $ = _getRollupStorage();
-        // zero would allow unbounded iteration in acceptNextBatch, risking OOG
-        require(newGasLeft != 0, ZeroValueNotAllowed("gasLeft"));
+        // zero would allow unbounded iteration in resolveBatchRootChallenge, risking OOG
+        require(newGasLeft != 0, ZeroGasLeft());
+        require(newGasLeft <= MAX_GAS_LEFT, GasLeftOutOfBounds());
         emit GasLeftUpdated($._gasLeft, newGasLeft);
         $._gasLeft = newGasLeft;
     }
 
     /// @inheritdoc IRollupAdmin
-    function setAcceptDepositDeadline(uint32 newAcceptDepositDeadline) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        _setAcceptDepositDeadline(newAcceptDepositDeadline);
-    }
-
-    /** @dev Stores the deposit acceptance deadline in L1 blocks. */
-    function _setAcceptDepositDeadline(uint32 newAcceptDepositDeadline) internal {
-        RollupStorage storage $ = _getRollupStorage();
-        // zero deadline would allow deposits to remain unincluded indefinitely
-        require(newAcceptDepositDeadline != 0, ZeroValueNotAllowed("acceptDepositDeadline"));
-        emit AcceptDepositDeadlineUpdated($._acceptDepositDeadline, newAcceptDepositDeadline);
-        $._acceptDepositDeadline = newAcceptDepositDeadline;
-    }
-
-    /// @inheritdoc IRollupAdmin
-    function setSubmitBlobsWindow(uint64 newSubmitBlobsWindow) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setSubmitBlobsWindow(uint24 newSubmitBlobsWindow) external onlyRole(DEFAULT_ADMIN_ROLE) {
         _setSubmitBlobsWindow(newSubmitBlobsWindow);
     }
 
-    /** @dev Stores the blob submission window in L1 blocks. */
-    function _setSubmitBlobsWindow(uint64 newSubmitBlobsWindow) internal {
+    /** @dev Stores the blob submission window in L1 blocks. Strictly > 0 (Q6 cleanup) and
+     *       bounded by uint24 to keep {BatchRecord} packed (Q12).
+     */
+    function _setSubmitBlobsWindow(uint24 newSubmitBlobsWindow) internal {
         RollupStorage storage $ = _getRollupStorage();
+
+        require(newSubmitBlobsWindow > 0, ZeroSubmitBlobsWindow());
         // blob submission must complete before preconfirmation can start
-        if ($._preconfirmWindow != 0) {
-            require(newSubmitBlobsWindow < $._preconfirmWindow, InvalidWindowConfig("submitBlobsWindow >= preconfirmWindow"));
-        }
+        require(newSubmitBlobsWindow <= $._preconfirmWindow, SubmitBlobsExceedsPreconfirm());
+
         emit SubmitBlobsWindowUpdated($._submitBlobsWindow, newSubmitBlobsWindow);
         $._submitBlobsWindow = newSubmitBlobsWindow;
     }
 
     /// @inheritdoc IRollupAdmin
-    function setPreconfirmWindow(uint64 newPreconfirmWindow) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setPreconfirmWindow(uint24 newPreconfirmWindow) external onlyRole(DEFAULT_ADMIN_ROLE) {
         _setPreconfirmWindow(newPreconfirmWindow);
     }
 
     /** @dev Stores the preconfirmation window. Must not exceed submitBlobsWindow. */
-    function _setPreconfirmWindow(uint64 newPreconfirmWindow) internal {
+    function _setPreconfirmWindow(uint24 newPreconfirmWindow) internal {
         RollupStorage storage $ = _getRollupStorage();
         // preconfirmation must allow time for blob submission to complete first
-        if (newPreconfirmWindow != 0 && $._submitBlobsWindow != 0) {
-            require(newPreconfirmWindow > $._submitBlobsWindow, InvalidWindowConfig("preconfirmWindow <= submitBlobsWindow"));
-        }
+
+        require(newPreconfirmWindow >= $._submitBlobsWindow + MIN_PRECONFIRMATION_WINDOW, PreconfirmTooCloseToSubmitBlobs());
+
         emit PreconfirmWindowUpdated($._preconfirmWindow, newPreconfirmWindow);
         $._preconfirmWindow = newPreconfirmWindow;
     }
 
     /// @inheritdoc IRollupAdmin
-    function setChallengeWindow(uint64 newChallengeWindow) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setChallengeWindow(uint24 newChallengeWindow) external onlyRole(DEFAULT_ADMIN_ROLE) {
         _setChallengeWindow(newChallengeWindow);
     }
 
-    /** @dev Stores the challenge window. Must not exceed preconfirmWindow. */
-    function _setChallengeWindow(uint64 newChallengeWindow) internal {
+    /** @dev Stores the challenge window. Must be > 0, strictly less than finalizationDelay,
+     *       and fit in uint24 (Q6 cleanup + Q12).
+     */
+    function _setChallengeWindow(uint24 newChallengeWindow) internal {
         RollupStorage storage $ = _getRollupStorage();
-        // challenge window must end before finalization to give challengers full response time
-        if ($._finalizationDelay != 0) {
-            require(newChallengeWindow < $._finalizationDelay, InvalidWindowConfig("challengeWindow >= finalizationDelay"));
-        }
+        // strict ordering ensures challengers always have time to respond before finalization
+        require(newChallengeWindow >= $._preconfirmWindow + MIN_CHALLENGE_WINDOW, ChallengeTooCloseToPreconfirm());
+        // strict ordering ensures provers always have time to respond before finalization
+        require(newChallengeWindow <= $._finalizationDelay - MIN_CHALLENGE_RESOLUTION_WINDOW, ChallengeTooCloseToFinalization());
+
         emit ChallengeWindowUpdated($._challengeWindow, newChallengeWindow);
         $._challengeWindow = newChallengeWindow;
     }
 
     /// @inheritdoc IRollupAdmin
-    function setFinalizationDelay(uint64 newFinalizationDelay) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setFinalizationDelay(uint24 newFinalizationDelay) external onlyRole(DEFAULT_ADMIN_ROLE) {
         _setFinalizationDelay(newFinalizationDelay);
     }
 
-    /** @dev Stores the finalization delay. Must exceed challengeWindow. */
-    function _setFinalizationDelay(uint64 newFinalizationDelay) internal {
+    /** @dev Stores the finalization delay. Must be > 0, strictly greater than challengeWindow,
+     *       and fit in uint24 (Q6 cleanup + Q12).
+     */
+    function _setFinalizationDelay(uint24 newFinalizationDelay) internal {
         RollupStorage storage $ = _getRollupStorage();
         // strict ordering ensures challenges always have time to be submitted and resolved
-        require(newFinalizationDelay > $._challengeWindow, InvalidWindowConfig("finalizationDelay <= challengeWindow"));
+        require(newFinalizationDelay >= $._challengeWindow + MIN_CHALLENGE_RESOLUTION_WINDOW, FinalizationTooCloseToChallenge());
         emit FinalizationDelayUpdated($._finalizationDelay, newFinalizationDelay);
         $._finalizationDelay = newFinalizationDelay;
     }
@@ -621,13 +671,17 @@ contract RollupStorageLayout is
         _setChallengeDepositAmount(newChallengeDepositAmount);
     }
 
-    /** @dev Stores the ETH deposit required per challenge. */
+    /** @dev Stores the ETH deposit required per challenge. Bounded above by uint96 (A1) so
+     *       the cast in {ChallengeRecord} struct literals at challenge time is safe by
+     *       construction. uint96 ≈ 79 billion ETH headroom — well above any plausible bond.
+     */
     function _setChallengeDepositAmount(uint256 newChallengeDepositAmount) internal {
         RollupStorage storage $ = _getRollupStorage();
-        // non-zero deposit required to prevent spam challenges
-        require(newChallengeDepositAmount > 0, ZeroValueNotAllowed("challengeDepositAmount"));
+        require(newChallengeDepositAmount >= MIN_CHALLENGE_DEPOSIT_AMOUNT, ChallengeDepositAmountOutOfBounds());
+        // A1: enforce the uint96 narrowing safety invariant at the setter boundary
+        require(newChallengeDepositAmount <= type(uint128).max, ChallengeDepositAmountOutOfBounds());
         emit ChallengeDepositAmountUpdated($._challengeDepositAmount, newChallengeDepositAmount);
-        $._challengeDepositAmount = newChallengeDepositAmount;
+        $._challengeDepositAmount = uint128(newChallengeDepositAmount);
     }
 
     /// @inheritdoc IRollupAdmin
@@ -635,27 +689,66 @@ contract RollupStorageLayout is
         _setIncentiveFee(newIncentiveFee);
     }
 
-    /** @dev Stores the incentive fee paid to force-revert callers. */
+    /** @dev Stores the incentive fee paid to {revertBatches} callers. Bounded by uint128 to fit
+     *       the packed slot 4 layout; uint128 ≈ 3.4e20 ETH headroom — well above any plausible fee.
+     */
     function _setIncentiveFee(uint256 newIncentiveFee) internal {
+        require(newIncentiveFee > 0, IncentiveFeeOutOfBounds());
+        require(newIncentiveFee <= MAX_INCENTIVE_FEE, IncentiveFeeOutOfBounds());
         RollupStorage storage $ = _getRollupStorage();
         emit IncentiveFeeUpdated($._incentiveFee, newIncentiveFee);
-        $._incentiveFee = newIncentiveFee;
-    }
-
-    /// @inheritdoc IRollupAdmin
-    function setMaxForceRevertBatchSize(uint32 newMaxForceRevertBatchSize) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        _setMaxForceRevertBatchSize(newMaxForceRevertBatchSize);
-    }
-
-    /** @dev Stores the maximum force revert batch size. */
-    function _setMaxForceRevertBatchSize(uint32 newMaxForceRevertBatchSize) internal {
-        RollupStorage storage $ = _getRollupStorage();
-        require(newMaxForceRevertBatchSize != 0, ZeroValueNotAllowed("maxForceRevertBatchSize"));
-        emit MaxForceRevertBatchSizeUpdated($._maxForceRevertBatchSize, newMaxForceRevertBatchSize);
-        $._maxForceRevertBatchSize = newMaxForceRevertBatchSize;
+        $._incentiveFee = uint128(newIncentiveFee);
     }
 
     // ============ Internal helpers ============
+
+    /** @dev Grants roles in a loop to prevent the via_ir optimizer from
+     *      creating specialized copies of _grantRole per constant (~2KB savings).
+     */
+    function _grantRoles(bytes32[6] memory roles, address[6] memory accounts) private {
+        for (uint256 i = 0; i < 6; ++i) {
+            _grantRole(roles[i], accounts[i]);
+        }
+    }
+    /**
+     * @dev Commits the synthetic genesis batch at index 0. Anchors the chain by recording
+     *      a single-leaf Merkle root whose leaf commits to a "block" with
+     *      {blockHash = genesisBlockHash} and all other header fields zero. Enables
+     *      {resolveBatchRootChallenge} for batch 1 through the existing Merkle-proof
+     *      mechanism against {_batches[0].batchRoot}. Marked {BatchStatus-Finalized} so
+     *      {challengeBatchRoot(0)} is rejected by the existing status guard.
+     *
+     *      Also finalizes the batch-index bookkeeping: sets {_nextBatchIndex} to 1 so the
+     *      first real sequencer commit lands at index 1. {_lastFinalizedBatchIndex} remains
+     *      at its default value 0, which now semantically means "genesis finalized".
+     */
+    function _commitGenesisBatch(bytes32 genesisBlockHash) internal {
+        RollupStorage storage $ = _getRollupStorage();
+
+        // Single-leaf Merkle root equals the leaf commitment. Matches _computeCommitment
+        // over a header with (previousBlockHash=0, blockHash=genesis, wr=ZERO, dr=ZERO).
+        bytes32 genesisCommitment = keccak256(abi.encodePacked(bytes32(0), genesisBlockHash, ZERO_BYTES_HASH, ZERO_BYTES_HASH));
+
+        $._batches[0] = BatchRecord({
+            batchRoot: genesisCommitment,
+            acceptedAtBlock: uint32(block.number),
+            expectedBlobs: 0,
+            status: BatchStatus.Finalized,
+            sentMessageCursorStart: 0,
+            submitBlobsWindowSnapshot: 0,
+            preconfirmationWindowSnapshot: 0,
+            challengeWindowSnapshot: 0,
+            finalizationDelaySnapshot: 0,
+            numberOfBlocks: 1,
+            toBlockHash: genesisBlockHash
+        });
+
+        // First real batch commits at index 1. Genesis occupies index 0.
+        $._nextBatchIndex = 1;
+
+        emit BatchCommitted(0, genesisCommitment, genesisBlockHash, genesisBlockHash, 1, 0);
+        emit BatchFinalized(0);
+    }
 
     /// @inheritdoc UUPSUpgradeable
     function _authorizeUpgrade(address) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}

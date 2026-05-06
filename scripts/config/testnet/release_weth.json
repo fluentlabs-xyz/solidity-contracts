@@ -1,0 +1,7 @@
+{
+  "l1_weth": "0xf45833a668625dF12A2a9b03Ca4a52F22EBd6C6C",
+  "bridging_exclude_l1_weth": "0xf45833a668625dF12A2a9b03Ca4a52F22EBd6C6C",
+  "gateway_initial_owner": "0x9ec3f0d76A6d3847d86374c791C6E170CAd9518D",
+  "weth_gateway": "0x9C2baa1d32466aceC1AdDD98AA047fB7B6D55622",
+  "universal_weth_l2": "0x927c469e58daab257ea60b2d8c37bedd2a203a54"
+}

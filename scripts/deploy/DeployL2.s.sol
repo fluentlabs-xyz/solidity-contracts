@@ -1,93 +1,117 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
-import {DeployLib} from "./DeployLib.s.sol";
-import {UniversalTokenFactory} from "../../contracts/factories/UniversalTokenFactory.sol";
+import "../../contracts/governance/FluentTimeLock.sol";
+import {DeployERC20Gateway} from "./DeployERC20Gateway.s.sol";
 
-/**
- * @notice L2 deploy orchestrator (Fluent-style): bridge + universal factory + gateway.
- * @dev Mirrors scripts/deploy/bash/fluent_deploy.bash deployment steps in Solidity.
- *      Environment:
- *      - INITIAL_OWNER (address, required)
- *      - PAUSER_ROLE (address, optional; defaults to ADMIN_ROLE/INITIAL_OWNER)
- *      - RELAYER_ROLE (address, optional; defaults to BRIDGE_AUTHORITY/ADMIN_ROLE/INITIAL_OWNER)
- *      - BRIDGE_AUTHORITY (address, optional; legacy fallback for RELAYER_ROLE)
- *      - RECEIVE_MSG_DEADLINE (uint256, optional; default 0)
- *      - OTHER_BRIDGE_PLACEHOLDER (address, optional; default 0x1)
- *      - L1_BLOCK_ORACLE (address, optional; default 0)
- *      - OUTPUT_PATH (string, optional; default "deployments/fluent_dev.json")
- */
-contract DeployL2 is DeployLib {
+import {DeployL2Bridge} from "./DeployL2Bridge.s.sol";
+import {DeployNativeGateway} from "./DeployNativeGateway.s.sol";
+import {DeployUniversalFactory} from "./DeployUniversalFactory.s.sol";
+import {L1BlockOracle} from "../../contracts/oracles/L1BlockOracle.sol";
+import {L1GasOracle} from "../../contracts/oracles/L1GasOracle.sol";
+import {L2FluentBridge} from "../../contracts/bridge/L2/L2FluentBridge.sol";
+import {UniversalTokenFactory} from "../../contracts/factories/UniversalTokenFactory.sol";
+import {console2} from "forge-std/console2.sol";
+import {stdJson} from "forge-std/StdJson.sol";
+
+/// @notice L2 orchestrator: deploys full stack with deterministic nonce ordering.
+/// @dev Three-phase deployment ensures proxy addresses match L1 counterparts.
+///      Phase 1 (nonce 0-8): matched contracts — bridge (with placeholders), oracle alignment slot, factory, gateways.
+///      Phase 2 (nonce 9): L2-specific — L1GasOracle.
+///      Phase 3 (nonce 10-14): configure — oracle wiring, gas config, fee treasury, payment gateway.
+contract DeployL2 is DeployL2Bridge, DeployUniversalFactory, DeployERC20Gateway, DeployNativeGateway {
+    using stdJson for string;
+
     address private constant UNIVERSAL_RUNTIME = 0x0000000000000000000000000000000000520008;
 
-    struct Deployment {
-        address bridge;
-        address bridgeImpl;
-        address peggedImpl;
-        address factoryImpl;
-        address factory;
-        address factoryBeacon;
-        address gatewayImpl;
-        address gateway;
-    }
+    function run() external override(DeployL2Bridge, DeployUniversalFactory, DeployERC20Gateway, DeployNativeGateway) {
+        string memory network = vm.envOr("NETWORK", string("testnet/l2"));
+        string memory json = _readConfig(network);
+        string memory outputPath = vm.envOr("OUTPUT_PATH", string.concat("deployments/", network, ".json"));
 
-    function run() external returns (address gateway) {
-        address initialOwner = vm.envAddress("INITIAL_OWNER");
+        address initialOwner = vm.envOr("INITIAL_OWNER", json.readAddress(".roles.initialOwner"));
         require(initialOwner != address(0), "INITIAL_OWNER required");
-
-        address adminRole = vm.envOr("ADMIN_ROLE", initialOwner);
-        address pauserRole = vm.envOr("PAUSER_ROLE", adminRole);
-        address relayerRole = vm.envOr("RELAYER_ROLE", vm.envOr("BRIDGE_AUTHORITY", adminRole));
-        uint256 receiveMessageDeadline = vm.envOr("RECEIVE_MSG_DEADLINE", uint256(0));
-        require(receiveMessageDeadline != 0, "RECEIVE_MSG_DEADLINE required for L2 deploy");
-        address otherBridgePlaceholder = vm.envOr("OTHER_BRIDGE_PLACEHOLDER", address(0x1));
-        address l1BlockOracle = vm.envOr("L1_BLOCK_ORACLE", address(0));
-        address rollup = address(0);
-        string memory outputPath = vm.envOr("OUTPUT_PATH", string("deployments/fluent_dev.json"));
+        address adminRole = vm.envOr("ADMIN_ROLE", json.readAddress(".roles.admin"));
+        require(adminRole != address(0), "ADMIN_ROLE required");
+        address pauserRole = vm.envOr("PAUSER_ROLE", json.readAddress(".roles.pauser"));
+        require(pauserRole != address(0), "PAUSER_ROLE required");
+        address relayerRole = vm.envOr("RELAYER_ROLE", json.readAddress(".roles.relayer"));
+        require(relayerRole != address(0), "RELAYER_ROLE required");
 
         vm.startBroadcast();
+//        require(vm.getNonce(msg.sender) == 0, "deployer nonce must be 0 for deterministic addresses");
 
-        (address bridgeProxy, address bridgeImpl) = _deployFluentBridge(
-            adminRole,
-            pauserRole,
-            relayerRole,
-            receiveMessageDeadline,
-            otherBridgePlaceholder,
-            l1BlockOracle,
-            rollup
-        );
+        // ── Phase 1: Matched contracts (nonce 0–8) ──
+        // Bridge with placeholders (nonce 0: impl, nonce 1: proxy)
+//        L2BridgeResult memory bridge = _deployL2Bridge(adminRole, pauserRole, relayerRole, address(0x1), address(0x1), address(0x1), adminRole);
+//        console2.log("L2 Bridge deployed at:", bridge.proxy);
 
-        (address factoryProxy, address factoryImpl) = _deployUniversalTokenFactory(initialOwner);
-        PaymentGatewayResult memory gatewayResult = _deployPaymentGateway(initialOwner, bridgeProxy, factoryProxy);
-        UniversalTokenFactory(factoryProxy).setPaymentGateway(gatewayResult.gateway);
+        // L1BlockOracle — nonce alignment slot (nonce 2)
+//        address l1BlockOracle = address(new L1BlockOracle(relayerRole));
+
+        // UniversalTokenFactory (nonce 3: impl, nonce 4: proxy)
+//        UniversalFactoryResult memory factory = _deployUniversalFactory(initialOwner);
+//        console2.log("Universal Factory deployed at:", factory.factory);
+
+        // ERC20Gateway (nonce 5: impl, nonce 6: proxy)
+//        ERC20GatewayResult memory erc20Gw = _deployERC20Gateway(initialOwner, bridge.proxy, factory.factory);
+//        console2.log("ERC20 Gateway deployed at:", erc20Gw.gateway);
+        // ── Phase 2: L2-specific contracts (nonce 7) ──
+//        UniversalTokenFactory(factory.factory).setPaymentGateway(erc20Gw.gateway);
+        // NativeGateway (nonce 8: impl, nonce 9: proxy)
+//        NativeGatewayResult memory nativeGw = _deployNativeGateway(initialOwner, bridge.proxy);
+//        console2.log("Native Gateway deployed at:", nativeGw.gateway);
+        // Gas Oracle: Nonce 10
+//        address gasOracle = address(new L1GasOracle(relayerRole));
+
+        // Skip nonce 10
+        payable(0x9ec3f0d76A6d3847d86374c791C6E170CAd9518D).transfer(0);
+        payable(0x9ec3f0d76A6d3847d86374c791C6E170CAd9518D).transfer(0);
+
+        address[] memory proposers = new address[](1);
+        proposers[0] = 0x9ec3f0d76A6d3847d86374c791C6E170CAd9518D;
+        address[] memory executors = new address[](1);
+        executors[0] = 0x33C0B99F3210a9578d81d5B13dEC03160F58ff11; // Bridge Relayer Admin
+        address timeLock = address(new FluentTimeLock(60, proposers, executors));
+        console2.log("TimeLock: ", timeLock);
+
+        // ── Phase 3: Configure (nonce 10–14) ──
+//        L2FluentBridge l2Bridge = L2FluentBridge(payable(bridge.proxy));
+//        l2Bridge.setL1BlockOracle(l1BlockOracle);
+//        l2Bridge.setL1GasPriceOracle(gasOracle);
+//        l2Bridge.setGasPriceConfig(
+//            json.readUint(".bridge.gasPriceConfig.overheadGasPrice"),
+//            json.readUint(".bridge.gasPriceConfig.scalarGasPrice"),
+//            json.readUint(".bridge.gasPriceConfig.l1GasLimit")
+//        );
+//        l2Bridge.setFeeTreasury(vm.envOr("FEE_TREASURY", json.readAddress(".bridge.feeTreasury")));
 
         vm.stopBroadcast();
 
-        gateway = gatewayResult.gateway;
-
-        if (bytes(outputPath).length != 0) {
-            Deployment memory d;
-            d.bridge = bridgeProxy;
-            d.bridgeImpl = bridgeImpl;
-            d.peggedImpl = UNIVERSAL_RUNTIME;
-            d.factoryImpl = factoryImpl;
-            d.factory = factoryProxy;
-            d.factoryBeacon = address(0);
-            d.gatewayImpl = gatewayResult.gatewayImpl;
-            d.gateway = gatewayResult.gateway;
-            _writeOutput(outputPath, d);
-        }
+//        _writeL2Manifest(outputPath, l1BlockOracle, gasOracle, bridge, factory, erc20Gw, nativeGw);
     }
 
-    function _writeOutput(string memory outputPath, Deployment memory d) internal {
-        string memory json = vm.serializeAddress("deployment", "bridge", d.bridge);
-        json = vm.serializeAddress("deployment", "bridge_impl", d.bridgeImpl);
-        json = vm.serializeAddress("deployment", "pegged_impl", d.peggedImpl);
-        json = vm.serializeAddress("deployment", "factory_impl", d.factoryImpl);
-        json = vm.serializeAddress("deployment", "factory", d.factory);
-        json = vm.serializeAddress("deployment", "factory_beacon", d.factoryBeacon);
-        json = vm.serializeAddress("deployment", "gateway_impl", d.gatewayImpl);
-        json = vm.serializeAddress("deployment", "gateway", d.gateway);
-        vm.writeJson(json, outputPath);
+    function _writeL2Manifest(
+        string memory outputPath,
+        address l1BlockOracle,
+        address gasOracle,
+        L2BridgeResult memory bridge,
+        UniversalFactoryResult memory factory,
+        ERC20GatewayResult memory erc20Gw,
+        NativeGatewayResult memory nativeGw
+    ) internal {
+        string memory out = vm.serializeUint("deployment", "chainId", block.chainid);
+        out = vm.serializeAddress("deployment", "l1_block_oracle", l1BlockOracle);
+        out = vm.serializeAddress("deployment", "l1_gas_oracle", gasOracle);
+        out = vm.serializeAddress("deployment", "bridge", bridge.proxy);
+        out = vm.serializeAddress("deployment", "bridge_impl", bridge.impl);
+        out = vm.serializeAddress("deployment", "factory", factory.factory);
+        out = vm.serializeAddress("deployment", "factory_impl", factory.factoryImpl);
+        out = vm.serializeAddress("deployment", "pegged_impl", UNIVERSAL_RUNTIME);
+        out = vm.serializeAddress("deployment", "erc20_gateway", erc20Gw.gateway);
+        out = vm.serializeAddress("deployment", "erc20_gateway_impl", erc20Gw.gatewayImpl);
+        out = vm.serializeAddress("deployment", "native_gateway", nativeGw.gateway);
+        out = vm.serializeAddress("deployment", "native_gateway_impl", nativeGw.gatewayImpl);
+        vm.writeJson(out, outputPath);
     }
 }

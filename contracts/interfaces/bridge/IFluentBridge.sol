@@ -51,6 +51,16 @@ interface IFluentBridgeRead {
      * @notice Fee charged on the next outbound message (0 when no fee applies).
      */
     function getSentMessageFee() external view returns (uint256);
+    /**
+     * @notice True if the currently executing cross-chain message originated from an L1 batch
+     *         whose rollup status is {BatchStatus.Preconfirmed}. False in every other case —
+     *         including {BatchStatus.Finalized}, the L1 relayer path, every L2 receive path,
+     *         and any call made outside an in-flight receive execution.
+     * @dev Used by gateway-level rate limits that are only meaningful during the optimistic
+     *      preconfirmation window. Once the originating batch is Finalized the consumer MUST
+     *      treat the call as unrestricted; outside a receive the return is always false.
+     */
+    function isCurrentBatchPreconfirmed() external view returns (bool);
 }
 
 /**
@@ -98,17 +108,35 @@ interface IFluentBridgeErrors {
      * @dev selector: 0x78bcc63a
      */
     error ZeroValueNotAllowed(string field);
-
     /**
      * @notice Insufficient `msg.value` to cover the outbound message fee.
      * @dev selector: 0x025dbdd4
      */
     error InsufficientFee();
-
     /**
      * @notice Bridge balance too low to cover the native value required by the message.
      */
     error InsufficientBridgeBalance(uint256 required);
+    /**
+     * @notice Gateway is not whitelisted.
+     * @dev selector: 0x4185a6fb
+     */
+    error GatewayNotWhitelisted();
+    /**
+     * @notice Gateway is already registered while registering a new gateway via {registerGateway}.
+     * @dev selector: 0xdd704277
+     */
+    error GatewayAlreadyRegistered();
+    /**
+     * @notice Gateway is not registered while deregistering a gateway via {unregisterGateway}.
+     * @dev selector: 0x162e1dfc
+     */
+    error GatewayNotRegistered();
+    /**
+     * @notice The provided address is not a contract.
+     * @dev selector: 0x09ee12d5
+     */
+    error NotAContract();
 }
 
 /**
@@ -123,8 +151,9 @@ interface IFluentBridgeEvents {
         address indexed sender,
         address indexed to,
         uint256 value,
+        uint256 fee,
         uint256 chainId,
-        uint256 blockNumber,
+        uint256 validUntilBlockNumber,
         uint256 nonce,
         bytes32 messageHash,
         bytes data
@@ -135,8 +164,15 @@ interface IFluentBridgeEvents {
      *      or when a rollback/timeout path was taken without invoking the target.
      */
     event ReceivedMessage(bytes32 messageHash, bool successfulCall, bytes returnData);
+
     /**
-     * @notice Emitted when a rollback is triggered (message not received on L2 within deadline).
+     * @notice Emitted when a retry of a previously failed message is attempted via `receiveFailedMessage`.
+     * @dev `successfulCall` is true when the target call succeeded, and false when execution failed.
+     */
+    event RetriedFailedMessage(bytes32 messageHash, bool successfulCall, bytes returnData);
+
+    /**
+     * @notice Emitted when a rollback is triggered (message reached its committed expiry on L2).
      */
     event RollbackMessage(bytes32 messageHash, uint256 blockNumber);
     /**
@@ -155,13 +191,96 @@ interface IFluentBridgeEvents {
      * @notice Emitted when the fee treasury address is updated.
      */
     event FeeTreasuryUpdated(address indexed prevValue, address indexed newValue);
+    /**
+     * @notice Emitted when a gateway is registered as a trusted peer on this bridge.
+     * @dev A registered gateway is eligible as both a `sendMessage` destination (outbound)
+     *      and a `_receiveMessage` target (inbound). See {FluentBridge.sendMessage} and
+     *      {FluentBridge._receiveMessage}.
+     */
+    event GatewayRegistered(address indexed gateway);
+    /**
+     * @notice Emitted when a gateway is de-registered from the trusted peer set.
+     * @dev Once deregistered, the bridge rejects further sends to and receives from this
+     *      address. In-flight outbound messages already enqueued are unaffected; in-flight
+     *      inbound messages will revert on receive with {GatewayNotWhitelisted}.
+     */
+    event GatewayDeregistered(address indexed gateway);
+}
+
+interface IFluentBridgeWrite {
+    /**
+     * @notice Sends a cross-chain message with optional native value.
+     * @dev Deducts the L2 send fee (if any), encodes and hashes the message,
+     *      then calls {_afterSendMessage} for chain-specific hooks (L1 enqueue).
+     *
+     * @param to Destination address on the target chain.
+     * @param message Calldata payload to deliver.
+     */
+    function sendMessage(address to, bytes calldata message) external payable;
+    /**
+     * @notice Receives and executes a relayer-delivered cross-chain message.
+     * @dev Enforces sequential nonce, verifies message not already processed,
+     *      then delegates to {_receiveMessage} for ExcessivelySafeCall execution.
+     *
+     * @param from Sender on the other chain.
+     * @param to Destination on this chain.
+     * @param value Value to forward.
+     * @param chainId Source chain id.
+     * @param validUntilBlockNumber Absolute L1 block number by which the message must be received (0 = no deadline).
+     * @param nonce Message nonce (must match receivedNonce).
+     * @param message Message payload.
+     */
+    function receiveMessage(
+        address from,
+        address to,
+        uint256 value,
+        uint256 chainId,
+        uint256 validUntilBlockNumber,
+        uint256 nonce,
+        bytes calldata message
+    ) external;
+    /**
+     * @notice Retries a previously failed message. Anyone can call with the original params.
+     * @dev Requires message status == Failed. Uses full gasleft() instead of executeGasLimit.
+     *
+     * @param from Sender on the other chain.
+     * @param to Destination on this chain.
+     * @param value Value to forward.
+     * @param chainId Source chain id.
+     * @param validUntilBlockNumber Absolute L1 block number by which the message must be received (0 = no deadline).
+     * @param nonce Message nonce.
+     * @param message Message payload.
+     */
+    function receiveFailedMessage(
+        address from,
+        address to,
+        uint256 value,
+        uint256 chainId,
+        uint256 validUntilBlockNumber,
+        uint256 nonce,
+        bytes calldata message
+    ) external;
 }
 
 /**
  * @title IFluentBridge
  * @dev Core bridge interface: message lifecycle (send, receive, retry), state queries, and status tracking.
  */
-interface IFluentBridge is IFluentBridgeErrors, IFluentBridgeEvents {
+interface IFluentBridge is IFluentBridgeErrors, IFluentBridgeEvents, IFluentBridgeWrite {
+    /**
+     * @dev Configuration parameters for bridge initialization.
+     */
+    struct InitConfiguration {
+        /// @dev Address authorized to perform admin actions.
+        address adminRole;
+        /// @dev Address authorized to pause the contract.
+        address pauserRole;
+        /// @dev Address authorized to relay messages.
+        address relayerRole;
+        /// @dev Address of the bridge contract on the other chain.
+        address otherBridge;
+    }
+
     /**
      * @dev Describes the status of a cross-chain message.
      */
@@ -174,89 +293,32 @@ interface IFluentBridge is IFluentBridgeErrors, IFluentBridgeEvents {
         Success
     }
 
-    // ---------- Storage / view getters ----------
+    // ============ Functions ============
 
     /**
      * @notice Next outbound message nonce (incremented on each sendMessage).
      * @return The next outbound message nonce.
      */
     function getNonce() external view returns (uint256);
-
     /**
      * @notice Next expected inbound received message nonce (L2 receiveMessage ordering).
      * @return The next expected inbound received message nonce.
      */
     function getReceivedNonce() external view returns (uint256);
-
     /**
      * @notice During receive execution, the address that sent the message on the other chain; otherwise address(0).
      * @return The address that sent the message on the other chain.
      */
     function getNativeSender() external view returns (address);
-
     /**
      * @notice Address of the bridge contract on the other chain.
      * @return The address of the bridge contract on the other chain.
      */
     function getOtherBridge() external view returns (address);
-
     /**
      * @notice Status of a received message by its hash (None, Failed, Success).
      * @param key The hash of the received message.
      * @return The status of the received message.
      */
     function getReceivedMessage(bytes32 key) external view returns (MessageStatus);
-
-    // ---------- Send / receive ----------
-
-    /**
-     * @notice Sends a cross-chain message to the other chain.
-     * @param to Destination address on the target chain.
-     * @param message Calldata payload to deliver.
-     */
-    function sendMessage(address to, bytes calldata message) external payable;
-
-    /**
-     * @notice Receives and executes a message sent by the bridge authority (callable on both L1 and L2 by the authorized relayer; trusted relayer path).
-     * @dev Callable on both L1 and L2 by the authorized relayer; trusted relayer path.
-     *
-     * @param from Sender on the other chain.
-     * @param to Destination on this chain.
-     * @param value Value to forward.
-     * @param chainId Source chain id.
-     * @param blockNumber Block number on source chain.
-     * @param nonce Message nonce (must match receivedNonce).
-     * @param message Message payload.
-     */
-    function receiveMessage(
-        address from,
-        address to,
-        uint256 value,
-        uint256 chainId,
-        uint256 blockNumber,
-        uint256 nonce,
-        bytes calldata message
-    ) external;
-
-    /**
-     * @notice Retries execution of a previously failed message (same params as original receive).
-     * @dev This function is used to retry execution of a previously failed message from anyone.
-     *
-     * @param from Sender on the other chain.
-     * @param to Destination on this chain.
-     * @param value Value to forward.
-     * @param chainId Source chain id.
-     * @param blockNumber Block number on source chain.
-     * @param nonce Message nonce.
-     * @param message Message payload.
-     */
-    function receiveFailedMessage(
-        address from,
-        address to,
-        uint256 value,
-        uint256 chainId,
-        uint256 blockNumber,
-        uint256 nonce,
-        bytes calldata message
-    ) external;
 }

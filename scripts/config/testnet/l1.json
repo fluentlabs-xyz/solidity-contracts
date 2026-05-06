@@ -1,0 +1,37 @@
+{
+    "chainId": 1,
+    "roles": {
+        "initialOwner": "0x9ec3f0d76A6d3847d86374c791C6E170CAd9518D",
+        "admin": "0x9ec3f0d76A6d3847d86374c791C6E170CAd9518D",
+        "pauser": "0x9ec3f0d76A6d3847d86374c791C6E170CAd9518D",
+        "relayer": "0x9ec3f0d76A6d3847d86374c791C6E170CAd9518D",
+        "enclaveAttester": "0x4b6b03635aC1574E4966DD7A7f24d6FeB1bd3Be6"
+    },
+    "bridge": {
+        "otherBridge": "0x0000000000000000000000000000000000000001",
+        "receiveMessageDeadline": 600,
+        "depositProcessingWindow": 72000,
+        "executeGasLimit": 500000
+    },
+    "rollup": {
+        "sequencer": "0x9ec3f0d76A6d3847d86374c791C6E170CAd9518D",
+        "challenger": "0x9ec3f0d76A6d3847d86374c791C6E170CAd9518D",
+        "prover": "0x9ec3f0d76A6d3847d86374c791C6E170CAd9518D",
+        "emergency": "0x9ec3f0d76A6d3847d86374c791C6E170CAd9518D",
+        "preconfirmation": "0x9ec3f0d76A6d3847d86374c791C6E170CAd9518D",
+        "sp1Verifier": "0x397A5f7f3dBd538f23DE225B51f532c34448dA9B",
+        "programVKey": "0x00e34107e4c5284bd4ecc4269c650671038c1e85d9dacb931b534e984f607334",
+        "genesisHash": "0x4fd032b3f5730f5a581b27220bedfda176dc7005072a158eac84c9c4206c9f4e",
+        "submitBlobsWindow": 3600,
+        "preconfirmWindow": 7200,
+        "challengeWindow": 10800,
+        "finalizationDelay": 14400,
+        "challengeDepositAmount": "10000000000000000",
+        "incentiveFee": "10000000000000000"
+    },
+    "timelock": {
+        "normalDelay": 60,
+        "emergencyDelay": 10,
+        "safe": "0x0000000000000000000000000000000000000000"
+    }
+}

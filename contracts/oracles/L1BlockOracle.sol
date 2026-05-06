@@ -12,6 +12,16 @@ import {IL1BlockOracle} from "../interfaces/oracles/IL1BlockOracle.sol";
  *      to check if a message is eligible for rollback.
  */
 contract L1BlockOracle is Ownable, IL1BlockOracle {
+    // ============ Constants ============
+
+    /**
+     * @dev Inclusive upper bound on stored L1 block numbers. Ethereum mainnet is on the order of
+     *      tens of millions of blocks; this headroom covers decades while rejecting pathological values.
+     */
+    uint256 public constant MAX_L1_BLOCK_NUMBER = 100_000_000;
+
+    // ============ Storage ============
+
     /// @dev The current L1 block number
     uint256 internal _l1BlockNumber;
 
@@ -37,6 +47,7 @@ contract L1BlockOracle is Ownable, IL1BlockOracle {
 
     /// @inheritdoc IL1BlockOracle
     function updateL1BlockNumber(uint256 blockNumber) external override onlySubmitter {
+        _validateL1BlockNumber(blockNumber);
         // enforce strict monotonicity to prevent stale or replayed block numbers
         require(blockNumber > _l1BlockNumber, BlockNotMonotonic(_l1BlockNumber, blockNumber));
 
@@ -48,6 +59,7 @@ contract L1BlockOracle is Ownable, IL1BlockOracle {
 
     /// @inheritdoc IL1BlockOracle
     function setL1BlockNumber(uint256 blockNumber) external onlyOwner {
+        _validateL1BlockNumber(blockNumber);
         // owner bypass skips monotonicity check for emergency corrections
         _l1BlockNumber = blockNumber;
         emit L1BlockNumberUpdated(blockNumber);
@@ -66,6 +78,12 @@ contract L1BlockOracle is Ownable, IL1BlockOracle {
         // emit before write so the event captures the previous submitter
         emit SubmitterUpdated(_submitter, submitter);
         _submitter = submitter;
+    }
+
+    /** @dev Shared bounds for {updateL1BlockNumber} and owner {setL1BlockNumber}. */
+    function _validateL1BlockNumber(uint256 blockNumber) internal pure {
+        require(blockNumber != 0, L1BlockNumberZeroNotAllowed());
+        require(blockNumber <= MAX_L1_BLOCK_NUMBER, L1BlockNumberTooLarge(blockNumber, MAX_L1_BLOCK_NUMBER));
     }
 
     // ============ Views ============

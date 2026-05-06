@@ -7,6 +7,7 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {L1FluentBridge} from "../../contracts/bridge/L1/L1FluentBridge.sol";
 import {L2FluentBridge} from "../../contracts/bridge/L2/L2FluentBridge.sol";
 import {FluentBridgeStorageLayout} from "../../contracts/bridge/FluentBridgeStorageLayout.sol";
+import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {L1BlockOracle} from "../../contracts/oracles/L1BlockOracle.sol";
 import {L1GasOracle} from "../../contracts/oracles/L1GasOracle.sol";
 import {NativeGateway} from "../../contracts/gateways/NativeGateway.sol";
@@ -15,16 +16,18 @@ import {Rollup} from "../../contracts/rollup/Rollup.sol";
 import {ERC20PeggedToken} from "../../contracts/tokens/ERC20PeggedToken.sol";
 import {ERC20TokenFactory} from "../../contracts/factories/ERC20TokenFactory.sol";
 import {MockERC20Token} from "../../test/mocks/MockERC20.sol";
-import {InitConfiguration} from "../../contracts/interfaces/IRollupTypes.sol";
+import {InitConfiguration} from "../../contracts/interfaces/rollup/IRollupTypes.sol";
 import {MockNitroVerifier} from "../mocks/MockNitroVerifier.sol";
 import {MockSp1Verifier} from "../mocks/MockSp1Verifier.sol";
+import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 
 abstract contract BaseDeployNative is Test {
     uint256 internal constant RECEIVE_DEADLINE = 100;
+    uint256 internal constant DEPOSIT_PROCESSING_WINDOW = 100;
     bytes32 internal constant GENESIS_HASH = keccak256("genesis");
     bytes32 internal constant PROGRAM_VKEY = keccak256("vkey");
     bytes internal constant DUMMY_SIGNATURE = abi.encodePacked(keccak256("r"), keccak256("s"), uint8(27));
-    uint256 internal constant FINALIZATION_DELAY = 1;
+    uint256 internal constant FINALIZATION_DELAY = 14800;
     uint256 internal constant MAX_FORCE_REVERT_BATCH_SIZE = 10;
 
     // Fork ids
@@ -77,21 +80,19 @@ abstract contract BaseDeployNative is Test {
         cfg.nitroVerifier = address(l1NitroVerifier);
         cfg.bridge = address(0xB1);
         cfg.programVKey = PROGRAM_VKEY;
-        cfg.genesisHash = GENESIS_HASH;
+        cfg.genesisBlockHash = GENESIS_HASH;
         cfg.challengeDepositAmount = 1 ether;
-        cfg.challengeWindow = 0;
+        cfg.submitBlobsWindow = 100;
+        cfg.preconfirmWindow = 3800;
+        cfg.challengeWindow = 7500;
         cfg.finalizationDelay = FINALIZATION_DELAY;
-        cfg.acceptDepositDeadline = 1000;
         cfg.incentiveFee = 0;
-        cfg.submitBlobsWindow = 0;
-        cfg.preconfirmWindow = 1;
-        cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
 
         Rollup rollupImpl = new Rollup();
         ERC1967Proxy rollupProxy = new ERC1967Proxy(address(rollupImpl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
         l1Rollup = Rollup(payable(address(rollupProxy)));
 
-        FluentBridgeStorageLayout.InitConfiguration memory params = FluentBridgeStorageLayout.InitConfiguration({
+        IFluentBridge.InitConfiguration memory params = IFluentBridge.InitConfiguration({
             adminRole: admin,
             pauserRole: admin,
             relayerRole: relayer,
@@ -101,7 +102,7 @@ abstract contract BaseDeployNative is Test {
         L1FluentBridge bridgeImpl = new L1FluentBridge();
         ERC1967Proxy bridgeProxy = new ERC1967Proxy(
             address(bridgeImpl),
-            abi.encodeCall(L1FluentBridge.initialize, (abi.encode(params), address(l1Rollup)))
+            abi.encodeCall(L1FluentBridge.initialize, (abi.encode(params), address(l1Rollup), RECEIVE_DEADLINE, DEPOSIT_PROCESSING_WINDOW))
         );
         l1Bridge = L1FluentBridge(payable(address(bridgeProxy)));
 
@@ -117,7 +118,7 @@ abstract contract BaseDeployNative is Test {
         l2BlockOracle.updateL1BlockNumber(1);
         l2GasOracle = new L1GasOracle(relayer);
 
-        FluentBridgeStorageLayout.InitConfiguration memory params = FluentBridgeStorageLayout.InitConfiguration({
+        IFluentBridge.InitConfiguration memory params = IFluentBridge.InitConfiguration({
             adminRole: admin,
             pauserRole: admin,
             relayerRole: relayer,
@@ -129,7 +130,7 @@ abstract contract BaseDeployNative is Test {
             address(bridgeImpl),
             abi.encodeCall(
                 L2FluentBridge.initialize,
-                (abi.encode(params), RECEIVE_DEADLINE, address(l2BlockOracle), address(l2GasOracle), 0, 0, 0, makeAddr("feeTreasury"))
+                (abi.encode(params), address(l2BlockOracle), address(l2GasOracle), 0, 0, 0, makeAddr("feeTreasury"))
             )
         );
         l2Bridge = L2FluentBridge(payable(address(bridgeProxy)));
@@ -142,10 +143,11 @@ abstract contract BaseDeployNative is Test {
 
 abstract contract BaseDeployERC20 is Test {
     uint256 internal constant RECEIVE_DEADLINE = 100;
+    uint256 internal constant DEPOSIT_PROCESSING_WINDOW = 100;
     bytes32 internal constant GENESIS_HASH = keccak256("genesis");
     bytes32 internal constant PROGRAM_VKEY = keccak256("vkey");
     bytes internal constant DUMMY_SIGNATURE = abi.encodePacked(keccak256("r"), keccak256("s"), uint8(27));
-    uint256 internal constant FINALIZATION_DELAY = 1;
+    uint256 internal constant FINALIZATION_DELAY = 14800;
     uint256 internal constant MAX_FORCE_REVERT_BATCH_SIZE = 10;
 
     uint256 internal l1ForkId;
@@ -201,21 +203,19 @@ abstract contract BaseDeployERC20 is Test {
         cfg.nitroVerifier = address(l1NitroVerifier);
         cfg.bridge = address(0xB1);
         cfg.programVKey = PROGRAM_VKEY;
-        cfg.genesisHash = GENESIS_HASH;
+        cfg.genesisBlockHash = GENESIS_HASH;
         cfg.challengeDepositAmount = 1 ether;
-        cfg.challengeWindow = 0;
+        cfg.submitBlobsWindow = 100;
+        cfg.preconfirmWindow = 3800;
+        cfg.challengeWindow = 7500;
         cfg.finalizationDelay = FINALIZATION_DELAY;
-        cfg.acceptDepositDeadline = 1000;
         cfg.incentiveFee = 0;
-        cfg.submitBlobsWindow = 0;
-        cfg.preconfirmWindow = 1;
-        cfg.maxForceRevertBatchSize = MAX_FORCE_REVERT_BATCH_SIZE;
 
         Rollup rollupImpl = new Rollup();
         ERC1967Proxy rollupProxy = new ERC1967Proxy(address(rollupImpl), abi.encodeCall(Rollup.initialize, (abi.encode(cfg))));
         l1Rollup = Rollup(payable(address(rollupProxy)));
 
-        FluentBridgeStorageLayout.InitConfiguration memory params = FluentBridgeStorageLayout.InitConfiguration({
+        IFluentBridge.InitConfiguration memory params = IFluentBridge.InitConfiguration({
             adminRole: admin,
             pauserRole: admin,
             relayerRole: relayer,
@@ -225,11 +225,9 @@ abstract contract BaseDeployERC20 is Test {
         L1FluentBridge bridgeImpl = new L1FluentBridge();
         ERC1967Proxy bridgeProxy = new ERC1967Proxy(
             address(bridgeImpl),
-            abi.encodeCall(L1FluentBridge.initialize, (abi.encode(params), address(l1Rollup)))
+            abi.encodeCall(L1FluentBridge.initialize, (abi.encode(params), address(l1Rollup), RECEIVE_DEADLINE, DEPOSIT_PROCESSING_WINDOW))
         );
         l1Bridge = L1FluentBridge(payable(address(bridgeProxy)));
-        l1Bridge.setExecuteGasLimit(2_000_000);
-        l1Rollup.setBridge(address(l1Bridge));
 
         peggedImplL1 = new ERC20PeggedToken();
         ERC20TokenFactory fImpl = new ERC20TokenFactory();
@@ -255,7 +253,7 @@ abstract contract BaseDeployERC20 is Test {
         l1BlockOracle.updateL1BlockNumber(1);
         l1GasOracle = new L1GasOracle(relayer);
 
-        FluentBridgeStorageLayout.InitConfiguration memory params = FluentBridgeStorageLayout.InitConfiguration({
+        IFluentBridge.InitConfiguration memory params = IFluentBridge.InitConfiguration({
             adminRole: admin,
             pauserRole: admin,
             relayerRole: relayer,
@@ -267,7 +265,7 @@ abstract contract BaseDeployERC20 is Test {
             address(bridgeImpl),
             abi.encodeCall(
                 L2FluentBridge.initialize,
-                (abi.encode(params), RECEIVE_DEADLINE, address(l1BlockOracle), address(l1GasOracle), 0, 0, 0, makeAddr("feeTreasury"))
+                (abi.encode(params), address(l1BlockOracle), address(l1GasOracle), 0, 0, 0, makeAddr("feeTreasury"))
             )
         );
         l2Bridge = L2FluentBridge(payable(address(bridgeProxy)));

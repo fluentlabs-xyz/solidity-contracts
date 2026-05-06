@@ -82,8 +82,8 @@
 Once a batch is finalized, all L2→L1 withdrawals within that batch can be claimed immediately via `receiveMessageWithProof` with no per-period or per-batch cap. The bridge does not implement withdrawal rate limiting because pre-finalization defenses provide a sufficient detection and response window:
 
 - **`finalizationDelay`** (configured to ~48 hours worth of L1 blocks) must elapse before `finalizeBatches` can finalize a batch. This is the primary protection — operators have 48 hours to detect fraud, pause the bridge, or force-revert the batch.
-- **`finalizeWithProofs`** can bypass the delay, but only if **every block** in the batch has been individually proven through `resolveChallenge`, which requires both a Nitro enclave signature and an SP1 ZK proof per block. This path is cryptographically secure — a batch that passes full dual verification for every block is guaranteed correct.
-- **`CHALLENGER_ROLE`** can dispute any block within the `challengeWindow`, forcing the prover to submit dual proofs or the rollup enters the corrupted state.
+- **`finalizeWithProofs`** can bypass the delay, but only if **every block** in the batch has been individually proven through `resolveChallenge`, which requires an SP1 ZK proof per block. This path is cryptographically secure — a batch where every block has a valid SP1 proof is guaranteed correct.
+- **`CHALLENGER_ROLE`** can dispute any block within the `challengeWindow`, forcing the prover to submit an SP1 ZK proof or the rollup enters the corrupted state.
 - **`PAUSER_ROLE`** can freeze the bridge if a malicious batch is detected before or after finalization.
 - **`EMERGENCY_ROLE`** can force-revert non-finalized batches via `forceRevertBatch`.
 

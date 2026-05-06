@@ -10,7 +10,7 @@ import {BaseFlowERC20Test} from "./BaseFlowERC20.t.sol";
 import {NativeGateway} from "../../contracts/gateways/NativeGateway.sol";
 import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {IL1FluentBridge} from "../../contracts/interfaces/bridge/IL1FluentBridge.sol";
-import {L2BlockHeader} from "../../contracts/interfaces/IRollupTypes.sol";
+import {L2BlockHeader, BlockDeposit} from "../../contracts/interfaces/rollup/IRollupTypes.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 import {WithdrawalMerkle} from "../helpers/WithdrawalMerkle.sol";
 
@@ -100,8 +100,10 @@ contract BridgeScenarioNativeTest is BaseFlowNativeTest {
         });
         L2BlockHeader[] memory headers = new L2BlockHeader[](1);
         headers[0] = header;
+        bytes32 batchRoot = keccak256(abi.encodePacked(keccak256(abi.encodePacked(header.previousBlockHash, header.blockHash, header.withdrawalRoot, header.depositRoot))));
+        BlockDeposit[] memory emptyDeposits = new BlockDeposit[](0);
         vm.prank(relayer);
-        l1Rollup.acceptNextBatch(headers, 1);
+        l1Rollup.commitBatch(batchRoot, header.blockHash, header.blockHash, 1, emptyDeposits, 1);
         bytes32[] memory blobHashes = new bytes32[](1);
         blobHashes[0] = keccak256(abi.encode("invalid-rollback-blob", batchIndex));
         vm.blobhashes(blobHashes);

@@ -1,32 +1,61 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
-/// @dev Simulates L1FluentBridge.popSentMessage() for testing deposit
-///      processing in Rollup._checkDeposits(). Supports dynamic enqueue
-///      with per-deposit block numbers.
+/// @dev Simulates the sent-message surface of {L1FluentBridge} —
+///      {consumeNextSentMessage}, {getMessageAt}, {advanceSentMessageCursor},
+///      {rewindSentMessageCursor}, and the associated views — for testing deposit
+///      processing in {Rollup._checkDeposits} and the cursor-rewind path in
+///      {Rollup.revertBatches}.
 contract MockDepositBridge {
-    struct Deposit {
-        bytes32 id;
-        uint256 blockNumber;
-    }
-
-    Deposit[] internal _q;
+    mapping(uint256 => bytes32) internal _hashes;
     uint256 internal _front;
+    uint256 internal _back;
 
-    function enqueue(bytes32 id, uint256 blockNumber) external {
-        _q.push(Deposit(id, blockNumber));
+    function enqueue(bytes32 hash) external {
+        _hashes[_back] = hash;
+        unchecked {
+            ++_back;
+        }
     }
 
-    function popSentMessage() external returns (bytes32, uint256) {
-        require(_front < _q.length, "queue empty");
-        Deposit memory d = _q[_front++];
-        return (d.id, d.blockNumber);
+    function consumeNextSentMessage() external returns (bytes32) {
+        require(_front < _back, "queue empty");
+        bytes32 h = _hashes[_front];
+        unchecked {
+            ++_front;
+        }
+        return h;
     }
 
-    function queueSize() external view returns (uint256) {
-        return _q.length - _front;
+    function getMessageAt(uint256 index) external view returns (bytes32) {
+        return _hashes[index];
     }
 
+    function advanceSentMessageCursor(uint64 count) external {
+        require(_front + count <= _back, "insufficient messages");
+        unchecked {
+            _front += count;
+        }
+    }
+
+    function rewindSentMessageCursor(uint64 newFront) external {
+        require(newFront <= _front, "invalid rewind");
+        _front = newFront;
+    }
+
+    function isOldestUnconsumedExpired() external pure returns (bool) {
+        return false;
+    }
+
+    function getSentMessageCursor() external view returns (uint64) {
+        return uint64(_front);
+    }
+
+    function getSentMessageQueueSize() external view returns (uint256) {
+        return _back - _front;
+    }
+
+    /// @dev Test helper used by {DepositsTest} to assert "all deposits consumed".
     function poppedCount() external view returns (uint256) {
         return _front;
     }

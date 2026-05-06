@@ -2,68 +2,76 @@
 pragma solidity 0.8.30;
 
 import {RollupAssertions} from "./Base.t.sol";
-import {L2BlockHeader, BatchStatus} from "../../contracts/interfaces/IRollupTypes.sol";
-import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
+import {L2BlockHeader, BlockDeposit, BatchStatus} from "../../contracts/interfaces/rollup/IRollupTypes.sol";
+import {IRollupErrors} from "../../contracts/interfaces/rollup/IRollup.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 
 contract AcceptBatchTest is RollupAssertions {
     // ============ Happy path ============
 
-    function test_acceptNextBatch_setsStatusToHeadersSubmitted() public {
+    function test_commitBatch_setsStatusToCommitted() public {
         L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
         bytes32 expectedRoot = _computeBatchRoot(batch);
 
         uint256 batchIndex = _acceptBatch(GENESIS_HASH, 0);
 
-        _assertBatchRecord(batchIndex, BatchStatus.HeadersSubmitted, 1, expectedRoot);
+        _assertBatchRecord(batchIndex, BatchStatus.Committed, 1, expectedRoot);
         assertEq(rollup.getBatch(batchIndex).acceptedAtBlock, block.number, "acceptedAtBlock mismatch");
     }
 
-    function test_acceptNextBatch_incrementsNextBatchIndex() public {
+    function test_commitBatch_incrementsNextBatchIndex() public {
         uint256 before = rollup.nextBatchIndex();
         _acceptBatch(GENESIS_HASH, 0);
         assertEq(rollup.nextBatchIndex(), before + 1, "nextBatchIndex should increment by 1");
     }
 
-    function test_acceptNextBatch_storesLastBlockHash() public {
+    function test_commitBatch_emitsBatchCommittedWithFromAndToHashes() public {
         L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
-        uint256 batchIndex = _acceptBatch(GENESIS_HASH, 0);
+        bytes32 expectedRoot = _computeBatchRoot(batch);
+        bytes32 expectedTo = batch[batch.length - 1].blockHash;
+        uint256 batchIndex = rollup.nextBatchIndex();
 
-        bytes32 expectedLastHash = batch[batch.length - 1].blockHash;
-        assertEq(rollup.lastBlockHashInBatch(batchIndex), expectedLastHash, "lastBlockHash mismatch");
+        _expectBatchCommitted(batchIndex, expectedRoot, GENESIS_HASH, expectedTo, uint24(batch.length), 1);
+        _acceptBatch(GENESIS_HASH, 0);
     }
 
-    function test_acceptNextBatch_emitsBatchHeadersSubmitted() public {
-        L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
+    function test_commitBatch_singleBlockBatch_emitsParentAsFrom() public {
+        L2BlockHeader[] memory batch = new L2BlockHeader[](1);
+        batch[0] = L2BlockHeader({
+            previousBlockHash: GENESIS_HASH,
+            blockHash: keccak256(abi.encode("single", GENESIS_HASH)),
+            withdrawalRoot: EXAMPLE_WITHDRAWAL_ROOT,
+            depositRoot: ZERO_BYTES_HASH,
+            depositCount: 0
+        });
         bytes32 expectedRoot = _computeBatchRoot(batch);
         uint256 batchIndex = rollup.nextBatchIndex();
 
-        _expectBatchHeadersSubmitted(batchIndex, expectedRoot, 1);
+        _expectBatchCommitted(batchIndex, expectedRoot, GENESIS_HASH, batch[0].blockHash, 1, 1);
+        BlockDeposit[] memory emptyDeposits = new BlockDeposit[](0);
         vm.prank(sequencer);
-        rollup.acceptNextBatch(batch, 1);
+        rollup.commitBatch(expectedRoot, GENESIS_HASH, batch[0].blockHash, 1, emptyDeposits, 1);
     }
 
-    function test_acceptNextBatch_multipleBatchesChainCorrectly() public {
+    function test_commitBatch_multipleBatchesIncrement() public {
         uint256 batch1 = _acceptBatch(GENESIS_HASH, 0);
-        bytes32 lastHash = rollup.lastBlockHashInBatch(batch1);
-
-        uint256 batch2 = _acceptBatch(lastHash, 0);
+        uint256 batch2 = _acceptBatch(_lastBlockHash(GENESIS_HASH), 0);
         assertEq(batch2, batch1 + 1, "second batch index should follow first");
 
-        _assertBatchRecord(batch1, BatchStatus.HeadersSubmitted, 1, rollup.getBatch(batch1).batchRoot);
-        _assertBatchRecord(batch2, BatchStatus.HeadersSubmitted, 1, rollup.getBatch(batch2).batchRoot);
+        _assertBatchRecord(batch1, BatchStatus.Committed, 1, rollup.getBatch(batch1).batchRoot);
+        _assertBatchRecord(batch2, BatchStatus.Committed, 1, rollup.getBatch(batch2).batchRoot);
     }
 
-    function test_acceptNextBatch_fullLifecycle() public {
+    function test_commitBatch_fullLifecycle() public {
         L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
         bytes32 expectedRoot = _computeBatchRoot(batch);
 
         uint256 batchIndex = _acceptBatch(GENESIS_HASH, 0);
-        _assertBatchRecord(batchIndex, BatchStatus.HeadersSubmitted, 1, expectedRoot);
+        _assertBatchRecord(batchIndex, BatchStatus.Committed, 1, expectedRoot);
 
         _submitBlobs(batchIndex, 0);
-        _assertBatchRecord(batchIndex, BatchStatus.Accepted, 1, expectedRoot);
+        _assertBatchRecord(batchIndex, BatchStatus.Submitted, 1, expectedRoot);
 
         _preconfirmBatch(batchIndex);
         _assertBatchRecord(batchIndex, BatchStatus.Preconfirmed, 1, expectedRoot);
@@ -76,100 +84,94 @@ contract AcceptBatchTest is RollupAssertions {
 
     // ============ Revert tests ============
 
-    function test_RevertIf_acceptNextBatch_callerNotSequencer() public {
+    function test_RevertIf_commitBatch_callerNotSequencer() public {
         L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
+        bytes32 batchRoot = _computeBatchRoot(batch);
+        BlockDeposit[] memory emptyDeposits = new BlockDeposit[](0);
 
         vm.expectRevert(abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, user, rollup.SEQUENCER_ROLE()));
         vm.prank(user);
-        rollup.acceptNextBatch(batch, 1);
+        rollup.commitBatch(batchRoot, batch[0].blockHash, batch[batch.length - 1].blockHash, uint24(batch.length), emptyDeposits, 1);
     }
 
-    function test_RevertIf_acceptNextBatch_rollupCorrupted() public {
+    function test_RevertIf_commitBatch_rollupCorrupted() public {
         _acceptBatch(GENESIS_HASH, 0);
         vm.roll(block.number + SUBMIT_BLOBS_WINDOW + 1);
         _assertRollupCorrupted();
 
-        bytes32 lastHash = rollup.lastBlockHashInBatch(1);
-        L2BlockHeader[] memory batch = _makeBatch(lastHash);
+        L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
+        bytes32 batchRoot = _computeBatchRoot(batch);
+        BlockDeposit[] memory emptyDeposits = new BlockDeposit[](0);
 
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.RollupCorrupted.selector));
         vm.prank(sequencer);
-        rollup.acceptNextBatch(batch, 1);
+        rollup.commitBatch(batchRoot, batch[0].blockHash, batch[batch.length - 1].blockHash, uint24(batch.length), emptyDeposits, 1);
     }
 
-    function test_RevertIf_acceptNextBatch_emptyBatch() public {
-        L2BlockHeader[] memory empty = new L2BlockHeader[](0);
+    function test_RevertIf_commitBatch_zeroBatchRoot() public {
+        BlockDeposit[] memory emptyDeposits = new BlockDeposit[](0);
 
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.NoLeavesProvided.selector));
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidBatchRoot.selector, bytes32(0), bytes32(0)));
         vm.prank(sequencer);
-        rollup.acceptNextBatch(empty, 1);
+        rollup.commitBatch(bytes32(0), keccak256("from"), keccak256("to"), 1, emptyDeposits, 1);
     }
 
-    function test_RevertIf_acceptNextBatch_wrongParentHash() public {
-        _acceptBatch(GENESIS_HASH, 0);
-
-        bytes32 wrongParent = keccak256("wrong");
-        L2BlockHeader[] memory batch = _makeBatch(wrongParent);
-        bytes32 expectedParent = rollup.lastBlockHashInBatch(1);
-
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.WrongPreviousBlockHash.selector, expectedParent, wrongParent));
-        vm.prank(sequencer);
-        rollup.acceptNextBatch(batch, 1);
-    }
-
-    function test_RevertIf_acceptNextBatch_brokenBlockSequence() public {
+    function test_RevertIf_commitBatch_zeroFromBlockHash() public {
         L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
-        batch[1].previousBlockHash = keccak256("broken");
+        bytes32 batchRoot = _computeBatchRoot(batch);
+        BlockDeposit[] memory emptyDeposits = new BlockDeposit[](0);
 
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidBlockSequence.selector, 0, batch[0].blockHash, keccak256("broken")));
+        vm.expectRevert(IRollupErrors.ZeroFromBlockHash.selector);
         vm.prank(sequencer);
-        rollup.acceptNextBatch(batch, 1);
+        rollup.commitBatch(batchRoot, bytes32(0), batch[batch.length - 1].blockHash, uint24(batch.length), emptyDeposits, 1);
     }
 
-    function test_RevertIf_acceptNextBatch_zeroDepositRootWithNonZeroCount() public {
+    function test_RevertIf_commitBatch_zeroToBlockHash() public {
         L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
-        // `acceptNextBatch` validates deposit metadata on the last header in the batch.
-        batch[batch.length - 1].depositCount = 5;
+        bytes32 batchRoot = _computeBatchRoot(batch);
+        BlockDeposit[] memory emptyDeposits = new BlockDeposit[](0);
 
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidDepositRootWithNonZeroCount.selector, uint256(5)));
+        vm.expectRevert(IRollupErrors.ZeroToBlockHash.selector);
         vm.prank(sequencer);
-        rollup.acceptNextBatch(batch, 1);
+        rollup.commitBatch(batchRoot, batch[0].blockHash, bytes32(0), uint24(batch.length), emptyDeposits, 1);
     }
 
-    function test_RevertIf_acceptNextBatch_wrongPreviousBlockHash() public {
-        L2BlockHeader[] memory batch = _makeBatch(keccak256("not-genesis"));
+    function test_RevertIf_commitBatch_zeroNumberOfBlocks() public {
+        BlockDeposit[] memory emptyDeposits = new BlockDeposit[](0);
 
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.WrongPreviousBlockHash.selector, GENESIS_HASH, keccak256("not-genesis")));
+        vm.expectRevert(IRollupErrors.ZeroNumberOfBlocks.selector);
         vm.prank(sequencer);
-        rollup.acceptNextBatch(batch, 1);
+        rollup.commitBatch(keccak256("root"), keccak256("from"), keccak256("to"), 0, emptyDeposits, 1);
     }
 
-    function test_RevertIf_acceptNextBatch_invalidBlockSequence() public {
-        L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
-        batch[1].previousBlockHash = keccak256("bad-link");
-
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidBlockSequence.selector, 0, batch[0].blockHash, keccak256("bad-link")));
-        vm.prank(sequencer);
-        rollup.acceptNextBatch(batch, 1);
-    }
-
-    function test_RevertIf_acceptNextBatch_invalidDepositRootWithNonZeroCount() public {
-        L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
-        batch[batch.length - 1].depositCount = 3;
-
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidDepositRootWithNonZeroCount.selector, uint256(3)));
-        vm.prank(sequencer);
-        rollup.acceptNextBatch(batch, 1);
-    }
-
-    function test_RevertIf_acceptNextBatch_paused() public {
+    function test_RevertIf_commitBatch_paused() public {
         vm.prank(admin);
         rollup.pause();
 
-        L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
+        BlockDeposit[] memory emptyDeposits = new BlockDeposit[](0);
 
         vm.expectRevert(abi.encodeWithSelector(PausableUpgradeable.EnforcedPause.selector));
         vm.prank(sequencer);
-        rollup.acceptNextBatch(batch, 1);
+        rollup.commitBatch(keccak256("root"), keccak256("from"), keccak256("to"), 1, emptyDeposits, 1);
+    }
+
+    function test_RevertIf_commitBatch_zeroDepositRootWithNonZeroCount() public {
+        L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
+        bytes32 batchRoot = _computeBatchRoot(batch);
+
+        BlockDeposit[] memory deposits = new BlockDeposit[](1);
+        deposits[0] = BlockDeposit({depositRoot: ZERO_BYTES_HASH, depositCount: 7});
+
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidDepositRootWithNonZeroCount.selector, uint256(7)));
+        vm.prank(sequencer);
+        rollup.commitBatch(batchRoot, GENESIS_HASH, batch[batch.length - 1].blockHash, uint24(batch.length), deposits, 1);
+    }
+
+    function test_RevertIf_acceptNextBatch_zeroExpectedBlobsCount() public {
+        L2BlockHeader[] memory batch = _makeBatch(GENESIS_HASH);
+
+        vm.expectRevert(IRollupErrors.ZeroExpectedBlobsCount.selector);
+        vm.prank(sequencer);
+        rollup.commitBatch(_computeBatchRoot(batch), batch[0].blockHash, batch[batch.length - 1].blockHash, uint24(batch.length), new BlockDeposit[](0), 0);
     }
 }

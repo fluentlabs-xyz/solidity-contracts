@@ -5,19 +5,20 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 
 import {L1FluentBridge} from "../../contracts/bridge/L1/L1FluentBridge.sol";
 import {FluentBridgeStorageLayout} from "../../contracts/bridge/FluentBridgeStorageLayout.sol";
-import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
+import {IFluentBridge, IFluentBridgeEvents} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {IL1FluentBridge} from "../../contracts/interfaces/bridge/IL1FluentBridge.sol";
 import {IFluentBridgeErrors} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
-import {L2BlockHeader} from "../../contracts/interfaces/IRollupTypes.sol";
-import {Queue} from "../../contracts/libraries/Queue.sol";
+import {L2BlockHeader} from "../../contracts/interfaces/rollup/IRollupTypes.sol";
+import {IRollupErrors} from "../../contracts/interfaces/rollup/IRollup.sol";
 import {MockRollup} from "../mocks/MockRollup.sol";
-import {BridgeBase, NoopReceiver} from "./Base.t.sol";
+import {BridgeBase, NoopReceiver, RevertingReceiver} from "./Base.t.sol";
 
 contract L1FluentBridgeTest is BridgeBase {
     address internal otherBridge = makeAddr("otherBridge");
     address internal user = makeAddr("user");
-    address internal receiver = makeAddr("receiver");
+    /// @dev Must be a contract: {registerGateway} rejects EOAs.
+    address internal receiver;
     address internal nonRollup = makeAddr("nonRollup");
 
     MockRollup internal rollup;
@@ -25,7 +26,7 @@ contract L1FluentBridgeTest is BridgeBase {
     function setUp() public override {
         rollup = new MockRollup();
 
-        FluentBridgeStorageLayout.InitConfiguration memory cfg = FluentBridgeStorageLayout.InitConfiguration({
+        IFluentBridge.InitConfiguration memory cfg = IFluentBridge.InitConfiguration({
             adminRole: admin,
             pauserRole: pauser,
             relayerRole: relayer,
@@ -33,29 +34,209 @@ contract L1FluentBridgeTest is BridgeBase {
         });
 
         L1FluentBridge impl = new L1FluentBridge();
-        ERC1967Proxy proxy = new ERC1967Proxy(address(impl), abi.encodeCall(L1FluentBridge.initialize, (abi.encode(cfg), address(rollup))));
+        ERC1967Proxy proxy = new ERC1967Proxy(
+            address(impl),
+            abi.encodeCall(L1FluentBridge.initialize, (abi.encode(cfg), address(rollup), 100, 100))
+        );
         l1Bridge = L1FluentBridge(payable(address(proxy)));
+
+        receiver = address(new NoopReceiver());
+        // All outbound `sendMessage(...)` calls in this suite target `receiver`. The bridge
+        // now gates send destinations via the gateway registry (symmetric with receive), so
+        // register it up front. Per-test receivers (e.g. the proof-fixture `NoopReceiver`)
+        // are registered lazily at their creation site.
+        _registerOnL1Bridge(receiver);
     }
 
     function test_sendMessage_enqueuesMessage() public {
         l1Bridge.sendMessage(receiver, hex"0102");
 
         vm.prank(address(rollup));
-        (bytes32 msgHash, ) = l1Bridge.popSentMessage();
+        bytes32 msgHash = l1Bridge.consumeNextSentMessage();
 
         assertTrue(msgHash != bytes32(0), "message hash should be queued");
     }
 
-    function test_RevertIf_popSentMessage_queueEmpty() public {
-        vm.prank(address(rollup));
-        vm.expectRevert(Queue.QueueEmpty.selector);
-        l1Bridge.popSentMessage();
+    function test_RevertIf_sendMessage_rollupCorrupted() public {
+        rollup.setCorrupted(true);
+
+        vm.expectRevert(IRollupErrors.RollupCorrupted.selector);
+        l1Bridge.sendMessage(receiver, hex"01");
     }
 
-    function test_RevertIf_popSentMessage_callerNotRollup() public {
+    function test_sendMessage_succeedsAfterCorruptionCleared() public {
+        rollup.setCorrupted(true);
+        vm.expectRevert(IRollupErrors.RollupCorrupted.selector);
+        l1Bridge.sendMessage(receiver, hex"01");
+
+        rollup.setCorrupted(false);
+        l1Bridge.sendMessage(receiver, hex"01");
+
+        assertEq(l1Bridge.getSentMessageQueueSize(), 1, "queued after clear");
+    }
+
+    function test_RevertIf_consumeNextSentMessage_queueEmpty() public {
+        vm.prank(address(rollup));
+        vm.expectRevert(IL1FluentBridge.SentMessageQueueEmpty.selector);
+        l1Bridge.consumeNextSentMessage();
+    }
+
+    function test_RevertIf_consumeNextSentMessage_callerNotRollup() public {
         vm.prank(nonRollup);
         vm.expectRevert(IL1FluentBridge.OnlyRollup.selector);
-        l1Bridge.popSentMessage();
+        l1Bridge.consumeNextSentMessage();
+    }
+
+    function test_consumeNextSentMessage_advancesCursor() public {
+        l1Bridge.sendMessage(receiver, hex"01");
+        l1Bridge.sendMessage(receiver, hex"02");
+
+        assertEq(l1Bridge.getSentMessageCursor(), 0);
+        assertEq(l1Bridge.getSentMessageQueueSize(), 2);
+
+        vm.prank(address(rollup));
+        l1Bridge.consumeNextSentMessage();
+        assertEq(l1Bridge.getSentMessageCursor(), 1);
+        assertEq(l1Bridge.getSentMessageQueueSize(), 1);
+
+        vm.prank(address(rollup));
+        l1Bridge.consumeNextSentMessage();
+        assertEq(l1Bridge.getSentMessageCursor(), 2);
+        assertEq(l1Bridge.getSentMessageQueueSize(), 0);
+    }
+
+    function test_rewindSentMessageCursor_movesCursorBackward() public {
+        l1Bridge.sendMessage(receiver, hex"01");
+        l1Bridge.sendMessage(receiver, hex"02");
+
+        vm.prank(address(rollup));
+        bytes32 first = l1Bridge.consumeNextSentMessage();
+        vm.prank(address(rollup));
+        bytes32 second = l1Bridge.consumeNextSentMessage();
+
+        assertEq(l1Bridge.getSentMessageCursor(), 2);
+
+        vm.prank(address(rollup));
+        l1Bridge.rewindSentMessageCursor(0);
+
+        assertEq(l1Bridge.getSentMessageCursor(), 0);
+        assertEq(l1Bridge.getSentMessageQueueSize(), 2);
+
+        // Re-consume returns the same hashes
+        vm.prank(address(rollup));
+        assertEq(l1Bridge.consumeNextSentMessage(), first, "re-consumed first");
+        vm.prank(address(rollup));
+        assertEq(l1Bridge.consumeNextSentMessage(), second, "re-consumed second");
+    }
+
+    function test_RevertIf_rewindSentMessageCursor_targetGreaterThanCurrent() public {
+        l1Bridge.sendMessage(receiver, hex"01");
+        vm.prank(address(rollup));
+        l1Bridge.consumeNextSentMessage();
+        // currentFront = 1
+        vm.prank(address(rollup));
+        vm.expectRevert(abi.encodeWithSelector(IL1FluentBridge.InvalidRewindTarget.selector, uint256(2), uint256(1)));
+        l1Bridge.rewindSentMessageCursor(2);
+    }
+
+    function test_RevertIf_rewindSentMessageCursor_callerNotRollup() public {
+        vm.prank(nonRollup);
+        vm.expectRevert(IL1FluentBridge.OnlyRollup.selector);
+        l1Bridge.rewindSentMessageCursor(0);
+    }
+
+    function test_getMessageAt_returnsHashAtIndex() public {
+        l1Bridge.sendMessage(receiver, hex"01");
+        l1Bridge.sendMessage(receiver, hex"02");
+
+        bytes32 hash0 = l1Bridge.getMessageAt(0);
+        bytes32 hash1 = l1Bridge.getMessageAt(1);
+
+        assertTrue(hash0 != bytes32(0), "index 0 should hold a real hash");
+        assertTrue(hash1 != bytes32(0), "index 1 should hold a real hash");
+        assertTrue(hash0 != hash1, "two different sends should produce two different hashes");
+
+        // Peek does not advance the cursor — the queue is still full.
+        assertEq(l1Bridge.getSentMessageCursor(), 0, "peek must not advance");
+        assertEq(l1Bridge.getSentMessageQueueSize(), 2, "peek must not shrink the queue");
+    }
+
+    function test_getMessageAt_returnsZeroForOutOfRange() public {
+        l1Bridge.sendMessage(receiver, hex"01");
+
+        // By design, getMessageAt has no bounds check — out-of-range indices read from
+        // the default value of the underlying mapping and return bytes32(0). Callers are
+        // responsible for using getSentMessageCursor/getSentMessageQueueSize to stay in range.
+        assertEq(l1Bridge.getMessageAt(1), bytes32(0), "past back returns zero");
+        assertEq(l1Bridge.getMessageAt(100), bytes32(0), "far past back returns zero");
+    }
+
+    function test_advanceSentMessageCursor_advancesCorrectly() public {
+        l1Bridge.sendMessage(receiver, hex"01");
+        l1Bridge.sendMessage(receiver, hex"02");
+        l1Bridge.sendMessage(receiver, hex"03");
+
+        assertEq(l1Bridge.getSentMessageCursor(), 0);
+        assertEq(l1Bridge.getSentMessageQueueSize(), 3);
+
+        vm.prank(address(rollup));
+        l1Bridge.advanceSentMessageCursor(2);
+
+        assertEq(l1Bridge.getSentMessageCursor(), 2, "cursor advanced by 2");
+        assertEq(l1Bridge.getSentMessageQueueSize(), 1, "one message remains");
+
+        // A second call accumulates.
+        vm.prank(address(rollup));
+        l1Bridge.advanceSentMessageCursor(1);
+
+        assertEq(l1Bridge.getSentMessageCursor(), 3, "cursor advanced to back");
+        assertEq(l1Bridge.getSentMessageQueueSize(), 0, "queue drained");
+    }
+
+    function test_advanceSentMessageCursor_batchedConsumeMatchesOneByOne() public {
+        // Verify that (peek via getMessageAt) + (bulk advance) is equivalent to
+        // N calls to consumeNextSentMessage — same observed hashes, same final cursor.
+        l1Bridge.sendMessage(receiver, hex"01");
+        l1Bridge.sendMessage(receiver, hex"02");
+        l1Bridge.sendMessage(receiver, hex"03");
+
+        uint64 start = l1Bridge.getSentMessageCursor();
+        bytes32 peekedA = l1Bridge.getMessageAt(start);
+        bytes32 peekedB = l1Bridge.getMessageAt(start + 1);
+        bytes32 peekedC = l1Bridge.getMessageAt(start + 2);
+
+        vm.prank(address(rollup));
+        l1Bridge.advanceSentMessageCursor(3);
+
+        // Cursor moved to back.
+        assertEq(l1Bridge.getSentMessageCursor(), start + 3, "cursor matches bulk advance");
+
+        // The peeked hashes must equal what consumeNextSentMessage would have returned.
+        // Rewind and verify by re-consuming one at a time.
+        vm.prank(address(rollup));
+        l1Bridge.rewindSentMessageCursor(start);
+
+        vm.prank(address(rollup));
+        assertEq(l1Bridge.consumeNextSentMessage(), peekedA, "one-by-one A matches peek");
+        vm.prank(address(rollup));
+        assertEq(l1Bridge.consumeNextSentMessage(), peekedB, "one-by-one B matches peek");
+        vm.prank(address(rollup));
+        assertEq(l1Bridge.consumeNextSentMessage(), peekedC, "one-by-one C matches peek");
+    }
+
+    function test_RevertIf_advanceSentMessageCursor_countExceedsQueueSize() public {
+        l1Bridge.sendMessage(receiver, hex"01");
+        // queueSize = 1, advance by 2 should revert
+        vm.prank(address(rollup));
+        vm.expectRevert(abi.encodeWithSelector(IL1FluentBridge.InvalidAdvanceCount.selector, uint256(2), uint256(1)));
+        l1Bridge.advanceSentMessageCursor(2);
+    }
+
+    function test_RevertIf_advanceSentMessageCursor_callerNotRollup() public {
+        l1Bridge.sendMessage(receiver, hex"01");
+        vm.prank(nonRollup);
+        vm.expectRevert(IL1FluentBridge.OnlyRollup.selector);
+        l1Bridge.advanceSentMessageCursor(1);
     }
 
     function test_RevertIf_setRollup_queueNotEmpty() public {
@@ -67,9 +248,12 @@ contract L1FluentBridgeTest is BridgeBase {
     }
 
     function test_RevertIf_receiveMessageWithProof_batchNotFinalized() public {
+        // setFinalized(false) → MockRollup returns BatchStatus.None (= 0), which is neither
+        // Finalized nor Preconfirmed, so the bridge must reject the call up-front.
         rollup.setFinalized(false);
 
-        vm.expectRevert(IL1FluentBridge.InvalidBlockProof.selector);
+        vm.expectRevert(abi.encodeWithSelector(IL1FluentBridge.InvalidBatchStatus.selector, uint256(7), uint8(0)));
+        vm.prank(relayer);
         l1Bridge.receiveMessageWithProof(
             7,
             _dummyHeader(),
@@ -89,19 +273,51 @@ contract L1FluentBridgeTest is BridgeBase {
         rollup.setFinalized(true);
 
         vm.expectRevert(IL1FluentBridge.ForbiddenReceiveRollbackMessage.selector);
+        vm.prank(relayer);
         l1Bridge.receiveMessageWithProof(1, _dummyHeader(), user, payable(receiver), 0, block.chainid, 1, 0, "", _dummyProof(), _dummyProof());
     }
 
-    function test_RevertIf_rollbackMessageWithProof_batchNotFinalized() public {
-        rollup.setFinalized(false);
+    /// @dev The bridge gates `_receiveMessage` against the gateway registry. A fully-valid
+    ///      proof for an unregistered `to` must revert with {GatewayNotWhitelisted}; the
+    ///      nonce must NOT advance (tx-scoped revert rolls back `_takeNextReceivedNonce`).
+    function test_RevertIf_receiveMessageWithProof_gatewayNotRegistered() public {
+        ProofFixture memory f = _validProofFixture();
+        // Undo the registration that _validProofFixture applied so we can assert the
+        // unregistered-destination revert path while all the proofs stay valid.
+        vm.prank(admin);
+        (bool ok, ) = address(l1Bridge).call(abi.encodeWithSignature("unregisterGateway(address)", f.to));
+        require(ok, "unregisterGateway failed");
 
-        vm.expectRevert(IL1FluentBridge.InvalidBlockProof.selector);
+        uint256 nonceBefore = l1Bridge.getReceivedNonce();
+        vm.expectRevert(IFluentBridgeErrors.GatewayNotWhitelisted.selector);
+        _executeReceiveWithProof(f);
+        assertEq(l1Bridge.getReceivedNonce(), nonceBefore, "failed receive must not consume a nonce");
+    }
+
+    /// @dev Symmetric send-side admission: `sendMessage` to an unregistered destination
+    ///      reverts up-front, so user funds cannot end up stuck on the other side waiting
+    ///      for an unrelated admin action.
+    function test_RevertIf_sendMessage_gatewayNotRegistered() public {
+        address unregistered = makeAddr("unregistered-destination");
+        vm.expectRevert(IFluentBridgeErrors.GatewayNotWhitelisted.selector);
+        l1Bridge.sendMessage(unregistered, hex"00");
+    }
+
+    function test_RevertIf_rollbackMessageWithProof_batchNotFinalized() public {
+        // rollbackMessageWithProof is intentionally disabled (reverts NOT_IMPLEMENTED)
+        // until the user-initiated cancel/refund mechanism is shipped. Skip until then.
+        vm.skip(true);
+
+        rollup.setFinalized(false);
+        vm.expectRevert(abi.encodeWithSelector(IL1FluentBridge.InvalidBatchStatus.selector, uint256(3), uint8(0)));
         l1Bridge.rollbackMessageWithProof(3, _dummyHeader(), user, receiver, 0, block.chainid, 1, 0, "", _dummyProof(), _dummyProof());
     }
 
     function test_RevertIf_rollbackMessageWithProof_sourceChainIsForeign() public {
-        rollup.setFinalized(true);
+        // rollbackMessageWithProof is intentionally disabled (reverts NOT_IMPLEMENTED).
+        vm.skip(true);
 
+        rollup.setFinalized(true);
         vm.expectRevert(IL1FluentBridge.ForbiddenRollbackReceivedMessage.selector);
         l1Bridge.rollbackMessageWithProof(3, _dummyHeader(), user, receiver, 0, block.chainid + 1, 1, 0, "", _dummyProof(), _dummyProof());
     }
@@ -126,6 +342,10 @@ contract L1FluentBridgeTest is BridgeBase {
 
         f.from = makeAddr("l2sender");
         f.to = payable(address(new NoopReceiver()));
+        // Bridge rejects unregistered receive targets; register the fixture's receiver so
+        // the happy path + dedup paths reach their intended assertions.
+        _registerOnL1Bridge(f.to);
+
         f.value = 0;
         f.chainId = block.chainid + 1;
         f.blockNumber = 1;
@@ -151,6 +371,10 @@ contract L1FluentBridgeTest is BridgeBase {
     }
 
     function _executeReceiveWithProof(ProofFixture memory f) internal {
+        // `receiveMessageWithProof` is gated by RELAYER_ROLE — prank as the relayer the
+        // bridge was initialised with so the role check passes and we exercise the
+        // intended downstream code paths.
+        vm.prank(relayer);
         l1Bridge.receiveMessageWithProof(
             1,
             f.header,
@@ -169,13 +393,82 @@ contract L1FluentBridgeTest is BridgeBase {
     // ============ receiveMessageWithProof happy path ============
 
     function test_receiveMessageWithProof_executesMessageOnValidProof() public {
+        assertEq(l1Bridge.getReceivedNonce(), 0, "sanity: initial inbound nonce");
         ProofFixture memory f = _validProofFixture();
         _executeReceiveWithProof(f);
-
+        assertEq(l1Bridge.getReceivedNonce(), 1, "proof path should advance received nonce like receiveMessage");
         assertEq(
             uint8(l1Bridge.getReceivedMessage(f.messageHash)),
             uint8(IFluentBridge.MessageStatus.Success),
             "message should be marked as received"
+        );
+    }
+
+    function test_receiveMessageWithProof_emitsReceivedMessageOnSuccess() public {
+        ProofFixture memory f = _validProofFixture();
+
+        vm.expectEmit(true, true, true, true, address(l1Bridge));
+        emit IFluentBridgeEvents.ReceivedMessage(f.messageHash, true, "");
+
+        _executeReceiveWithProof(f);
+    }
+
+    function test_receiveMessageWithProof_emitsReceivedMessageOnFailure() public {
+        rollup.setFinalized(true);
+
+        address from = makeAddr("l2sender");
+        RevertingReceiver target = new RevertingReceiver();
+        address payable to = payable(address(target));
+        // Gateway whitelist is checked inside _receiveMessage before the call to the
+        // target. Without registration the path short-circuits with GatewayNotWhitelisted
+        // before the emit, defeating the assertion.
+        _registerOnL1Bridge(to);
+
+        uint256 value = 0;
+        uint256 chainId = block.chainid + 1;
+        uint256 validUntilBlockNumber = 1;
+        uint256 messageNonce = 0;
+        bytes memory message = abi.encodeCall(RevertingReceiver.fail, ());
+
+        bytes32 messageHash = keccak256(
+            abi.encode(from, to, value, chainId, validUntilBlockNumber, messageNonce, message)
+        );
+
+        L2BlockHeader memory header = L2BlockHeader({
+            previousBlockHash: bytes32(uint256(1)),
+            blockHash: bytes32(uint256(2)),
+            withdrawalRoot: messageHash,
+            depositRoot: bytes32(0),
+            depositCount: 0
+        });
+
+        bytes32 commitment = keccak256(
+            abi.encodePacked(header.previousBlockHash, header.blockHash, header.withdrawalRoot, header.depositRoot)
+        );
+        rollup.setBatchRoot(1, commitment);
+
+        MerkleTree.MerkleProof memory emptyProof = MerkleTree.MerkleProof(0, "");
+
+        // RevertingReceiver.fail() does `revert("receiver-failed")`, which Solidity encodes
+        // as Error(string) and ExcessivelySafeCall surfaces verbatim.
+        bytes memory expectedReturnData = abi.encodeWithSignature("Error(string)", "receiver-failed");
+
+        vm.expectEmit(true, true, true, true, address(l1Bridge));
+        emit IFluentBridgeEvents.ReceivedMessage(messageHash, false, expectedReturnData);
+
+        vm.prank(relayer);
+        l1Bridge.receiveMessageWithProof(
+            1,
+            header,
+            from,
+            to,
+            value,
+            chainId,
+            validUntilBlockNumber,
+            messageNonce,
+            message,
+            emptyProof,
+            emptyProof
         );
     }
 
@@ -191,6 +484,7 @@ contract L1FluentBridgeTest is BridgeBase {
             depositCount: 0
         });
         vm.expectRevert(abi.encodeWithSelector(IFluentBridgeErrors.ZeroValueNotAllowed.selector, "blockHeader.blockHash"));
+        vm.prank(relayer);
         l1Bridge.receiveMessageWithProof(1, header, user, payable(receiver), 0, block.chainid + 1, 1, 0, "", _dummyProof(), _dummyProof());
     }
 
@@ -204,6 +498,7 @@ contract L1FluentBridgeTest is BridgeBase {
             depositCount: 0
         });
         vm.expectRevert(abi.encodeWithSelector(IFluentBridgeErrors.ZeroValueNotAllowed.selector, "withdrawalRoot"));
+        vm.prank(relayer);
         l1Bridge.receiveMessageWithProof(1, header, user, payable(receiver), 0, block.chainid + 1, 1, 0, "", _dummyProof(), _dummyProof());
     }
 
@@ -211,6 +506,7 @@ contract L1FluentBridgeTest is BridgeBase {
         rollup.setFinalized(true);
         rollup.setBatchRoot(1, bytes32(uint256(999)));
         vm.expectRevert(IL1FluentBridge.InvalidBlockProof.selector);
+        vm.prank(relayer);
         l1Bridge.receiveMessageWithProof(
             1,
             _dummyHeader(),
@@ -232,6 +528,7 @@ contract L1FluentBridgeTest is BridgeBase {
         bytes32 commitment = keccak256(abi.encodePacked(header.previousBlockHash, header.blockHash, header.withdrawalRoot, header.depositRoot));
         rollup.setBatchRoot(1, commitment);
         vm.expectRevert(IL1FluentBridge.InvalidWithdrawalProof.selector);
+        vm.prank(relayer);
         l1Bridge.receiveMessageWithProof(1, header, user, payable(receiver), 0, block.chainid + 1, 1, 0, "", _dummyProof(), _dummyProof());
     }
 
@@ -242,6 +539,22 @@ contract L1FluentBridgeTest is BridgeBase {
         vm.expectRevert(IFluentBridgeErrors.MessageAlreadyReceived.selector);
         _executeReceiveWithProof(f);
     }
+
+    // /// @dev Proof path must consume the same sequential nonce as `receiveMessage` (expected next = getReceivedNonce()).
+    // function test_RevertIf_receiveMessageWithProof_messageNonceOutOfOrder() public {
+    //     ProofFixture memory f = _validProofFixture();
+    //     f.messageNonce = 1;
+    //     f.messageHash = keccak256(abi.encode(f.from, f.to, f.value, f.chainId, f.blockNumber, f.messageNonce, f.message));
+    //     f.header.withdrawalRoot = f.messageHash;
+
+    //     bytes32 commitment = keccak256(
+    //         abi.encodePacked(f.header.previousBlockHash, f.header.blockHash, f.header.withdrawalRoot, f.header.depositRoot)
+    //     );
+    //     rollup.setBatchRoot(1, commitment);
+
+    //     vm.expectRevert(IFluentBridgeErrors.MessageReceivedOutOfOrder.selector);
+    //     _executeReceiveWithProof(f);
+    // }
 
     function test_RevertIf_receiveMessageWithProof_selfCall() public {
         rollup.setFinalized(true);
@@ -266,12 +579,16 @@ contract L1FluentBridgeTest is BridgeBase {
         MerkleTree.MerkleProof memory emptyProof = MerkleTree.MerkleProof(0, "");
 
         vm.expectRevert(IFluentBridgeErrors.ForbiddenSelfCall.selector);
+        vm.prank(relayer);
         l1Bridge.receiveMessageWithProof(1, header, from, to, 0, chainId, 1, 0, "", emptyProof, emptyProof);
     }
 
     // ============ rollbackMessageWithProof ============
 
     function test_rollbackMessageWithProof_refundsSender() public {
+        // rollbackMessageWithProof is intentionally disabled (reverts NOT_IMPLEMENTED).
+        vm.skip(true);
+
         rollup.setFinalized(true);
 
         address from = makeAddr("l1sender");
@@ -302,12 +619,18 @@ contract L1FluentBridgeTest is BridgeBase {
     }
 
     function test_RevertIf_rollbackMessageWithProof_insufficientBalance() public {
+        // rollbackMessageWithProof is intentionally disabled (reverts NOT_IMPLEMENTED).
+        vm.skip(true);
+
         rollup.setFinalized(true);
         vm.expectRevert(abi.encodeWithSelector(IFluentBridgeErrors.InsufficientBridgeBalance.selector, 1 ether));
         l1Bridge.rollbackMessageWithProof(1, _dummyHeader(), user, receiver, 1 ether, block.chainid, 1, 0, "", _dummyProof(), _dummyProof());
     }
 
     function test_RevertIf_rollbackMessageWithProof_rollbackAlreadyDone() public {
+        // rollbackMessageWithProof is intentionally disabled (reverts NOT_IMPLEMENTED).
+        vm.skip(true);
+
         rollup.setFinalized(true);
 
         address from = makeAddr("l1sender");
@@ -357,6 +680,9 @@ contract L1FluentBridgeTest is BridgeBase {
     ///        4. User calls rollbackMessageWithProof on L1 with original params
     ///        5. chainId == block.chainid → passes guard → refund executes
     function test_rollbackMessageWithProof_refundsL1OriginatedDeposit() public {
+        // rollbackMessageWithProof is intentionally disabled (reverts NOT_IMPLEMENTED).
+        vm.skip(true);
+
         rollup.setFinalized(true);
 
         // When a user calls sendMessage on L1, the message is encoded with
@@ -371,9 +697,7 @@ contract L1FluentBridgeTest is BridgeBase {
 
         // Reconstruct the same messageHash that would be produced by sendMessage on L1
         // and later included in the L2 block's withdrawalRoot after the rollback on L2
-        bytes32 messageHash = keccak256(
-            abi.encode(depositor, l2Target, depositValue, chainId, uint256(1), uint256(0), bytes(""))
-        );
+        bytes32 messageHash = keccak256(abi.encode(depositor, l2Target, depositValue, chainId, uint256(1), uint256(0), bytes("")));
 
         // The L2 sequencer builds a block whose withdrawalRoot contains the rollback messageHash.
         // After batch finalization on L1, this proof becomes verifiable.
@@ -385,9 +709,7 @@ contract L1FluentBridgeTest is BridgeBase {
             depositCount: 0
         });
 
-        bytes32 commitment = keccak256(
-            abi.encodePacked(header.previousBlockHash, header.blockHash, header.withdrawalRoot, header.depositRoot)
-        );
+        bytes32 commitment = keccak256(abi.encodePacked(header.previousBlockHash, header.blockHash, header.withdrawalRoot, header.depositRoot));
         rollup.setBatchRoot(1, commitment);
 
         MerkleTree.MerkleProof memory emptyProof = MerkleTree.MerkleProof(0, "");
@@ -408,11 +730,92 @@ contract L1FluentBridgeTest is BridgeBase {
             emptyProof
         );
 
-        assertEq(
-            uint8(l1Bridge.getRollbackMessage(messageHash)),
-            uint8(IFluentBridge.MessageStatus.Success),
-            "rollback should succeed"
-        );
+        assertEq(uint8(l1Bridge.getRollbackMessage(messageHash)), uint8(IFluentBridge.MessageStatus.Success), "rollback should succeed");
         assertEq(depositor.balance, depositorBalBefore + depositValue, "depositor should receive refund");
+    }
+
+    // ============ skipExpiredDeposits ============
+
+    function test_skipExpiredDeposits_advancesPastExpiredHeads() public {
+        uint256 sendBlock = block.number;
+        l1Bridge.sendMessage(receiver, hex"01");
+        l1Bridge.sendMessage(receiver, hex"02");
+
+        vm.roll(sendBlock + 101);
+
+        vm.prank(pauser);
+        l1Bridge.skipExpiredDeposits();
+        assertEq(l1Bridge.getSentMessageQueueSize(), 0, "all expired heads should be skipped");
+    }
+
+    function test_skipExpiredDeposits_stopsAtFirstFreshHead() public {
+        // depositProcessingWindow = 100 (set in setUp)
+        // msg 0 at block 1: expires at block 101
+        // msg 1 at block 102: expires at block 202
+        // check at block 102: msg 0 expired, msg 1 fresh
+        uint256 sendBlock = block.number;
+        l1Bridge.sendMessage(receiver, hex"01");
+
+        vm.roll(sendBlock + 101);
+        l1Bridge.sendMessage(receiver, hex"02");
+
+        // Now at block sendBlock+101: msg 0 deadline = sendBlock+100, expired.
+        // msg 1 deadline = sendBlock+201, fresh.
+        vm.prank(pauser);
+        l1Bridge.skipExpiredDeposits();
+
+        assertEq(l1Bridge.getSentMessageQueueSize(), 1, "second message should remain");
+        assertEq(l1Bridge.getSentMessageCursor(), 1, "cursor should advance past first only");
+    }
+
+    function test_skipExpiredDeposits_emitsPerSlotEvent() public {
+        uint256 sendBlock = block.number;
+        l1Bridge.sendMessage(receiver, hex"01");
+
+        bytes32 expectedHash = l1Bridge.getMessageAt(0);
+        uint64 expectedExpiry = uint64(sendBlock + 100);
+
+        vm.roll(sendBlock + 101);
+
+        vm.expectEmit(true, true, false, true, address(l1Bridge));
+        emit IL1FluentBridge.DepositSkipped(0, expectedHash, expectedExpiry);
+        vm.prank(pauser);
+        l1Bridge.skipExpiredDeposits();
+    }
+
+    function test_RevertIf_skipExpiredDeposits_emptyQueue() public {
+        vm.prank(pauser);
+        vm.expectRevert(IL1FluentBridge.SentMessageQueueEmpty.selector);
+        l1Bridge.skipExpiredDeposits();
+    }
+
+    function test_RevertIf_skipExpiredDeposits_headNotExpired() public {
+        l1Bridge.sendMessage(receiver, hex"01");
+        vm.prank(pauser);
+        vm.expectRevert(IL1FluentBridge.NoExpiredDeposits.selector);
+        l1Bridge.skipExpiredDeposits();
+    }
+
+    function test_RevertIf_skipExpiredDeposits_callerNotPauser() public {
+        uint256 sendBlock = block.number;
+        l1Bridge.sendMessage(receiver, hex"01");
+        vm.roll(sendBlock + 101);
+
+        vm.prank(user);
+        vm.expectRevert();
+        l1Bridge.skipExpiredDeposits();
+    }
+
+    function test_RevertIf_skipExpiredDeposits_paused() public {
+        uint256 sendBlock = block.number;
+        l1Bridge.sendMessage(receiver, hex"01");
+        vm.roll(sendBlock + 101);
+
+        vm.prank(pauser);
+        l1Bridge.pause();
+
+        vm.prank(pauser);
+        vm.expectRevert();
+        l1Bridge.skipExpiredDeposits();
     }
 }

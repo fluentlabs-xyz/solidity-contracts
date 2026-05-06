@@ -21,11 +21,14 @@ import {INativeGateway} from "../interfaces/gateways/INativeGateway.sol";
  *      No gateway-level gas cap is needed.
  * @dev Flows:
  *      1) Source chain: user calls `sendNativeTokens(to, amount)` and ETH is forwarded into
- *         `FluentBridge.sendMessage{value: amount}(otherSide, payload)`.
+ *         `FluentBridge.sendMessage{value: ...}(otherSide, payload)` after a gateway blacklist check.
  *      2) Destination chain: relayer executes bridge delivery; gateway validates origin and transfers ETH to `to`.
  * @dev Admin functions: `rescueNative`.
  */
 contract NativeGateway is GatewayBase, INativeGateway {
+    /// @dev Shared-key slot for native-asset limit config in GatewayBase storage.
+    address public constant NATIVE_LIMIT_KEY = address(0x0000012345678901234567890123456789012345);
+
     // ============ Constructor ============
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -40,9 +43,11 @@ contract NativeGateway is GatewayBase, INativeGateway {
         __GatewayBase_init(initialOwner, bridgeContract);
     }
 
-    /// @inheritdoc INativeGateway
     function sendNativeTokens(address to) external payable nonReentrant {
         require(to != address(0), InvalidRecipient());
+        address sender = msg.sender;
+        _requireAccountNotBlacklisted(sender);
+        _requireAccountNotBlacklisted(to);
 
         // deduct the bridge relay fee; remainder is the actual bridged amount
         uint256 fee = FluentBridge(getBridgeContract()).getSentMessageFee();
@@ -52,7 +57,7 @@ contract NativeGateway is GatewayBase, INativeGateway {
         // forward full msg.value (amount + fee) so the bridge can retain the fee portion
         FluentBridge(getBridgeContract()).sendMessage{value: msg.value}(
             getOtherSideGateway(),
-            abi.encodeCall(NativeGateway.receiveNativeTokens, (msg.sender, to, amount))
+            abi.encodeCall(NativeGateway.receiveNativeTokens, (sender, to, amount))
         );
     }
 
@@ -62,6 +67,11 @@ contract NativeGateway is GatewayBase, INativeGateway {
         require(FluentBridge(msg.sender).getNativeSender() == getOtherSideGateway(), MessageFromWrongGateway());
         require(msg.value == amount, InvalidNativeAmount());
         require(to != address(0), InvalidRecipient());
+
+        // Whitelist / hourly / daily quota applies only while the source batch is still
+        // Preconfirmed. Once the originating batch is Finalized the call is unrestricted.
+        // No-op when the whitelist is disabled.
+        _consumeLimit(NATIVE_LIMIT_KEY, amount);
 
         // Forward ETH to recipient — gas is bounded by the bridge's executeGasLimit on first
         // delivery, and by the caller's transaction gas limit on retry via receiveFailedMessage

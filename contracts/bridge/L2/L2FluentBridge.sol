@@ -16,8 +16,8 @@ import {IL1GasOracle} from "../../interfaces/oracles/IL1GasOracle.sol";
 contract L2FluentBridge is FluentBridge, IL2FluentBridge {
     // ============ Constants ============
 
-    /// @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.L2FluentBridgeStorage")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 internal constant L2_FLUENT_BRIDGE_STORAGE_LOCATION = 0x87bc3410b506da535d5d599e04bd2f08b89897a5d89e1855acbd7567af23bd00;
+    /// @dev keccak256(abi.encode(uint256(keccak256("Fluent.storage.L2FluentBridgeStorage")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 internal constant L2_FLUENT_BRIDGE_STORAGE_LOCATION = 0xdb789bfce4d76202a01e0604e72a2e052398264aedb278a3431997ac77ce1100;
 
     // ============ Storage ============
 
@@ -34,13 +34,8 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
         uint256 _l1GasLimit;
     }
 
-    /**
-     * @dev ERC-7201 namespaced storage for L2-specific bridge state.
-     */
-    /// @custom:storage-location erc7201:fluent.storage.L2FluentBridgeStorage
+    /// @custom:storage-location erc7201:Fluent.storage.L2FluentBridgeStorage
     struct L2FluentBridgeStorage {
-        /// @dev L1 blocks after which an undelivered message is eligible for rollback (0 = disabled).
-        uint256 _receiveMessageDeadline;
         /// @dev Oracle providing the latest L1 block number on L2.
         address _l1BlockOracle;
         /// @dev Oracle providing the latest L1 gas price on L2.
@@ -73,11 +68,13 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
     // ============ Initializer ============
 
     /**
-     * @notice Initializes the L2 bridge with base config, rollback deadline, oracles, gas config, and fee treasury.
+     * @notice Initializes the L2 bridge with base config, oracles, gas config, and fee treasury.
+     * @dev The receive-message deadline is now L1-owned and snapshotted into each outbound
+     *      L1->L2 message hash at send time. L2 no longer stores or configures the deadline —
+     *      it validates the committed {validUntilBlockNumber} against the L1 block oracle.
      */
     function initialize(
         bytes calldata data,
-        uint256 receiveMessageDeadline,
         address l1BlockOracle,
         address l1GasPriceOracle,
         uint256 overheadGasPrice,
@@ -88,8 +85,6 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
         // Decode base config (admin, pauser, relayer, other bridge) and init OZ modules
         __FluentBridgeStorage_init(data);
 
-        // Max L1 blocks before an undelivered message becomes eligible for rollback
-        _setReceiveMessageDeadline(receiveMessageDeadline);
         // Oracle the bridge queries to learn the latest L1 block number on L2
         _setL1BlockOracle(l1BlockOracle);
         // Oracle providing L1 gas price for outbound fee calculation
@@ -102,45 +97,52 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
 
     // ============ Fee logic ============
 
-    /// @inheritdoc FluentBridge
-    function _chargeSendFee() internal override returns (uint256) {
-        // Compute the fee based on the current L1 gas price and config parameters
-        uint256 fee = getSentMessageFee();
-        if (fee > 0) {
-            // Treasury must be configured before fees can be collected
-            address treasury = getFeeTreasury();
-            require(treasury != address(0), ZeroAddressNotAllowed("feeTreasury"));
-            // Transfer fee from msg.value to the treasury; reverts if the call fails
-            (bool success, ) = treasury.call{value: fee}("");
-            require(success, FailedToDeductFee());
-        }
-        // Return the fee so the caller can deduct it from the cross-chain value
-        return fee;
+    /**
+     * @dev `fee` is computed once by the base {FluentBridge-sendMessage} and passed through
+     *      to avoid a second oracle read. The value matches the one used to derive `value`
+     *      for the outbound message, so the transfer and the cross-chain value stay in sync
+     *      even if the oracle state were to change between calls (impossible within a single
+     *      tx, but defensively consistent).
+     */
+    function _chargeSendFee(uint256 fee) internal override {
+        if (fee == 0) return;
+        // Treasury must be configured before fees can be collected
+        address treasury = getFeeTreasury();
+        require(treasury != address(0), ZeroAddressNotAllowed("feeTreasury"));
+        // Transfer fee from msg.value to the treasury; reverts if the call fails
+        (bool success, ) = treasury.call{value: fee}("");
+        require(success, FailedToDeductFee());
     }
 
     /// @inheritdoc IFluentBridgeRead
     function getSentMessageFee() public view override returns (uint256) {
-        // Total fee = assumed L1 gas units * per-unit cost (scalar-adjusted L1 price + overhead)
-        return getL1GasLimit() * _calculateGasCost();
+        // Read fee config from storage once and compute fee inline on the hot send path.
+        GasPriceConfig storage gasPriceConfig = _getL2FluentBridgeStorage()._gasPriceConfig;
+        uint256 l1GasPrice = IL1GasOracle(getL1GasPriceOracle()).getL1GasPrice();
+        uint256 perUnitCost = ((l1GasPrice * gasPriceConfig._scalarGasPrice)) / 1e18 + gasPriceConfig._overheadGasPrice;
+        // Total fee = assumed L1 gas units * per-unit cost (scalar-adjusted L1 price + overhead).
+        return gasPriceConfig._l1GasLimit * perUnitCost;
     }
 
     // ============ Receive hooks ============
 
-    /// @inheritdoc FluentBridge
-    /// @dev Checks if the message has exceeded the rollback deadline. If so, marks it
-    ///      Failed and emits {RollbackMessage} (included in L2BlockHeader.withdrawalRoot
-    ///      for later proof-based rollback on L1). Returns false to skip execution.
+    /**
+     * @dev Checks if the message has reached its committed expiry block. If so, marks it
+     *      Failed and emits {RollbackMessage} (included in L2BlockHeader.withdrawalRoot
+     *      for later proof-based rollback on L1). Returns false to skip execution.
+     */
     function _beforeReceiveMessage(
-        address from,
-        address to,
+        address /* from */,
+        address /* to */,
         uint256 value,
-        uint256 chainId,
-        uint256 blockNumber,
-        uint256 messageNonce,
-        bytes calldata message
+        uint256 /* chainId */,
+        uint256 validUntilBlockNumber,
+        uint256 /* messageNonce */,
+        bytes calldata /* message */,
+        bytes32 messageHash
     ) internal override returns (bool) {
-        // blockNumber is the L1 block at which the message was sent; must be non-zero
-        require(blockNumber > 0, ZeroValueNotAllowed("blockNumber"));
+        // Inbound L1->L2 messages must carry a committed expiry block from L1.
+        require(validUntilBlockNumber > 0, ZeroValueNotAllowed("validUntilBlockNumber"));
 
         // Fetch the latest known L1 block number from the on-chain oracle
         uint256 l1BlockNumber = IL1BlockOracle(getL1BlockOracle()).getL1BlockNumber();
@@ -148,17 +150,15 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
         // If the oracle returns 0, it means the L1 block number is not available yet. In this case, we cannot perform the deadline check.
         require(l1BlockNumber > 0, ZeroValueNotAllowed("l1BlockNumber"));
 
-        // Reconstruct the message hash to record the outcome in storage
-        bytes32 messageHash = keccak256(_encodeMessage(from, to, value, chainId, blockNumber, messageNonce, message));
-        // Check if enough L1 blocks have passed since the message was sent
-        // If the deadline has expired, the message is marked Failed and a rollback is emitted
-        if (l1BlockNumber >= blockNumber && l1BlockNumber - blockNumber >= getReceiveMessageDeadline()) {
+        // Check whether the message has reached its committed absolute expiry block.
+        // The deadline was frozen into the message hash on L1 at send time, so admin
+        // updates to the receive-message deadline never retroactively affect this message.
+        if (l1BlockNumber >= validUntilBlockNumber) {
             // Mark as Failed so it cannot be executed later
             _getFluentBridgeStorage()._receivedMessage[messageHash] = IFluentBridge.MessageStatus.Failed;
             // RollbackMessage is included in the L2 block's withdrawalRoot,
             // enabling proof-based refund on L1 via rollbackMessageWithProof
             emit RollbackMessage(messageHash, block.number);
-            emit ReceivedMessage(messageHash, false, "");
             // Return false to skip message execution in the caller
             return false;
         }
@@ -168,7 +168,7 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
         // never revert under normal operation, but guards against a broken minting mechanism.
         if (value > 0) require(address(this).balance >= value, InsufficientBridgeBalance(value));
 
-        // Deadline not exceeded — allow normal execution to proceed
+        // Committed expiry not reached — allow normal execution to proceed
         return true;
     }
 
@@ -188,12 +188,6 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
         return _getL2FluentBridgeStorage()._l1GasPriceOracle;
     }
 
-    /// @inheritdoc IL2FluentBridge
-    function getReceiveMessageDeadline() public view returns (uint256) {
-        // Returns the number of L1 blocks after which messages become eligible for rollback
-        return _getL2FluentBridgeStorage()._receiveMessageDeadline;
-    }
-
     /**
      * @notice Returns the current gas price configuration.
      */
@@ -206,14 +200,16 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
      * @notice Returns the assumed L1 gas units used for fee calculation.
      */
     function getL1GasLimit() public view returns (uint256) {
-        // Reads via getGasPriceConfig() which loads the full struct into memory
-        return getGasPriceConfig()._l1GasLimit;
+        // Read directly from storage to avoid a full struct memory copy.
+        return _getL2FluentBridgeStorage()._gasPriceConfig._l1GasLimit;
     }
 
-    /** @dev Computes the L1 gas cost component of the send fee using oracle price and config. */
+    /**
+     * @dev Computes the L1 gas cost component of the send fee using oracle price and config.
+     */
     function _calculateGasCost() internal view returns (uint256) {
-        // Cache config in memory to avoid repeated SLOAD
-        GasPriceConfig memory gasPriceConfig = getGasPriceConfig();
+        // Read config from storage to avoid a full struct memory copy.
+        GasPriceConfig storage gasPriceConfig = _getL2FluentBridgeStorage()._gasPriceConfig;
         // Query the oracle for the current L1 base fee (in wei per gas unit)
         uint256 l1GasPrice = IL1GasOracle(getL1GasPriceOracle()).getL1GasPrice();
         // Formula: (l1GasPrice * scalarGasPrice) / 1e18 + overheadGasPrice
@@ -233,11 +229,12 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
         _setL1BlockOracle(l1BlockOracle);
     }
 
-    /** @dev Stores the L1 block oracle. Zero address allowed only when deadline is disabled. */
+    /**
+     *  @dev Stores the L1 block oracle. Always required — every inbound L1->L2 message
+     *       must validate its committed expiry against the L1 block number read from the oracle.
+     */
     function _setL1BlockOracle(address l1BlockOracle) internal {
-        // When the rollback deadline is active, the oracle is required for deadline checks
-        // Zero address is only allowed when the deadline is disabled (== 0)
-        if (getReceiveMessageDeadline() != 0) require(l1BlockOracle != address(0), ZeroAddressNotAllowed("l1BlockOracle"));
+        require(l1BlockOracle != address(0), ZeroAddressNotAllowed("l1BlockOracle"));
         // Emit before writing so event carries both old and new addresses
         emit L1BlockOracleUpdated(getL1BlockOracle(), l1BlockOracle);
         // Persist the new oracle in ERC-7201 namespaced storage
@@ -252,7 +249,9 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
         _setL1GasPriceOracle(l1GasPriceOracle);
     }
 
-    /** @dev Validates and stores the L1 gas price oracle. Reverts on zero address. */
+    /**
+     * @dev Validates and stores the L1 gas price oracle. Reverts on zero address.
+     */
     function _setL1GasPriceOracle(address l1GasPriceOracle) internal {
         // Gas price oracle is always required — fee computation depends on it
         require(l1GasPriceOracle != address(0), ZeroAddressNotAllowed("l1GasPriceOracle"));
@@ -270,7 +269,9 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
         _setGasPriceConfig(overheadGasPrice, scalarGasPrice, l1GasLimit);
     }
 
-    /** @dev Stores gas price parameters and emits update event. */
+    /**
+     * @dev Stores gas price parameters and emits update event.
+     */
     function _setGasPriceConfig(uint256 overheadGasPrice, uint256 scalarGasPrice, uint256 l1GasLimit) internal {
         // Load storage pointer once to batch writes and emit old values
         GasPriceConfig storage $ = _getL2FluentBridgeStorage()._gasPriceConfig;
@@ -280,19 +281,5 @@ contract L2FluentBridge is FluentBridge, IL2FluentBridge {
         $._overheadGasPrice = overheadGasPrice;
         $._scalarGasPrice = scalarGasPrice;
         $._l1GasLimit = l1GasLimit;
-    }
-
-    /// @inheritdoc IL2FluentBridge
-    function setReceiveMessageDeadline(uint256 receiveMessageDeadline) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        // Admin-gated — controls the rollback eligibility window
-        _setReceiveMessageDeadline(receiveMessageDeadline);
-    }
-
-    /** @dev Stores the rollback deadline. Reverts on zero value. */
-    function _setReceiveMessageDeadline(uint256 receiveMessageDeadline) internal {
-        // Zero deadline would disable rollback entirely, which is not allowed
-        require(receiveMessageDeadline > 0, InvalidWindowConfig("receiveMessageDeadline must be greater than 0"));
-        emit ReceiveMessageDeadlineUpdated(getReceiveMessageDeadline(), receiveMessageDeadline);
-        _getL2FluentBridgeStorage()._receiveMessageDeadline = receiveMessageDeadline;
     }
 }

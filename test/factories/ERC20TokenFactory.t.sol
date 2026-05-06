@@ -40,7 +40,7 @@ contract ERC20TokenFactoryTest is Test {
 
     function test_tokenInfo_returnsStruct() public {
         GenericTokenFactory.TokenInfo memory info = factory.tokenInfo(makeAddr("unknown"));
-        assertFalse(info.deployed, "should not be deployed");
+        assertFalse(info._deployed, "should not be deployed");
     }
 
     function test_setBeacon_updatesAndEmits() public {

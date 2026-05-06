@@ -83,29 +83,34 @@ contract BridgeAdminTest is BridgeBase {
         assertEq(l1Bridge.getRollup(), nextRollup);
     }
 
+    function test_initialize_storesReceiveMessageDeadline() public view {
+        // Bridge/Base.t.sol initializes the L1 bridge with 100; verify the getter returns it.
+        assertEq(l1Bridge.getReceiveMessageDeadline(), 100);
+    }
+
     function test_setReceiveMessageDeadline_updatesValue() public {
-        uint256 prev = l2Bridge.getReceiveMessageDeadline();
-        vm.expectEmit(true, true, true, true, address(l2Bridge));
-        emit IL2FluentBridge.ReceiveMessageDeadlineUpdated(prev, 777);
+        uint256 prev = l1Bridge.getReceiveMessageDeadline();
+        vm.expectEmit(true, true, true, true, address(l1Bridge));
+        emit IL1FluentBridge.ReceiveMessageDeadlineUpdated(prev, 777);
         vm.prank(admin);
-        l2Bridge.setReceiveMessageDeadline(777);
-        assertEq(l2Bridge.getReceiveMessageDeadline(), 777);
+        l1Bridge.setReceiveMessageDeadline(777);
+        assertEq(l1Bridge.getReceiveMessageDeadline(), 777);
     }
 
     function test_RevertIf_setReceiveMessageDeadline_callerNotAdmin() public {
         vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, stranger, l2Bridge.DEFAULT_ADMIN_ROLE())
+            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, stranger, l1Bridge.DEFAULT_ADMIN_ROLE())
         );
         vm.prank(stranger);
-        l2Bridge.setReceiveMessageDeadline(777);
+        l1Bridge.setReceiveMessageDeadline(777);
     }
 
     function test_RevertIf_setReceiveMessageDeadline_zeroValue() public {
         vm.expectRevert(
-            abi.encodeWithSelector(IFluentBridgeErrors.InvalidWindowConfig.selector, "receiveMessageDeadline must be greater than 0")
+            abi.encodeWithSelector(IFluentBridgeErrors.InvalidWindowConfig.selector, "must be greater than 0")
         );
         vm.prank(admin);
-        l2Bridge.setReceiveMessageDeadline(0);
+        l1Bridge.setReceiveMessageDeadline(0);
     }
 
     function test_setL1BlockOracle_updatesAddress() public {

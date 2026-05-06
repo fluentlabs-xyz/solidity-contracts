@@ -2,6 +2,8 @@
 pragma solidity 0.8.30;
 
 import {RollupAssertions} from "./Base.t.sol";
+import {BlockDeposit} from "../../contracts/interfaces/rollup/IRollupTypes.sol";
+import {IRollupErrors} from "../../contracts/interfaces/rollup/IRollup.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 
@@ -16,13 +18,13 @@ contract EmergencyPauseTest is RollupAssertions {
         assertFalse(rollup.paused());
     }
 
-    function test_pausedBlocksAcceptNextBatch() public {
+    function test_pausedBlockscommitBatch() public {
         vm.prank(admin);
         rollup.pause();
 
         vm.expectRevert(abi.encodeWithSelector(PausableUpgradeable.EnforcedPause.selector));
         vm.prank(sequencer);
-        rollup.acceptNextBatch(_makeBatch(GENESIS_HASH), 1);
+        rollup.commitBatch(keccak256("root"), keccak256("from"), keccak256("to"), 1, new BlockDeposit[](0), 1);
     }
 
     function test_RevertIf_pause_callerNotEmergencyRole() public {
@@ -65,5 +67,37 @@ contract EmergencyPauseTest is RollupAssertions {
         rollup.pause();
         vm.expectRevert(abi.encodeWithSelector(PausableUpgradeable.EnforcedPause.selector));
         rollup.finalizeBatches(batchIndex);
+    }
+
+    // ============ emergencyRevokeRole ============
+
+    function test_emergencyRevokeRole_revokesSequencer() public {
+        bytes32 seqRole = rollup.SEQUENCER_ROLE();
+        assertTrue(rollup.hasRole(seqRole, sequencer));
+        vm.prank(admin);
+        rollup.emergencyRevokeRole(seqRole, sequencer);
+        assertFalse(rollup.hasRole(seqRole, sequencer));
+    }
+
+    function test_RevertIf_emergencyRevokeRole_defaultAdminRole() public {
+        bytes32 adminRole = rollup.DEFAULT_ADMIN_ROLE();
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidOperationalRole.selector, adminRole));
+        vm.prank(admin);
+        rollup.emergencyRevokeRole(adminRole, admin);
+    }
+
+    function test_RevertIf_emergencyRevokeRole_emergencyRole() public {
+        bytes32 emergRole = rollup.EMERGENCY_ROLE();
+        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.InvalidOperationalRole.selector, emergRole));
+        vm.prank(admin);
+        rollup.emergencyRevokeRole(emergRole, admin);
+    }
+
+    function test_RevertIf_emergencyRevokeRole_callerNotEmergencyRole() public {
+        bytes32 seqRole = rollup.SEQUENCER_ROLE();
+        bytes32 emergRole = rollup.EMERGENCY_ROLE();
+        vm.expectRevert(abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, user, emergRole));
+        vm.prank(user);
+        rollup.emergencyRevokeRole(seqRole, sequencer);
     }
 }

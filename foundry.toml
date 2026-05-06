@@ -1,21 +1,23 @@
 [profile.default]
+# Required by OpenZeppelin Foundry Upgrades plugin:
+#   ast, build_info, extra_output — storage layout validation for UUPS upgrades
+#   ffi — plugin runs `npx @openzeppelin/upgrades-core validate` via FFI
 ast = true
 build_info = true
-cache_path = "forge-cache"
-evm_version = "cancun"
+cache_path = "cache"
+evm_version = "prague"
 extra_output = ["storageLayout"]
 ffi = true
 fs_permissions = [
   {access = "read-write", path = "./deployments"},
-  {access = "read-write", path = "./config"},
-  {access = "read", path = "./forge-out"},
+  {access = "read-write", path = "./scripts/config"},
   {access = "read", path = "./broadcast"},
+  {access = "read", path = "./out"},
 ]
 libs = ["lib"]
 no_match_coverage = "(test|script|ExcessivelySafeCall)"
 optimizer = true
-optimizer_runs = 200
-out = "forge-out"
+optimizer_runs = 80
 script = "scripts"
 solc_version = "0.8.30"
 src = "contracts"

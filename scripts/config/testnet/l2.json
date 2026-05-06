@@ -1,0 +1,24 @@
+{
+    "chainId": 20994,
+    "roles": {
+        "initialOwner": "0x482582979C9125abAb5a06F0E196E8F4015bF77A",
+        "admin": "0x482582979C9125abAb5a06F0E196E8F4015bF77A",
+        "pauser": "0x482582979C9125abAb5a06F0E196E8F4015bF77A",
+        "relayer": "0x482582979C9125abAb5a06F0E196E8F4015bF77A"
+    },
+    "bridge": {
+        "otherBridge": "0x0000000000000000000000000000000000000001",
+        "executeGasLimit": 1000000,
+        "feeTreasury": "0x482582979C9125abAb5a06F0E196E8F4015bF77A",
+        "gasPriceConfig": {
+            "overheadGasPrice": 0,
+            "scalarGasPrice": "1000000000000000000",
+            "l1GasLimit": 200000
+        }
+    },
+    "timelock": {
+        "normalDelay": 60,
+        "emergencyDelay": 10,
+        "safe": "0x0000000000000000000000000000000000000000"
+    }
+}

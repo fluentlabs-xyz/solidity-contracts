@@ -2,13 +2,13 @@
 pragma solidity 0.8.30;
 
 import {RollupAssertions} from "./Base.t.sol";
-import {BatchStatus} from "../../contracts/interfaces/IRollupTypes.sol";
-import {IRollupErrors} from "../../contracts/interfaces/IRollup.sol";
+import {BatchStatus} from "../../contracts/interfaces/rollup/IRollupTypes.sol";
+import {IRollupErrors} from "../../contracts/interfaces/rollup/IRollup.sol";
 
 contract SubmitBlobsTest is RollupAssertions {
     function test_submitBlobs_singleCallTransitionsToAccepted() public {
         uint256 batchIndex = _acceptBatch(GENESIS_HASH, 2);
-        assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.HeadersSubmitted));
+        assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Committed));
 
         bytes32[] memory hashes = new bytes32[](2);
         hashes[0] = keccak256(abi.encode("blob", batchIndex, uint256(0)));
@@ -17,7 +17,7 @@ contract SubmitBlobsTest is RollupAssertions {
         vm.prank(sequencer);
         rollup.submitBlobs(batchIndex, 2);
 
-        assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Accepted));
+        assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Submitted));
     }
 
     function test_submitBlobs_multipleCallsAccumulate() public {
@@ -28,12 +28,12 @@ contract SubmitBlobsTest is RollupAssertions {
             h[0] = keccak256(abi.encode("blob", batchIndex, call));
             vm.blobhashes(h);
             vm.prank(sequencer);
-            rollup.submitBlobs(batchIndex, 1);
+            rollup.submitBlobs(batchIndex, (call << 8) | 1);
 
             if (call < 2) {
-                assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.HeadersSubmitted));
+                assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Committed));
             } else {
-                assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Accepted));
+                assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Submitted));
             }
         }
     }
@@ -48,7 +48,7 @@ contract SubmitBlobsTest is RollupAssertions {
             expected[call] = h[0];
             vm.blobhashes(h);
             vm.prank(sequencer);
-            rollup.submitBlobs(batchIndex, 1);
+            rollup.submitBlobs(batchIndex, (call << 8) | 1);
 
             bytes32[] memory stored = rollup.batchBlobHashes(batchIndex);
             assertEq(stored.length, call + 1);
@@ -73,9 +73,9 @@ contract SubmitBlobsTest is RollupAssertions {
         vm.expectEmit(true, false, false, true, address(rollup));
         emit BatchBlobsSubmitted(batchIndex, 1, 2);
         vm.expectEmit(true, false, false, false, address(rollup));
-        emit BatchAccepted(batchIndex);
+        emit BatchSubmitted(batchIndex);
         vm.prank(sequencer);
-        rollup.submitBlobs(batchIndex, 1);
+        rollup.submitBlobs(batchIndex, (1 << 8) | 1);
     }
 
     function test_RevertIf_submitBlobs_exceedsExpected() public {
@@ -94,7 +94,7 @@ contract SubmitBlobsTest is RollupAssertions {
         uint256 batchIndex = _acceptBatch(GENESIS_HASH, 0);
         _submitBlobs(batchIndex, 0);
 
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "numBlobs"));
+        vm.expectRevert(IRollupErrors.ZeroNumBlobs.selector);
         vm.prank(sequencer);
         rollup.submitBlobs(batchIndex, 0);
     }
@@ -102,7 +102,7 @@ contract SubmitBlobsTest is RollupAssertions {
     function test_RevertIf_submitBlobs_wrongBatchStatus() public {
         uint256 batchIndex = _acceptBatch(GENESIS_HASH, 1);
         _submitBlobs(batchIndex, 1);
-        assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Accepted));
+        assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Submitted));
 
         // All blobs are already submitted, so submitting more hits InvalidBlobCount
         // before the status check. Verify the contract protects against double-submission.
@@ -120,7 +120,7 @@ contract SubmitBlobsTest is RollupAssertions {
         bytes32[] memory h = new bytes32[](1);
         h[0] = bytes32(0);
         vm.blobhashes(h);
-        vm.expectRevert(abi.encodeWithSelector(IRollupErrors.ZeroValueNotAllowed.selector, "blobHash"));
+        vm.expectRevert(IRollupErrors.ZeroBlobHash.selector);
         vm.prank(sequencer);
         rollup.submitBlobs(batchIndex, 1);
     }
@@ -150,7 +150,7 @@ contract SubmitBlobsTest is RollupAssertions {
         vm.prank(sequencer);
         rollup.submitBlobs(batchIndex, 1);
 
-        assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Accepted));
+        assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Submitted));
     }
 
     function test_submitBlobs_accumulatesAcrossMultipleBlocks() public {
@@ -162,7 +162,7 @@ contract SubmitBlobsTest is RollupAssertions {
             h[0] = keccak256(abi.encode("multiBlock", call));
             vm.blobhashes(h);
             vm.prank(sequencer);
-            rollup.submitBlobs(batchIndex, 1);
+            rollup.submitBlobs(batchIndex, (call << 8) | 1);
         }
 
         bytes32[] memory stored = rollup.batchBlobHashes(batchIndex);
@@ -170,6 +170,6 @@ contract SubmitBlobsTest is RollupAssertions {
         for (uint256 i = 0; i < 3; i++) {
             assertEq(stored[i], keccak256(abi.encode("multiBlock", i)));
         }
-        assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Accepted));
+        assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Submitted));
     }
 }

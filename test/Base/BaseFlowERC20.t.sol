@@ -9,7 +9,7 @@ import {IGatewayBaseErrors} from "../../contracts/interfaces/gateways/IGatewayBa
 import {ERC20Gateway} from "../../contracts/gateways/ERC20Gateway.sol";
 import {IFluentBridgeEvents} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
-import {L2BlockHeader} from "../../contracts/interfaces/IRollupTypes.sol";
+import {L2BlockHeader, BlockDeposit} from "../../contracts/interfaces/rollup/IRollupTypes.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
 import {BaseDeployERC20} from "./BaseDeploy.sol";
 import {WithdrawalMerkle} from "../helpers/WithdrawalMerkle.sol";
@@ -112,6 +112,7 @@ contract BaseFlowERC20Test is BaseDeployERC20 {
         _selectL1();
         bytes32 withdrawalRoot = WithdrawalMerkle.withdrawalRoot(withdrawalLeaves);
         uint256 depositCount = depositLeaves.length;
+        require(depositCount <= type(uint8).max, "deposit count exceeds uint8");
         bytes32 depositRoot = _depositRoot(depositLeaves);
         batchIndex = l1Rollup.nextBatchIndex();
         header = L2BlockHeader({
@@ -119,14 +120,17 @@ contract BaseFlowERC20Test is BaseDeployERC20 {
             blockHash: keccak256(abi.encodePacked("erc20-flow", withdrawalRoot)),
             withdrawalRoot: withdrawalRoot,
             depositRoot: depositRoot,
-            depositCount: depositCount
+            depositCount: uint8(depositCount)
         });
         L2BlockHeader[] memory headers = new L2BlockHeader[](1);
         headers[0] = header;
         uint256 queueBefore = l1Bridge.getSentMessageQueueSize();
         assertEq(queueBefore, depositCount, "unexpected queued deposits before accept");
+        bytes32 batchRoot = keccak256(abi.encodePacked(keccak256(abi.encodePacked(header.previousBlockHash, header.blockHash, header.withdrawalRoot, header.depositRoot))));
+        BlockDeposit[] memory deposits = new BlockDeposit[](1);
+        deposits[0] = BlockDeposit({depositRoot: depositRoot, depositCount: uint16(depositCount)});
         vm.prank(relayer);
-        l1Rollup.acceptNextBatch(headers, 1);
+        l1Rollup.commitBatch(batchRoot, header.blockHash, header.blockHash, 1, deposits, 1);
         assertEq(l1Bridge.getSentMessageQueueSize(), queueBefore - depositCount, "deposits not popped from bridge queue");
         bytes32[] memory blobHashes = new bytes32[](1);
         blobHashes[0] = keccak256(abi.encode("erc20-flow-blob", batchIndex));

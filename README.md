@@ -73,10 +73,9 @@ None → HeadersSubmitted → Accepted → Preconfirmed → Finalized
 | `finalizeWithProofs` | `PROVER_ROLE` | Immediate finalization if all blocks have SP1 proofs |
 | `challengeBlock` | `CHALLENGER_ROLE` | Disputes a specific block; requires ETH deposit |
 
-Three deadline mechanisms protect liveness:
+Two deadline mechanisms protect liveness:
 
 - **`submitBlobsWindow`** — max L1 blocks for blob submission after header acceptance (0 = disabled)
-- **`preconfirmWindow`** — max L1 blocks for preconfirmation after acceptance (0 = disabled)
 - **`challengeWindow`** — L1 blocks a prover has to resolve a challenge
 
 Exceeding any active deadline triggers the **corrupted** state. All state-changing functions revert until the corrupted batch is cleared via `forceRevertBatch` (`EMERGENCY_ROLE`).
@@ -84,9 +83,9 @@ Exceeding any active deadline triggers the **corrupted** state. All state-changi
 ### Verification paths
 
 - **Batch preconfirmation:** `NitroVerifier.verifyBatch()` — ECDSA recovery against whitelisted Nitro enclave public keys.
-- **Challenge resolution:** Dual proof required — `NitroVerifier.verifyBlock()` (block-level Nitro signature) **and** `SP1Verifier.verifyProof()` (ZK proof).
+- **Challenge resolution:** `SP1Verifier.verifyProof()` — ZK proof of block execution.
 - **Enclave attestation:** SP1 ZK proof validates the Nitro certificate chain; verified public key is added to the whitelist.
-- **VKEY rotation:** 1-day timelock via `proposeVKeyUpdate` → `executeVKeyUpdate`.
+- **VKEY rotation:** `updateProgramVKey` is permissioned to `DEFAULT_ADMIN_ROLE`; the admin is expected to be an OZ `TimelockController` so the rotation is observable off-chain before it takes effect.
 
 ---
 
@@ -133,7 +132,7 @@ forge install
 forge build
 ```
 
-Compiles without errors; artifacts under `forge-out/`. Configuration: `via_ir = true`, Cancun EVM, optimizer on (200 runs).
+Compiles without errors; artifacts under `out/`. Configuration: `via_ir = true`, Prague EVM, optimizer on (200 runs).
 
 ### Test
 
