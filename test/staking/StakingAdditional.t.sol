@@ -16,7 +16,7 @@ import {SlashingIndicator} from "../../contracts/staking/SlashingIndicator.sol";
 import {Staking} from "../../contracts/staking/Staking.sol";
 import {StakingPool} from "../../contracts/staking/StakingPool.sol";
 import {SystemReward} from "../../contracts/staking/SystemReward.sol";
-import {MockBlend} from "../../contracts/staking/mocks/MockBlend.sol";
+import {MockBlendToken} from "../../contracts/staking/mocks/MockBlendToken.sol";
 
 contract StakingAdditionalTest is Test {
     uint256 internal constant ONE = 1 ether;
@@ -26,7 +26,7 @@ contract StakingAdditionalTest is Test {
     ChainConfig internal chainConfig;
     SlashingIndicator internal slashingIndicator;
     SystemReward internal systemReward;
-    MockBlend internal blend;
+    MockBlendToken internal blend;
 
     address internal owner = makeAddr("owner");
     address internal treasury = makeAddr("treasury");
@@ -37,7 +37,7 @@ contract StakingAdditionalTest is Test {
     address internal validator3 = makeAddr("validator3");
 
     function setUp() public {
-        blend = new MockBlend();
+        blend = new MockBlendToken();
         vm.deal(address(this), 1_000_000 ether);
         _fund(owner);
         _fund(treasury);

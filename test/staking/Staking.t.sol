@@ -10,7 +10,7 @@ import {SlashingIndicator} from "../../contracts/staking/SlashingIndicator.sol";
 import {Staking} from "../../contracts/staking/Staking.sol";
 import {StakingPool} from "../../contracts/staking/StakingPool.sol";
 import {SystemReward} from "../../contracts/staking/SystemReward.sol";
-import {MockBlend} from "../../contracts/staking/mocks/MockBlend.sol";
+import {MockBlendToken} from "../../contracts/staking/mocks/MockBlendToken.sol";
 import {IChainConfig} from "../../contracts/staking/interfaces/IChainConfig.sol";
 import {IGovernance} from "../../contracts/staking/interfaces/IGovernance.sol";
 import {ISlashingIndicator} from "../../contracts/staking/interfaces/ISlashingIndicator.sol";
@@ -26,7 +26,7 @@ contract StakingFoundryTest is Test {
     ChainConfig internal chainConfig;
     SlashingIndicator internal slashingIndicator;
     SystemReward internal systemReward;
-    MockBlend internal blend;
+    MockBlendToken internal blend;
 
     address internal staker1 = makeAddr("staker1");
     address internal staker2 = makeAddr("staker2");
@@ -37,7 +37,7 @@ contract StakingFoundryTest is Test {
     address internal validator4 = makeAddr("validator4");
 
     function setUp() public {
-        blend = new MockBlend();
+        blend = new MockBlendToken();
         _fund(staker1);
         _fund(staker2);
         _fund(staker3);

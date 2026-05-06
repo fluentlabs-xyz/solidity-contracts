@@ -1,0 +1,14 @@
+{
+  "chain_config": "0x24154Bf3B54815A5c237107df152b60C5ad5Ba0f",
+  "chain_config_impl": "0xf03baAF5649B7F893f6ed09531F6618994615756",
+  "governance": "0xc696AE59d822168cdb60C95eb3CC3C7Af15bDd38",
+  "governance_impl": "0x389a82e033568925717D58E53A6aFBae6b3c23D4",
+  "slashing_indicator": "0xA82659526Ae3a4Ea61049E32031c9c1706e95202",
+  "slashing_indicator_impl": "0xF396D7b1c92294eDaA4AbE0b49af3BeA7b0dfe7B",
+  "staking": "0x5c837630B0fBe1aDB324f19073128546465e59D6",
+  "staking_impl": "0x261e91331ad808f9998Fa7FA63a7bb9f1EF50730",
+  "staking_pool": "0x06Ae448629Ee8927eaFCA9B496a9341a5F7b7078",
+  "staking_pool_impl": "0x245A44C78aC9793b86bE1d9FA4AC0076D15e7C3A",
+  "system_reward": "0x8413B2dFfE3409A4c00de506c0d9253949adB675",
+  "system_reward_impl": "0xFb13cA2B7261D53F07C961c34be97C92749C6a64"
+}

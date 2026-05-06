@@ -101,13 +101,13 @@ contract DeployStaking is DeployBase {
 
     function _deployStaking(StakingDeployParams memory p) internal returns (StakingDeployment memory r) {
         uint64 nonce = vm.getNonce(tx.origin);
-        IStaking predictedStaking = IStaking(vm.computeCreateAddress(tx.origin, nonce + 1));
+        IStaking predictedStaking = IStaking(vm.computeCreateAddress(tx.origin, nonce + 2));
         ISlashingIndicator predictedSlashingIndicator =
-            ISlashingIndicator(vm.computeCreateAddress(tx.origin, nonce + 3));
-        ISystemReward predictedSystemReward = ISystemReward(vm.computeCreateAddress(tx.origin, nonce + 5));
-        IStakingPool predictedStakingPool = IStakingPool(vm.computeCreateAddress(tx.origin, nonce + 7));
-        IChainConfig predictedChainConfig = IChainConfig(vm.computeCreateAddress(tx.origin, nonce + 9));
-        IGovernance governance = IGovernance(vm.computeCreateAddress(tx.origin, nonce + 11));
+            ISlashingIndicator(vm.computeCreateAddress(tx.origin, nonce + 4));
+        ISystemReward predictedSystemReward = ISystemReward(vm.computeCreateAddress(tx.origin, nonce + 6));
+        IStakingPool predictedStakingPool = IStakingPool(vm.computeCreateAddress(tx.origin, nonce + 8));
+        IChainConfig predictedChainConfig = IChainConfig(vm.computeCreateAddress(tx.origin, nonce + 10));
+        IGovernance governance = IGovernance(vm.computeCreateAddress(tx.origin, nonce + 12));
 
         uint256 totalInitialStakes = _sum(p.initialStakes);
         if (totalInitialStakes > 0) {
@@ -241,7 +241,7 @@ contract DeployStaking is DeployBase {
         console2.log("  system reward accounts:", p.systemRewardAccounts.length);
         console2.log("  staking token:", address(p.stakingToken));
 
-        vm.startBroadcast();
+        vm.startBroadcast(0x390a4CEdBb65be7511D9E1a35b115376F39DbDF3);
         StakingDeployment memory r = _deployStaking(p);
         vm.stopBroadcast();
 

@@ -1,15 +1,15 @@
 {
     "chainId": 20994,
     "roles": {
-        "initialOwner": "0x482582979C9125abAb5a06F0E196E8F4015bF77A",
-        "admin": "0x482582979C9125abAb5a06F0E196E8F4015bF77A",
-        "pauser": "0x482582979C9125abAb5a06F0E196E8F4015bF77A",
-        "relayer": "0x482582979C9125abAb5a06F0E196E8F4015bF77A"
+        "initialOwner": "0x390a4CEdBb65be7511D9E1a35b115376F39DbDF3",
+        "admin": "0x390a4CEdBb65be7511D9E1a35b115376F39DbDF3",
+        "pauser": "0x390a4CEdBb65be7511D9E1a35b115376F39DbDF3",
+        "relayer": "0x390a4CEdBb65be7511D9E1a35b115376F39DbDF3"
     },
     "bridge": {
         "otherBridge": "0x0000000000000000000000000000000000000001",
         "executeGasLimit": 1000000,
-        "feeTreasury": "0x482582979C9125abAb5a06F0E196E8F4015bF77A",
+        "feeTreasury": "0x390a4CEdBb65be7511D9E1a35b115376F39DbDF3",
         "gasPriceConfig": {
             "overheadGasPrice": 0,
             "scalarGasPrice": "1000000000000000000",
@@ -30,13 +30,13 @@
         "undelegatePeriod": 0,
         "minValidatorStakeAmount": "1000000000000000000",
         "minStakingAmount": "1000000000000000000",
-        "token": "0x0000000000000000000000000000000000000000",
-        "initialValidators": ["0x482582979C9125abAb5a06F0E196E8F4015bF77A"],
+        "token": "0x83Fed707A8dDDC2535aE591CF19fB6C91D542D8E",
+        "initialValidators": ["0x390a4CEdBb65be7511D9E1a35b115376F39DbDF3"],
         "initialStakes": ["1000000000000000000"],
         "initialCommissionRate": 0,
         "systemReward": {
             "accounts": [
-                "0x482582979C9125abAb5a06F0E196E8F4015bF77A"
+                "0x390a4CEdBb65be7511D9E1a35b115376F39DbDF3"
             ],
             "shares": [
                 10000
