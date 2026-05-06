@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import "./interfaces/IChainConfig.sol";
 import "./interfaces/IGovernance.sol";
@@ -58,6 +59,7 @@ abstract contract StakingContext is Initializable, UUPSUpgradeable, Ownable2Step
     IStakingPool internal immutable _stakingPoolContract;
     IGovernance internal immutable _governanceContract;
     IChainConfig internal immutable _chainConfigContract;
+    IERC20 internal immutable _stakingToken;
 
     constructor(
         IStaking stakingContract,
@@ -65,7 +67,8 @@ abstract contract StakingContext is Initializable, UUPSUpgradeable, Ownable2Step
         ISystemReward systemRewardContract,
         IStakingPool stakingPoolContract,
         IGovernance governanceContract,
-        IChainConfig chainConfigContract
+        IChainConfig chainConfigContract,
+        IERC20 stakingToken
     ) {
         _stakingContract = stakingContract;
         _slashingIndicatorContract = slashingIndicatorContract;
@@ -73,6 +76,7 @@ abstract contract StakingContext is Initializable, UUPSUpgradeable, Ownable2Step
         _stakingPoolContract = stakingPoolContract;
         _governanceContract = governanceContract;
         _chainConfigContract = chainConfigContract;
+        _stakingToken = stakingToken;
         // Disable initializer for UUPS proxy contract.
         _disableInitializers();
     }
@@ -125,6 +129,10 @@ abstract contract StakingContext is Initializable, UUPSUpgradeable, Ownable2Step
 
     function getChainConfig() public view returns (IChainConfig) {
         return _chainConfigContract;
+    }
+
+    function getStakingToken() public view returns (IERC20) {
+        return _stakingToken;
     }
 
     function _authorizeUpgrade(address) internal override onlyOwner {}

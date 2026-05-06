@@ -54,7 +54,7 @@ interface IStaking is IValidatorSet {
     function getValidatorByOwner(address owner) external view returns (address);
 
     /// @notice Registers `validator` with `msg.sender` as owner and an initial self-stake.
-    function registerValidator(address validator, uint16 commissionRate) external payable;
+    function registerValidator(address validator, uint16 commissionRate, uint256 initialStake) external;
 
     /// @notice Adds a governance-managed validator.
     function addValidator(address validator) external;
@@ -83,8 +83,8 @@ interface IStaking is IValidatorSet {
         view
         returns (uint256 delegatedAmount, uint64 atEpoch);
 
-    /// @notice Delegates `msg.value` to `validator`, effective from the next epoch.
-    function delegate(address validator) external payable;
+    /// @notice Delegates `amount` staking tokens to `validator`, effective from the next epoch.
+    function delegate(address validator, uint256 amount) external;
 
     /// @notice Starts undelegation of `amount` from `validator` for `msg.sender`.
     function undelegate(address validator, uint256 amount) external;

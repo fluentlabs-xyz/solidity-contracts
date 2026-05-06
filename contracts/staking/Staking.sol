@@ -1,12 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-only
 pragma solidity ^0.8.0;
 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
 import "./StakingContext.sol";
 
 /// @title Validator staking
 /// @notice Manages validator registration, delegation, undelegation, commission, reward claims, active set ordering, and slashing.
 /// @dev Uses epoch snapshots and compacted balances to preserve historical accounting without storing full uint256 stake values.
 contract Staking is IStaking, StakingContext {
+    using SafeERC20 for IERC20;
+
     // ERC-7201 storage namespace:
     // keccak256(abi.encode(uint256(keccak256("Fluent.storage.StakingStorage")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant STAKING_STORAGE_LOCATION =
@@ -143,7 +148,8 @@ contract Staking is IStaking, StakingContext {
         ISystemReward systemRewardContract,
         IStakingPool stakingPoolContract,
         IGovernance governanceContract,
-        IChainConfig chainConfigContract
+        IChainConfig chainConfigContract,
+        IERC20 stakingToken
     )
         StakingContext(
             stakingContract,
@@ -151,7 +157,8 @@ contract Staking is IStaking, StakingContext {
             systemRewardContract,
             stakingPoolContract,
             governanceContract,
-            chainConfigContract
+            chainConfigContract,
+            stakingToken
         )
     {}
 
@@ -160,7 +167,7 @@ contract Staking is IStaking, StakingContext {
         address[] calldata validators,
         uint256[] calldata initialStakes,
         uint16 commissionRate
-    ) external payable initializer {
+    ) external initializer {
         __StakingContext_init(initialOwner);
         if (initialStakes.length != validators.length) revert MalformedInputLength();
         uint256 totalStakes = 0;
@@ -168,7 +175,9 @@ contract Staking is IStaking, StakingContext {
             _addValidator(validators[i], validators[i], ValidatorStatus.Active, commissionRate, initialStakes[i], 0);
             totalStakes += initialStakes[i];
         }
-        if (address(this).balance != totalStakes) revert MalformedInitialBalance();
+        if (totalStakes > 0) {
+            _stakingToken.safeTransferFrom(msg.sender, address(this), totalStakes);
+        }
     }
 
     function getValidatorDelegation(address validatorAddress, address delegator)
@@ -276,8 +285,8 @@ contract Staking is IStaking, StakingContext {
         return uint256(snapshot.totalDelegated) * BALANCE_COMPACT_PRECISION;
     }
 
-    function delegate(address validatorAddress) external payable override {
-        _delegateTo(msg.sender, validatorAddress, msg.value);
+    function delegate(address validatorAddress, uint256 amount) external override {
+        _delegateTo(msg.sender, validatorAddress, amount, true);
     }
 
     function undelegate(address validatorAddress, uint256 amount) external override {
@@ -345,11 +354,14 @@ contract Staking is IStaking, StakingContext {
         return snapshot;
     }
 
-    function _delegateTo(address fromDelegator, address toValidator, uint256 amount) internal {
+    function _delegateTo(address fromDelegator, address toValidator, uint256 amount, bool pullTokens) internal {
         StakingStorage storage $ = _getStakingStorage();
         // check is minimum delegate amount
         if (amount < _chainConfigContract.getMinStakingAmount() || amount == 0) revert AmountTooLow(amount);
         if (amount % BALANCE_COMPACT_PRECISION != 0) revert WrongAmountPrecision();
+        if (pullTokens) {
+            _stakingToken.safeTransferFrom(fromDelegator, address(this), amount);
+        }
         // make sure amount is greater than min staking amount
         // make sure validator exists at least
         Validator memory validator = $.validatorsMap[toValidator];
@@ -501,18 +513,18 @@ contract Staking is IStaking, StakingContext {
         // send available for claim funds to delegator
         if (claimMode == ClaimMode.Transfer) {
             // for transfer claim mode just all rewards to the user
-            _safeTransferWithGasLimit(payable(delegator), availableFunds);
+            _safeTransfer(delegator, availableFunds);
             // emit event
             emit Claimed(validator, delegator, availableFunds, beforeEpochExclude);
         } else if (claimMode == ClaimMode.Redelegate) {
             (uint256 amountToStake, uint256 rewardsDust) = _calcAvailableForRedelegateAmount(availableFunds);
             // if we have something to re-stake then delegate it to the validator
             if (amountToStake > 0) {
-                _delegateTo(delegator, validator, amountToStake);
+                _delegateTo(delegator, validator, amountToStake, false);
             }
             // if we have dust from staking then send it to user
             if (rewardsDust > 0) {
-                _safeTransferWithGasLimit(payable(delegator), rewardsDust);
+                _safeTransfer(delegator, rewardsDust);
             }
             // emit event
             emit Redelegated(validator, delegator, amountToStake, rewardsDust, beforeEpochExclude);
@@ -583,10 +595,11 @@ contract Staking is IStaking, StakingContext {
             systemFee += slashingFee;
         }
         validator.claimedAt = claimAt;
-        _safeTransferWithGasLimit(payable(validator.ownerAddress), availableFunds);
+        _safeTransfer(validator.ownerAddress, availableFunds);
         // if we have system fee then pay it to treasury account
         if (systemFee > 0) {
-            _unsafeTransfer(payable(address(_systemRewardContract)), systemFee);
+            _stakingToken.forceApprove(address(_systemRewardContract), systemFee);
+            _systemRewardContract.deposit(systemFee);
         }
         emit ValidatorOwnerClaimed(validator.validatorAddress, availableFunds, beforeEpoch);
     }
@@ -629,11 +642,14 @@ contract Staking is IStaking, StakingContext {
         systemFee = 0;
     }
 
-    function registerValidator(address validatorAddress, uint16 commissionRate) external payable override {
-        uint256 initialStake = msg.value;
+    function registerValidator(address validatorAddress, uint16 commissionRate, uint256 initialStake)
+        external
+        override
+    {
         // // initial stake amount should be greater than minimum validator staking amount
         if (initialStake < _chainConfigContract.getMinValidatorStakeAmount()) revert InitialStakeTooLow(initialStake);
         if (initialStake % BALANCE_COMPACT_PRECISION != 0) revert WrongAmountPrecision();
+        _stakingToken.safeTransferFrom(msg.sender, address(this), initialStake);
         // add new validator as pending
         _addValidator(validatorAddress, msg.sender, ValidatorStatus.Pending, commissionRate, initialStake, _nextEpoch());
     }
@@ -843,22 +859,29 @@ contract Staking is IStaking, StakingContext {
         return _getValidators();
     }
 
-    function deposit(address validatorAddress) external payable virtual override onlyFromCoinbase onlyZeroGasPrice {
-        _depositFee(validatorAddress);
+    function deposit(address validatorAddress, uint256 amount)
+        external
+        virtual
+        override
+        onlyFromCoinbase
+        onlyZeroGasPrice
+    {
+        _depositFee(validatorAddress, amount);
     }
 
-    function _depositFee(address validatorAddress) internal {
+    function _depositFee(address validatorAddress, uint256 amount) internal {
         StakingStorage storage $ = _getStakingStorage();
-        if (msg.value == 0) revert DepositIsZero();
+        if (amount == 0) revert DepositIsZero();
+        _stakingToken.safeTransferFrom(msg.sender, address(this), amount);
         // make sure validator is active
         Validator memory validator = $.validatorsMap[validatorAddress];
         if (validator.status == ValidatorStatus.NotFound) revert ValidatorNotFound(validatorAddress);
         uint64 epoch = _currentEpoch();
         // increase total pending rewards for validator for current epoch
         ValidatorSnapshot storage currentSnapshot = _touchValidatorSnapshot(validator, epoch);
-        currentSnapshot.totalRewards += uint96(msg.value);
+        currentSnapshot.totalRewards += uint96(amount);
         // emit event
-        emit ValidatorDeposited(validatorAddress, msg.value, epoch);
+        emit ValidatorDeposited(validatorAddress, amount, epoch);
     }
 
     function getValidatorFee(address validatorAddress) external view override returns (uint256) {
@@ -964,14 +987,10 @@ contract Staking is IStaking, StakingContext {
         _claimDelegatorRewardsAndPendingUndelegates(validatorAddress, msg.sender, beforeEpoch, ClaimMode.Transfer);
     }
 
-    function _safeTransferWithGasLimit(address payable recipient, uint256 amount) internal {
-        (bool success,) = recipient.call{value: amount, gas: TRANSFER_GAS_LIMIT}("");
-        if (!success) revert SafeTransferFailed();
-    }
-
-    function _unsafeTransfer(address payable recipient, uint256 amount) internal {
-        (bool success,) = payable(address(recipient)).call{value: amount}("");
-        if (!success) revert UnsafeTransferFailed();
+    function _safeTransfer(address recipient, uint256 amount) internal {
+        if (amount > 0) {
+            _stakingToken.safeTransfer(recipient, amount);
+        }
     }
 
     function slash(address validatorAddress) external virtual override onlyFromSlashingIndicator {

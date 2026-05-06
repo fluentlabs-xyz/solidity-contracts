@@ -4,6 +4,7 @@ pragma solidity 0.8.30;
 import {stdJson} from "forge-std/StdJson.sol";
 import {console2} from "forge-std/console2.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {Governance} from "../../contracts/governance/Governance.sol";
 import {ChainConfig} from "../../contracts/staking/ChainConfig.sol";
@@ -58,6 +59,7 @@ contract DeployStaking is DeployBase {
         uint32 undelegatePeriod;
         uint256 minValidatorStakeAmount;
         uint256 minStakingAmount;
+        IERC20 stakingToken;
     }
 
     function _readStakingParams() internal view returns (StakingDeployParams memory p) {
@@ -77,6 +79,7 @@ contract DeployStaking is DeployBase {
         p.undelegatePeriod = uint32(json.readUint(".staking.undelegatePeriod"));
         p.minValidatorStakeAmount = json.readUint(".staking.minValidatorStakeAmount");
         p.minStakingAmount = json.readUint(".staking.minStakingAmount");
+        p.stakingToken = IERC20(vm.envOr("STAKING_TOKEN", json.readAddress(".staking.token")));
 
         require(p.initialValidators.length == p.initialStakes.length, "staking initial validators/stakes mismatch");
         require(p.systemRewardAccounts.length == p.systemRewardShares.length, "system reward accounts/shares mismatch");
@@ -106,16 +109,22 @@ contract DeployStaking is DeployBase {
         IChainConfig predictedChainConfig = IChainConfig(vm.computeCreateAddress(tx.origin, nonce + 9));
         IGovernance governance = IGovernance(vm.computeCreateAddress(tx.origin, nonce + 11));
 
+        uint256 totalInitialStakes = _sum(p.initialStakes);
+        if (totalInitialStakes > 0) {
+            p.stakingToken.approve(address(predictedStaking), totalInitialStakes);
+        }
+
         Staking stakingImpl = new Staking(
             predictedStaking,
             predictedSlashingIndicator,
             predictedSystemReward,
             predictedStakingPool,
             governance,
-            predictedChainConfig
+            predictedChainConfig,
+            p.stakingToken
         );
         r.staking = address(
-            new ERC1967Proxy{value: _sum(p.initialStakes)}(
+            new ERC1967Proxy(
                 address(stakingImpl),
                 abi.encodeCall(
                     Staking.initialize, (p.initialOwner, p.initialValidators, p.initialStakes, p.initialCommissionRate)
@@ -130,7 +139,8 @@ contract DeployStaking is DeployBase {
             predictedSystemReward,
             predictedStakingPool,
             governance,
-            predictedChainConfig
+            predictedChainConfig,
+            p.stakingToken
         );
         r.slashingIndicator = address(
             new ERC1967Proxy(
@@ -145,7 +155,8 @@ contract DeployStaking is DeployBase {
             predictedSystemReward,
             predictedStakingPool,
             governance,
-            predictedChainConfig
+            predictedChainConfig,
+            p.stakingToken
         );
         r.systemReward = address(
             new ERC1967Proxy(
@@ -161,7 +172,8 @@ contract DeployStaking is DeployBase {
             predictedSystemReward,
             predictedStakingPool,
             governance,
-            predictedChainConfig
+            predictedChainConfig,
+            p.stakingToken
         );
         r.stakingPool = address(
             new ERC1967Proxy(address(stakingPoolImpl), abi.encodeCall(StakingPool.initialize, (p.initialOwner)))
@@ -174,7 +186,8 @@ contract DeployStaking is DeployBase {
             predictedSystemReward,
             predictedStakingPool,
             governance,
-            predictedChainConfig
+            predictedChainConfig,
+            p.stakingToken
         );
         r.chainConfig = address(
             new ERC1967Proxy(
@@ -226,6 +239,7 @@ contract DeployStaking is DeployBase {
         console2.log("  governance voting period:", p.governanceVotingPeriod);
         console2.log("  initial validators:", p.initialValidators.length);
         console2.log("  system reward accounts:", p.systemRewardAccounts.length);
+        console2.log("  staking token:", address(p.stakingToken));
 
         vm.startBroadcast();
         StakingDeployment memory r = _deployStaking(p);

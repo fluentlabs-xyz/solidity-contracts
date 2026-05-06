@@ -1,19 +1,24 @@
 // SPDX-License-Identifier: GPL-3.0-only
 pragma solidity ^0.8.0;
 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
 import "./StakingContext.sol";
 
 /// @title System fee distributor
 /// @notice Accumulates system fees and distributes them to configured recipients by share.
 /// @dev Governance must configure shares so they sum to `SHARE_MAX_VALUE`.
 contract SystemReward is ISystemReward, StakingContext {
+    using SafeERC20 for IERC20;
+
     // ERC-7201 storage namespace:
     // keccak256(abi.encode(uint256(keccak256("Fluent.storage.SystemRewardStorage")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant SYSTEM_REWARD_STORAGE_LOCATION =
         0x85de466a486fac3ceb8a96c8f08f407e42a5512799e7ca6bc110e97735605700;
 
     /**
-     * Parlia has 100 ether limit for max fee, its better to enable auto claim
+     * Parlia has 100 token limit for max fee, its better to enable auto claim
      * for the system treasury otherwise it might cause lost of funds
      */
     uint256 public constant TREASURY_AUTO_CLAIM_THRESHOLD = 50 ether;
@@ -30,7 +35,7 @@ contract SystemReward is ISystemReward, StakingContext {
     uint16 internal constant SHARE_MAX_VALUE = 10000; // 100%
 
     event DistributionShareChanged(address account, uint16 share);
-    event FeeClaimed(address account, uint256 amount);
+    event FeeClaimed(address account, uint256 nativeAmount, uint256 tokenAmount);
 
     /// @notice One fee recipient and its share in basis-point-style units.
     struct DistributionShare {
@@ -40,6 +45,7 @@ contract SystemReward is ISystemReward, StakingContext {
 
     /// @custom:storage-location erc7201:Fluent.storage.SystemRewardStorage
     struct SystemRewardStorage {
+        // Deprecated in favor of balance-based accounting. Keep this slot to preserve storage layout.
         uint256 systemFee;
         // distribution share between holders
         DistributionShare[] distributionShares;
@@ -57,7 +63,8 @@ contract SystemReward is ISystemReward, StakingContext {
         ISystemReward systemRewardContract,
         IStakingPool stakingPoolContract,
         IGovernance governanceContract,
-        IChainConfig chainConfigContract
+        IChainConfig chainConfigContract,
+        IERC20 stakingToken
     )
         StakingContext(
             stakingContract,
@@ -65,7 +72,8 @@ contract SystemReward is ISystemReward, StakingContext {
             systemRewardContract,
             stakingPoolContract,
             governanceContract,
-            chainConfigContract
+            chainConfigContract,
+            stakingToken
         )
     {}
 
@@ -116,41 +124,53 @@ contract SystemReward is ISystemReward, StakingContext {
     }
 
     function getSystemFee() external view override returns (uint256) {
-        SystemRewardStorage storage $ = _getSystemRewardStorage();
-        return $.systemFee;
+        return _stakingToken.balanceOf(address(this));
+    }
+
+    function getNativeSystemFee() external view override returns (uint256) {
+        return address(this).balance;
     }
 
     function claimSystemFee() external override {
         _claimSystemFee();
     }
 
-    receive() external payable {
-        SystemRewardStorage storage $ = _getSystemRewardStorage();
-        // increase total system fee
-        $.systemFee += msg.value;
+    function deposit(uint256 amount) external override {
+        if (amount == 0) revert DepositIsZero();
+        _stakingToken.safeTransferFrom(msg.sender, address(this), amount);
         // once max fee threshold is reached lets do force claim
-        if ($.systemFee >= TREASURY_AUTO_CLAIM_THRESHOLD) {
+        if (_stakingToken.balanceOf(address(this)) >= TREASURY_AUTO_CLAIM_THRESHOLD) {
+            _claimSystemFee();
+        }
+    }
+
+    receive() external payable {
+        if (msg.value == 0) revert DepositIsZero();
+        // once max fee threshold is reached lets do force claim
+        if (address(this).balance >= TREASURY_AUTO_CLAIM_THRESHOLD) {
             _claimSystemFee();
         }
     }
 
     function _claimSystemFee() internal {
         SystemRewardStorage storage $ = _getSystemRewardStorage();
-        uint256 amountToPay = $.systemFee;
-        if (amountToPay <= TREASURY_MIN_CLAIM_THRESHOLD) {
+        uint256 nativeAmountToPay = address(this).balance;
+        uint256 tokenAmountToPay = _stakingToken.balanceOf(address(this));
+        if (nativeAmountToPay <= TREASURY_MIN_CLAIM_THRESHOLD && tokenAmountToPay <= TREASURY_MIN_CLAIM_THRESHOLD) {
             return;
         }
-        $.systemFee = 0;
-        // distribute rewards based on the shares
-        uint256 totalPaid = 0;
+        // distribute native ETH and staking-token rewards based on the same shares
         for (uint256 i = 0; i < $.distributionShares.length; i++) {
             DistributionShare memory ds = $.distributionShares[i];
-            uint256 accountFee = amountToPay * ds.share / SHARE_MAX_VALUE;
-            payable(ds.account).transfer(accountFee);
-            emit FeeClaimed(ds.account, accountFee);
-            totalPaid += accountFee;
+            uint256 nativeAccountFee = nativeAmountToPay * ds.share / SHARE_MAX_VALUE;
+            uint256 tokenAccountFee = tokenAmountToPay * ds.share / SHARE_MAX_VALUE;
+            if (nativeAccountFee > 0) {
+                payable(ds.account).transfer(nativeAccountFee);
+            }
+            if (tokenAccountFee > 0) {
+                _stakingToken.safeTransfer(ds.account, tokenAccountFee);
+            }
+            emit FeeClaimed(ds.account, nativeAccountFee, tokenAccountFee);
         }
-        // return some dust back to the acc
-        $.systemFee = amountToPay - totalPaid;
     }
 }

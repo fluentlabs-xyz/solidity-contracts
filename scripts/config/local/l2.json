@@ -30,6 +30,7 @@
         "undelegatePeriod": 0,
         "minValidatorStakeAmount": "1000000000000000000",
         "minStakingAmount": "1000000000000000000",
+        "token": "0x0000000000000000000000000000000000000000",
         "initialValidators": [],
         "initialStakes": [],
         "initialCommissionRate": 0,
