@@ -16,6 +16,7 @@ import {SlashingIndicator} from "../../contracts/staking/SlashingIndicator.sol";
 import {Staking} from "../../contracts/staking/Staking.sol";
 import {StakingPool} from "../../contracts/staking/StakingPool.sol";
 import {SystemReward} from "../../contracts/staking/SystemReward.sol";
+import {MockBlend} from "../../contracts/staking/mocks/MockBlend.sol";
 
 contract StakingAdditionalTest is Test {
     uint256 internal constant ONE = 1 ether;
@@ -25,6 +26,7 @@ contract StakingAdditionalTest is Test {
     ChainConfig internal chainConfig;
     SlashingIndicator internal slashingIndicator;
     SystemReward internal systemReward;
+    MockBlend internal blend;
 
     address internal owner = makeAddr("owner");
     address internal treasury = makeAddr("treasury");
@@ -35,13 +37,15 @@ contract StakingAdditionalTest is Test {
     address internal validator3 = makeAddr("validator3");
 
     function setUp() public {
-        vm.deal(owner, 1_000 ether);
-        vm.deal(treasury, 1_000 ether);
-        vm.deal(staker1, 1_000 ether);
-        vm.deal(staker2, 1_000 ether);
-        vm.deal(validator1, 1_000 ether);
-        vm.deal(validator2, 1_000 ether);
-        vm.deal(validator3, 1_000 ether);
+        blend = new MockBlend();
+        vm.deal(address(this), 1_000_000 ether);
+        _fund(owner);
+        _fund(treasury);
+        _fund(staker1);
+        _fund(staker2);
+        _fund(validator1);
+        _fund(validator2);
+        _fund(validator3);
         _deploy(
             10, 50, 150, 7, 0, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
         );
@@ -81,7 +85,8 @@ contract StakingAdditionalTest is Test {
             ISystemReward(address(predictedProxy)),
             IStakingPool(address(predictedProxy)),
             IGovernance(address(this)),
-            IChainConfig(address(predictedProxy))
+            IChainConfig(address(predictedProxy)),
+            blend
         );
         Staking proxy = Staking(
             address(
@@ -97,7 +102,8 @@ contract StakingAdditionalTest is Test {
             ISystemReward(address(proxy)),
             IStakingPool(address(proxy)),
             IGovernance(address(this)),
-            IChainConfig(address(proxy))
+            IChainConfig(address(proxy)),
+            blend
         );
 
         assertEq(address(proxy), address(predictedProxy));
@@ -142,7 +148,7 @@ contract StakingAdditionalTest is Test {
 
         staking.addValidator(validator1);
         vm.prank(staker1);
-        staking.delegate{value: ONE}(validator1);
+        staking.delegate(validator1, ONE);
         _rollToNextEpoch();
 
         (,, uint256 historicalDelegated,,,,,,) = staking.getValidatorStatusAtEpoch(validator1, staking.currentEpoch());
@@ -188,7 +194,7 @@ contract StakingAdditionalTest is Test {
     function test_userCanUndelegateAfterUndelegate() public {
         staking.addValidator(validator1);
         vm.prank(staker1);
-        staking.delegate{value: 3 * ONE}(validator1);
+        staking.delegate(validator1, 3 * ONE);
         _rollToNextEpoch();
 
         vm.prank(staker1);
@@ -208,11 +214,11 @@ contract StakingAdditionalTest is Test {
     function test_RevertIf_undelegateMoreThanDelegated() public {
         staking.addValidator(validator1);
         vm.prank(staker1);
-        staking.delegate{value: ONE}(validator1);
+        staking.delegate(validator1, ONE);
         vm.prank(staker1);
-        staking.delegate{value: 2 * ONE}(validator1);
+        staking.delegate(validator1, 2 * ONE);
         vm.prank(staker1);
-        staking.delegate{value: 3 * ONE}(validator1);
+        staking.delegate(validator1, 3 * ONE);
 
         vm.prank(staker1);
         staking.undelegate(validator1, 5 * ONE);
@@ -227,7 +233,7 @@ contract StakingAdditionalTest is Test {
 
     function test_validatorCanClaimCommissionAndDelegatorRewards() public {
         vm.prank(validator1);
-        staking.registerValidator{value: ONE}(validator1, 3000);
+        staking.registerValidator(validator1, 3000, ONE);
         staking.activateValidator(validator1);
         _rollToNextEpoch();
 
@@ -242,15 +248,15 @@ contract StakingAdditionalTest is Test {
 
     function test_stakerRewardsWithMultipleDelegations() public {
         vm.prank(validator1);
-        staking.registerValidator{value: 2 * ONE}(validator1, 1000);
+        staking.registerValidator(validator1, 1000, 2 * ONE);
         staking.activateValidator(validator1);
         _rollToNextEpoch();
 
         vm.prank(staker1);
-        staking.delegate{value: ONE}(validator1);
+        staking.delegate(validator1, ONE);
         _rollToNextEpoch();
         vm.prank(staker1);
-        staking.delegate{value: ONE}(validator1);
+        staking.delegate(validator1, ONE);
         _rollToNextEpoch();
 
         _depositReward(validator1, ONE / 2);
@@ -265,7 +271,7 @@ contract StakingAdditionalTest is Test {
 
     function test_onlyCommittedEpochIsClaimable() public {
         vm.prank(validator1);
-        staking.registerValidator{value: 2 * ONE}(validator1, 1000);
+        staking.registerValidator(validator1, 1000, 2 * ONE);
         staking.activateValidator(validator1);
         _rollToNextEpoch();
 
@@ -294,7 +300,7 @@ contract StakingAdditionalTest is Test {
         vm.prank(validator1);
         staking.changeValidatorCommissionRate(validator1, 30);
         vm.prank(staker1);
-        staking.delegate{value: ONE}(validator1);
+        staking.delegate(validator1, ONE);
         _rollToNextEpoch();
 
         vm.expectRevert(StakingContext.DepositIsZero.selector);
@@ -342,16 +348,16 @@ contract StakingAdditionalTest is Test {
         staking.addValidator(validator1);
 
         vm.prank(staker1);
-        staking.delegate{value: 1e10}(validator1);
+        staking.delegate(validator1, 1e10);
         vm.expectRevert(StakingContext.WrongAmountPrecision.selector);
         vm.prank(staker1);
-        staking.delegate{value: 1e9}(validator1);
+        staking.delegate(validator1, 1e9);
         vm.expectRevert(abi.encodeWithSelector(StakingContext.AmountTooLow.selector, 0));
         vm.prank(staker1);
-        staking.delegate{value: 0}(validator1);
+        staking.delegate(validator1, 0);
         vm.expectRevert(StakingContext.WrongAmountPrecision.selector);
         vm.prank(staker1);
-        staking.delegate{value: ONE + 1e9}(validator1);
+        staking.delegate(validator1, ONE + 1e9);
     }
 
     function test_putValidatorInJailAfterFelonyThreshold() public {
@@ -408,7 +414,7 @@ contract StakingAdditionalTest is Test {
 
     function test_validatorCanUndelegateInitialStake() public {
         vm.prank(validator1);
-        staking.registerValidator{value: 10 * ONE}(validator1, 1000);
+        staking.registerValidator(validator1, 1000, 10 * ONE);
         _rollToNextEpoch();
 
         (uint256 delegated,) = staking.getValidatorDelegation(validator1, validator1);
@@ -449,7 +455,7 @@ contract StakingAdditionalTest is Test {
     function test_disableValidatorAndPendingRewardViews() public {
         staking.addValidator(validator1);
         vm.prank(staker1);
-        staking.delegate{value: ONE}(validator1);
+        staking.delegate(validator1, ONE);
         _rollToNextEpoch();
         _depositReward(validator1, ONE);
 
@@ -499,7 +505,7 @@ contract StakingAdditionalTest is Test {
         );
         staking.addValidator(validator1);
         vm.prank(staker1);
-        staking.delegate{value: ONE}(validator1);
+        staking.delegate(validator1, ONE);
         _rollToNextEpoch();
 
         _depositReward(validator1, ONE);
@@ -552,7 +558,7 @@ contract StakingAdditionalTest is Test {
         );
 
         vm.prank(staker1);
-        staking.delegate{value: ONE}(validator1);
+        staking.delegate(validator1, ONE);
         _rollToNextEpoch();
         _depositReward(validator1, ONE + 123);
         _rollToNextEpoch();
@@ -571,13 +577,19 @@ contract StakingAdditionalTest is Test {
     }
 
     function test_systemFeeCalculationAndDistribution() public {
+        uint256 treasuryNativeBefore = treasury.balance;
         _sendSystemFee(49 ether);
+        _sendNativeSystemFee(49 ether);
+        assertEq(blend.balanceOf(address(systemReward)), 49 ether);
         assertEq(address(systemReward).balance, 49 ether);
         assertEq(systemReward.getSystemFee(), 49 ether);
+        assertEq(systemReward.getNativeSystemFee(), 49 ether);
 
         systemReward.claimSystemFee();
-        assertEq(treasury.balance, 1_049 ether);
+        assertEq(blend.balanceOf(treasury), 1_000_049 ether);
+        assertEq(treasury.balance, treasuryNativeBefore + 49 ether);
         assertEq(systemReward.getSystemFee(), 0);
+        assertEq(systemReward.getNativeSystemFee(), 0);
 
         address[] memory accounts = new address[](3);
         accounts[0] = treasury;
@@ -589,11 +601,17 @@ contract StakingAdditionalTest is Test {
         shares[2] = 2_500;
         systemReward.updateDistributionShare(accounts, shares);
 
+        uint256 ownerNativeBefore = owner.balance;
+        uint256 validatorNativeBefore = validator1.balance;
         _sendSystemFee(49 ether);
+        _sendNativeSystemFee(49 ether);
         systemReward.claimSystemFee();
-        assertEq(treasury.balance, 1_073.5 ether);
-        assertEq(owner.balance, 1_012.25 ether);
-        assertEq(validator1.balance, 1_012.25 ether);
+        assertEq(blend.balanceOf(treasury), 1_000_073.5 ether);
+        assertEq(blend.balanceOf(owner), 1_000_012.25 ether);
+        assertEq(blend.balanceOf(validator1), 1_000_012.25 ether);
+        assertEq(treasury.balance, treasuryNativeBefore + 73.5 ether);
+        assertEq(owner.balance, ownerNativeBefore + 12.25 ether);
+        assertEq(validator1.balance, validatorNativeBefore + 12.25 ether);
     }
 
     function test_systemRewardDustAndShareValidation() public {
@@ -606,8 +624,10 @@ contract StakingAdditionalTest is Test {
         systemReward.updateDistributionShare(accounts, shares);
 
         _sendSystemFee(12_345);
+        _sendNativeSystemFee(12_345);
         systemReward.claimSystemFee();
         assertEq(systemReward.getSystemFee(), 1);
+        assertEq(systemReward.getNativeSystemFee(), 1);
 
         accounts = new address[](1);
         accounts[0] = treasury;
@@ -647,13 +667,13 @@ contract StakingAdditionalTest is Test {
         assertEq(stakingPool.getRatio(validator1), 1e18);
 
         vm.prank(staker1);
-        stakingPool.stake{value: 10 * ONE}(validator1);
+        stakingPool.stake(validator1, 10 * ONE);
         _rollToNextEpoch();
         _depositReward(validator1, ONE);
         _rollToNextEpoch();
 
         vm.prank(staker2);
-        stakingPool.stake{value: ONE}(validator1);
+        stakingPool.stake(validator1, ONE);
 
         assertGt(stakingPool.getShares(validator1, staker1), 0);
         StakingPool.ValidatorPool memory pool = stakingPool.getValidatorPool(validator1);
@@ -671,29 +691,34 @@ contract StakingAdditionalTest is Test {
         staking.addValidator(validator1);
 
         vm.prank(staker1);
-        stakingPool.stake{value: 10 * ONE}(validator1);
+        stakingPool.stake(validator1, 10 * ONE);
         _rollToNextEpoch();
 
         vm.prank(staker1);
         stakingPool.unstake(validator1, ONE);
 
         vm.prank(staker2);
-        stakingPool.stake{value: ONE}(validator1);
+        stakingPool.stake(validator1, ONE);
 
         _rollToNextEpoch();
         vm.prank(staker2);
-        stakingPool.stake{value: ONE}(validator1);
+        stakingPool.stake(validator1, ONE);
 
         assertEq(stakingPool.getStakedAmount(validator1, staker2), 2 * ONE, "staker2 stake amount");
     }
 
     function test_systemFeeAutoClaimAfterThreshold() public {
-        uint256 initial = treasury.balance;
+        uint256 initialToken = blend.balanceOf(treasury);
+        uint256 initialNative = treasury.balance;
         _sendSystemFee(49 ether);
-        assertEq(treasury.balance, initial);
+        _sendNativeSystemFee(49 ether);
+        assertEq(blend.balanceOf(treasury), initialToken);
+        assertEq(treasury.balance, initialNative);
         _sendSystemFee(2 ether);
-        assertEq(treasury.balance, initial + 51 ether);
+        assertEq(blend.balanceOf(treasury), initialToken + 51 ether);
+        assertEq(treasury.balance, initialNative + 49 ether);
         assertEq(systemReward.getSystemFee(), 0);
+        assertEq(systemReward.getNativeSystemFee(), 0);
     }
 
     function _deploy(
@@ -718,17 +743,24 @@ contract StakingAdditionalTest is Test {
         IChainConfig predictedChainConfig = IChainConfig(vm.computeCreateAddress(address(this), nonce + 9));
         IGovernance governance = IGovernance(address(this));
 
+        uint256 totalInitialStakes = _sum(initialStakes);
+        if (totalInitialStakes > 0) {
+            blend.mint(address(this), totalInitialStakes);
+            blend.approve(address(predictedStaking), totalInitialStakes);
+        }
+
         Staking stakingImpl = new Staking(
             predictedStaking,
             predictedSlashingIndicator,
             predictedSystemReward,
             predictedStakingPool,
             governance,
-            predictedChainConfig
+            predictedChainConfig,
+            blend
         );
         staking = Staking(
             payable(address(
-                    new ERC1967Proxy{value: _sum(initialStakes)}(
+                    new ERC1967Proxy(
                         address(stakingImpl),
                         abi.encodeCall(Staking.initialize, (address(this), initialValidators, initialStakes, 0))
                     )
@@ -741,7 +773,8 @@ contract StakingAdditionalTest is Test {
             predictedSystemReward,
             predictedStakingPool,
             governance,
-            predictedChainConfig
+            predictedChainConfig,
+            blend
         );
         slashingIndicator = SlashingIndicator(
             address(
@@ -757,7 +790,8 @@ contract StakingAdditionalTest is Test {
             predictedSystemReward,
             predictedStakingPool,
             governance,
-            predictedChainConfig
+            predictedChainConfig,
+            blend
         );
         systemReward = SystemReward(
             payable(address(
@@ -774,7 +808,8 @@ contract StakingAdditionalTest is Test {
             predictedSystemReward,
             predictedStakingPool,
             governance,
-            predictedChainConfig
+            predictedChainConfig,
+            blend
         );
         stakingPool = StakingPool(
             payable(address(
@@ -788,7 +823,8 @@ contract StakingAdditionalTest is Test {
             predictedSystemReward,
             predictedStakingPool,
             governance,
-            predictedChainConfig
+            predictedChainConfig,
+            blend
         );
         chainConfig = ChainConfig(
             address(
@@ -817,6 +853,14 @@ contract StakingAdditionalTest is Test {
         assertEq(address(systemReward), address(predictedSystemReward));
         assertEq(address(stakingPool), address(predictedStakingPool));
         assertEq(address(chainConfig), address(predictedChainConfig));
+
+        _approveAll(owner);
+        _approveAll(treasury);
+        _approveAll(staker1);
+        _approveAll(staker2);
+        _approveAll(validator1);
+        _approveAll(validator2);
+        _approveAll(validator3);
     }
 
     function _sum(uint256[] memory values) internal pure returns (uint256 total) {
@@ -826,19 +870,36 @@ contract StakingAdditionalTest is Test {
     }
 
     function _sendSystemFee(uint256 amount) internal {
+        blend.mint(address(this), amount);
+        blend.approve(address(systemReward), amount);
+        systemReward.deposit(amount);
+    }
+
+    function _sendNativeSystemFee(uint256 amount) internal {
         (bool success,) = address(systemReward).call{value: amount}("");
-        require(success, "system fee transfer failed");
+        require(success, "native system fee transfer failed");
     }
 
     function _depositReward(address validator, uint256 amount) internal {
         vm.coinbase(validator);
         vm.prank(validator);
-        staking.deposit{value: amount}(validator);
+        staking.deposit(validator, amount);
     }
 
     function _slash(address validator) internal {
         vm.coinbase(address(this));
         slashingIndicator.slash(validator);
+    }
+
+    function _fund(address account) internal {
+        blend.mint(account, 1_000_000 ether);
+    }
+
+    function _approveAll(address account) internal {
+        vm.startPrank(account);
+        blend.approve(address(staking), type(uint256).max);
+        blend.approve(address(stakingPool), type(uint256).max);
+        vm.stopPrank();
     }
 
     function _rollToNextEpoch() internal {

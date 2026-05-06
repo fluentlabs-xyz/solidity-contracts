@@ -10,6 +10,7 @@ import {SlashingIndicator} from "../../contracts/staking/SlashingIndicator.sol";
 import {Staking} from "../../contracts/staking/Staking.sol";
 import {StakingPool} from "../../contracts/staking/StakingPool.sol";
 import {SystemReward} from "../../contracts/staking/SystemReward.sol";
+import {MockBlend} from "../../contracts/staking/mocks/MockBlend.sol";
 import {IChainConfig} from "../../contracts/staking/interfaces/IChainConfig.sol";
 import {IGovernance} from "../../contracts/staking/interfaces/IGovernance.sol";
 import {ISlashingIndicator} from "../../contracts/staking/interfaces/ISlashingIndicator.sol";
@@ -25,6 +26,7 @@ contract StakingFoundryTest is Test {
     ChainConfig internal chainConfig;
     SlashingIndicator internal slashingIndicator;
     SystemReward internal systemReward;
+    MockBlend internal blend;
 
     address internal staker1 = makeAddr("staker1");
     address internal staker2 = makeAddr("staker2");
@@ -35,13 +37,14 @@ contract StakingFoundryTest is Test {
     address internal validator4 = makeAddr("validator4");
 
     function setUp() public {
-        vm.deal(staker1, 1_000 ether);
-        vm.deal(staker2, 1_000 ether);
-        vm.deal(staker3, 1_000 ether);
-        vm.deal(validator1, 1_000 ether);
-        vm.deal(validator2, 1_000 ether);
-        vm.deal(validator3, 1_000 ether);
-        vm.deal(validator4, 1_000 ether);
+        blend = new MockBlend();
+        _fund(staker1);
+        _fund(staker2);
+        _fund(staker3);
+        _fund(validator1);
+        _fund(validator2);
+        _fund(validator3);
+        _fund(validator4);
 
         uint64 nonce = vm.getNonce(address(this));
         IStaking predictedStaking = IStaking(vm.computeCreateAddress(address(this), nonce + 1));
@@ -58,7 +61,8 @@ contract StakingFoundryTest is Test {
             predictedSystemReward,
             predictedStakingPool,
             governance,
-            predictedChainConfig
+            predictedChainConfig,
+            blend
         );
         staking = Staking(
             payable(address(
@@ -77,7 +81,8 @@ contract StakingFoundryTest is Test {
             predictedSystemReward,
             predictedStakingPool,
             governance,
-            predictedChainConfig
+            predictedChainConfig,
+            blend
         );
         slashingIndicator = SlashingIndicator(
             address(
@@ -93,7 +98,8 @@ contract StakingFoundryTest is Test {
             predictedSystemReward,
             predictedStakingPool,
             governance,
-            predictedChainConfig
+            predictedChainConfig,
+            blend
         );
         systemReward = SystemReward(
             payable(address(
@@ -112,7 +118,8 @@ contract StakingFoundryTest is Test {
             predictedSystemReward,
             predictedStakingPool,
             governance,
-            predictedChainConfig
+            predictedChainConfig,
+            blend
         );
         stakingPool = StakingPool(
             payable(address(
@@ -126,7 +133,8 @@ contract StakingFoundryTest is Test {
             predictedSystemReward,
             predictedStakingPool,
             governance,
-            predictedChainConfig
+            predictedChainConfig,
+            blend
         );
         chainConfig = ChainConfig(
             address(
@@ -155,15 +163,24 @@ contract StakingFoundryTest is Test {
         assertEq(address(systemReward), address(predictedSystemReward));
         assertEq(address(stakingPool), address(predictedStakingPool));
         assertEq(address(chainConfig), address(predictedChainConfig));
+
+        _approveAll(staker1);
+        _approveAll(staker2);
+        _approveAll(staker3);
+        _approveAll(validator1);
+        _approveAll(validator2);
+        _approveAll(validator3);
+        _approveAll(validator4);
     }
 
     function test_stakerCanDelegateToValidator() public {
         staking.addValidator(validator1);
 
+        uint256 staker1BalanceBefore = blend.balanceOf(staker1);
         vm.prank(staker1);
-        staking.delegate{value: ONE}(validator1);
+        staking.delegate(validator1, ONE);
         vm.prank(staker2);
-        staking.delegate{value: ONE}(validator1);
+        staking.delegate(validator1, ONE);
 
         (uint256 staker1Delegated,) = staking.getValidatorDelegation(validator1, staker1);
         (uint256 staker2Delegated,) = staking.getValidatorDelegation(validator1, staker2);
@@ -173,16 +190,18 @@ contract StakingFoundryTest is Test {
         assertEq(staker2Delegated, ONE);
         assertEq(totalDelegated, 2 * ONE);
         assertEq(status, 1);
+        assertEq(blend.balanceOf(staker1), staker1BalanceBefore - ONE);
+        assertEq(blend.balanceOf(address(staking)), 2 * ONE);
     }
 
     function test_delegateAfterCommittedDelegationIncreasesAmount() public {
         staking.addValidator(validator1);
 
         vm.prank(staker1);
-        staking.delegate{value: ONE}(validator1);
+        staking.delegate(validator1, ONE);
         _rollToNextEpoch();
         vm.prank(staker1);
-        staking.delegate{value: ONE}(validator1);
+        staking.delegate(validator1, ONE);
 
         (uint256 delegated,) = staking.getValidatorDelegation(validator1, staker1);
         assertEq(delegated, 2 * ONE);
@@ -193,9 +212,9 @@ contract StakingFoundryTest is Test {
         staking.addValidator(validator2);
 
         vm.prank(staker1);
-        staking.delegate{value: ONE}(validator1);
+        staking.delegate(validator1, ONE);
         vm.prank(staker2);
-        staking.delegate{value: 2 * ONE}(validator2);
+        staking.delegate(validator2, 2 * ONE);
 
         address[] memory validators = staking.getValidators();
         assertEq(validators[0], validator2);
@@ -237,11 +256,11 @@ contract StakingFoundryTest is Test {
         staking.addValidator(validator4);
 
         vm.prank(staker1);
-        staking.delegate{value: 3 * ONE}(validator1);
+        staking.delegate(validator1, 3 * ONE);
         vm.prank(staker2);
-        staking.delegate{value: 2 * ONE}(validator2);
+        staking.delegate(validator2, 2 * ONE);
         vm.prank(staker3);
-        staking.delegate{value: ONE}(validator3);
+        staking.delegate(validator3, ONE);
 
         address[] memory validators = staking.getValidators();
         assertEq(validators.length, 3);
@@ -250,7 +269,7 @@ contract StakingFoundryTest is Test {
         assertEq(validators[2], validator3);
 
         vm.prank(staker3);
-        staking.delegate{value: 4 * ONE}(validator4);
+        staking.delegate(validator4, 4 * ONE);
 
         validators = staking.getValidators();
         assertEq(validators.length, 3);
@@ -265,18 +284,18 @@ contract StakingFoundryTest is Test {
 
         vm.expectRevert(abi.encodeWithSelector(StakingContext.ValidatorNotFound.selector, validator2));
         vm.prank(staker1);
-        staking.delegate{value: 3 * ONE}(validator2);
+        staking.delegate(validator2, 3 * ONE);
     }
 
     function test_stakingPoolTracksStakedAmount() public {
         staking.addValidator(validator1);
 
         vm.prank(staker1);
-        stakingPool.stake{value: ONE}(validator1);
+        stakingPool.stake(validator1, ONE);
         vm.prank(staker1);
-        stakingPool.stake{value: ONE}(validator1);
+        stakingPool.stake(validator1, ONE);
         vm.prank(staker2);
-        stakingPool.stake{value: ONE}(validator1);
+        stakingPool.stake(validator1, ONE);
 
         assertEq(stakingPool.getStakedAmount(validator1, staker1), 2 * ONE);
         assertEq(stakingPool.getStakedAmount(validator1, staker2), ONE);
@@ -286,13 +305,13 @@ contract StakingFoundryTest is Test {
         staking.addValidator(validator1);
 
         vm.prank(staker1);
-        stakingPool.stake{value: 50 * ONE}(validator1);
+        stakingPool.stake(validator1, 50 * ONE);
         assertEq(stakingPool.getStakedAmount(validator1, staker1), 50 * ONE);
 
         _rollToNextEpoch();
         vm.coinbase(validator1);
         vm.prank(validator1);
-        staking.deposit{value: 101 * ONE / 100}(validator1);
+        staking.deposit(validator1, 101 * ONE / 100);
         _rollToNextEpoch();
 
         assertEq(stakingPool.getStakedAmount(validator1, staker1), 51_009999999999999964);
@@ -304,6 +323,17 @@ contract StakingFoundryTest is Test {
         vm.prank(staker1);
         stakingPool.claim(validator1);
         assertEq(stakingPool.getStakedAmount(validator1, staker1), 1_009999999999999999);
+    }
+
+    function _fund(address account) internal {
+        blend.mint(account, 1_000_000 ether);
+    }
+
+    function _approveAll(address account) internal {
+        vm.startPrank(account);
+        blend.approve(address(staking), type(uint256).max);
+        blend.approve(address(stakingPool), type(uint256).max);
+        vm.stopPrank();
     }
 
     function _rollToNextEpoch() internal {

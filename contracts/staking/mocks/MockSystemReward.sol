@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 pragma solidity ^0.8.0;
 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
 import "../SystemReward.sol";
 
 /// @title Test system reward implementation
@@ -12,7 +14,8 @@ contract MockSystemReward is SystemReward {
         ISystemReward systemRewardContract,
         IStakingPool stakingPoolContract,
         IGovernance governanceContract,
-        IChainConfig chainConfigContract
+        IChainConfig chainConfigContract,
+        IERC20 stakingToken
     )
         SystemReward(
             stakingContract,
@@ -20,7 +23,8 @@ contract MockSystemReward is SystemReward {
             systemRewardContract,
             stakingPoolContract,
             governanceContract,
-            chainConfigContract
+            chainConfigContract,
+            stakingToken
         )
     {}
 

@@ -17,6 +17,7 @@ import {SlashingIndicator} from "../../contracts/staking/SlashingIndicator.sol";
 import {Staking} from "../../contracts/staking/Staking.sol";
 import {StakingPool} from "../../contracts/staking/StakingPool.sol";
 import {SystemReward} from "../../contracts/staking/SystemReward.sol";
+import {MockBlend} from "../../contracts/staking/mocks/MockBlend.sol";
 
 contract GovernanceTest is Test {
     uint256 internal constant ONE = 1 ether;
@@ -24,6 +25,7 @@ contract GovernanceTest is Test {
     Staking internal staking;
     ChainConfig internal chainConfig;
     Governance internal governance;
+    MockBlend internal blend;
 
     address internal owner = makeAddr("owner");
     address internal treasury = makeAddr("treasury");
@@ -33,9 +35,7 @@ contract GovernanceTest is Test {
     address internal owner2 = makeAddr("owner2");
 
     function setUp() public {
-        vm.deal(address(this), 100 ether);
-        vm.deal(validator1, 100 ether);
-        vm.deal(validator2, 100 ether);
+        blend = new MockBlend();
         _deploy(5);
     }
 
@@ -111,6 +111,8 @@ contract GovernanceTest is Test {
         uint256[] memory initialStakes = new uint256[](2);
         initialStakes[0] = ONE;
         initialStakes[1] = ONE;
+        blend.mint(address(this), 2 * ONE);
+        blend.approve(address(predictedStaking), 2 * ONE);
 
         Staking stakingImpl = new Staking(
             predictedStaking,
@@ -118,11 +120,12 @@ contract GovernanceTest is Test {
             predictedSystemReward,
             predictedStakingPool,
             predictedGovernance,
-            predictedChainConfig
+            predictedChainConfig,
+            blend
         );
         staking = Staking(
             payable(address(
-                    new ERC1967Proxy{value: 2 * ONE}(
+                    new ERC1967Proxy(
                         address(stakingImpl),
                         abi.encodeCall(Staking.initialize, (address(this), validators, initialStakes, 0))
                     )
@@ -135,7 +138,8 @@ contract GovernanceTest is Test {
             predictedSystemReward,
             predictedStakingPool,
             predictedGovernance,
-            predictedChainConfig
+            predictedChainConfig,
+            blend
         );
         SlashingIndicator slashingIndicator = SlashingIndicator(
             address(
@@ -155,7 +159,8 @@ contract GovernanceTest is Test {
             predictedSystemReward,
             predictedStakingPool,
             predictedGovernance,
-            predictedChainConfig
+            predictedChainConfig,
+            blend
         );
         SystemReward systemReward = SystemReward(
             payable(address(
@@ -172,7 +177,8 @@ contract GovernanceTest is Test {
             predictedSystemReward,
             predictedStakingPool,
             predictedGovernance,
-            predictedChainConfig
+            predictedChainConfig,
+            blend
         );
         StakingPool stakingPool = StakingPool(
             payable(address(
@@ -186,7 +192,8 @@ contract GovernanceTest is Test {
             predictedSystemReward,
             predictedStakingPool,
             predictedGovernance,
-            predictedChainConfig
+            predictedChainConfig,
+            blend
         );
         chainConfig = ChainConfig(
             address(

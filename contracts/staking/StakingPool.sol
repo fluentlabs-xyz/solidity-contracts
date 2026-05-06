@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 pragma solidity ^0.8.0;
 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
 import "./interfaces/IStaking.sol";
 import "./interfaces/IStakingPool.sol";
 
@@ -8,9 +11,11 @@ import "./StakingContext.sol";
 import "./Staking.sol";
 
 /// @title Share-based pooled staking
-/// @notice Lets users pool ETH per validator while the pool handles delegation, reward claiming, and unstake finalization.
+/// @notice Lets users pool the staking ERC20 per validator while the pool handles delegation, reward claiming, and unstake finalization.
 /// @dev Pool shares represent a proportional claim on validator-specific delegated stake plus compounded rewards.
 contract StakingPool is StakingContext, IStakingPool {
+    using SafeERC20 for IERC20;
+
     // ERC-7201 storage namespace:
     // keccak256(abi.encode(uint256(keccak256("Fluent.storage.StakingPoolStorage")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant STAKING_POOL_STORAGE_LOCATION =
@@ -63,7 +68,8 @@ contract StakingPool is StakingContext, IStakingPool {
         ISystemReward systemRewardContract,
         IStakingPool stakingPoolContract,
         IGovernance governanceContract,
-        IChainConfig chainConfigContract
+        IChainConfig chainConfigContract,
+        IERC20 stakingToken
     )
         StakingContext(
             stakingContract,
@@ -71,7 +77,8 @@ contract StakingPool is StakingContext, IStakingPool {
             systemRewardContract,
             stakingPoolContract,
             governanceContract,
-            chainConfigContract
+            chainConfigContract,
+            stakingToken
         )
     {}
 
@@ -112,7 +119,8 @@ contract StakingPool is StakingContext, IStakingPool {
             _stakingContract.claimDelegatorFee(validator);
             // re-delegate just arrived rewards
             if (stakedAmount > 0) {
-                _stakingContract.delegate{value: stakedAmount}(validator);
+                _approveStaking(stakedAmount);
+                _stakingContract.delegate(validator, stakedAmount);
             }
             // increase total accumulated rewards
             validatorPool.totalStakedAmount += stakedAmount;
@@ -165,21 +173,23 @@ contract StakingPool is StakingContext, IStakingPool {
         return (validatorPool.sharesSupply * 1e18 + stakeWithRewards - 1) / stakeWithRewards;
     }
 
-    function stake(address validator) external payable override advanceStakingRewards(validator) {
+    function stake(address validator, uint256 amount) external override advanceStakingRewards(validator) {
         StakingPoolStorage storage $ = _getStakingPoolStorage();
         ValidatorPool memory validatorPool = _getValidatorPool(validator);
-        uint256 shares = msg.value * _calcRatio(validatorPool) / 1e18;
+        uint256 shares = amount * _calcRatio(validatorPool) / 1e18;
+        _stakingToken.safeTransferFrom(msg.sender, address(this), amount);
         // increase total accumulated shares for the staker
         $.stakerShares[validator][msg.sender] += shares;
         // increase staking params for ratio calculation
-        validatorPool.totalStakedAmount += msg.value;
+        validatorPool.totalStakedAmount += amount;
         validatorPool.sharesSupply += shares;
         // save validator pool
         $.validatorPools[validator] = validatorPool;
         // delegate these tokens to the staking contract
-        _stakingContract.delegate{value: msg.value}(validator);
+        _approveStaking(amount);
+        _stakingContract.delegate(validator, amount);
         // emit event
-        emit Stake(validator, msg.sender, msg.value);
+        emit Stake(validator, msg.sender, amount);
     }
 
     function unstake(address validator, uint256 amount) external override advanceStakingRewards(validator) {
@@ -226,14 +236,12 @@ contract StakingPool is StakingContext, IStakingPool {
         $.validatorPools[validator] = validatorPool;
         // remove pending claim
         delete $.pendingUnstakes[validator][msg.sender];
-        // its safe to use call here (state is clear)
-        if (address(this).balance < amount) revert NotEnoughBalance();
-        payable(address(msg.sender)).transfer(amount);
+        _stakingToken.safeTransfer(msg.sender, amount);
         // emit event
         emit Claim(validator, msg.sender, amount);
     }
 
-    receive() external payable {
-        if (address(msg.sender) != address(_stakingContract)) revert OnlyStakingContract();
+    function _approveStaking(uint256 amount) internal {
+        _stakingToken.forceApprove(address(_stakingContract), amount);
     }
 }

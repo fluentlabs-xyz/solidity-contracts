@@ -7,8 +7,8 @@ The staking module implements the validator staking system in the Foundry codeba
 | Contract | Purpose |
 |----------|---------|
 | `Staking` | Validator registry, delegation accounting, validator/delegator reward claims, slashing, jail/release flow, and active validator ordering. |
-| `StakingPool` | Share-based pooled staking wrapper that delegates pooled ETH to validators and lets users unstake/claim after the undelegation delay. |
-| `SystemReward` | Receives system fees and distributes them by governance-configured shares. |
+| `StakingPool` | Share-based pooled staking wrapper that delegates pooled ERC20 staking tokens to validators and lets users unstake/claim after the undelegation delay. |
+| `SystemReward` | Receives native ETH and staking-token system fees and distributes both by governance-configured shares. |
 | `ChainConfig` | Governance-controlled consensus/staking parameters such as epoch length, active validator count, jail duration, and minimum stake sizes. |
 | `SlashingIndicator` | Coinbase-only entrypoint that forwards slash events into `Staking`. |
 | `Governance` | Validator-owner Governor whose voting power comes from active validator stake and whose votes are counted per validator. |
@@ -30,7 +30,7 @@ Important consequences:
 Validators can be introduced in two ways:
 
 1. Governance calls `addValidator`, which creates an active validator owned by the same address.
-2. A validator owner calls `registerValidator` with the minimum validator stake and a commission rate.
+2. A validator owner approves the staking token and calls `registerValidator` with the minimum validator stake and a commission rate.
 
 Governance can activate, disable, or remove validators. Slashing is triggered through `SlashingIndicator`, increments the validator slash count, and jails the validator once the felony threshold is reached. The owner can call `releaseValidatorFromJail` after the jail epoch expires.
 
@@ -38,9 +38,11 @@ The active validator list is sorted by delegated amount and capped by `activeVal
 
 ## Delegation and rewards
 
-Delegators call `delegate(validator)` with ETH. The contract stores compacted balances using `BALANCE_COMPACT_PRECISION`; stake amounts must be compatible with this precision and the configured minimum staking amount.
+The staking token is an ERC20 configured at module deployment and exposed by `getStakingToken()`. Tests use `MockBlend` as that token.
 
-Validator rewards arrive through `deposit(validator)`, which is restricted to the block coinbase and zero gas price in the system-contract environment. Rewards are split between:
+Delegators approve the staking token and call `delegate(validator, amount)`. The contract stores compacted balances using `BALANCE_COMPACT_PRECISION`; stake amounts must be compatible with this precision and the configured minimum staking amount.
+
+Validator rewards arrive through `deposit(validator, amount)` after the validator approves the staking token, which is restricted to the block coinbase and zero gas price in the system-contract environment. Rewards are split between:
 
 - validator owner commission, based on the validator commission rate; and
 - delegators, proportional to their delegated stake after commission.
@@ -54,18 +56,18 @@ Validator owners can claim commission through `claimValidatorFee` or `claimValid
 
 ## Pooled staking
 
-`StakingPool` wraps `Staking` with a share model. Users deposit ETH into a validator pool and receive shares. The pool delegates the ETH to `Staking`, periodically claims delegator rewards, and redelegates claimable rewards that meet the compact-balance precision.
+`StakingPool` wraps `Staking` with a share model. Users approve the staking token and call `stake(validator, amount)` to receive shares. The pool delegates the tokens to `Staking`, periodically claims delegator rewards, and redelegates claimable rewards that meet the compact-balance precision.
 
 Unstaking burns shares only after the underlying undelegation matures:
 
 1. `unstake(validator, amount)` records a pending unstake, reserves the amount, and calls `Staking.undelegate`.
-2. `claim(validator)` becomes available once the pending epoch is reached and transfers ETH back to the user.
+2. `claim(validator)` becomes available once the pending epoch is reached and transfers staking tokens back to the user.
 
 Only one pending unstake per user/validator is supported at a time.
 
 ## System rewards
 
-`SystemReward` receives ETH system fees and stores them in ERC-7201 namespaced storage. Fees can be claimed manually or automatically once the auto-claim threshold is reached. Governance configures distribution accounts and basis-point-style shares; total shares must equal 100% (`10000`).
+`SystemReward` receives staking-token system fees through `deposit(amount)` and native ETH system fees through `receive`. Fees are accounted from the contract balances and can be claimed manually or automatically once either asset reaches the auto-claim threshold. Governance configures distribution accounts and basis-point-style shares; total shares must equal 100% (`10000`). The same share table is applied independently to both native ETH and staking-token balances, leaving any rounding dust in the contract for later claims.
 
 ## Governance
 

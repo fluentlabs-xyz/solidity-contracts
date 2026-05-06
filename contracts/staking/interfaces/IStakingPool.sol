@@ -7,8 +7,8 @@ interface IStakingPool {
     /// @notice Returns the current stake represented by `staker` shares in `validator` pool.
     function getStakedAmount(address validator, address staker) external view returns (uint256);
 
-    /// @notice Deposits `msg.value` into `validator` pool and delegates it to staking.
-    function stake(address validator) external payable;
+    /// @notice Deposits `amount` staking tokens into `validator` pool and delegates it to staking.
+    function stake(address validator, uint256 amount) external;
 
     /// @notice Starts undelegating `amount` from `validator` pool for `msg.sender`.
     function unstake(address validator, uint256 amount) external;

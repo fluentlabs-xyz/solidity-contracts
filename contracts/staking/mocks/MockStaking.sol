@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-only
 pragma solidity ^0.8.0;
 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+
 import "../Staking.sol";
 
 /// @title Test staking implementation
@@ -12,7 +14,8 @@ contract MockStaking is Staking {
         ISystemReward systemRewardContract,
         IStakingPool stakingPoolContract,
         IGovernance governanceContract,
-        IChainConfig chainConfigContract
+        IChainConfig chainConfigContract,
+        IERC20 stakingToken
     )
         Staking(
             stakingContract,
@@ -20,7 +23,8 @@ contract MockStaking is Staking {
             systemRewardContract,
             stakingPoolContract,
             governanceContract,
-            chainConfigContract
+            chainConfigContract,
+            stakingToken
         )
     {}
 
@@ -40,8 +44,8 @@ contract MockStaking is Staking {
         _disableValidator(validator);
     }
 
-    function deposit(address validatorAddress) external payable override {
-        _depositFee(validatorAddress);
+    function deposit(address validatorAddress, uint256 amount) external override {
+        _depositFee(validatorAddress, amount);
     }
 
     function slash(address validatorAddress) external override {
