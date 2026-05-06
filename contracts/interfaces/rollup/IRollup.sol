@@ -899,12 +899,12 @@ interface IRollupWrite {
 
     /**
      * @notice Finalize a batch early by proving all its blocks have valid SP1 proofs.
-     * @dev Skips the cooldown period. Caller supplies all L2BlockHeaders to reconstruct
-     *      the batchRoot and verify each commitment exists in provenBlocks.
+     * @dev Skips the cooldown period. Caller supplies compact L2BlockHeaderV1 payload
+     *      to reconstruct the batchRoot and verify each commitment exists in provenBlocks.
      * @param batchIndex The batch to finalize.
-     * @param blockHeaders All L2 block headers in the batch in submission order.
+     * @param blockHeaders All compact L2 block headers in the batch in submission order.
      */
-    function finalizeWithProofs(uint256 batchIndex, L2BlockHeader[] calldata blockHeaders) external;
+    function finalizeWithProofs(uint256 batchIndex, L2BlockHeaderV1[] calldata blockHeaders) external;
 
     /**
      * @notice Claim reward as challenger (deposit + incentive fee if challenge was valid).
