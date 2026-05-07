@@ -44,9 +44,11 @@ interface IGatewayBaseErrors {
 
     /**
      * @notice Outbound deposit rejected because the account is on the configured blacklist registry.
-     * @dev selector: 0xdaf49ab9
+     * @dev `account` is in canonical bytes32 form: Hyperlane left-padded (`bytes32(uint256(uint160(addr)))`)
+     *      for EVM addresses, raw 32-byte identifier for non-EVM (e.g. Solana ed25519 keys).
+     * @dev selector: 0x6b597076
      */
-    error AddressBlacklisted(address account);
+    error AddressBlacklisted(bytes32 account);
 
     /**
      * @notice Thrown when the batch status is invalid.

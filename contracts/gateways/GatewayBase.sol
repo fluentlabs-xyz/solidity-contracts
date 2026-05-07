@@ -224,8 +224,19 @@ abstract contract GatewayBase is Initializable, UUPSUpgradeable, Ownable2StepUpg
 
     // ============ Shared safety helpers ============
 
-    /// @dev Reverts with {AddressBlacklisted} if `account` is listed when a registry is configured.
+    /** @dev Reverts with {AddressBlacklisted} if `account` is listed when a registry is configured.
+     *      EVM-address overload — delegates to the bytes32-canonical implementation via the
+     *      Hyperlane left-pad convention so both overloads consult the same storage slot.
+     */
     function _requireAccountNotBlacklisted(address account) internal view {
+        _requireAccountNotBlacklisted(bytes32(uint256(uint160(account))));
+    }
+
+    /** @dev Reverts with {AddressBlacklisted} if `account` is listed when a registry is configured.
+     *      Accepts cross-VM identifiers (e.g. Hyperlane recipient `bytes32` that may point at
+     *      non-EVM chains). The underlying registry stores keys canonically in this form.
+     */
+    function _requireAccountNotBlacklisted(bytes32 account) internal view {
         address registry = _getGatewayBaseStorage()._blacklistRegistry;
         if (registry == address(0)) return;
         require(!IBlacklist(registry).isBlacklisted(account), AddressBlacklisted(account));
