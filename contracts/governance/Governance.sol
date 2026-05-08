@@ -6,9 +6,7 @@ import {GovernorUpgradeable} from "@openzeppelin/contracts-upgradeable/governanc
 import {
     GovernorCountingSimpleUpgradeable
 } from "@openzeppelin/contracts-upgradeable/governance/extensions/GovernorCountingSimpleUpgradeable.sol";
-import {
-    GovernorSettingsUpgradeable
-} from "@openzeppelin/contracts-upgradeable/governance/extensions/GovernorSettingsUpgradeable.sol";
+import {GovernorSettingsUpgradeable} from "@openzeppelin/contracts-upgradeable/governance/extensions/GovernorSettingsUpgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
@@ -20,7 +18,7 @@ import {IStaking} from "../staking/interfaces/IStaking.sol";
 /// @notice Governor implementation whose voting power comes from active validator stake.
 /// @dev Validator owners propose and vote, but votes are counted per validator address so ownership rotation cannot
 ///      double-count an already-cast validator vote. Mutable governance state uses ERC-7201 namespaced storage.
-contract Governance is
+contract FluentGovernance is
     Initializable,
     GovernorUpgradeable,
     GovernorCountingSimpleUpgradeable,
@@ -31,8 +29,7 @@ contract Governance is
 {
     // ERC-7201 storage namespace:
     // keccak256(abi.encode(uint256(keccak256("Fluent.storage.GovernanceStorage")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant GOVERNANCE_STORAGE_LOCATION =
-        0x7fea8059986e7eec382f9da7accc4f4b619a9e2678ff6b8b8bc32f10e703bd00;
+    bytes32 private constant GOVERNANCE_STORAGE_LOCATION = 0x7fea8059986e7eec382f9da7accc4f4b619a9e2678ff6b8b8bc32f10e703bd00;
 
     IStaking internal immutable _stakingContract;
     IChainConfig internal immutable _chainConfigContract;
@@ -58,7 +55,7 @@ contract Governance is
     }
 
     function initialize(address initialOwner, uint32 initialVotingPeriod) external initializer {
-        __Governor_init("Governance");
+        __Governor_init("FluentGovernance");
         __GovernorCountingSimple_init();
         __GovernorSettings_init(0, initialVotingPeriod, 0);
         __Ownable_init(initialOwner);
@@ -107,7 +104,7 @@ contract Governance is
 
     modifier onlyValidatorOwner(address account) {
         address validatorAddress = _stakingContract.getValidatorByOwner(account);
-        if (!_stakingContract.isValidatorActive(validatorAddress)) revert OnlyValidatorOwner();
+        require(_stakingContract.isValidatorActive(validatorAddress), OnlyValidatorOwner());
         _;
     }
 
@@ -119,21 +116,17 @@ contract Governance is
         return GovernorSettingsUpgradeable.votingPeriod();
     }
 
-    function _getVotes(address account, uint256 timepoint, bytes memory)
-        internal
-        view
-        virtual
-        override
-        returns (uint256)
-    {
+    function _getVotes(address account, uint256 timepoint, bytes memory) internal view virtual override returns (uint256) {
         return _validatorOwnerVotingPowerAt(account, timepoint);
     }
 
-    function _countVote(uint256 proposalId, address account, uint8 support, uint256 weight, bytes memory params)
-        internal
-        virtual
-        override(GovernorUpgradeable, GovernorCountingSimpleUpgradeable)
-    {
+    function _countVote(
+        uint256 proposalId,
+        address account,
+        uint8 support,
+        uint256 weight,
+        bytes memory params
+    ) internal virtual override(GovernorUpgradeable, GovernorCountingSimpleUpgradeable) {
         address validatorAddress = _stakingContract.getValidatorByOwner(account);
         super._countVote(proposalId, validatorAddress, support, weight, params);
     }
@@ -148,7 +141,7 @@ contract Governance is
 
     function _validatorVotingPowerAt(address validator, uint256 blockNumber) internal view returns (uint256) {
         uint64 epoch = uint64(blockNumber / _chainConfigContract.getEpochBlockInterval());
-        (,, uint256 totalDelegated,,,,,,) = _stakingContract.getValidatorStatusAtEpoch(validator, epoch);
+        (, , uint256 totalDelegated, , , , , , ) = _stakingContract.getValidatorStatusAtEpoch(validator, epoch);
         return totalDelegated;
     }
 
@@ -160,19 +153,14 @@ contract Governance is
     }
 
     function quorum(uint256 blockNumber) public view override returns (uint256) {
-        return _votingSupply(blockNumber) * 2 / 3;
+        return (_votingSupply(blockNumber) * 2) / 3;
     }
 
     function votingDelay() public view override(GovernorUpgradeable, GovernorSettingsUpgradeable) returns (uint256) {
         return GovernorSettingsUpgradeable.votingDelay();
     }
 
-    function proposalThreshold()
-        public
-        view
-        override(GovernorUpgradeable, GovernorSettingsUpgradeable)
-        returns (uint256)
-    {
+    function proposalThreshold() public view override(GovernorUpgradeable, GovernorSettingsUpgradeable) returns (uint256) {
         return GovernorSettingsUpgradeable.proposalThreshold();
     }
 

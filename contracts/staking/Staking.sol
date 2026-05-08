@@ -4,18 +4,22 @@ pragma solidity ^0.8.0;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import "./StakingContext.sol";
+import {IStaking, IStakingEvents, IStakingErrors} from "./interfaces/IStaking.sol";
+import {ISlashingIndicator} from "./interfaces/ISlashingIndicator.sol";
+import {ISystemReward} from "./interfaces/ISystemReward.sol";
+import {IStakingPool} from "./interfaces/IStakingPool.sol";
+import {IGovernance} from "./interfaces/IGovernance.sol";
+import {IChainConfig} from "./interfaces/IChainConfig.sol";
+import {StakingContext} from "./StakingContext.sol";
 
-/// @title Validator staking
-/// @notice Manages validator registration, delegation, undelegation, commission, reward claims, active set ordering, and slashing.
-/// @dev Uses epoch snapshots and compacted balances to preserve historical accounting without storing full uint256 stake values.
+/**
+ * @title Validator staking
+ * @author Fluent Labs
+ * @notice Manages validator registration, delegation, undelegation, commission, reward claims, active set ordering, and slashing.
+ * @dev Uses epoch snapshots and compacted balances to preserve historical accounting without storing full uint256 stake values.
+ */
 contract Staking is IStaking, StakingContext {
     using SafeERC20 for IERC20;
-
-    // ERC-7201 storage namespace:
-    // keccak256(abi.encode(uint256(keccak256("Fluent.storage.StakingStorage")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant STAKING_STORAGE_LOCATION =
-        0x4102a9ba7244b40639ebe412c7bfc792b19c048efdf631bf4f130fef80c0df00;
 
     /**
      * This constant indicates precision of storing compact balances in the storage or floating point. Since default
@@ -59,22 +63,6 @@ contract Staking is IStaking, StakingContext {
      * fallback logic, such as transparent or beacon proxies with multiple SLOAD instructions.
      */
     uint64 internal constant TRANSFER_GAS_LIMIT = 30000;
-
-    // validator events
-    event ValidatorAdded(address indexed validator, address owner, uint8 status, uint16 commissionRate);
-    event ValidatorModified(address indexed validator, address owner, uint8 status, uint16 commissionRate);
-    event ValidatorRemoved(address indexed validator);
-    event ValidatorOwnerClaimed(address indexed validator, uint256 amount, uint64 epoch);
-    event ValidatorSlashed(address indexed validator, uint32 slashes, uint64 epoch);
-    event ValidatorJailed(address indexed validator, uint64 epoch);
-    event ValidatorDeposited(address indexed validator, uint256 amount, uint64 epoch);
-    event ValidatorReleased(address indexed validator, uint64 epoch);
-
-    // staker events
-    event Delegated(address indexed validator, address indexed staker, uint256 amount, uint64 epoch);
-    event Undelegated(address indexed validator, address indexed staker, uint256 amount, uint64 epoch);
-    event Claimed(address indexed validator, address indexed staker, uint256 amount, uint64 epoch);
-    event Redelegated(address indexed validator, address indexed staker, uint256 amount, uint256 dust, uint64 epoch);
 
     /// @notice Validator lifecycle states used by staking and active-set selection.
     enum ValidatorStatus {
@@ -122,6 +110,9 @@ contract Staking is IStaking, StakingContext {
         uint64 undelegateGap;
     }
 
+    /// @dev keccak256(abi.encode(uint256(keccak256("Fluent.storage.StakingStorage")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant STAKING_STORAGE_LOCATION = 0x4102a9ba7244b40639ebe412c7bfc792b19c048efdf631bf4f130fef80c0df00;
+
     /// @custom:storage-location erc7201:Fluent.storage.StakingStorage
     struct StakingStorage {
         // mapping from validator address to validator
@@ -162,6 +153,12 @@ contract Staking is IStaking, StakingContext {
         )
     {}
 
+    /**
+     * @param initialOwner The address of the initial owner of the staking contract.
+     * @param validators The addresses of initial validators to be added to the staking contract.
+     * @param initialStakes The initial stakes of the validators.
+     * @param commissionRate The commission rate of the validators.
+     */
     function initialize(
         address initialOwner,
         address[] calldata validators,
@@ -169,23 +166,26 @@ contract Staking is IStaking, StakingContext {
         uint16 commissionRate
     ) external initializer {
         __StakingContext_init(initialOwner);
-        if (initialStakes.length != validators.length) revert MalformedInputLength();
+        uint256 numValidators = validators.length;
+        require(initialStakes.length == numValidators, MalformedInputLength());
         uint256 totalStakes = 0;
-        for (uint256 i = 0; i < validators.length; i++) {
+        for (uint256 i = 0; i < numValidators; ) {
             _addValidator(validators[i], validators[i], ValidatorStatus.Active, commissionRate, initialStakes[i], 0);
             totalStakes += initialStakes[i];
+            unchecked {
+                ++i;
+            }
         }
-        if (totalStakes > 0) {
-            _stakingToken.safeTransferFrom(msg.sender, address(this), totalStakes);
-        }
+
+        /// transfer stToken to the contract
+        if (totalStakes > 0) _stakingToken.safeTransferFrom(msg.sender, address(this), totalStakes);
     }
 
-    function getValidatorDelegation(address validatorAddress, address delegator)
-        external
-        view
-        override
-        returns (uint256 delegatedAmount, uint64 atEpoch)
-    {
+    // @inheritdoc IStaking
+    function getValidatorDelegation(
+        address validatorAddress,
+        address delegator
+    ) external view override returns (uint256 delegatedAmount, uint64 atEpoch) {
         StakingStorage storage $ = _getStakingStorage();
         ValidatorDelegation memory delegation = $.validatorDelegations[validatorAddress][delegator];
         if (delegation.delegateQueue.length == 0) {
@@ -195,7 +195,10 @@ contract Staking is IStaking, StakingContext {
         return (delegatedAmount = uint256(snapshot.amount) * BALANCE_COMPACT_PRECISION, atEpoch = snapshot.epoch);
     }
 
-    function getValidatorStatus(address validatorAddress)
+    /// @inheritdoc IStaking
+    function getValidatorStatus(
+        address validatorAddress
+    )
         external
         view
         override
@@ -227,7 +230,11 @@ contract Staking is IStaking, StakingContext {
         );
     }
 
-    function getValidatorStatusAtEpoch(address validatorAddress, uint64 epoch)
+    /// @inheritdoc IStaking
+    function getValidatorStatusAtEpoch(
+        address validatorAddress,
+        uint64 epoch
+    )
         external
         view
         returns (
@@ -258,11 +265,13 @@ contract Staking is IStaking, StakingContext {
         );
     }
 
+    /// @inheritdoc IStaking
     function getValidatorByOwner(address owner) external view override returns (address) {
         StakingStorage storage $ = _getStakingStorage();
         return $.validatorOwners[owner];
     }
 
+    /// @inheritdoc IStaking
     function releaseValidatorFromJail(address validatorAddress) external {
         StakingStorage storage $ = _getStakingStorage();
         // make sure validator is in jail
@@ -309,10 +318,7 @@ contract Staking is IStaking, StakingContext {
         return _currentEpoch() + 1;
     }
 
-    function _touchValidatorSnapshot(Validator memory validator, uint64 epoch)
-        internal
-        returns (ValidatorSnapshot storage)
-    {
+    function _touchValidatorSnapshot(Validator memory validator, uint64 epoch) internal returns (ValidatorSnapshot storage) {
         StakingStorage storage $ = _getStakingStorage();
         ValidatorSnapshot storage snapshot = $.validatorSnapshots[validator.validatorAddress][epoch];
         // if snapshot is already initialized then just return it
@@ -320,8 +326,7 @@ contract Staking is IStaking, StakingContext {
             return snapshot;
         }
         // find previous snapshot to copy parameters from it
-        ValidatorSnapshot memory lastModifiedSnapshot =
-            $.validatorSnapshots[validator.validatorAddress][validator.changedAt];
+        ValidatorSnapshot memory lastModifiedSnapshot = $.validatorSnapshots[validator.validatorAddress][validator.changedAt];
         // last modified snapshot might store zero value, for first delegation it might happen and its not critical
         snapshot.totalDelegated = lastModifiedSnapshot.totalDelegated;
         snapshot.commissionRate = lastModifiedSnapshot.commissionRate;
@@ -333,11 +338,7 @@ contract Staking is IStaking, StakingContext {
         return snapshot;
     }
 
-    function _touchValidatorSnapshotImmutable(Validator memory validator, uint64 epoch)
-        internal
-        view
-        returns (ValidatorSnapshot memory)
-    {
+    function _touchValidatorSnapshotImmutable(Validator memory validator, uint64 epoch) internal view returns (ValidatorSnapshot memory) {
         StakingStorage storage $ = _getStakingStorage();
         ValidatorSnapshot memory snapshot = $.validatorSnapshots[validator.validatorAddress][epoch];
         // if snapshot is already initialized then just return it
@@ -345,8 +346,7 @@ contract Staking is IStaking, StakingContext {
             return snapshot;
         }
         // find previous snapshot to copy parameters from it
-        ValidatorSnapshot memory lastModifiedSnapshot =
-            $.validatorSnapshots[validator.validatorAddress][validator.changedAt];
+        ValidatorSnapshot memory lastModifiedSnapshot = $.validatorSnapshots[validator.validatorAddress][validator.changedAt];
         // last modified snapshot might store zero value, for first delegation it might happen and its not critical
         snapshot.totalDelegated = lastModifiedSnapshot.totalDelegated;
         snapshot.commissionRate = lastModifiedSnapshot.commissionRate;
@@ -357,15 +357,15 @@ contract Staking is IStaking, StakingContext {
     function _delegateTo(address fromDelegator, address toValidator, uint256 amount, bool pullTokens) internal {
         StakingStorage storage $ = _getStakingStorage();
         // check is minimum delegate amount
-        if (amount < _chainConfigContract.getMinStakingAmount() || amount == 0) revert AmountTooLow(amount);
-        if (amount % BALANCE_COMPACT_PRECISION != 0) revert WrongAmountPrecision();
+        require(amount >= _chainConfigContract.getMinStakingAmount() && amount > 0, AmountTooLow(amount));
+        require(amount % BALANCE_COMPACT_PRECISION == 0, WrongAmountPrecision());
         if (pullTokens) {
             _stakingToken.safeTransferFrom(fromDelegator, address(this), amount);
         }
         // make sure amount is greater than min staking amount
         // make sure validator exists at least
         Validator memory validator = $.validatorsMap[toValidator];
-        if (validator.status == ValidatorStatus.NotFound) revert ValidatorNotFound(toValidator);
+        require(validator.status != ValidatorStatus.NotFound, ValidatorNotFound(toValidator));
         uint64 atEpoch = _nextEpoch();
         // Lets upgrade next snapshot parameters:
         // + find snapshot for the next epoch after current block
@@ -379,25 +379,19 @@ contract Staking is IStaking, StakingContext {
         // new record in delegation queue with the last epoch (delegations are ordered by epoch)
         ValidatorDelegation storage delegation = $.validatorDelegations[toValidator][fromDelegator];
         if (delegation.delegateQueue.length > 0) {
-            DelegationOpDelegate storage recentDelegateOp =
-                delegation.delegateQueue[delegation.delegateQueue.length - 1];
+            DelegationOpDelegate storage recentDelegateOp = delegation.delegateQueue[delegation.delegateQueue.length - 1];
             // if we already have pending snapshot for the next epoch then just increase new amount,
             // otherwise create next pending snapshot. (tbh it can't be greater, but what we can do here instead?)
             if (recentDelegateOp.epoch >= atEpoch) {
                 recentDelegateOp.amount += uint112(amount / BALANCE_COMPACT_PRECISION);
             } else {
-                delegation.delegateQueue
-                    .push(
-                        DelegationOpDelegate({
-                            epoch: atEpoch,
-                            amount: recentDelegateOp.amount + uint112(amount / BALANCE_COMPACT_PRECISION)
-                        })
-                    );
+                delegation.delegateQueue.push(
+                    DelegationOpDelegate({epoch: atEpoch, amount: recentDelegateOp.amount + uint112(amount / BALANCE_COMPACT_PRECISION)})
+                );
             }
         } else {
             // there is no any delegations at al, lets create the first one
-            delegation.delegateQueue
-                .push(DelegationOpDelegate({epoch: atEpoch, amount: uint112(amount / BALANCE_COMPACT_PRECISION)}));
+            delegation.delegateQueue.push(DelegationOpDelegate({epoch: atEpoch, amount: uint112(amount / BALANCE_COMPACT_PRECISION)}));
         }
         // emit event with the next epoch
         emit Delegated(toValidator, fromDelegator, amount, atEpoch);
@@ -437,20 +431,14 @@ contract Staking is IStaking, StakingContext {
             delegation.delegateQueue.push(DelegationOpDelegate({epoch: beforeEpoch, amount: nextDelegatedAmount}));
         }
         // create new undelegate queue operation with soft lock
-        delegation.undelegateQueue
-            .push(
-                DelegationOpUndelegate({
-                    amount: uint112(amount / BALANCE_COMPACT_PRECISION),
-                    epoch: beforeEpoch + _chainConfigContract.getUndelegatePeriod()
-                })
-            );
+        delegation.undelegateQueue.push(
+            DelegationOpUndelegate({
+                amount: uint112(amount / BALANCE_COMPACT_PRECISION),
+                epoch: beforeEpoch + _chainConfigContract.getUndelegatePeriod()
+            })
+        );
         // emit event with the next epoch number
         emit Undelegated(fromValidator, toDelegator, amount, beforeEpoch);
-    }
-
-    enum ClaimMode {
-        Transfer,
-        Redelegate
     }
 
     function _claimDelegatorRewardsAndPendingUndelegates(
@@ -464,7 +452,7 @@ contract Staking is IStaking, StakingContext {
         uint256 availableFunds = 0;
         // process delegate queue to calculate staking rewards
         uint64 delegateGap = delegation.delegateGap;
-        for (uint256 queueLength = delegation.delegateQueue.length; delegateGap < queueLength;) {
+        for (uint256 queueLength = delegation.delegateQueue.length; delegateGap < queueLength; ) {
             DelegationOpDelegate memory delegateOp = delegation.delegateQueue[delegateGap];
             if (delegateOp.epoch >= beforeEpochExclude) {
                 break;
@@ -475,19 +463,15 @@ contract Staking is IStaking, StakingContext {
             }
             for (
                 ;
-                delegateOp.epoch < beforeEpochExclude
-                    && (voteChangedAtEpoch == 0 || delegateOp.epoch < voteChangedAtEpoch);
+                delegateOp.epoch < beforeEpochExclude && (voteChangedAtEpoch == 0 || delegateOp.epoch < voteChangedAtEpoch);
                 delegateOp.epoch++
             ) {
                 ValidatorSnapshot memory validatorSnapshot = $.validatorSnapshots[validator][delegateOp.epoch];
                 if (validatorSnapshot.totalDelegated == 0) {
                     continue;
                 }
-                (
-                    uint256 delegatorFee,
-                    /*uint256 ownerFee*/, /*uint256 systemFee*/
-                ) = _calcValidatorSnapshotEpochPayout(validatorSnapshot);
-                availableFunds += delegatorFee * delegateOp.amount / validatorSnapshot.totalDelegated;
+                (uint256 delegatorFee, ,  /*uint256 ownerFee*/ /*uint256 systemFee*/) = _calcValidatorSnapshotEpochPayout(validatorSnapshot);
+                availableFunds += (delegatorFee * delegateOp.amount) / validatorSnapshot.totalDelegated;
             }
             // if we have reached end of the delegation list then lets stay on the last item, but with updated latest processed epoch
             if (delegateGap >= queueLength - 1) {
@@ -500,7 +484,7 @@ contract Staking is IStaking, StakingContext {
         delegation.delegateGap = delegateGap;
         // process all items from undelegate queue
         uint64 undelegateGap = delegation.undelegateGap;
-        for (uint256 queueLength = delegation.undelegateQueue.length; undelegateGap < queueLength;) {
+        for (uint256 queueLength = delegation.undelegateQueue.length; undelegateGap < queueLength; ) {
             DelegationOpUndelegate memory undelegateOp = delegation.undelegateQueue[undelegateGap];
             if (undelegateOp.epoch > beforeEpochExclude) {
                 break;
@@ -534,11 +518,11 @@ contract Staking is IStaking, StakingContext {
         }
     }
 
-    function _calcDelegatorRewardsAndPendingUndelegates(address validator, address delegator, uint64 beforeEpoch)
-        internal
-        view
-        returns (uint256)
-    {
+    function _calcDelegatorRewardsAndPendingUndelegates(
+        address validator,
+        address delegator,
+        uint64 beforeEpoch
+    ) internal view returns (uint256) {
         StakingStorage storage $ = _getStakingStorage();
         ValidatorDelegation memory delegation = $.validatorDelegations[validator][delegator];
         uint256 availableFunds = 0;
@@ -552,20 +536,13 @@ contract Staking is IStaking, StakingContext {
             if (delegation.delegateGap < delegation.delegateQueue.length - 1) {
                 voteChangedAtEpoch = delegation.delegateQueue[delegation.delegateGap + 1].epoch;
             }
-            for (
-                ;
-                delegateOp.epoch < beforeEpoch && (voteChangedAtEpoch == 0 || delegateOp.epoch < voteChangedAtEpoch);
-                delegateOp.epoch++
-            ) {
+            for (; delegateOp.epoch < beforeEpoch && (voteChangedAtEpoch == 0 || delegateOp.epoch < voteChangedAtEpoch); delegateOp.epoch++) {
                 ValidatorSnapshot memory validatorSnapshot = $.validatorSnapshots[validator][delegateOp.epoch];
                 if (validatorSnapshot.totalDelegated == 0) {
                     continue;
                 }
-                (
-                    uint256 delegatorFee,
-                    /*uint256 ownerFee*/, /*uint256 systemFee*/
-                ) = _calcValidatorSnapshotEpochPayout(validatorSnapshot);
-                availableFunds += delegatorFee * delegateOp.amount / validatorSnapshot.totalDelegated;
+                (uint256 delegatorFee, ,  /*uint256 ownerFee*/ /*uint256 systemFee*/) = _calcValidatorSnapshotEpochPayout(validatorSnapshot);
+                availableFunds += (delegatorFee * delegateOp.amount) / validatorSnapshot.totalDelegated;
             }
             ++delegation.delegateGap;
         }
@@ -589,8 +566,7 @@ contract Staking is IStaking, StakingContext {
         uint64 claimAt = validator.claimedAt;
         for (; claimAt < beforeEpoch; claimAt++) {
             ValidatorSnapshot memory validatorSnapshot = $.validatorSnapshots[validator.validatorAddress][claimAt];
-            (/*uint256 delegatorFee*/, uint256 ownerFee, uint256 slashingFee) =
-                _calcValidatorSnapshotEpochPayout(validatorSnapshot);
+            ( /*uint256 delegatorFee*/, uint256 ownerFee, uint256 slashingFee) = _calcValidatorSnapshotEpochPayout(validatorSnapshot);
             availableFunds += ownerFee;
             systemFee += slashingFee;
         }
@@ -604,30 +580,20 @@ contract Staking is IStaking, StakingContext {
         emit ValidatorOwnerClaimed(validator.validatorAddress, availableFunds, beforeEpoch);
     }
 
-    function _calcValidatorOwnerRewards(Validator memory validator, uint64 beforeEpoch)
-        internal
-        view
-        returns (uint256)
-    {
+    function _calcValidatorOwnerRewards(Validator memory validator, uint64 beforeEpoch) internal view returns (uint256) {
         StakingStorage storage $ = _getStakingStorage();
         uint256 availableFunds = 0;
         for (; validator.claimedAt < beforeEpoch; validator.claimedAt++) {
-            ValidatorSnapshot memory validatorSnapshot =
-                $.validatorSnapshots[validator.validatorAddress][validator.claimedAt];
-            (
-                /*uint256 delegatorFee*/,
-                uint256 ownerFee, /*uint256 systemFee*/
-            ) = _calcValidatorSnapshotEpochPayout(validatorSnapshot);
+            ValidatorSnapshot memory validatorSnapshot = $.validatorSnapshots[validator.validatorAddress][validator.claimedAt];
+            (, /*uint256 delegatorFee*/ uint256 ownerFee,  /*uint256 systemFee*/) = _calcValidatorSnapshotEpochPayout(validatorSnapshot);
             availableFunds += ownerFee;
         }
         return availableFunds;
     }
 
-    function _calcValidatorSnapshotEpochPayout(ValidatorSnapshot memory validatorSnapshot)
-        internal
-        view
-        returns (uint256 delegatorFee, uint256 ownerFee, uint256 systemFee)
-    {
+    function _calcValidatorSnapshotEpochPayout(
+        ValidatorSnapshot memory validatorSnapshot
+    ) internal view returns (uint256 delegatorFee, uint256 ownerFee, uint256 systemFee) {
         // detect validator slashing to transfer all rewards to treasury
         if (validatorSnapshot.slashesCount >= _chainConfigContract.getMisdemeanorThreshold()) {
             return (delegatorFee = 0, ownerFee = 0, systemFee = validatorSnapshot.totalRewards);
@@ -635,17 +601,15 @@ contract Staking is IStaking, StakingContext {
             return (delegatorFee = 0, ownerFee = validatorSnapshot.totalRewards, systemFee = 0);
         }
         // ownerFee_(18+4-4=18) = totalRewards_18 * commissionRate_4 / 1e4
-        ownerFee = uint256(validatorSnapshot.totalRewards) * validatorSnapshot.commissionRate / 1e4;
+        ownerFee = (uint256(validatorSnapshot.totalRewards) * validatorSnapshot.commissionRate) / 1e4;
         // delegatorRewards = totalRewards - ownerFee
         delegatorFee = validatorSnapshot.totalRewards - ownerFee;
         // default system fee is zero for epoch
         systemFee = 0;
     }
 
-    function registerValidator(address validatorAddress, uint16 commissionRate, uint256 initialStake)
-        external
-        override
-    {
+    /// @inheritdoc IStaking
+    function registerValidator(address validatorAddress, uint16 commissionRate, uint256 initialStake) external override {
         // // initial stake amount should be greater than minimum validator staking amount
         if (initialStake < _chainConfigContract.getMinValidatorStakeAmount()) revert InitialStakeTooLow(initialStake);
         if (initialStake % BALANCE_COMPACT_PRECISION != 0) revert WrongAmountPrecision();
@@ -654,6 +618,7 @@ contract Staking is IStaking, StakingContext {
         _addValidator(validatorAddress, msg.sender, ValidatorStatus.Pending, commissionRate, initialStake, _nextEpoch());
     }
 
+    /// @inheritdoc IStaking
     function addValidator(address account) external virtual override onlyFromGovernance {
         _addValidator(account, account, ValidatorStatus.Active, 0, 0, _nextEpoch());
     }
@@ -689,17 +654,21 @@ contract Staking is IStaking, StakingContext {
             $.activeValidatorsList.push(validatorAddress);
         }
         // push initial validator snapshot at zero epoch with default params
-        $.validatorSnapshots[validatorAddress][sinceEpoch] =
-            ValidatorSnapshot(0, uint112(initialStake / BALANCE_COMPACT_PRECISION), 0, commissionRate);
+        $.validatorSnapshots[validatorAddress][sinceEpoch] = ValidatorSnapshot(
+            0,
+            uint112(initialStake / BALANCE_COMPACT_PRECISION),
+            0,
+            commissionRate
+        );
         // delegate initial stake to validator owner
         ValidatorDelegation storage delegation = $.validatorDelegations[validatorAddress][validatorOwner];
         if (delegation.delegateQueue.length != 0) revert DelegationQueueNotEmpty(delegation.delegateQueue.length);
-        delegation.delegateQueue
-            .push(DelegationOpDelegate(uint112(initialStake / BALANCE_COMPACT_PRECISION), sinceEpoch));
+        delegation.delegateQueue.push(DelegationOpDelegate(uint112(initialStake / BALANCE_COMPACT_PRECISION), sinceEpoch));
         // emit event
         emit ValidatorAdded(validatorAddress, validatorOwner, uint8(status), commissionRate);
     }
 
+    /// @inheritdoc IStaking
     function removeValidator(address account) external virtual override onlyFromGovernance {
         _removeValidator(account);
     }
@@ -735,6 +704,7 @@ contract Staking is IStaking, StakingContext {
         emit ValidatorRemoved(validatorAddress);
     }
 
+    /// @inheritdoc IStaking
     function activateValidator(address validator) external virtual override onlyFromGovernance {
         _activateValidator(validator);
     }
@@ -749,11 +719,10 @@ contract Staking is IStaking, StakingContext {
         validator.status = ValidatorStatus.Active;
         $.validatorsMap[validatorAddress] = validator;
         ValidatorSnapshot storage snapshot = _touchValidatorSnapshot(validator, _nextEpoch());
-        emit ValidatorModified(
-            validatorAddress, validator.ownerAddress, uint8(validator.status), snapshot.commissionRate
-        );
+        emit ValidatorModified(validatorAddress, validator.ownerAddress, uint8(validator.status), snapshot.commissionRate);
     }
 
+    /// @inheritdoc IStaking
     function disableValidator(address validator) external virtual override onlyFromGovernance {
         _disableValidator(validator);
     }
@@ -768,11 +737,10 @@ contract Staking is IStaking, StakingContext {
         validator.status = ValidatorStatus.Pending;
         $.validatorsMap[validatorAddress] = validator;
         ValidatorSnapshot storage snapshot = _touchValidatorSnapshot(validator, _nextEpoch());
-        emit ValidatorModified(
-            validatorAddress, validator.ownerAddress, uint8(validator.status), snapshot.commissionRate
-        );
+        emit ValidatorModified(validatorAddress, validator.ownerAddress, uint8(validator.status), snapshot.commissionRate);
     }
 
+    /// @inheritdoc IStaking
     function changeValidatorCommissionRate(address validatorAddress, uint16 commissionRate) external {
         StakingStorage storage $ = _getStakingStorage();
         if (commissionRate < COMMISSION_RATE_MIN_VALUE || commissionRate > COMMISSION_RATE_MAX_VALUE) {
@@ -784,11 +752,10 @@ contract Staking is IStaking, StakingContext {
         ValidatorSnapshot storage snapshot = _touchValidatorSnapshot(validator, _nextEpoch());
         snapshot.commissionRate = commissionRate;
         $.validatorsMap[validatorAddress] = validator;
-        emit ValidatorModified(
-            validator.validatorAddress, validator.ownerAddress, uint8(validator.status), commissionRate
-        );
+        emit ValidatorModified(validator.validatorAddress, validator.ownerAddress, uint8(validator.status), commissionRate);
     }
 
+    /// @inheritdoc IStaking
     function changeValidatorOwner(address validatorAddress, address newOwner) external override {
         StakingStorage storage $ = _getStakingStorage();
         Validator memory validator = $.validatorsMap[validatorAddress];
@@ -800,11 +767,10 @@ contract Staking is IStaking, StakingContext {
         $.validatorOwners[newOwner] = validatorAddress;
         $.validatorsMap[validatorAddress] = validator;
         ValidatorSnapshot storage snapshot = _touchValidatorSnapshot(validator, _nextEpoch());
-        emit ValidatorModified(
-            validator.validatorAddress, validator.ownerAddress, uint8(validator.status), snapshot.commissionRate
-        );
+        emit ValidatorModified(validator.validatorAddress, validator.ownerAddress, uint8(validator.status), snapshot.commissionRate);
     }
 
+    /// @inheritdoc IStaking
     function isValidatorActive(address account) external view override returns (bool) {
         StakingStorage storage $ = _getStakingStorage();
         if ($.validatorsMap[account].status != ValidatorStatus.Active) {
@@ -817,6 +783,7 @@ contract Staking is IStaking, StakingContext {
         return false;
     }
 
+    /// @inheritdoc IStaking
     function isValidator(address account) external view override returns (bool) {
         StakingStorage storage $ = _getStakingStorage();
         return $.validatorsMap[account].status != ValidatorStatus.NotFound;
@@ -859,13 +826,7 @@ contract Staking is IStaking, StakingContext {
         return _getValidators();
     }
 
-    function deposit(address validatorAddress, uint256 amount)
-        external
-        virtual
-        override
-        onlyFromCoinbase
-        onlyZeroGasPrice
-    {
+    function deposit(address validatorAddress, uint256 amount) external virtual override onlyFromCoinbase onlyZeroGasPrice {
         _depositFee(validatorAddress, amount);
     }
 
@@ -928,21 +889,11 @@ contract Staking is IStaking, StakingContext {
         _claimValidatorOwnerRewards(validator, beforeEpoch);
     }
 
-    function getDelegatorFee(address validatorAddress, address delegatorAddress)
-        external
-        view
-        override
-        returns (uint256)
-    {
+    function getDelegatorFee(address validatorAddress, address delegatorAddress) external view override returns (uint256) {
         return _calcDelegatorRewardsAndPendingUndelegates(validatorAddress, delegatorAddress, _currentEpoch());
     }
 
-    function getPendingDelegatorFee(address validatorAddress, address delegatorAddress)
-        external
-        view
-        override
-        returns (uint256)
-    {
+    function getPendingDelegatorFee(address validatorAddress, address delegatorAddress) external view override returns (uint256) {
         return _calcDelegatorRewardsAndPendingUndelegates(validatorAddress, delegatorAddress, _nextEpoch());
     }
 
@@ -951,11 +902,7 @@ contract Staking is IStaking, StakingContext {
         _claimDelegatorRewardsAndPendingUndelegates(validatorAddress, msg.sender, _currentEpoch(), ClaimMode.Transfer);
     }
 
-    function _calcAvailableForRedelegateAmount(uint256 claimableRewards)
-        internal
-        view
-        returns (uint256 amountToStake, uint256 rewardsDust)
-    {
+    function _calcAvailableForRedelegateAmount(uint256 claimableRewards) internal view returns (uint256 amountToStake, uint256 rewardsDust) {
         // for redelegate we must split amount into stake-able and dust
         amountToStake = (claimableRewards / BALANCE_COMPACT_PRECISION) * BALANCE_COMPACT_PRECISION;
         if (amountToStake < _chainConfigContract.getMinStakingAmount()) {
@@ -965,12 +912,10 @@ contract Staking is IStaking, StakingContext {
         return (amountToStake, claimableRewards - amountToStake);
     }
 
-    function calcAvailableForRedelegateAmount(address validator, address delegator)
-        external
-        view
-        override
-        returns (uint256 amountToStake, uint256 rewardsDust)
-    {
+    function calcAvailableForRedelegateAmount(
+        address validator,
+        address delegator
+    ) external view override returns (uint256 amountToStake, uint256 rewardsDust) {
         uint256 claimableRewards = _calcDelegatorRewardsAndPendingUndelegates(validator, delegator, _currentEpoch());
         return _calcAvailableForRedelegateAmount(claimableRewards);
     }

@@ -1,9 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-only
 pragma solidity ^0.8.0;
 
+interface IStakingPoolEvents {
+    event Staked(address indexed validator, address indexed staker, uint256 amount);
+    event Unstaked(address indexed validator, address indexed staker, uint256 amount);
+    event RewardsClaimed(address indexed validator, address indexed staker, uint256 amount);
+}
+
+interface IStakingPoolErrors {
+    error ZeroValidator();
+    error ZeroStaker();
+}
+
 /// @title Pooled staking interface
 /// @notice Provides share-based staking into a validator through the underlying `Staking` contract.
-interface IStakingPool {
+interface IStakingPool is IStakingPoolEvents, IStakingPoolErrors {
     /// @notice Returns the current stake represented by `staker` shares in `validator` pool.
     function getStakedAmount(address validator, address staker) external view returns (uint256);
 

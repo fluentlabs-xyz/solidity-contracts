@@ -6,12 +6,12 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import "./interfaces/IChainConfig.sol";
-import "./interfaces/IGovernance.sol";
-import "./interfaces/ISlashingIndicator.sol";
-import "./interfaces/IStaking.sol";
-import "./interfaces/IStakingPool.sol";
-import "./interfaces/ISystemReward.sol";
+import {IChainConfig} from "./interfaces/IChainConfig.sol";
+import {IGovernance} from "./interfaces/IGovernance.sol";
+import {ISlashingIndicator} from "./interfaces/ISlashingIndicator.sol";
+import {IStaking} from "./interfaces/IStaking.sol";
+import {IStakingPool} from "./interfaces/IStakingPool.sol";
+import {ISystemReward} from "./interfaces/ISystemReward.sol";
 
 /// @title Staking system context
 /// @notice Stores staking module dependencies and exposes shared access-control modifiers.
@@ -88,22 +88,22 @@ abstract contract StakingContext is Initializable, UUPSUpgradeable, Ownable2Step
     }
 
     modifier onlyFromCoinbase() {
-        if (msg.sender != block.coinbase) revert OnlyCoinbase();
+        require(msg.sender == block.coinbase, OnlyCoinbase());
         _;
     }
 
     modifier onlyFromSlashingIndicator() {
-        if (msg.sender != address(_slashingIndicatorContract)) revert OnlySlashingIndicator();
+        require(msg.sender == address(_slashingIndicatorContract), OnlySlashingIndicator());
         _;
     }
 
     modifier onlyFromGovernance() {
-        if (IGovernance(msg.sender) != _governanceContract) revert OnlyGovernance();
+        require(IGovernance(msg.sender) == _governanceContract, OnlyGovernance());
         _;
     }
 
     modifier onlyZeroGasPrice() {
-        if (tx.gasprice != 0) revert OnlyZeroGasPrice();
+        require(tx.gasprice == 0, OnlyZeroGasPrice());
         _;
     }
 

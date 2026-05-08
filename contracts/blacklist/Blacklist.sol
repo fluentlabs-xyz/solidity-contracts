@@ -18,7 +18,7 @@ contract Blacklist is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, I
     // ============ Constants ============
 
     /// @dev keccak256(abi.encode(uint256(keccak256("Fluent.storage.BlacklistStorage")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant BLACKLIST_STORAGE_LOCATION = 0x26698338709d046d57ff3f8225220f7106e4ab33e623ea73fdda921318dfe600;
+    bytes32 private constant BLACKLIST_STORAGE_LOCATION = 0x024e237e1f7fe22dd96a7a56a55ff3949c10396cb05c68279647c051bcccff00;
 
     /// @custom:storage-location erc7201:Fluent.storage.BlacklistStorage
     struct BlacklistStorage {

@@ -1,9 +1,26 @@
 // SPDX-License-Identifier: GPL-3.0-only
 pragma solidity ^0.8.0;
 
+interface IChainConfigEvents {
+    event ActiveValidatorsLengthChanged(uint32 prevValue, uint32 newValue);
+    event EpochBlockIntervalChanged(uint32 prevValue, uint32 newValue);
+    event MisdemeanorThresholdChanged(uint32 prevValue, uint32 newValue);
+    event FelonyThresholdChanged(uint32 prevValue, uint32 newValue);
+    event ValidatorJailEpochLengthChanged(uint32 prevValue, uint32 newValue);
+    event UndelegatePeriodChanged(uint32 prevValue, uint32 newValue);
+    event MinValidatorStakeAmountChanged(uint256 prevValue, uint256 newValue);
+    event MinStakingAmountChanged(uint256 prevValue, uint256 newValue);
+}
+
 /// @title Staking chain configuration interface
 /// @notice Exposes governance-controlled parameters used by validator staking and reward accounting.
 interface IChainConfig {
+    /// ================ Errors ================
+
+    /// @notice Thrown when the value is zero.
+    /// @dev selector: 0x46c82ad0
+    error ZeroValue(string field);
+
     /// @notice Maximum number of validators returned in the active validator set.
     function getActiveValidatorsLength() external view returns (uint32);
 

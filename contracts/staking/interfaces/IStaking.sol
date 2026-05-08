@@ -1,11 +1,41 @@
 // SPDX-License-Identifier: GPL-3.0-only
 pragma solidity ^0.8.0;
 
-import "./IValidatorSet.sol";
+import {IValidatorSet} from "./IValidatorSet.sol";
+
+interface IStakingEvents {
+    // validator events
+    event ValidatorAdded(address indexed validator, address indexed owner, uint8 status, uint16 commissionRate);
+    event ValidatorModified(address indexed validator, address indexed owner, uint8 status, uint16 commissionRate);
+    event ValidatorRemoved(address indexed validator);
+    event ValidatorReleased(address indexed validator, uint64 epoch);
+    event ValidatorJailed(address indexed validator, uint64 epoch);
+    event ValidatorDeposited(address indexed validator, uint256 amount, uint64 epoch);
+    event ValidatorSlashed(address indexed validator, uint32 slashes, uint64 epoch);
+    event ValidatorOwnerClaimed(address indexed validator, uint256 amount, uint64 epoch);
+
+    // staker events
+    event Delegated(address indexed validator, address indexed staker, uint256 amount, uint64 epoch);
+    event Undelegated(address indexed validator, address indexed staker, uint256 amount, uint64 epoch);
+    event Claimed(address indexed validator, address indexed staker, uint256 amount, uint64 epoch);
+    event Redelegated(address indexed validator, address indexed staker, uint256 amount, uint256 dust, uint64 epoch);
+}
+
+interface IStakingErrors {
+    error ZeroOwner();
+    error ZeroValidator();
+    error ZeroCommissionRate();
+    error ZeroInitialStake();
+}
 
 /// @title Validator staking interface
 /// @notice Manages validators, delegations, validator commission, delegator rewards, undelegation, and slashing.
-interface IStaking is IValidatorSet {
+interface IStaking is IValidatorSet, IStakingEvents, IStakingErrors {
+    enum ClaimMode {
+        Transfer,
+        Redelegate
+    }
+
     /// @notice Returns the epoch derived from the current block number.
     function currentEpoch() external view returns (uint64);
 
@@ -19,7 +49,9 @@ interface IStaking is IValidatorSet {
     function isValidator(address validator) external view returns (bool);
 
     /// @notice Returns current validator metadata and latest accounting snapshot.
-    function getValidatorStatus(address validator)
+    function getValidatorStatus(
+        address validator
+    )
         external
         view
         returns (
@@ -35,7 +67,10 @@ interface IStaking is IValidatorSet {
         );
 
     /// @notice Returns validator metadata with accounting materialized at `epoch`.
-    function getValidatorStatusAtEpoch(address validator, uint64 epoch)
+    function getValidatorStatusAtEpoch(
+        address validator,
+        uint64 epoch
+    )
         external
         view
         returns (
@@ -78,10 +113,7 @@ interface IStaking is IValidatorSet {
     function changeValidatorOwner(address validator, address newOwner) external;
 
     /// @notice Returns a delegator's latest delegated amount and the epoch it became effective.
-    function getValidatorDelegation(address validator, address delegator)
-        external
-        view
-        returns (uint256 delegatedAmount, uint64 atEpoch);
+    function getValidatorDelegation(address validator, address delegator) external view returns (uint256 delegatedAmount, uint64 atEpoch);
 
     /// @notice Delegates `amount` staking tokens to `validator`, effective from the next epoch.
     function delegate(address validator, uint256 amount) external;
@@ -111,10 +143,10 @@ interface IStaking is IValidatorSet {
     function claimDelegatorFee(address validator) external;
 
     /// @notice Calculates reward amount that can be compacted and redelegated without precision dust.
-    function calcAvailableForRedelegateAmount(address validator, address delegator)
-        external
-        view
-        returns (uint256 delegatedAmount, uint256 dustAmount);
+    function calcAvailableForRedelegateAmount(
+        address validator,
+        address delegator
+    ) external view returns (uint256 delegatedAmount, uint256 dustAmount);
 
     /// @notice Claims currently claimable delegator rewards and immediately redelegates compactable amount.
     function redelegateDelegatorFee(address validator) external;
