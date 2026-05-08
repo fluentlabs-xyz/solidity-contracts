@@ -115,6 +115,27 @@ contract RollupSnapshotTest is RollupAssertions {
         rollup.challengeBlock{value: CHALLENGE_DEPOSIT}(batchIndex, headers[0], _buildMerkleProof(headers, 0));
     }
 
+    function test_challengeWindow_snapshotIgnoresLaterShorterWindowOnFinalize() public {
+        uint256 batchIndex = _acceptBatch(GENESIS_HASH, 0);
+        _submitBlobs(batchIndex, 0);
+        _preconfirmBatch(batchIndex);
+        uint256 acceptedAt = rollup.getBatch(batchIndex).acceptedAtBlock;
+
+        // Shrink the global challenge window AFTER acceptance. The finalize fast-path
+        // must derive its deadline from the snapshot, not the live admin value — otherwise
+        // an admin update would let in-flight batches finalize earlier than promised.
+        vm.prank(admin);
+        rollup.setChallengeWindow(7450);
+
+        // Past the live (shorter) window but still inside the original snapshot — must NOT finalize.
+        vm.roll(acceptedAt + 7451);
+        assertEq(rollup.finalizeBatches(batchIndex), 0, "old batch must use snapshotted challenge window");
+
+        // Past the original snapshot — fast-path finalizes.
+        vm.roll(acceptedAt + CHALLENGE_WINDOW + 1);
+        assertEq(rollup.finalizeBatches(batchIndex), 1, "finalizes once snapshotted challenge window elapses");
+    }
+
     // ============ preconfirmWindow ============
 
     function test_preconfirmWindow_snapshotIgnoresLaterShorterWindow() public {
@@ -132,34 +153,4 @@ contract RollupSnapshotTest is RollupAssertions {
         assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Preconfirmed));
     }
 
-    // ============ finalizationDelay ============
-
-    function test_finalizationDelay_snapshotIgnoresLaterShorterDelay() public {
-        uint256 batchIndex = _acceptBatch(GENESIS_HASH, 0);
-        _submitBlobs(batchIndex, 0);
-        _preconfirmBatch(batchIndex);
-        uint256 acceptedAt = rollup.getBatch(batchIndex).acceptedAtBlock;
-
-        // Increase finalization delay AFTER acceptance. The old batch must keep its snapshot.
-        vm.prank(admin);
-        rollup.setFinalizationDelay(14900);
-
-        // Roll past the original snapshot (FINALIZATION_DELAY) but not the new one
-        vm.roll(acceptedAt + FINALIZATION_DELAY + 1);
-        assertEq(rollup.finalizeBatches(batchIndex), 1, "old batch should use its snapshotted delay, not the updated global");
-    }
-
-    function test_finalizationDelay_snapshotBoundaryFinalizesAfterDeadlineOnly() public {
-        uint256 batchIndex = _acceptBatch(GENESIS_HASH, 0);
-        _submitBlobs(batchIndex, 0);
-        _preconfirmBatch(batchIndex);
-        uint256 acceptedAt = rollup.getBatch(batchIndex).acceptedAtBlock;
-
-        // Finalization requires STRICT `>` (block.number - acceptedAt > delay) — exact boundary is not yet eligible.
-        vm.roll(acceptedAt + FINALIZATION_DELAY);
-        assertEq(rollup.finalizeBatches(batchIndex), 0, "exact finalization boundary should not finalize");
-
-        vm.roll(acceptedAt + FINALIZATION_DELAY + 1);
-        assertEq(rollup.finalizeBatches(batchIndex), 1, "batch should finalize after the snapshotted delay elapses");
-    }
 }
