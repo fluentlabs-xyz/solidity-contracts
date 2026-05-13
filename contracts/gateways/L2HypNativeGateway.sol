@@ -43,7 +43,7 @@ contract L2HypNativeGateway is GatewayBase, IL2HypNativeGateway {
     }
 
     /// @inheritdoc IL2HypNativeGateway
-    function sendNative(uint32 domain, bytes32 recipient, uint256 amount, uint256 hypFee) external payable nonReentrant {
+    function sendNativeTokens(uint32 domain, bytes32 recipient, uint256 amount, uint256 hypFee) external payable nonReentrant {
         require(domain != 0, InvalidTargetDomain());
         require(recipient != bytes32(0), ZeroRecipient());
         require(hypFee >= MIN_HYP_FEE_NATIVE, InvalidHyperlaneFee(hypFee, MIN_HYP_FEE_NATIVE));
@@ -71,14 +71,32 @@ contract L2HypNativeGateway is GatewayBase, IL2HypNativeGateway {
     }
 
     /// @inheritdoc IL2HypNativeGateway
+    function receiveNativeTokens(address from, address to, uint256 amount) external payable onlyFluentBridge nonReentrant {
+        // Peer-auth: only the configured L1 gateway (single peer for both outbound and
+        // inbound) can deliver. Mirrors {NativeGateway-receiveNativeTokens:67}.
+        require(FluentBridge(msg.sender).getNativeSender() == getOtherSideGateway(), MessageFromWrongGateway());
+        require(msg.value == amount, InvalidNativeAmount(msg.value, amount));
+        require(to != address(0), InvalidRecipient());
+        _requireAccountNotBlacklisted(to);
+
+        // Forward ETH to recipient. Gas is bounded by the bridge's executeGasLimit on first
+        // delivery, and by the caller's transaction gas on retry via receiveFailedMessage.
+        (bool ok, ) = payable(to).call{value: amount}("");
+        require(ok, NativeTransferFailed());
+
+        emit ReceivedTokens(from, to, amount);
+    }
+
+    /// @inheritdoc IL2HypNativeGateway
     function rescueNative(address payable to, uint256 amount) external nonReentrant onlyOwner {
         require(to != address(0), InvalidRecipient());
-        (bool success,) = to.call{value: amount}("");
+        (bool success, ) = to.call{value: amount}("");
         require(success, RescueFailed());
     }
 
-    /// @dev Accepts admin-funded ETH refills and incidental returns. Funds become bridgeable
-    ///      payload value via `sendMessage{value: ...}` in {sendNative}. The gateway never
-    ///      pays native out to anyone other than the configured L1 peer.
+    /// @dev Accepts admin-funded ETH refills and incidental returns. Funds are paid out
+    ///      either as bridgeable payload value via `sendMessage{value: ...}` in
+    ///      {sendNativeTokens} (outbound) or to L2 recipients in {receiveNativeTokens} (inbound,
+    ///      paid from `msg.value` carried by the bridge, not from this balance).
     receive() external payable {}
 }

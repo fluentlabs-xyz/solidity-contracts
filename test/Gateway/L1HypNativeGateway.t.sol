@@ -5,9 +5,10 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 
 import {L1HypNativeGateway} from "../../contracts/gateways/L1HypNativeGateway.sol";
 import {NativeGateway} from "../../contracts/gateways/NativeGateway.sol";
-import {IL1HypNativeGateway, IHypNativeGatewayErrors, IHypNativeGatewayEvents} from "../../contracts/interfaces/gateways/IHypNativeGateway.sol";
+import {IL1HypNativeGateway, IL2HypNativeGateway, IHypNativeGatewayErrors, IHypNativeGatewayEvents} from "../../contracts/interfaces/gateways/IHypNativeGateway.sol";
 import {IGatewayBaseErrors} from "../../contracts/interfaces/gateways/IGatewayBase.sol";
-import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
+import {IFluentBridge, IFluentBridgeEvents} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
+import {Blacklist} from "../../contracts/blacklist/Blacklist.sol";
 
 import {GatewayBase} from "./Base.t.sol";
 import {MockTokenBridge} from "../mocks/MockTokenBridge.sol";
@@ -44,7 +45,7 @@ contract L1HypNativeGatewayTest is GatewayBase {
         warpRoute.setDispatchGas(DEFAULT_DISPATCH_GAS);
 
         vm.prank(admin);
-        l1Hyp.setWarpRoute(TEST_DOMAIN, address(warpRoute));
+        l1Hyp.setWarpRoute(address(warpRoute));
 
         // Wire the shared FastWithdrawalList so optimistic-withdrawal rate caps can be
         // exercised. The Hyperlane gateway charges against NativeGateway.NATIVE_LIMIT_KEY —
@@ -75,7 +76,7 @@ contract L1HypNativeGatewayTest is GatewayBase {
         assertEq(l1Hyp.owner(), admin);
         assertEq(l1Hyp.getBridgeContract(), address(bridge));
         assertEq(l1Hyp.getOtherSideGateway(), remoteGateway);
-        assertEq(l1Hyp.getWarpRoute(TEST_DOMAIN), address(warpRoute));
+        assertEq(l1Hyp.getWarpRoute(), address(warpRoute));
     }
 
     function test_receiveAndForwardNative_dispatchesToWarpRoute() public {
@@ -333,22 +334,28 @@ contract L1HypNativeGatewayTest is GatewayBase {
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed), "length 4 must be rejected");
     }
 
-    function test_receiveAndForwardNative_marksFailed_whenDomainUnsupported() public {
-        // Encode for a different domain than the one configured.
-        uint32 otherDomain = 42161; // arbitrum
+    function test_receiveAndForwardNative_marksFailed_whenWarpRouteNotConfigured() public {
+        // Deploy a fresh gateway without setting the warp route. setUp's `l1Hyp` has one,
+        // so we exercise the unconfigured path on a sibling instance.
+        L1HypNativeGateway impl = new L1HypNativeGateway();
+        ERC1967Proxy proxy = new ERC1967Proxy(address(impl), abi.encodeCall(L1HypNativeGateway.initialize, (admin, address(bridge))));
+        L1HypNativeGateway local = L1HypNativeGateway(payable(address(proxy)));
+        vm.prank(admin);
+        local.setOtherSideGateway(remoteGateway);
+        _registerGateway(address(local));
+
         uint256 amount = 1 ether;
         uint256 transported = amount + 0.01 ether;
-
-        bytes memory message = abi.encodeCall(IL1HypNativeGateway.receiveAndForwardNative, (otherDomain, TEST_RECIPIENT, amount, user));
+        bytes memory message = abi.encodeCall(IL1HypNativeGateway.receiveAndForwardNative, (TEST_DOMAIN, TEST_RECIPIENT, amount, user));
         uint256 nonce = bridge.getReceivedNonce();
         uint256 sourceBlock = nextSourceBlock++;
-        bytes32 messageHash = _bridgeMessageHash(remoteGateway, address(l1Hyp), transported, sourceChainId, sourceBlock, nonce, message);
+        bytes32 messageHash = _bridgeMessageHash(remoteGateway, address(local), transported, sourceChainId, sourceBlock, nonce, message);
 
         vm.deal(address(bridge), address(bridge).balance + transported);
         vm.prank(relayer);
-        bridge.receiveMessage(remoteGateway, address(l1Hyp), transported, sourceChainId, sourceBlock, nonce, message);
+        bridge.receiveMessage(remoteGateway, address(local), transported, sourceChainId, sourceBlock, nonce, message);
 
-        assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed), "unsupported domain should fail");
+        assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed), "unconfigured warp route should fail");
     }
 
     function test_receiveAndForwardNative_marksFailed_whenSenderNotPeer() public {
@@ -387,13 +394,19 @@ contract L1HypNativeGatewayTest is GatewayBase {
     function test_setWarpRoute_updatesAndEmits() public {
         address newRoute = address(new MockTokenBridge());
 
-        vm.expectEmit(true, true, true, true, address(l1Hyp));
-        emit IHypNativeGatewayEvents.WarpRouteUpdated(TEST_DOMAIN, address(warpRoute), newRoute);
+        vm.expectEmit(true, true, false, false, address(l1Hyp));
+        emit IHypNativeGatewayEvents.WarpRouteUpdated(address(warpRoute), newRoute);
 
         vm.prank(admin);
-        l1Hyp.setWarpRoute(TEST_DOMAIN, newRoute);
+        l1Hyp.setWarpRoute(newRoute);
 
-        assertEq(l1Hyp.getWarpRoute(TEST_DOMAIN), newRoute);
+        assertEq(l1Hyp.getWarpRoute(), newRoute);
+    }
+
+    function test_RevertIf_setWarpRoute_zeroAddress() public {
+        vm.prank(admin);
+        vm.expectRevert(abi.encodeWithSelector(IGatewayBaseErrors.ZeroAddressNotAllowed.selector, "warpRoute"));
+        l1Hyp.setWarpRoute(address(0));
     }
 
     function test_RevertIf_setWarpRoute_warpRouteNotAContract() public {
@@ -401,20 +414,17 @@ contract L1HypNativeGatewayTest is GatewayBase {
 
         vm.prank(admin);
         vm.expectRevert(abi.encodeWithSelector(IHypNativeGatewayErrors.WarpRouteNotAContract.selector, eoa));
-        l1Hyp.setWarpRoute(TEST_DOMAIN, eoa);
-    }
-
-    function test_setWarpRoute_clearsRouteWhenZero() public {
-        // address(0) is the documented "clear" sentinel and must bypass the code-length check.
-        vm.prank(admin);
-        l1Hyp.setWarpRoute(TEST_DOMAIN, address(0));
-        assertEq(l1Hyp.getWarpRoute(TEST_DOMAIN), address(0));
+        l1Hyp.setWarpRoute(eoa);
     }
 
     function test_RevertIf_setWarpRoute_callerNotOwner() public {
+        // Deploy the mock outside the prank — `vm.prank` is single-use and would otherwise
+        // be consumed by the contract-creation call rather than the `setWarpRoute` call.
+        address newRoute = address(new MockTokenBridge());
+
         vm.prank(stranger());
         vm.expectRevert();
-        l1Hyp.setWarpRoute(TEST_DOMAIN, address(0xdead));
+        l1Hyp.setWarpRoute(newRoute);
     }
 
     function test_rescueNative_transfersBalance() public {
@@ -438,6 +448,95 @@ contract L1HypNativeGatewayTest is GatewayBase {
         vm.prank(stranger());
         vm.expectRevert();
         l1Hyp.rescueNative(payable(recipient), 1);
+    }
+
+    // ─── Inbound: sendNativeTokens (called by the configured warp route) ─────────
+
+    /// @dev The warp route configured in `setUp` (a `MockTokenBridge`) doubles as the inbound
+    ///      caller — single `_warpRoute` field is used for both outbound dispatch and inbound
+    ///      caller-auth. Tests `vm.prank(address(warpRoute))` to simulate the warp route
+    ///      forwarding an inbound Hyperlane delivery through this gateway.
+
+    function test_sendNativeTokens_forwardsToBridgeWithEncodedPayload() public {
+        address to = makeAddr("inboundRecipient");
+        uint256 amount = 0.5 ether;
+        vm.deal(address(warpRoute), amount);
+
+        bytes memory expectedPayload = abi.encodeCall(
+            IL2HypNativeGateway.receiveNativeTokens,
+            (address(warpRoute), to, amount)
+        );
+        bytes32 expectedHash = _bridgeMessageHash(
+            address(l1Hyp), remoteGateway, amount, block.chainid, uint256(0), uint256(0), expectedPayload
+        );
+
+        vm.expectEmit(true, true, false, true, address(bridge));
+        emit IFluentBridgeEvents.SentMessage(
+            address(l1Hyp), remoteGateway, amount, 0, block.chainid, 0, 0, expectedHash, expectedPayload
+        );
+
+        vm.prank(address(warpRoute));
+        l1Hyp.sendNativeTokens{value: amount}(to);
+
+        assertEq(address(bridge).balance, amount, "bridge should receive full amount (L1 has zero send-fee)");
+    }
+
+    function test_RevertIf_sendNativeTokens_callerNotWarpRoute() public {
+        address rogue = makeAddr("rogue");
+        address to = makeAddr("recipient");
+        uint256 amount = 0.1 ether;
+        vm.deal(rogue, amount);
+
+        vm.prank(rogue);
+        vm.expectRevert(IHypNativeGatewayErrors.UnauthorizedWarpRoute.selector);
+        l1Hyp.sendNativeTokens{value: amount}(to);
+    }
+
+    function test_RevertIf_sendNativeTokens_warpRouteUnset() public {
+        // Deploy a fresh gateway with no warp route set. The auth check
+        // (`msg.sender == _warpRoute == address(0)`) fails closed.
+        L1HypNativeGateway impl = new L1HypNativeGateway();
+        ERC1967Proxy proxy = new ERC1967Proxy(address(impl), abi.encodeCall(L1HypNativeGateway.initialize, (admin, address(bridge))));
+        L1HypNativeGateway local = L1HypNativeGateway(payable(address(proxy)));
+
+        address to = makeAddr("recipient");
+        uint256 amount = 0.1 ether;
+        vm.deal(address(warpRoute), amount);
+
+        vm.prank(address(warpRoute));
+        vm.expectRevert(IHypNativeGatewayErrors.UnauthorizedWarpRoute.selector);
+        local.sendNativeTokens{value: amount}(to);
+    }
+
+    function test_RevertIf_sendNativeTokens_recipientZero() public {
+        uint256 amount = 0.1 ether;
+        vm.deal(address(warpRoute), amount);
+
+        vm.prank(address(warpRoute));
+        vm.expectRevert(IGatewayBaseErrors.InvalidRecipient.selector);
+        l1Hyp.sendNativeTokens{value: amount}(address(0));
+    }
+
+    function test_RevertIf_sendNativeTokens_recipientBlacklisted() public {
+        Blacklist blImpl = new Blacklist();
+        ERC1967Proxy blProxy = new ERC1967Proxy(address(blImpl), abi.encodeCall(Blacklist.initialize, (admin)));
+        Blacklist bl = Blacklist(address(blProxy));
+
+        address to = makeAddr("blacklistedRecipient");
+        vm.startPrank(admin);
+        l1Hyp.setBlacklistRegistry(address(bl));
+        bl.setBlacklisted(to, true);
+        vm.stopPrank();
+
+        uint256 amount = 0.1 ether;
+        vm.deal(address(warpRoute), amount);
+
+        vm.prank(address(warpRoute));
+        vm.expectRevert(abi.encodeWithSelector(
+            IGatewayBaseErrors.AddressBlacklisted.selector,
+            bytes32(uint256(uint160(to)))
+        ));
+        l1Hyp.sendNativeTokens{value: amount}(to);
     }
 
     /// @dev Helper because `GatewayBase.t.sol` doesn't declare `stranger`.

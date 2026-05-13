@@ -5,7 +5,7 @@ import {GatewayBase} from "./GatewayBase.sol";
 import {FluentBridge} from "../bridge/FluentBridge.sol";
 
 import {ITokenBridge} from "../interfaces/external/hyperlane/ITokenBridge.sol";
-import {IL1HypNativeGateway} from "../interfaces/gateways/IHypNativeGateway.sol";
+import {IL1HypNativeGateway, IL2HypNativeGateway} from "../interfaces/gateways/IHypNativeGateway.sol";
 
 /**
  * @title L1HypNativeGateway
@@ -13,8 +13,9 @@ import {IL1HypNativeGateway} from "../interfaces/gateways/IHypNativeGateway.sol"
  *
  * @notice L1 receive gateway that re-quotes the Hyperlane v10 warp route at delivery and
  *         dispatches a native-ETH transfer to a remote chain.
- * @dev UUPS-upgradeable. Adds a per-domain warp route mapping in its own ERC-7201 namespace
- *      and inherits routing/blacklist from {GatewayBase}.
+ * @dev UUPS-upgradeable. Holds a single Hyperlane warp route address in its own ERC-7201
+ *      namespace (used for both outbound dispatch and inbound caller-auth) and inherits
+ *      routing/blacklist from {GatewayBase}.
  *
  *      Cross-trust-boundary policy: applies the same {_consumeLimit} rate cap as
  *      {NativeGateway}, charged against the shared {NativeGateway-NATIVE_LIMIT_KEY} bucket on
@@ -44,8 +45,14 @@ contract L1HypNativeGateway is GatewayBase, IL1HypNativeGateway {
 
     /// @custom:storage-location erc7201:Fluent.storage.L1HypNativeGatewayStorage
     struct L1HypNativeGatewayStorage {
-        /// @dev Per-Hyperlane-domain warp route configured by admin.
-        mapping(uint32 domain => address warpRoute) _warpRouteFor;
+        /// @dev Hyperlane warp route address. Single source of truth — same value is used
+        ///      both as the outbound dispatch target in {receiveAndForwardNative} (the
+        ///      contract on which `transferRemote` is called) AND as the authorized inbound
+        ///      caller in {sendNativeTokens} (the `msg.sender` allowed to forward inbound
+        ///      Hyperlane deliveries through this gateway). Per design Q1: single shared
+        ///      multi-enrolled `L1FluentHypNative` instance handles every remote domain,
+        ///      so per-domain mapping is unnecessary.
+        address _warpRoute;
         /// @dev Reserved for future storage fields.
         uint256[49] __gap;
     }
@@ -87,8 +94,8 @@ contract L1HypNativeGateway is GatewayBase, IL1HypNativeGateway {
         // No-op when whitelist is disabled or the source batch is already Finalized.
         _consumeLimit(NATIVE_LIMIT_KEY, amount);
 
-        address warpRoute = _getStorage()._warpRouteFor[domain];
-        require(warpRoute != address(0), UnsupportedDomain(domain));
+        address warpRoute = _getStorage()._warpRoute;
+        require(warpRoute != address(0), WarpRouteNotConfigured());
 
         // Hyperlane v10 `TokenRouter.quoteTransferRemote` always returns 3 entries; for
         // HypNative all three are native ETH. A different length or a non-native entry means
@@ -117,18 +124,35 @@ contract L1HypNativeGateway is GatewayBase, IL1HypNativeGateway {
     }
 
     /// @inheritdoc IL1HypNativeGateway
-    function setWarpRoute(uint32 domain, address warpRoute) external onlyOwner {
-        // address(0) clears the route; any non-zero value must be a contract — fail fast here
-        // rather than letting the first delivery panic on quoteTransferRemote.
-        require(warpRoute == address(0) || warpRoute.code.length > 0, WarpRouteNotAContract(warpRoute));
-        L1HypNativeGatewayStorage storage $ = _getStorage();
-        emit WarpRouteUpdated(domain, $._warpRouteFor[domain], warpRoute);
-        $._warpRouteFor[domain] = warpRoute;
+    function sendNativeTokens(address to) external payable nonReentrant {
+        // Auth: only the configured warp route (L1FluentHypNative) may forward inbound
+        // transfers through this gateway. Reverts with UnauthorizedWarpRoute on mismatch so
+        // the failure mode is unambiguous in monitoring. Also fails closed when the warp
+        // route hasn't been set (`_warpRoute == address(0)`) because no caller can match.
+        require(msg.sender == _getStorage()._warpRoute, UnauthorizedWarpRoute());
+        require(to != address(0), InvalidRecipient());
+        _requireAccountNotBlacklisted(to);
+
+        // L1→L2 direction in Fluent charges no bridge fee (`FluentBridge.getSentMessageFee()`
+        // returns 0 on L1). msg.value is the entire amount to deliver to L2; no skim.
+        FluentBridge(getBridgeContract()).sendMessage{value: msg.value}(
+            getOtherSideGateway(),
+            abi.encodeCall(IL2HypNativeGateway.receiveNativeTokens, (msg.sender, to, msg.value))
+        );
     }
 
     /// @inheritdoc IL1HypNativeGateway
-    function getWarpRoute(uint32 domain) external view returns (address) {
-        return _getStorage()._warpRouteFor[domain];
+    function setWarpRoute(address warpRoute) external onlyOwner {
+        require(warpRoute != address(0), ZeroAddressNotAllowed("warpRoute"));
+        require(warpRoute.code.length > 0, WarpRouteNotAContract(warpRoute));
+        L1HypNativeGatewayStorage storage $ = _getStorage();
+        emit WarpRouteUpdated($._warpRoute, warpRoute);
+        $._warpRoute = warpRoute;
+    }
+
+    /// @inheritdoc IL1HypNativeGateway
+    function getWarpRoute() external view returns (address) {
+        return _getStorage()._warpRoute;
     }
 
     /// @inheritdoc IL1HypNativeGateway

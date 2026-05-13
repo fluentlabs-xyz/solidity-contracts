@@ -7,10 +7,12 @@ import {L2HypNativeGateway} from "../../contracts/gateways/L2HypNativeGateway.so
 import {
     IL1HypNativeGateway,
     IL2HypNativeGateway,
-    IHypNativeGatewayErrors
+    IHypNativeGatewayErrors,
+    IHypNativeGatewayEvents
 } from "../../contracts/interfaces/gateways/IHypNativeGateway.sol";
-import {IGatewayBaseErrors} from "../../contracts/interfaces/gateways/IGatewayBase.sol";
-import {IFluentBridgeErrors, IFluentBridgeEvents} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
+import {IGatewayBaseErrors, IGatewayBaseEvents} from "../../contracts/interfaces/gateways/IGatewayBase.sol";
+import {IFluentBridge, IFluentBridgeErrors, IFluentBridgeEvents} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
+import {Blacklist} from "../../contracts/blacklist/Blacklist.sol";
 
 import {GatewayBase} from "./Base.t.sol";
 import {EthRejecter} from "../mocks/EthRejecter.sol";
@@ -31,10 +33,7 @@ contract L2HypNativeGatewayTest is GatewayBase {
 
     function _deployL2HypNativeGateway() internal {
         L2HypNativeGateway impl = new L2HypNativeGateway();
-        ERC1967Proxy proxy = new ERC1967Proxy(
-            address(impl),
-            abi.encodeCall(L2HypNativeGateway.initialize, (admin, address(bridge)))
-        );
+        ERC1967Proxy proxy = new ERC1967Proxy(address(impl), abi.encodeCall(L2HypNativeGateway.initialize, (admin, address(bridge))));
         l2Hyp = L2HypNativeGateway(payable(address(proxy)));
 
         vm.prank(admin);
@@ -50,27 +49,24 @@ contract L2HypNativeGatewayTest is GatewayBase {
         assertEq(l2Hyp.getOtherSideGateway(), remoteGateway);
     }
 
-    function test_sendNative_locksTotalInBridge() public {
+    function test_sendNativeTokens_locksTotalInBridge() public {
         // Bridge fee defaults to 0 in the test setup (gas oracle params zero).
         uint256 amount = 1 ether;
         uint256 total = amount + TEST_HYP_FEE;
         vm.deal(user, total);
 
         vm.prank(user);
-        l2Hyp.sendNative{value: total}(TEST_DOMAIN, TEST_RECIPIENT, amount, TEST_HYP_FEE);
+        l2Hyp.sendNativeTokens{value: total}(TEST_DOMAIN, TEST_RECIPIENT, amount, TEST_HYP_FEE);
 
         assertEq(address(bridge).balance, total, "bridge did not receive amount + hypFee");
     }
 
-    function test_sendNative_emitsSentMessageWithEncodedPayload() public {
+    function test_sendNativeTokens_emitsSentMessageWithEncodedPayload() public {
         uint256 amount = 1 ether;
         uint256 total = amount + TEST_HYP_FEE;
         vm.deal(user, total);
 
-        bytes memory expectedPayload = abi.encodeCall(
-            IL1HypNativeGateway.receiveAndForwardNative,
-            (TEST_DOMAIN, TEST_RECIPIENT, amount, user)
-        );
+        bytes memory expectedPayload = abi.encodeCall(IL1HypNativeGateway.receiveAndForwardNative, (TEST_DOMAIN, TEST_RECIPIENT, amount, user));
 
         // Match indexed sender/destination + non-indexed payload.
         vm.expectEmit(true, true, false, true, address(bridge));
@@ -87,10 +83,10 @@ contract L2HypNativeGatewayTest is GatewayBase {
         );
 
         vm.prank(user);
-        l2Hyp.sendNative{value: total}(TEST_DOMAIN, TEST_RECIPIENT, amount, TEST_HYP_FEE);
+        l2Hyp.sendNativeTokens{value: total}(TEST_DOMAIN, TEST_RECIPIENT, amount, TEST_HYP_FEE);
     }
 
-    function test_sendNative_excessMsgValuePassesThroughToBridge() public {
+    function test_sendNativeTokens_excessMsgValuePassesThroughToBridge() public {
         // Anything above `required` passes through as cross-bridge value (joins hypFee buffer on L1).
         uint256 amount = 1 ether;
         uint256 excess = 0.5 ether;
@@ -98,32 +94,32 @@ contract L2HypNativeGatewayTest is GatewayBase {
         vm.deal(user, total);
 
         vm.prank(user);
-        l2Hyp.sendNative{value: total}(TEST_DOMAIN, TEST_RECIPIENT, amount, TEST_HYP_FEE);
+        l2Hyp.sendNativeTokens{value: total}(TEST_DOMAIN, TEST_RECIPIENT, amount, TEST_HYP_FEE);
 
         assertEq(address(bridge).balance, total, "excess should pass through to bridge value");
     }
 
-    function test_RevertIf_sendNative_zeroDomain() public {
+    function test_RevertIf_sendNativeTokens_zeroDomain() public {
         uint256 amount = 1 ether;
         uint256 total = amount + TEST_HYP_FEE;
         vm.deal(user, total);
 
         vm.prank(user);
         vm.expectRevert(IHypNativeGatewayErrors.InvalidTargetDomain.selector);
-        l2Hyp.sendNative{value: total}(0, TEST_RECIPIENT, amount, TEST_HYP_FEE);
+        l2Hyp.sendNativeTokens{value: total}(0, TEST_RECIPIENT, amount, TEST_HYP_FEE);
     }
 
-    function test_RevertIf_sendNative_zeroRecipient() public {
+    function test_RevertIf_sendNativeTokens_zeroRecipient() public {
         uint256 amount = 1 ether;
         uint256 total = amount + TEST_HYP_FEE;
         vm.deal(user, total);
 
         vm.prank(user);
         vm.expectRevert(IHypNativeGatewayErrors.ZeroRecipient.selector);
-        l2Hyp.sendNative{value: total}(TEST_DOMAIN, bytes32(0), amount, TEST_HYP_FEE);
+        l2Hyp.sendNativeTokens{value: total}(TEST_DOMAIN, bytes32(0), amount, TEST_HYP_FEE);
     }
 
-    function test_RevertIf_sendNative_hypFeeBelowMinimum() public {
+    function test_RevertIf_sendNativeTokens_hypFeeBelowMinimum() public {
         uint256 minHypFee = l2Hyp.MIN_HYP_FEE_NATIVE();
         uint256 amount = 1 ether;
         uint256 hypFee = minHypFee - 1;
@@ -131,32 +127,25 @@ contract L2HypNativeGatewayTest is GatewayBase {
         vm.deal(user, total);
 
         vm.prank(user);
-        vm.expectRevert(
-            abi.encodeWithSelector(IL2HypNativeGateway.InvalidHyperlaneFee.selector, hypFee, minHypFee)
-        );
-        l2Hyp.sendNative{value: total}(TEST_DOMAIN, TEST_RECIPIENT, amount, hypFee);
+        vm.expectRevert(abi.encodeWithSelector(IL2HypNativeGateway.InvalidHyperlaneFee.selector, hypFee, minHypFee));
+        l2Hyp.sendNativeTokens{value: total}(TEST_DOMAIN, TEST_RECIPIENT, amount, hypFee);
     }
 
-    function test_RevertIf_sendNative_msgValueBelowRequired() public {
+    function test_RevertIf_sendNativeTokens_msgValueBelowRequired() public {
         uint256 amount = 1 ether;
         uint256 required = amount + TEST_HYP_FEE; // bridgeFee = 0 in test setup
         uint256 supplied = required - 1;
         vm.deal(user, supplied);
 
         vm.prank(user);
-        vm.expectRevert(
-            abi.encodeWithSelector(IL2HypNativeGateway.InvalidNativeAmount.selector, supplied, required)
-        );
-        l2Hyp.sendNative{value: supplied}(TEST_DOMAIN, TEST_RECIPIENT, amount, TEST_HYP_FEE);
+        vm.expectRevert(abi.encodeWithSelector(IHypNativeGatewayErrors.InvalidNativeAmount.selector, supplied, required));
+        l2Hyp.sendNativeTokens{value: supplied}(TEST_DOMAIN, TEST_RECIPIENT, amount, TEST_HYP_FEE);
     }
 
-    function test_RevertIf_sendNative_destinationGatewayNotRegistered() public {
+    function test_RevertIf_sendNativeTokens_destinationGatewayNotRegistered() public {
         // Deploy a fresh gateway whose remote peer is never registered on the bridge.
         L2HypNativeGateway impl = new L2HypNativeGateway();
-        ERC1967Proxy proxy = new ERC1967Proxy(
-            address(impl),
-            abi.encodeCall(L2HypNativeGateway.initialize, (admin, address(bridge)))
-        );
+        ERC1967Proxy proxy = new ERC1967Proxy(address(impl), abi.encodeCall(L2HypNativeGateway.initialize, (admin, address(bridge))));
         L2HypNativeGateway local = L2HypNativeGateway(payable(address(proxy)));
         // No setOtherSideGateway — defaults to address(0); bridge rejects.
 
@@ -166,7 +155,7 @@ contract L2HypNativeGatewayTest is GatewayBase {
 
         vm.prank(user);
         vm.expectRevert(IFluentBridgeErrors.GatewayNotWhitelisted.selector);
-        local.sendNative{value: total}(TEST_DOMAIN, TEST_RECIPIENT, amount, TEST_HYP_FEE);
+        local.sendNativeTokens{value: total}(TEST_DOMAIN, TEST_RECIPIENT, amount, TEST_HYP_FEE);
     }
 
     function test_rescueNative_transfersBalance() public {
@@ -201,5 +190,142 @@ contract L2HypNativeGatewayTest is GatewayBase {
         vm.prank(admin);
         vm.expectRevert(IHypNativeGatewayErrors.RescueFailed.selector);
         l2Hyp.rescueNative(rejecter, 0.1 ether);
+    }
+
+    // ─── Inbound: receiveNativeTokens (mirrors NativeGateway.receiveNativeTokens) ─
+
+    function test_receiveNativeTokens_deliversToRecipient() public {
+        address from = remoteGateway;
+        address to = makeAddr("inboundRecipient");
+        uint256 amount = 0.7 ether;
+
+        uint256 prev = to.balance;
+        (bytes32 hash, , ) = _relayMessage(
+            remoteGateway,
+            address(l2Hyp),
+            amount,
+            abi.encodeCall(IL2HypNativeGateway.receiveNativeTokens, (from, to, amount))
+        );
+
+        assertEq(uint256(bridge.getReceivedMessage(hash)), uint256(IFluentBridge.MessageStatus.Success), "bridge should mark Success");
+        assertEq(to.balance - prev, amount, "recipient should receive amount");
+    }
+
+    function test_receiveNativeTokens_emitsReceivedTokens() public {
+        address from = remoteGateway;
+        address to = makeAddr("inboundRecipient");
+        uint256 amount = 0.5 ether;
+
+        // Register the receive target before the prank inside `_relayMessage` so the strict
+        // expectEmit pairing isn't disrupted by a {GatewayRegistered} event.
+        _registerGateway(address(l2Hyp));
+
+        vm.expectEmit(true, true, false, true, address(l2Hyp));
+        emit IGatewayBaseEvents.ReceivedTokens(from, to, amount);
+
+        _relayMessage(remoteGateway, address(l2Hyp), amount, abi.encodeCall(IL2HypNativeGateway.receiveNativeTokens, (from, to, amount)));
+    }
+
+    function test_receiveNativeTokens_marksFailed_whenFromWrongPeer() public {
+        address to = makeAddr("inboundRecipient");
+        uint256 amount = 0.3 ether;
+        address rogue = makeAddr("rogue");
+
+        // Bridge native-sender = rogue ≠ getOtherSideGateway() → peer auth fails, bridge
+        // marks Failed.
+        (bytes32 hash, , ) = _relayMessage(
+            rogue,
+            address(l2Hyp),
+            amount,
+            abi.encodeCall(IL2HypNativeGateway.receiveNativeTokens, (rogue, to, amount))
+        );
+
+        assertEq(uint256(bridge.getReceivedMessage(hash)), uint256(IFluentBridge.MessageStatus.Failed), "wrong peer must mark Failed");
+        assertEq(to.balance, 0, "recipient must not receive");
+    }
+
+    function test_receiveNativeTokens_marksFailed_whenValueMismatch() public {
+        address from = remoteGateway;
+        address to = makeAddr("inboundRecipient");
+        uint256 amountInPayload = 1 ether;
+        uint256 amountInValue = 0.5 ether;
+
+        (bytes32 hash, , ) = _relayMessage(
+            remoteGateway,
+            address(l2Hyp),
+            amountInValue,
+            abi.encodeCall(IL2HypNativeGateway.receiveNativeTokens, (from, to, amountInPayload))
+        );
+
+        assertEq(uint256(bridge.getReceivedMessage(hash)), uint256(IFluentBridge.MessageStatus.Failed), "value mismatch must mark Failed");
+    }
+
+    function test_receiveNativeTokens_marksFailed_whenRecipientZero() public {
+        address from = remoteGateway;
+        uint256 amount = 0.1 ether;
+
+        (bytes32 hash, , ) = _relayMessage(
+            remoteGateway,
+            address(l2Hyp),
+            amount,
+            abi.encodeCall(IL2HypNativeGateway.receiveNativeTokens, (from, address(0), amount))
+        );
+
+        assertEq(uint256(bridge.getReceivedMessage(hash)), uint256(IFluentBridge.MessageStatus.Failed), "zero recipient must mark Failed");
+    }
+
+    function test_receiveNativeTokens_marksFailed_whenRecipientBlacklisted() public {
+        Blacklist blImpl = new Blacklist();
+        ERC1967Proxy blProxy = new ERC1967Proxy(address(blImpl), abi.encodeCall(Blacklist.initialize, (admin)));
+        Blacklist bl = Blacklist(address(blProxy));
+
+        address to = makeAddr("blacklistedRecipient");
+        vm.startPrank(admin);
+        l2Hyp.setBlacklistRegistry(address(bl));
+        bl.setBlacklisted(to, true);
+        vm.stopPrank();
+
+        address from = remoteGateway;
+        uint256 amount = 0.1 ether;
+
+        (bytes32 hash, , ) = _relayMessage(
+            remoteGateway,
+            address(l2Hyp),
+            amount,
+            abi.encodeCall(IL2HypNativeGateway.receiveNativeTokens, (from, to, amount))
+        );
+
+        assertEq(
+            uint256(bridge.getReceivedMessage(hash)),
+            uint256(IFluentBridge.MessageStatus.Failed),
+            "blacklisted recipient must mark Failed"
+        );
+        assertEq(to.balance, 0, "blacklisted recipient must not receive");
+    }
+
+    function test_receiveNativeTokens_marksFailed_whenRecipientRejectsEth() public {
+        address from = remoteGateway;
+        address payable rejecter = payable(address(new EthRejecter()));
+        uint256 amount = 0.1 ether;
+
+        (bytes32 hash, , ) = _relayMessage(
+            remoteGateway,
+            address(l2Hyp),
+            amount,
+            abi.encodeCall(IL2HypNativeGateway.receiveNativeTokens, (from, rejecter, amount))
+        );
+
+        assertEq(uint256(bridge.getReceivedMessage(hash)), uint256(IFluentBridge.MessageStatus.Failed), "rejecter must mark Failed");
+    }
+
+    function test_RevertIf_receiveNativeTokens_callerNotBridge() public {
+        address from = remoteGateway;
+        address to = makeAddr("inboundRecipient");
+        uint256 amount = 0.1 ether;
+
+        vm.deal(makeAddr("stranger"), amount);
+        vm.prank(makeAddr("stranger"));
+        vm.expectRevert(IGatewayBaseErrors.OnlyFluentBridge.selector);
+        l2Hyp.receiveNativeTokens{value: amount}(from, to, amount);
     }
 }
