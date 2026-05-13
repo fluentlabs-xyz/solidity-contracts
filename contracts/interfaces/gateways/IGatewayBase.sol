@@ -44,9 +44,10 @@ interface IGatewayBaseErrors {
 
     /**
      * @notice Outbound deposit rejected because the account is on the configured blacklist registry.
-     * @dev selector: 0xdaf49ab9
+     * @dev `account` is the canonical {IBlacklist} key.
+     * @dev selector: 0x4a803ca0
      */
-    error AddressBlacklisted(address account);
+    error AccountBlacklisted(bytes32 account);
 
     /**
      * @notice Thrown when the batch status is invalid.
