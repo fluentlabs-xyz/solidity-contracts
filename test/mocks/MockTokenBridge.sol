@@ -20,6 +20,10 @@ contract MockTokenBridge is ITokenBridge {
     bool public shouldRevertQuote;
     bool public shouldRevertTransfer;
 
+    /// @dev When non-zero, `quoteTransferRemote` returns a `Quote[]` of this length instead of
+    ///      the canonical 3. Used by tests that exercise the gateway's malformed-quote guard.
+    uint256 public quoteLengthOverride;
+
     uint32 public lastDestination;
     bytes32 public lastRecipient;
     uint256 public lastAmount;
@@ -43,6 +47,10 @@ contract MockTokenBridge is ITokenBridge {
 
     function setShouldRevertTransfer(bool v) external {
         shouldRevertTransfer = v;
+    }
+
+    function setQuoteLengthOverride(uint256 v) external {
+        quoteLengthOverride = v;
     }
 
     function transferRemote(uint32 _destination, bytes32 _recipient, uint256 _amount)
@@ -69,6 +77,15 @@ contract MockTokenBridge is ITokenBridge {
         returns (Quote[] memory quotes)
     {
         if (shouldRevertQuote) revert("mock-quote-revert");
+        // If an override is set, return that many entries (all-native, zero-amount filler
+        // beyond the canonical three) to exercise the gateway's malformed-quote guard.
+        if (quoteLengthOverride != 0) {
+            quotes = new Quote[](quoteLengthOverride);
+            for (uint256 i = 0; i < quoteLengthOverride; i++) {
+                quotes[i] = Quote({token: address(0), amount: 0});
+            }
+            return quotes;
+        }
         quotes = new Quote[](3);
         quotes[0] = Quote({token: address(0), amount: dispatchGas});
         quotes[1] = Quote({token: address(0), amount: _amount + internalFee});

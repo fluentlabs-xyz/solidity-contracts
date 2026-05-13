@@ -7,14 +7,6 @@ pragma solidity ^0.8.30;
  */
 interface IHypNativeGatewayErrors {
     /**
-     * @notice Forwarding to Hyperlane was attempted while the originating L1 batch is still
-     *         in {BatchStatus.Preconfirmed}. Hyperlane dispatch is irreversible across the
-     *         Fluent trust boundary, so the gateway only forwards once the source batch is
-     *         finalized.
-     */
-    error CrossBoundaryRequiresFinalized();
-
-    /**
      * @notice No warp route is configured for the requested Hyperlane destination domain.
      */
     error UnsupportedDomain(uint32 domain);
@@ -25,6 +17,14 @@ interface IHypNativeGatewayErrors {
      * @param actualToken Non-native token address returned at that index.
      */
     error UnexpectedFeeToken(uint8 quoteIndex, address actualToken);
+
+    /**
+     * @notice The warp route returned a `Quote[]` of an unexpected length. Canonical HypNative
+     *         always returns exactly 3 entries; any other length means the configured route
+     *         isn't a HypNative variant (or is a malformed extension), so we refuse rather
+     *         than reading past the array bounds.
+     */
+    error MalformedQuote(uint256 quotesLength);
 
     /**
      * @notice Live `quoteTransferRemote` exceeds the gateway balance (bridge-transported value
