@@ -16,11 +16,14 @@ import {IL1HypNativeGateway} from "../interfaces/gateways/IHypNativeGateway.sol"
  * @dev UUPS-upgradeable. Adds a per-domain warp route mapping in its own ERC-7201 namespace
  *      and inherits routing/blacklist from {GatewayBase}.
  *
- *      Cross-trust-boundary policy: forwarding is **blocked** while the originating L1 batch
- *      is still in {BatchStatus.Preconfirmed}. Hyperlane delivery is irreversible, so we wait
- *      until the source batch is finalized before letting value cross the boundary. Stricter
- *      than the optimistic-withdrawal {_consumeLimit} rate cap used by other gateways — rate
- *      caps can't bound losses that propagate to chains where recovery is impossible.
+ *      Cross-trust-boundary policy: applies the same {_consumeLimit} rate cap as
+ *      {NativeGateway}, charged against the shared {NativeGateway-NATIVE_LIMIT_KEY} bucket on
+ *      {FastWithdrawalList}. While the originating L1 batch is in {BatchStatus.Preconfirmed}
+ *      the rate cap bounds optimistic forward dispatch; once Finalized the cap is a no-op.
+ *      The shared key is mandatory — a separate bucket would let an attacker drain twice the
+ *      cap by exploiting `NativeGateway` and this gateway in parallel within one optimistic
+ *      window. The underlying safety at Preconfirmed comes from the Nitro proof verification
+ *      that {BatchStatus.Preconfirmed} represents; the rate cap is defense-in-depth on top.
  *
  *      Fee handling: the bridge transports `amount + hypFee`. At delivery the gateway
  *      re-queries the warp route via {ITokenBridge.quoteTransferRemote} and forwards the sum
@@ -31,6 +34,11 @@ import {IL1HypNativeGateway} from "../interfaces/gateways/IHypNativeGateway.sol"
  *      {FluentBridge.receiveFailedMessage} after the admin tops up the reserve.
  */
 contract L1HypNativeGateway is GatewayBase, IL1HypNativeGateway {
+    /// @dev Must match {NativeGateway-NATIVE_LIMIT_KEY} so both gateways debit the same
+    ///      {IFastWithdrawalList} bucket and the per-window outflow stays bounded by ONE cap.
+    ///      Empirically asserted by `test_sharedBucket_NativeGatewayPlusL1Hyp`.
+    address public constant NATIVE_LIMIT_KEY = address(0x0000012345678901234567890123456789012345);
+
     /// @dev keccak256(abi.encode(uint256(keccak256("Fluent.storage.L1HypNativeGatewayStorage")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant L1_HYP_NATIVE_GATEWAY_STORAGE_LOCATION = 0x25bef2dd297f0ba6c2dc68712d58ece007c5787406c7d8b826d422fac42e9c00;
 
@@ -72,19 +80,23 @@ contract L1HypNativeGateway is GatewayBase, IL1HypNativeGateway {
             FluentBridge(msg.sender).getNativeSender() == getOtherSideGateway(),
             MessageFromWrongGateway()
         );
-        // Source-side finality before crossing into Hyperlane — delivery is irreversible.
-        require(!_isFromPreconfirmedBatch(), CrossBoundaryRequiresFinalized());
         require(recipient != bytes32(0), ZeroRecipient());
+
+        // Optimistic-withdrawal rate cap, shared with NativeGateway via NATIVE_LIMIT_KEY so the
+        // combined per-window outflow across both gateways stays within a single configured cap.
+        // No-op when whitelist is disabled or the source batch is already Finalized.
+        _consumeLimit(NATIVE_LIMIT_KEY, amount);
 
         address warpRoute = _getStorage()._warpRouteFor[domain];
         require(warpRoute != address(0), UnsupportedDomain(domain));
 
         // Hyperlane v10 `TokenRouter.quoteTransferRemote` always returns 3 entries; for
-        // HypNative all three are native ETH. A non-native entry means the configured route
-        // isn't a HypNative variant — refuse rather than partially pay and get an opaque
-        // revert deeper in the stack.
+        // HypNative all three are native ETH. A different length or a non-native entry means
+        // the configured route isn't a HypNative variant — refuse rather than read past array
+        // bounds or partially pay and get an opaque revert deeper in the stack.
         ITokenBridge.Quote[] memory quotes =
             ITokenBridge(warpRoute).quoteTransferRemote(domain, recipient, amount);
+        require(quotes.length == 3, MalformedQuote(quotes.length));
         require(quotes[0].token == address(0), UnexpectedFeeToken(0, quotes[0].token));
         require(quotes[1].token == address(0), UnexpectedFeeToken(1, quotes[1].token));
         require(quotes[2].token == address(0), UnexpectedFeeToken(2, quotes[2].token));
