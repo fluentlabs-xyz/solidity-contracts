@@ -1,0 +1,29 @@
+{
+  "version": "1.0",
+  "chainId": "1",
+  "createdAt": 0,
+  "meta": {
+    "name": "MigrateL1_BridgeExecuteGasLimit",
+    "description": "Upgrade L1 bridge implementation and update execute gas limit.",
+    "txBuilderVersion": "1.18.0",
+    "createdFromSafeAddress": "0x33c0b99f3210a9578d81d5b13dec03160f58ff11",
+    "createdFromOwnerAddress": "",
+    "checksum": ""
+  },
+  "transactions": [
+    {
+      "to": "0x9cacf613fc29015893728563f423fd26dcdb8ddc",
+      "value": "0",
+      "data": "0x4f1ef2860000000000000000000000004ba935497b03526aad1e7b08395e775d53ed445500000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000",
+      "contractMethod": {"inputs":[{"internalType":"address","name":"newImplementation","type":"address"},{"internalType":"bytes","name":"data","type":"bytes"}],"name":"upgradeToAndCall","payable":true},
+      "contractInputsValues": {"newImplementation":"0x4ba935497b03526aad1e7b08395e775d53ed4455","data":"0x"}
+    },
+    {
+      "to": "0x9cacf613fc29015893728563f423fd26dcdb8ddc",
+      "value": "0",
+      "data": "0xaf0e0d7e0000000000000000000000000000000000000000000000000000000000086470",
+      "contractMethod": {"inputs":[{"internalType":"uint256","name":"newExecuteGasLimit","type":"uint256"}],"name":"setExecuteGasLimit","payable":false},
+      "contractInputsValues": {"newExecuteGasLimit":"550000"}
+    }
+  ]
+}

@@ -59,7 +59,7 @@ contract MigrateL1_BridgeExecuteGasLimit is DeployBase {
     string internal constant DEFAULT_SAFE_BATCH_PATH = "deployments/mainnet/bridge-execute-gas-limit-safe-batch.json";
 
     /// @dev Default target for `_executeGasLimit` if `EXECUTE_GAS_LIMIT` env is unset.
-    uint256 internal constant DEFAULT_NEW_EXECUTE_GAS_LIMIT = 200_000;
+    uint256 internal constant DEFAULT_NEW_EXECUTE_GAS_LIMIT = 550_000;
 
     function run() external {
         uint256 newLimit = vm.envOr("EXECUTE_GAS_LIMIT", DEFAULT_NEW_EXECUTE_GAS_LIMIT);
@@ -123,13 +123,7 @@ contract MigrateL1_BridgeExecuteGasLimit is DeployBase {
         console2.log("  bridge_impl ->", newImpl);
     }
 
-    function _logPlan(
-        address bridgeProxy,
-        address safe,
-        string memory safeBatchPath,
-        uint256 currentLimit,
-        uint256 newLimit
-    ) internal pure {
+    function _logPlan(address bridgeProxy, address safe, string memory safeBatchPath, uint256 currentLimit, uint256 newLimit) internal pure {
         console2.log("== MigrateL1_BridgeExecuteGasLimit ==");
         console2.log("bridge proxy         :", bridgeProxy);
         console2.log("Safe:                 ", safe);
@@ -140,35 +134,30 @@ contract MigrateL1_BridgeExecuteGasLimit is DeployBase {
     }
 
     function _upgradeToAndCallMethodJson() internal pure returns (string memory) {
-        return string.concat(
-            "{",
-            '"inputs":[{"internalType":"address","name":"newImplementation","type":"address"},',
-            '{"internalType":"bytes","name":"data","type":"bytes"}],',
-            '"name":"upgradeToAndCall",',
-            '"payable":true',
-            "}"
-        );
+        return
+            string.concat(
+                "{",
+                '"inputs":[{"internalType":"address","name":"newImplementation","type":"address"},',
+                '{"internalType":"bytes","name":"data","type":"bytes"}],',
+                '"name":"upgradeToAndCall",',
+                '"payable":true',
+                "}"
+            );
     }
 
     function _upgradeToAndCallInputsJson(address newImpl) internal pure returns (string memory) {
-        return string.concat(
-            "{",
-            '"newImplementation":"',
-            _addressToHex(newImpl),
-            '",',
-            '"data":"0x"',
-            "}"
-        );
+        return string.concat("{", '"newImplementation":"', _addressToHex(newImpl), '",', '"data":"0x"', "}");
     }
 
     function _setExecuteGasLimitMethodJson() internal pure returns (string memory) {
-        return string.concat(
-            "{",
-            '"inputs":[{"internalType":"uint256","name":"newExecuteGasLimit","type":"uint256"}],',
-            '"name":"setExecuteGasLimit",',
-            '"payable":false',
-            "}"
-        );
+        return
+            string.concat(
+                "{",
+                '"inputs":[{"internalType":"uint256","name":"newExecuteGasLimit","type":"uint256"}],',
+                '"name":"setExecuteGasLimit",',
+                '"payable":false',
+                "}"
+            );
     }
 
     function _setExecuteGasLimitInputsJson(uint256 newLimit) internal pure returns (string memory) {
