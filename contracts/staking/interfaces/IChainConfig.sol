@@ -17,9 +17,17 @@ interface IChainConfigEvents {
 interface IChainConfig {
     /// ================ Errors ================
 
-    /// @notice Thrown when the value is zero.
-    /// @dev selector: 0x46c82ad0
+    /**
+     * @notice Thrown when the value is zero.
+     * @dev selector: TODO
+     */
     error ZeroValue(string field);
+
+    /**
+     * @notice Thrown when the misdemeanor threshold is not met.
+     * @dev selector: TODO
+     */
+    error MisdemeanorThresholdNotMet();
 
     /// @notice Maximum number of validators returned in the active validator set.
     function getActiveValidatorsLength() external view returns (uint32);

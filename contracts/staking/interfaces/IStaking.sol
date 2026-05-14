@@ -26,11 +26,58 @@ interface IStakingErrors {
     error ZeroValidator();
     error ZeroCommissionRate();
     error ZeroInitialStake();
+    error ValidatorHasActiveDelegations(address validator);
 }
 
 /// @title Validator staking interface
 /// @notice Manages validators, delegations, validator commission, delegator rewards, undelegation, and slashing.
 interface IStaking is IValidatorSet, IStakingEvents, IStakingErrors {
+    /// @notice Validator lifecycle states used by staking and active-set selection.
+    enum ValidatorStatus {
+        NotFound,
+        Active,
+        Pending,
+        Jail
+    }
+
+    /// @notice Per-epoch validator accounting snapshot.
+    struct ValidatorSnapshot {
+        uint96 totalRewards;
+        uint112 totalDelegated;
+        uint32 slashesCount;
+        uint16 commissionRate;
+    }
+
+    /// @notice Mutable validator metadata independent from per-epoch accounting snapshots.
+    struct Validator {
+        address validatorAddress;
+        address ownerAddress;
+        ValidatorStatus status;
+        uint64 changedAt;
+        uint64 jailedBefore;
+        uint64 claimedAt;
+    }
+
+    /// @notice Effective delegated amount at an epoch.
+    struct DelegationOpDelegate {
+        uint112 amount;
+        uint64 epoch;
+    }
+
+    /// @notice Pending undelegation amount that matures at an epoch.
+    struct DelegationOpUndelegate {
+        uint112 amount;
+        uint64 epoch;
+    }
+
+    /// @notice Delegation and undelegation queues for one delegator/validator pair.
+    struct ValidatorDelegation {
+        DelegationOpDelegate[] delegateQueue;
+        uint64 delegateGap;
+        DelegationOpUndelegate[] undelegateQueue;
+        uint64 undelegateGap;
+    }
+
     enum ClaimMode {
         Transfer,
         Redelegate

@@ -5,9 +5,9 @@ import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IGovernor} from "@openzeppelin/contracts/governance/IGovernor.sol";
 
-import {Governance} from "../../contracts/governance/Governance.sol";
+import {FluentGovernance} from "../../contracts/governance/FluentGovernance.sol";
 import {ChainConfig} from "../../contracts/staking/ChainConfig.sol";
-import {IGovernance} from "../../contracts/staking/interfaces/IGovernance.sol";
+import {IFluentGovernance} from "../../contracts/staking/interfaces/IFluentGovernance.sol";
 import {IChainConfig} from "../../contracts/staking/interfaces/IChainConfig.sol";
 import {ISlashingIndicator} from "../../contracts/staking/interfaces/ISlashingIndicator.sol";
 import {IStaking} from "../../contracts/staking/interfaces/IStaking.sol";
@@ -19,12 +19,12 @@ import {StakingPool} from "../../contracts/staking/StakingPool.sol";
 import {SystemReward} from "../../contracts/staking/SystemReward.sol";
 import {MockBlendToken} from "../../contracts/staking/mocks/MockBlendToken.sol";
 
-contract GovernanceTest is Test {
+contract FluentGovernanceTest is Test {
     uint256 internal constant ONE = 1 ether;
 
     Staking internal staking;
     ChainConfig internal chainConfig;
-    Governance internal governance;
+    FluentGovernance internal governance;
     MockBlendToken internal blend;
 
     address internal owner = makeAddr("owner");
@@ -103,7 +103,7 @@ contract GovernanceTest is Test {
         ISystemReward predictedSystemReward = ISystemReward(vm.computeCreateAddress(address(this), nonce + 5));
         IStakingPool predictedStakingPool = IStakingPool(vm.computeCreateAddress(address(this), nonce + 7));
         IChainConfig predictedChainConfig = IChainConfig(vm.computeCreateAddress(address(this), nonce + 9));
-        IGovernance predictedGovernance = IGovernance(vm.computeCreateAddress(address(this), nonce + 11));
+        IFluentGovernance predictedGovernance = IFluentGovernance(vm.computeCreateAddress(address(this), nonce + 11));
 
         address[] memory validators = new address[](2);
         validators[0] = validator1;
@@ -204,11 +204,12 @@ contract GovernanceTest is Test {
             )
         );
 
-        Governance governanceImpl = new Governance(predictedStaking, predictedChainConfig);
-        governance = Governance(
+        FluentGovernance governanceImpl = new FluentGovernance(predictedStaking, predictedChainConfig);
+        governance = FluentGovernance(
             payable(address(
                     new ERC1967Proxy(
-                        address(governanceImpl), abi.encodeCall(Governance.initialize, (address(this), votingPeriod))
+                        address(governanceImpl),
+                        abi.encodeCall(FluentGovernance.initialize, (address(this), votingPeriod))
                     )
                 ))
         );

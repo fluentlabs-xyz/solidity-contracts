@@ -9,7 +9,7 @@ import {IStaking} from "./interfaces/IStaking.sol";
 import {ISlashingIndicator} from "./interfaces/ISlashingIndicator.sol";
 import {ISystemReward} from "./interfaces/ISystemReward.sol";
 import {IStakingPool} from "./interfaces/IStakingPool.sol";
-import {IGovernance} from "./interfaces/IGovernance.sol";
+import {IFluentGovernance} from "./interfaces/IFluentGovernance.sol";
 import {IChainConfig} from "./interfaces/IChainConfig.sol";
 
 /// @title System fee distributor
@@ -36,9 +36,9 @@ contract SystemReward is ISystemReward, StakingContext {
 
     uint16 internal constant SHARE_MAX_VALUE = 10000; // 100%
 
-    // ERC-7201 storage namespace:
     // keccak256(abi.encode(uint256(keccak256("Fluent.storage.SystemRewardStorage")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant SYSTEM_REWARD_STORAGE_LOCATION = 0x85de466a486fac3ceb8a96c8f08f407e42a5512799e7ca6bc110e97735605700;
+    bytes32 private constant SYSTEM_REWARD_STORAGE_LOCATION =
+        0x85de466a486fac3ceb8a96c8f08f407e42a5512799e7ca6bc110e97735605700;
 
     /// @custom:storage-location erc7201:Fluent.storage.SystemRewardStorage
     struct SystemRewardStorage {
@@ -59,7 +59,7 @@ contract SystemReward is ISystemReward, StakingContext {
         ISlashingIndicator slashingIndicatorContract,
         ISystemReward systemRewardContract,
         IStakingPool stakingPoolContract,
-        IGovernance governanceContract,
+        IFluentGovernance governanceContract,
         IChainConfig chainConfigContract,
         IERC20 stakingToken
     )
@@ -74,7 +74,10 @@ contract SystemReward is ISystemReward, StakingContext {
         )
     {}
 
-    function initialize(address initialOwner, address[] calldata accounts, uint16[] calldata shares) external initializer {
+    function initialize(address initialOwner, address[] calldata accounts, uint16[] calldata shares)
+        external
+        initializer
+    {
         __StakingContext_init(initialOwner);
         _updateDistributionShare(accounts, shares);
     }
@@ -108,7 +111,12 @@ contract SystemReward is ISystemReward, StakingContext {
         }
     }
 
-    function updateDistributionShare(address[] calldata accounts, uint16[] calldata shares) external virtual override onlyFromGovernance {
+    function updateDistributionShare(address[] calldata accounts, uint16[] calldata shares)
+        external
+        virtual
+        override
+        onlyFromGovernance
+    {
         _updateDistributionShare(accounts, shares);
     }
 

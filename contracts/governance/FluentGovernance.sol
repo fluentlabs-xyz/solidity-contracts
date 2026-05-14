@@ -11,7 +11,7 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 import {IChainConfig} from "../staking/interfaces/IChainConfig.sol";
-import {IGovernance as IStakingGovernance} from "../staking/interfaces/IGovernance.sol";
+import {IFluentGovernance} from "../staking/interfaces/IFluentGovernance.sol";
 import {IStaking} from "../staking/interfaces/IStaking.sol";
 
 /// @title Validator-owner governance
@@ -25,26 +25,16 @@ contract FluentGovernance is
     GovernorSettingsUpgradeable,
     UUPSUpgradeable,
     Ownable2StepUpgradeable,
-    IStakingGovernance
+    IFluentGovernance
 {
-    // ERC-7201 storage namespace:
-    // keccak256(abi.encode(uint256(keccak256("Fluent.storage.GovernanceStorage")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant GOVERNANCE_STORAGE_LOCATION = 0x7fea8059986e7eec382f9da7accc4f4b619a9e2678ff6b8b8bc32f10e703bd00;
-
     IStaking internal immutable _stakingContract;
     IChainConfig internal immutable _chainConfigContract;
 
-    error OnlyValidatorOwner();
+    uint256 internal transient _instantVotingPeriod;
 
-    /// @custom:storage-location erc7201:Fluent.storage.GovernanceStorage
-    struct GovernanceStorage {
-        uint256 instantVotingPeriod;
-    }
-
-    function _getGovernanceStorage() private pure returns (GovernanceStorage storage $) {
-        assembly {
-            $.slot := GOVERNANCE_STORAGE_LOCATION
-        }
+    modifier onlyValidatorOwner(address account) {
+        require(_stakingContract.isValidatorActive(_stakingContract.getValidatorByOwner(account)), OnlyValidatorOwner());
+        _;
     }
 
     constructor(IStaking stakingContract, IChainConfig chainConfigContract) {
@@ -86,10 +76,9 @@ contract FluentGovernance is
         string memory description,
         uint256 customVotingPeriod
     ) public virtual onlyValidatorOwner(msg.sender) returns (uint256) {
-        GovernanceStorage storage $ = _getGovernanceStorage();
-        $.instantVotingPeriod = customVotingPeriod;
+        _instantVotingPeriod = customVotingPeriod;
         uint256 proposalId = propose(targets, values, calldatas, description);
-        $.instantVotingPeriod = 0;
+        _instantVotingPeriod = 0;
         return proposalId;
     }
 
@@ -102,17 +91,9 @@ contract FluentGovernance is
         return GovernorUpgradeable.propose(targets, values, calldatas, description);
     }
 
-    modifier onlyValidatorOwner(address account) {
-        address validatorAddress = _stakingContract.getValidatorByOwner(account);
-        require(_stakingContract.isValidatorActive(validatorAddress), OnlyValidatorOwner());
-        _;
-    }
-
     function votingPeriod() public view override(GovernorUpgradeable, GovernorSettingsUpgradeable) returns (uint256) {
-        GovernanceStorage storage $ = _getGovernanceStorage();
-        if ($.instantVotingPeriod != 0) {
-            return $.instantVotingPeriod;
-        }
+        if (_instantVotingPeriod != 0) return _instantVotingPeriod;
+
         return GovernorSettingsUpgradeable.votingPeriod();
     }
 

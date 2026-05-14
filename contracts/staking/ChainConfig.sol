@@ -6,7 +6,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {StakingContext} from "./StakingContext.sol";
 
 import {IStaking} from "./interfaces/IStaking.sol";
-import {IGovernance} from "./interfaces/IGovernance.sol";
+import {IFluentGovernance} from "./interfaces/IFluentGovernance.sol";
 import {IStakingPool} from "./interfaces/IStakingPool.sol";
 import {ISystemReward} from "./interfaces/ISystemReward.sol";
 import {ISlashingIndicator} from "./interfaces/ISlashingIndicator.sol";
@@ -27,15 +27,35 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
     struct ChainConfigStorage {
         /**
          * @dev Maximum number of validators returned in the active validator set.
-         *      Used in `Staking` and `StakingPool` to select the top validators.
          */
         uint32 _activeValidatorsLength;
+        /**
+         * @dev Number of blocks in one staking epoch.
+         */
         uint32 _epochBlockInterval;
+        /**
+         * @dev Number of slash events treated as a misdemeanor threshold.
+         */
         uint32 _misdemeanorThreshold;
+        /**
+         * @dev Number of slash events after which a validator is jailed.
+         */
         uint32 _felonyThreshold;
+        /**
+         * @dev Number of epochs a jailed validator must wait before release.
+         */
         uint32 _validatorJailEpochLength;
+        /**
+         * @dev Number of epochs before undelegated funds become claimable.
+         */
         uint32 _undelegatePeriod;
+        /**
+         * @dev Minimum self-stake required to register a validator.
+         */
         uint256 _minValidatorStakeAmount;
+        /**
+         * @dev Minimum staking amount required to delegate to a validator.
+         */
         uint256 _minStakingAmount;
     }
 
@@ -50,7 +70,7 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
         ISlashingIndicator slashingIndicatorContract,
         ISystemReward systemRewardContract,
         IStakingPool stakingPoolContract,
-        IGovernance governanceContract,
+        IFluentGovernance governanceContract,
         IChainConfig chainConfigContract,
         IERC20 stakingToken
     )
@@ -94,6 +114,7 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
     }
 
     function setActiveValidatorsLength(uint32 newValue) external override onlyFromGovernance {
+        require(newValue > 0, ZeroValue("activeValidatorsLength"));
         ChainConfigStorage storage $ = _getChainConfigStorage();
         emit ActiveValidatorsLengthChanged($._activeValidatorsLength, newValue);
         $._activeValidatorsLength = newValue;
@@ -104,6 +125,7 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
     }
 
     function setEpochBlockInterval(uint32 newValue) external override onlyFromGovernance {
+        require(newValue > 0, ZeroValue("epochBlockInterval"));
         ChainConfigStorage storage $ = _getChainConfigStorage();
         emit EpochBlockIntervalChanged($._epochBlockInterval, newValue);
         $._epochBlockInterval = newValue;
@@ -114,28 +136,29 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
     }
 
     function setMisdemeanorThreshold(uint32 newValue) external override onlyFromGovernance {
+        require(newValue > 0, ZeroValue("misdemeanorThreshold"));
         ChainConfigStorage storage $ = _getChainConfigStorage();
         emit MisdemeanorThresholdChanged($._misdemeanorThreshold, newValue);
         $._misdemeanorThreshold = newValue;
     }
 
     function getFelonyThreshold() external view override returns (uint32) {
-        ChainConfigStorage storage $ = _getChainConfigStorage();
-        return $._felonyThreshold;
+        return _getChainConfigStorage()._felonyThreshold;
     }
 
     function setFelonyThreshold(uint32 newValue) external override onlyFromGovernance {
+        require(newValue >= _getChainConfigStorage()._misdemeanorThreshold, MisdemeanorThresholdNotMet());
         ChainConfigStorage storage $ = _getChainConfigStorage();
         emit FelonyThresholdChanged($._felonyThreshold, newValue);
         $._felonyThreshold = newValue;
     }
 
     function getValidatorJailEpochLength() external view override returns (uint32) {
-        ChainConfigStorage storage $ = _getChainConfigStorage();
-        return $._validatorJailEpochLength;
+        return _getChainConfigStorage()._validatorJailEpochLength;
     }
 
     function setValidatorJailEpochLength(uint32 newValue) external override onlyFromGovernance {
+        require(newValue > 0, ZeroValue("validatorJailEpochLength"));
         ChainConfigStorage storage $ = _getChainConfigStorage();
         emit ValidatorJailEpochLengthChanged($._validatorJailEpochLength, newValue);
         $._validatorJailEpochLength = newValue;
@@ -146,6 +169,7 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
     }
 
     function setUndelegatePeriod(uint32 newValue) external override onlyFromGovernance {
+        require(newValue > 0, ZeroValue("undelegatePeriod"));
         ChainConfigStorage storage $ = _getChainConfigStorage();
         emit UndelegatePeriodChanged($._undelegatePeriod, newValue);
         $._undelegatePeriod = newValue;
@@ -156,6 +180,7 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
     }
 
     function setMinValidatorStakeAmount(uint256 newValue) external override onlyFromGovernance {
+        require(newValue > 0, ZeroValue("minValidatorStakeAmount"));
         ChainConfigStorage storage $ = _getChainConfigStorage();
         emit MinValidatorStakeAmountChanged($._minValidatorStakeAmount, newValue);
         $._minValidatorStakeAmount = newValue;
@@ -166,6 +191,7 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
     }
 
     function setMinStakingAmount(uint256 newValue) external override onlyFromGovernance {
+        require(newValue > 0, ZeroValue("minStakingAmount"));
         ChainConfigStorage storage $ = _getChainConfigStorage();
         emit MinStakingAmountChanged($._minStakingAmount, newValue);
         $._minStakingAmount = newValue;

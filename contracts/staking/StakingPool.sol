@@ -3,12 +3,13 @@ pragma solidity ^0.8.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IStaking} from "./interfaces/IStaking.sol";
 import {IStakingPool} from "./interfaces/IStakingPool.sol";
 import {ISlashingIndicator} from "./interfaces/ISlashingIndicator.sol";
 import {ISystemReward} from "./interfaces/ISystemReward.sol";
-import {IGovernance} from "./interfaces/IGovernance.sol";
+import {IFluentGovernance} from "./interfaces/IFluentGovernance.sol";
 import {IChainConfig} from "./interfaces/IChainConfig.sol";
 
 import {StakingContext} from "./StakingContext.sol";
@@ -21,30 +22,20 @@ import {StakingContext} from "./StakingContext.sol";
  */
 contract StakingPool is StakingContext, IStakingPool {
     using SafeERC20 for IERC20;
+    using Math for uint256;
 
     /**
-     * This value must the same as in Staking smart contract
+     * @notice This value must the same as in Staking smart contract.
      */
     uint256 internal constant BALANCE_COMPACT_PRECISION = 1e10;
 
-    /// @notice Accounting state for one validator pool.
-    struct ValidatorPool {
-        address validatorAddress;
-        uint256 sharesSupply;
-        uint256 totalStakedAmount;
-        uint256 dustRewards;
-        uint256 pendingUnstake;
-    }
-
-    /// @notice One outstanding unstake request for a staker and validator.
-    struct PendingUnstake {
-        uint256 amount;
-        uint256 shares;
-        uint64 epoch;
-    }
+    uint256 internal constant VIRTUAL_ASSETS = 1e3;
+    uint256 internal constant VIRTUAL_SHARES = 1e3;
 
     /// @dev keccak256(abi.encode(uint256(keccak256("Fluent.storage.StakingPoolStorage")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant STAKING_POOL_STORAGE_LOCATION = 0x3ec11625092490bee5ebf7f2a26d6921811c497aeda967af2d28f1c0388b4a00;
+
+    // ============ Storage ============
 
     /// @custom:storage-location erc7201:Fluent.storage.StakingPoolStorage
     struct StakingPoolStorage {
@@ -67,7 +58,7 @@ contract StakingPool is StakingContext, IStakingPool {
         ISlashingIndicator slashingIndicatorContract,
         ISystemReward systemRewardContract,
         IStakingPool stakingPoolContract,
-        IGovernance governanceContract,
+        IFluentGovernance governanceContract,
         IChainConfig chainConfigContract,
         IERC20 stakingToken
     )
@@ -89,7 +80,7 @@ contract StakingPool is StakingContext, IStakingPool {
     function getStakedAmount(address validator, address staker) external view returns (uint256) {
         StakingPoolStorage storage $ = _getStakingPoolStorage();
         ValidatorPool memory validatorPool = _getValidatorPool(validator);
-        return ($.stakerShares[validator][staker] * 1e18) / _calcRatio(validatorPool);
+        return _convertToAssets($.stakerShares[validator][staker], validatorPool, Math.Rounding.Floor);
     }
 
     function getShares(address validator, address staker) external view returns (uint256) {
@@ -114,19 +105,13 @@ contract StakingPool is StakingContext, IStakingPool {
         StakingPoolStorage storage $ = _getStakingPoolStorage();
         {
             ValidatorPool memory validatorPool = _getValidatorPool(validator);
-            // claim rewards from staking contract
-            (uint256 stakedAmount, uint256 dustRewards) = _calcUnclaimedDelegatorFee(validatorPool);
-            _stakingContract.claimDelegatorFee(validator);
-            // re-delegate just arrived rewards
-            if (stakedAmount > 0) {
-                _approveStaking(stakedAmount);
-                _stakingContract.delegate(validator, stakedAmount);
+            if (validatorPool.pendingUnstake == 0) {
+                uint256 balanceBefore = _stakingToken.balanceOf(address(this));
+                _stakingContract.claimDelegatorFee(validator);
+                uint256 claimedAmount = _stakingToken.balanceOf(address(this)) - balanceBefore;
+                _advanceValidatorPoolRewards(validatorPool, claimedAmount);
+                $.validatorPools[validator] = validatorPool;
             }
-            // increase total accumulated rewards
-            validatorPool.totalStakedAmount += stakedAmount;
-            validatorPool.dustRewards = dustRewards;
-            // save validator pool changes
-            $.validatorPools[validator] = validatorPool;
         }
         _;
     }
@@ -139,15 +124,24 @@ contract StakingPool is StakingContext, IStakingPool {
     }
 
     function _calcUnclaimedDelegatorFee(ValidatorPool memory validatorPool) internal view returns (uint256 stakedAmount, uint256 dustRewards) {
+        if (validatorPool.pendingUnstake > 0) {
+            return (0, validatorPool.dustRewards);
+        }
         uint256 unclaimedRewards = _stakingContract.getDelegatorFee(validatorPool.validatorAddress, address(this));
-        // adjust values based on total dust and pending unstakes
-        unclaimedRewards += validatorPool.dustRewards;
+        return _calcCompoundableDelegatorFee(validatorPool, unclaimedRewards);
+    }
+
+    function _calcCompoundableDelegatorFee(
+        ValidatorPool memory validatorPool,
+        uint256 claimedOrClaimableAmount
+    ) internal view returns (uint256 stakedAmount, uint256 dustRewards) {
+        uint256 unclaimedRewards = claimedOrClaimableAmount + validatorPool.dustRewards;
         // Pending user claims fully reserve what we just claimed: nothing to compound this
         // cycle. Keep dust rolling forward so it can combine with future rewards instead of
         // underflowing the subtraction below and DoS-ing every pool operation while any
         // user has an outstanding unstake.
         if (validatorPool.pendingUnstake >= unclaimedRewards) {
-            return (0, validatorPool.dustRewards);
+            return (0, unclaimedRewards);
         }
         unclaimedRewards -= validatorPool.pendingUnstake;
         // split balance into stake and dust
@@ -158,19 +152,10 @@ contract StakingPool is StakingContext, IStakingPool {
         return (stakedAmount, unclaimedRewards - stakedAmount);
     }
 
-    function _calcRatio(ValidatorPool memory validatorPool) internal view returns (uint256) {
-        (uint256 stakedAmount,  /*uint256 dustRewards*/) = _calcUnclaimedDelegatorFee(validatorPool);
-        uint256 stakeWithRewards = validatorPool.totalStakedAmount + stakedAmount;
-        if (stakeWithRewards == 0) {
-            return 1e18;
-        }
-        return (validatorPool.sharesSupply * 1e18 + stakeWithRewards - 1) / stakeWithRewards;
-    }
-
     function stake(address validator, uint256 amount) external override advanceStakingRewards(validator) {
         StakingPoolStorage storage $ = _getStakingPoolStorage();
         ValidatorPool memory validatorPool = _getValidatorPool(validator);
-        uint256 shares = (amount * _calcRatio(validatorPool)) / 1e18;
+        uint256 shares = _convertToShares(amount, validatorPool, Math.Rounding.Floor);
         _stakingToken.safeTransferFrom(msg.sender, address(this), amount);
         // increase total accumulated shares for the staker
         $.stakerShares[validator][msg.sender] += shares;
@@ -193,8 +178,8 @@ contract StakingPool is StakingContext, IStakingPool {
         // make sure user doesn't have pending undelegates (we don't support it here)
         require($.pendingUnstakes[validator][msg.sender].epoch == 0, PendingUndelegate());
         // calculate shares and make sure user have enough balance
-        uint256 shares = (amount * _calcRatio(validatorPool)) / 1e18;
-        require(shares <= $.stakerShares[validator][msg.sender], NotEnoughShares());
+        uint256 shares = _convertToShares(amount, validatorPool, Math.Rounding.Ceil);
+        require(shares <= $.stakerShares[validator][msg.sender], NotEnoughShares($.stakerShares[validator][msg.sender]));
         // save new undelegate
         IChainConfig chainConfig = _chainConfigContract;
         $.pendingUnstakes[validator][msg.sender] = PendingUnstake({
@@ -215,7 +200,7 @@ contract StakingPool is StakingContext, IStakingPool {
         return $.pendingUnstakes[validator][staker].amount;
     }
 
-    function claim(address validator) external override advanceStakingRewards(validator) {
+    function claim(address validator) external override {
         StakingPoolStorage storage $ = _getStakingPoolStorage();
         PendingUnstake memory pendingUnstake = $.pendingUnstakes[validator][msg.sender];
         uint256 amount = pendingUnstake.amount;
@@ -223,12 +208,18 @@ contract StakingPool is StakingContext, IStakingPool {
         // make sure user have pending unstake
         require(pendingUnstake.epoch > 0, NothingToClaim());
         require(pendingUnstake.epoch <= _stakingContract.currentEpoch(), EpochIsNotReady(pendingUnstake.epoch));
+        uint256 balanceBefore = _stakingToken.balanceOf(address(this));
+        _stakingContract.claimDelegatorFee(validator);
+        uint256 claimedAmount = _stakingToken.balanceOf(address(this)) - balanceBefore;
         // updates shares and validator pool params
         $.stakerShares[validator][msg.sender] -= shares;
         ValidatorPool memory validatorPool = _getValidatorPool(validator);
         validatorPool.sharesSupply -= shares;
         validatorPool.totalStakedAmount -= amount;
         validatorPool.pendingUnstake -= amount;
+        if (claimedAmount > amount) {
+            _advanceValidatorPoolRewards(validatorPool, claimedAmount - amount);
+        }
         $.validatorPools[validator] = validatorPool;
         // remove pending claim
         delete $.pendingUnstakes[validator][msg.sender];
@@ -239,5 +230,34 @@ contract StakingPool is StakingContext, IStakingPool {
 
     function _approveStaking(uint256 amount) internal {
         _stakingToken.forceApprove(address(_stakingContract), amount);
+    }
+
+    // ============ Internal functions ============
+
+    function _advanceValidatorPoolRewards(ValidatorPool memory validatorPool, uint256 claimedAmount) internal {
+        (uint256 stakedAmount, uint256 dustRewards) = _calcCompoundableDelegatorFee(validatorPool, claimedAmount);
+        if (stakedAmount > 0) {
+            _approveStaking(stakedAmount);
+            _stakingContract.delegate(validatorPool.validatorAddress, stakedAmount);
+        }
+        validatorPool.totalStakedAmount += stakedAmount;
+        validatorPool.dustRewards = dustRewards;
+    }
+
+    function _calcRatio(ValidatorPool memory validatorPool) internal view returns (uint256) {
+        return (validatorPool.sharesSupply + VIRTUAL_SHARES).mulDiv(1e18, _totalAssets(validatorPool) + VIRTUAL_ASSETS, Math.Rounding.Ceil);
+    }
+
+    function _totalAssets(ValidatorPool memory validatorPool) internal view returns (uint256) {
+        (uint256 stakedAmount,  /*uint256 dustRewards*/) = _calcUnclaimedDelegatorFee(validatorPool);
+        return validatorPool.totalStakedAmount + stakedAmount;
+    }
+
+    function _convertToShares(uint256 assets, ValidatorPool memory validatorPool, Math.Rounding rounding) internal view returns (uint256) {
+        return assets.mulDiv(validatorPool.sharesSupply + VIRTUAL_SHARES, _totalAssets(validatorPool) + VIRTUAL_ASSETS, rounding);
+    }
+
+    function _convertToAssets(uint256 shares, ValidatorPool memory validatorPool, Math.Rounding rounding) internal view returns (uint256) {
+        return shares.mulDiv(_totalAssets(validatorPool) + VIRTUAL_ASSETS, validatorPool.sharesSupply + VIRTUAL_SHARES, rounding);
     }
 }

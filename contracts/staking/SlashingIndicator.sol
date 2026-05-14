@@ -8,7 +8,7 @@ import {IStaking} from "./interfaces/IStaking.sol";
 import {ISlashingIndicator} from "./interfaces/ISlashingIndicator.sol";
 import {ISystemReward} from "./interfaces/ISystemReward.sol";
 import {IStakingPool} from "./interfaces/IStakingPool.sol";
-import {IGovernance} from "./interfaces/IGovernance.sol";
+import {IFluentGovernance} from "./interfaces/IFluentGovernance.sol";
 import {IChainConfig} from "./interfaces/IChainConfig.sol";
 
 /*
@@ -22,7 +22,7 @@ contract SlashingIndicator is ISlashingIndicator, StakingContext {
         ISlashingIndicator slashingIndicatorContract,
         ISystemReward systemRewardContract,
         IStakingPool stakingPoolContract,
-        IGovernance governanceContract,
+        IFluentGovernance governanceContract,
         IChainConfig chainConfigContract,
         IERC20 stakingToken
     )

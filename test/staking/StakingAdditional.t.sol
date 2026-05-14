@@ -4,10 +4,10 @@ pragma solidity 0.8.30;
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-import {StakingContext} from "../../contracts/staking/StakingContext.sol";
+import {IStakingContextErrors} from "../../contracts/staking/interfaces/IStakingContext.sol";
 import {ChainConfig} from "../../contracts/staking/ChainConfig.sol";
 import {IChainConfig} from "../../contracts/staking/interfaces/IChainConfig.sol";
-import {IGovernance} from "../../contracts/staking/interfaces/IGovernance.sol";
+import {IFluentGovernance} from "../../contracts/staking/interfaces/IFluentGovernance.sol";
 import {ISlashingIndicator} from "../../contracts/staking/interfaces/ISlashingIndicator.sol";
 import {IStaking} from "../../contracts/staking/interfaces/IStaking.sol";
 import {IStakingPool} from "../../contracts/staking/interfaces/IStakingPool.sol";
@@ -47,7 +47,7 @@ contract StakingAdditionalTest is Test {
         _fund(validator2);
         _fund(validator3);
         _deploy(
-            10, 50, 150, 7, 0, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
+            10, 50, 150, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
         );
     }
 
@@ -78,13 +78,13 @@ contract StakingAdditionalTest is Test {
         assertEq(chainConfig.owner(), address(this));
 
         uint64 nonce = vm.getNonce(address(this));
-        Staking predictedProxy = Staking(vm.computeCreateAddress(address(this), nonce + 1));
+        Staking predictedProxy = Staking(_computeCreateAddress(address(this), nonce + 1));
         Staking implementation = new Staking(
             predictedProxy,
             ISlashingIndicator(address(predictedProxy)),
             ISystemReward(address(predictedProxy)),
             IStakingPool(address(predictedProxy)),
-            IGovernance(address(this)),
+            IFluentGovernance(address(this)),
             IChainConfig(address(predictedProxy)),
             blend
         );
@@ -101,7 +101,7 @@ contract StakingAdditionalTest is Test {
             ISlashingIndicator(address(proxy)),
             ISystemReward(address(proxy)),
             IStakingPool(address(proxy)),
-            IGovernance(address(this)),
+            IFluentGovernance(address(this)),
             IChainConfig(address(proxy)),
             blend
         );
@@ -136,7 +136,7 @@ contract StakingAdditionalTest is Test {
         assertEq(chainConfig.getMinValidatorStakeAmount(), 2 * ONE);
         assertEq(chainConfig.getMinStakingAmount(), 3 * ONE);
 
-        vm.expectRevert(StakingContext.OnlyGovernance.selector);
+        vm.expectRevert(IStakingContextErrors.OnlyGovernance.selector);
         vm.prank(staker1);
         chainConfig.setActiveValidatorsLength(6);
     }
@@ -169,7 +169,7 @@ contract StakingAdditionalTest is Test {
         assertTrue(staking.isValidator(address(3)));
 
         _deploy(
-            10, 50, 150, 7, 0, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
+            10, 50, 150, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
         );
         staking.addValidator(address(1));
         staking.addValidator(address(2));
@@ -180,7 +180,7 @@ contract StakingAdditionalTest is Test {
         assertTrue(staking.isValidator(address(3)));
 
         _deploy(
-            10, 50, 150, 7, 0, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
+            10, 50, 150, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
         );
         staking.addValidator(address(1));
         staking.addValidator(address(2));
@@ -208,6 +208,7 @@ contract StakingAdditionalTest is Test {
         (,, uint256 totalDelegated,,,,,,) = staking.getValidatorStatus(validator1);
         assertEq(totalDelegated, 0);
         _rollToNextEpoch();
+        _rollToNextEpoch();
         assertEq(staking.getDelegatorFee(validator1, staker1), 3 * ONE);
     }
 
@@ -222,11 +223,12 @@ contract StakingAdditionalTest is Test {
 
         vm.prank(staker1);
         staking.undelegate(validator1, 5 * ONE);
-        vm.expectRevert(StakingContext.InsufficientBalance.selector);
+        vm.expectRevert(IStakingContextErrors.InsufficientBalance.selector);
         vm.prank(staker1);
         staking.undelegate(validator1, 2 * ONE);
         vm.prank(staker1);
         staking.undelegate(validator1, ONE);
+        _rollToNextEpoch();
         _rollToNextEpoch();
         assertEq(staking.getDelegatorFee(validator1, staker1), 6 * ONE);
     }
@@ -242,8 +244,8 @@ contract StakingAdditionalTest is Test {
         _depositReward(validator1, ONE);
         _rollToNextEpoch();
 
-        assertEq(staking.getDelegatorFee(validator1, validator1), 14 * ONE / 10);
-        assertEq(staking.getValidatorFee(validator1), 6 * ONE / 10);
+        assertEq(staking.getDelegatorFee(validator1, validator1), (14 * ONE) / 10);
+        assertEq(staking.getValidatorFee(validator1), (6 * ONE) / 10);
     }
 
     function test_stakerRewardsWithMultipleDelegations() public {
@@ -265,8 +267,8 @@ contract StakingAdditionalTest is Test {
         _rollToNextEpoch();
 
         assertEq(staking.getValidatorFee(validator1), ONE / 10);
-        assertEq(staking.getDelegatorFee(validator1, validator1), 45 * ONE / 100);
-        assertEq(staking.getDelegatorFee(validator1, staker1), 45 * ONE / 100);
+        assertEq(staking.getDelegatorFee(validator1, validator1), (45 * ONE) / 100);
+        assertEq(staking.getDelegatorFee(validator1, staker1), (45 * ONE) / 100);
     }
 
     function test_onlyCommittedEpochIsClaimable() public {
@@ -280,7 +282,7 @@ contract StakingAdditionalTest is Test {
         _depositReward(validator1, ONE);
 
         assertEq(staking.getValidatorFee(validator1), ONE / 10);
-        assertEq(staking.getDelegatorFee(validator1, validator1), 9 * ONE / 10);
+        assertEq(staking.getDelegatorFee(validator1, validator1), (9 * ONE) / 10);
     }
 
     function test_validatorWithoutDelegatorsGetsAllRewards() public {
@@ -303,9 +305,9 @@ contract StakingAdditionalTest is Test {
         staking.delegate(validator1, ONE);
         _rollToNextEpoch();
 
-        vm.expectRevert(StakingContext.DepositIsZero.selector);
+        vm.expectRevert(IStakingContextErrors.DepositIsZero.selector);
         _depositReward(validator1, 0);
-        vm.expectRevert(abi.encodeWithSelector(StakingContext.ValidatorNotFound.selector, validator3));
+        vm.expectRevert(abi.encodeWithSelector(IStakingContextErrors.ValidatorNotFound.selector, validator3));
         _depositReward(validator3, ONE);
 
         _depositReward(validator1, ONE);
@@ -330,7 +332,7 @@ contract StakingAdditionalTest is Test {
 
     function test_noValidatorRewardsForInactivitySlashOnly() public {
         _deploy(
-            50, 5, 10, 7, 0, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
+            50, 5, 10, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
         );
         staking.addValidator(validator1);
         staking.addValidator(validator2);
@@ -343,26 +345,26 @@ contract StakingAdditionalTest is Test {
 
     function test_incorrectStakingAmounts() public {
         _deploy(
-            10, 50, 150, 7, 0, 0, 0, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
+            10, 50, 150, 7, 1, 1, 1, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
         );
         staking.addValidator(validator1);
 
         vm.prank(staker1);
         staking.delegate(validator1, 1e10);
-        vm.expectRevert(StakingContext.WrongAmountPrecision.selector);
+        vm.expectRevert(IStakingContextErrors.WrongAmountPrecision.selector);
         vm.prank(staker1);
         staking.delegate(validator1, 1e9);
-        vm.expectRevert(abi.encodeWithSelector(StakingContext.AmountTooLow.selector, 0));
+        vm.expectRevert(abi.encodeWithSelector(IStakingContextErrors.AmountTooLow.selector, 0));
         vm.prank(staker1);
         staking.delegate(validator1, 0);
-        vm.expectRevert(StakingContext.WrongAmountPrecision.selector);
+        vm.expectRevert(IStakingContextErrors.WrongAmountPrecision.selector);
         vm.prank(staker1);
         staking.delegate(validator1, ONE + 1e9);
     }
 
     function test_putValidatorInJailAfterFelonyThreshold() public {
         _deploy(
-            300, 10, 20, 7, 0, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
+            300, 10, 20, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
         );
         staking.addValidator(validator1);
         staking.addValidator(validator2);
@@ -380,12 +382,12 @@ contract StakingAdditionalTest is Test {
 
     function test_validatorCanBeReleasedFromJailByOwner() public {
         _deploy(
-            50, 10, 5, 2, 0, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
+            50, 10, 5, 2, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
         );
         staking.addValidator(validator1);
         staking.addValidator(validator2);
 
-        vm.expectRevert(abi.encodeWithSelector(StakingContext.ValidatorNotInJail.selector, validator2));
+        vm.expectRevert(abi.encodeWithSelector(IStakingContextErrors.ValidatorNotInJail.selector, validator2));
         vm.prank(validator1);
         staking.releaseValidatorFromJail(validator2);
 
@@ -397,13 +399,13 @@ contract StakingAdditionalTest is Test {
         assertEq(slashes, 5);
         assertEq(jailedStatus, 3);
 
-        vm.expectRevert(abi.encodeWithSelector(StakingContext.StillInJail.selector, validator2));
+        vm.expectRevert(abi.encodeWithSelector(IStakingContextErrors.StillInJail.selector, validator2));
         vm.prank(validator2);
         staking.releaseValidatorFromJail(validator2);
 
         _rollToNextEpoch();
         _rollToNextEpoch();
-        vm.expectRevert(abi.encodeWithSelector(StakingContext.OnlyValidatorOwner.selector, validator2));
+        vm.expectRevert(abi.encodeWithSelector(IStakingContextErrors.OnlyValidatorOwner.selector, validator2));
         vm.prank(validator1);
         staking.releaseValidatorFromJail(validator2);
         vm.prank(validator2);
@@ -422,6 +424,7 @@ contract StakingAdditionalTest is Test {
         vm.prank(validator1);
         staking.undelegate(validator1, 10 * ONE);
         _rollToNextEpoch();
+        _rollToNextEpoch();
 
         assertEq(staking.getDelegatorFee(validator1, validator1), 10 * ONE);
         (delegated,) = staking.getValidatorDelegation(validator1, validator1);
@@ -432,14 +435,14 @@ contract StakingAdditionalTest is Test {
         staking.addValidator(validator1);
         assertEq(staking.getValidatorByOwner(validator1), validator1);
 
-        vm.expectRevert(abi.encodeWithSelector(StakingContext.OnlyValidatorOwner.selector, validator1));
+        vm.expectRevert(abi.encodeWithSelector(IStakingContextErrors.OnlyValidatorOwner.selector, validator1));
         vm.prank(validator2);
         staking.changeValidatorOwner(validator1, owner);
         vm.prank(validator1);
         staking.changeValidatorOwner(validator1, owner);
         assertEq(staking.getValidatorByOwner(owner), validator1);
 
-        vm.expectRevert(abi.encodeWithSelector(StakingContext.OnlyValidatorOwner.selector, owner));
+        vm.expectRevert(abi.encodeWithSelector(IStakingContextErrors.OnlyValidatorOwner.selector, owner));
         vm.prank(validator2);
         staking.changeValidatorCommissionRate(validator1, 0);
     }
@@ -447,7 +450,7 @@ contract StakingAdditionalTest is Test {
     function test_RevertIf_changeValidatorOwner_newOwnerIsZero() public {
         staking.addValidator(validator1);
 
-        vm.expectRevert(StakingContext.OwnerCantBeZero.selector);
+        vm.expectRevert(IStakingContextErrors.OwnerCantBeZero.selector);
         vm.prank(validator1);
         staking.changeValidatorOwner(validator1, address(0));
     }
@@ -467,7 +470,7 @@ contract StakingAdditionalTest is Test {
         assertEq(status, 2);
         assertFalse(staking.isValidatorActive(validator1));
 
-        vm.expectRevert(StakingContext.NotActiveValidator.selector);
+        vm.expectRevert(IStakingContextErrors.NotActiveValidator.selector);
         staking.disableValidator(validator1);
     }
 
@@ -481,7 +484,7 @@ contract StakingAdditionalTest is Test {
         vm.prank(validator1);
         staking.claimValidatorFeeAtEpoch(validator1, epoch);
 
-        vm.expectRevert(abi.encodeWithSelector(StakingContext.OnlyValidatorOwner.selector, validator1));
+        vm.expectRevert(abi.encodeWithSelector(IStakingContextErrors.OnlyValidatorOwner.selector, validator1));
         vm.prank(staker1);
         staking.claimValidatorFee(validator1);
 
@@ -501,7 +504,7 @@ contract StakingAdditionalTest is Test {
 
     function test_delegatorCanClaimNewRewardsWithoutNewDelegations() public {
         _deploy(
-            5, 50, 150, 7, 0, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
+            5, 50, 150, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
         );
         staking.addValidator(validator1);
         vm.prank(staker1);
@@ -525,7 +528,7 @@ contract StakingAdditionalTest is Test {
         validators[0] = validator1;
         validators[1] = validator2;
         uint256[] memory stakes = new uint256[](2);
-        _deploy(50, 5, 10, 1, 0, ONE, ONE, validators, stakes, _singleton(treasury), _singleton16(10_000));
+        _deploy(50, 5, 10, 1, 1, ONE, ONE, validators, stakes, _singleton(treasury), _singleton16(10_000));
 
         assertEq(staking.getValidators().length, 2);
         for (uint256 i = 0; i < 10; i++) {
@@ -548,7 +551,7 @@ contract StakingAdditionalTest is Test {
             50,
             150,
             7,
-            0,
+            1,
             ONE,
             ONE,
             _singleton(validator1),
@@ -633,7 +636,7 @@ contract StakingAdditionalTest is Test {
         accounts[0] = treasury;
         shares = new uint16[](1);
         shares[0] = 9_999;
-        vm.expectRevert(abi.encodeWithSelector(StakingContext.BadShareDistribution.selector, uint16(9_999)));
+        vm.expectRevert(abi.encodeWithSelector(IStakingContextErrors.BadShareDistribution.selector, uint16(9_999)));
         systemReward.updateDistributionShare(accounts, shares);
     }
 
@@ -707,6 +710,28 @@ contract StakingAdditionalTest is Test {
         assertEq(stakingPool.getStakedAmount(validator1, staker2), 2 * ONE, "staker2 stake amount");
     }
 
+    function test_stakingPool_doesNotClaimRewardsWhileUnstakeIsPending() public {
+        staking.addValidator(validator1);
+
+        vm.prank(staker1);
+        stakingPool.stake(validator1, 10 * ONE);
+        _rollToNextEpoch();
+
+        vm.prank(staker1);
+        stakingPool.unstake(validator1, 8 * ONE);
+        _depositReward(validator1, ONE);
+        _rollToNextEpoch();
+
+        vm.prank(staker2);
+        stakingPool.stake(validator1, ONE);
+
+        StakingPool.ValidatorPool memory pool = stakingPool.getValidatorPool(validator1);
+        assertEq(pool.pendingUnstake, 8 * ONE);
+        assertEq(pool.dustRewards, 0);
+        assertEq(staking.getDelegatorFee(validator1, address(stakingPool)), ONE);
+        assertEq(blend.balanceOf(address(stakingPool)), 0);
+    }
+
     function test_systemFeeAutoClaimAfterThreshold() public {
         uint256 initialToken = blend.balanceOf(treasury);
         uint256 initialNative = treasury.balance;
@@ -735,13 +760,13 @@ contract StakingAdditionalTest is Test {
         uint16[] memory rewardShares
     ) internal {
         uint64 nonce = vm.getNonce(address(this));
-        IStaking predictedStaking = IStaking(vm.computeCreateAddress(address(this), nonce + 1));
+        IStaking predictedStaking = IStaking(_computeCreateAddress(address(this), nonce + 1));
         ISlashingIndicator predictedSlashingIndicator =
-            ISlashingIndicator(vm.computeCreateAddress(address(this), nonce + 3));
-        ISystemReward predictedSystemReward = ISystemReward(vm.computeCreateAddress(address(this), nonce + 5));
-        IStakingPool predictedStakingPool = IStakingPool(vm.computeCreateAddress(address(this), nonce + 7));
-        IChainConfig predictedChainConfig = IChainConfig(vm.computeCreateAddress(address(this), nonce + 9));
-        IGovernance governance = IGovernance(address(this));
+            ISlashingIndicator(_computeCreateAddress(address(this), nonce + 3));
+        ISystemReward predictedSystemReward = ISystemReward(_computeCreateAddress(address(this), nonce + 5));
+        IStakingPool predictedStakingPool = IStakingPool(_computeCreateAddress(address(this), nonce + 7));
+        IChainConfig predictedChainConfig = IChainConfig(_computeCreateAddress(address(this), nonce + 9));
+        IFluentGovernance governance = IFluentGovernance(address(this));
 
         uint256 totalInitialStakes = _sum(initialStakes);
         if (totalInitialStakes > 0) {
@@ -904,6 +929,13 @@ contract StakingAdditionalTest is Test {
 
     function _rollToNextEpoch() internal {
         vm.roll(block.number + chainConfig.getEpochBlockInterval());
+    }
+
+    function _computeCreateAddress(address deployer, uint64 nonce) internal pure returns (address) {
+        require(nonce < 0x80, "nonce too high");
+        return address(
+            uint160(uint256(keccak256(abi.encodePacked(bytes1(0xd6), bytes1(0x94), deployer, bytes1(uint8(nonce))))))
+        );
     }
 
     function _emptyAddresses() internal pure returns (address[] memory values) {
