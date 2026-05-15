@@ -215,6 +215,7 @@ contract StakingFoundryTest is Test {
         staking.delegate(validator1, ONE);
         vm.prank(staker2);
         staking.delegate(validator2, 2 * ONE);
+        _rollToNextEpoch();
 
         address[] memory validators = staking.getValidators();
         assertEq(validators[0], validator2);
@@ -236,6 +237,10 @@ contract StakingFoundryTest is Test {
         assertEq(validator1Total, ONE);
         assertEq(validator2Total, ONE);
 
+        validators = staking.getValidators();
+        assertEq(validators[0], validator2);
+        assertEq(validators[1], validator1);
+        _rollToNextEpoch();
         validators = staking.getValidators();
         assertEq(validators[0], validator1);
         assertEq(validators[1], validator2);
@@ -262,6 +267,7 @@ contract StakingFoundryTest is Test {
         staking.delegate(validator2, 2 * ONE);
         vm.prank(staker3);
         staking.delegate(validator3, ONE);
+        _rollToNextEpoch();
 
         address[] memory validators = staking.getValidators();
         assertEq(validators.length, 3);
@@ -271,6 +277,13 @@ contract StakingFoundryTest is Test {
 
         vm.prank(staker3);
         staking.delegate(validator4, 4 * ONE);
+
+        validators = staking.getValidators();
+        assertEq(validators.length, 3);
+        assertEq(validators[0], validator1);
+        assertEq(validators[1], validator2);
+        assertEq(validators[2], validator3);
+        _rollToNextEpoch();
 
         validators = staking.getValidators();
         assertEq(validators.length, 3);

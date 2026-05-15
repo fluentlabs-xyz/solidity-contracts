@@ -98,8 +98,7 @@ contract FluentGovernanceTest is Test {
     function _deploy(uint32 votingPeriod) internal {
         uint64 nonce = vm.getNonce(address(this));
         IStaking predictedStaking = IStaking(vm.computeCreateAddress(address(this), nonce + 1));
-        ISlashingIndicator predictedSlashingIndicator =
-            ISlashingIndicator(vm.computeCreateAddress(address(this), nonce + 3));
+        ISlashingIndicator predictedSlashingIndicator = ISlashingIndicator(vm.computeCreateAddress(address(this), nonce + 3));
         ISystemReward predictedSystemReward = ISystemReward(vm.computeCreateAddress(address(this), nonce + 5));
         IStakingPool predictedStakingPool = IStakingPool(vm.computeCreateAddress(address(this), nonce + 7));
         IChainConfig predictedChainConfig = IChainConfig(vm.computeCreateAddress(address(this), nonce + 9));
@@ -124,12 +123,11 @@ contract FluentGovernanceTest is Test {
             blend
         );
         staking = Staking(
-            payable(address(
-                    new ERC1967Proxy(
-                        address(stakingImpl),
-                        abi.encodeCall(Staking.initialize, (address(this), validators, initialStakes, 0))
-                    )
-                ))
+            payable(
+                address(
+                    new ERC1967Proxy(address(stakingImpl), abi.encodeCall(Staking.initialize, (address(this), validators, initialStakes, 0)))
+                )
+            )
         );
 
         SlashingIndicator slashingIndicatorImpl = new SlashingIndicator(
@@ -142,11 +140,7 @@ contract FluentGovernanceTest is Test {
             blend
         );
         SlashingIndicator slashingIndicator = SlashingIndicator(
-            address(
-                new ERC1967Proxy(
-                    address(slashingIndicatorImpl), abi.encodeCall(SlashingIndicator.initialize, (address(this)))
-                )
-            )
+            address(new ERC1967Proxy(address(slashingIndicatorImpl), abi.encodeCall(SlashingIndicator.initialize, (address(this)))))
         );
 
         address[] memory rewardAccounts = new address[](1);
@@ -163,12 +157,14 @@ contract FluentGovernanceTest is Test {
             blend
         );
         SystemReward systemReward = SystemReward(
-            payable(address(
+            payable(
+                address(
                     new ERC1967Proxy(
                         address(systemRewardImpl),
                         abi.encodeCall(SystemReward.initialize, (address(this), rewardAccounts, rewardShares))
                     )
-                ))
+                )
+            )
         );
 
         StakingPool stakingPoolImpl = new StakingPool(
@@ -181,9 +177,7 @@ contract FluentGovernanceTest is Test {
             blend
         );
         StakingPool stakingPool = StakingPool(
-            payable(address(
-                    new ERC1967Proxy(address(stakingPoolImpl), abi.encodeCall(StakingPool.initialize, (address(this))))
-                ))
+            payable(address(new ERC1967Proxy(address(stakingPoolImpl), abi.encodeCall(StakingPool.initialize, (address(this))))))
         );
 
         ChainConfig chainConfigImpl = new ChainConfig(
@@ -199,19 +193,16 @@ contract FluentGovernanceTest is Test {
             address(
                 new ERC1967Proxy(
                     address(chainConfigImpl),
-                    abi.encodeCall(ChainConfig.initialize, (address(this), 3, 50, 50, 150, 7, 0, ONE, ONE))
+                    abi.encodeCall(ChainConfig.initialize, (address(this), 3, 50, 50, 150, 7, 1, ONE, ONE))
                 )
             )
         );
 
         FluentGovernance governanceImpl = new FluentGovernance(predictedStaking, predictedChainConfig);
         governance = FluentGovernance(
-            payable(address(
-                    new ERC1967Proxy(
-                        address(governanceImpl),
-                        abi.encodeCall(FluentGovernance.initialize, (address(this), votingPeriod))
-                    )
-                ))
+            payable(
+                address(new ERC1967Proxy(address(governanceImpl), abi.encodeCall(FluentGovernance.initialize, (address(this), votingPeriod))))
+            )
         );
 
         assertEq(address(staking), address(predictedStaking));

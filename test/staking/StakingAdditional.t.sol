@@ -18,6 +18,14 @@ import {StakingPool} from "../../contracts/staking/StakingPool.sol";
 import {SystemReward} from "../../contracts/staking/SystemReward.sol";
 import {MockBlendToken} from "../../contracts/staking/mocks/MockBlendToken.sol";
 
+contract GasHeavyReceiver {
+    uint256 public received;
+
+    receive() external payable {
+        received += msg.value;
+    }
+}
+
 contract StakingAdditionalTest is Test {
     uint256 internal constant ONE = 1 ether;
 
@@ -141,6 +149,16 @@ contract StakingAdditionalTest is Test {
         chainConfig.setActiveValidatorsLength(6);
     }
 
+    function test_chainConfigRejectsInconsistentSlashThresholds() public {
+        uint32 currentFelonyThreshold = chainConfig.getFelonyThreshold();
+        vm.expectRevert(IChainConfig.MisdemeanorThresholdNotMet.selector);
+        chainConfig.setMisdemeanorThreshold(currentFelonyThreshold + 1);
+
+        uint32 currentMisdemeanorThreshold = chainConfig.getMisdemeanorThreshold();
+        vm.expectRevert(IChainConfig.MisdemeanorThresholdNotMet.selector);
+        chainConfig.setFelonyThreshold(currentMisdemeanorThreshold - 1);
+    }
+
     function test_statusAndDelegationViewsForEmptyAndHistoricalEpochs() public {
         (uint256 delegated, uint64 atEpoch) = staking.getValidatorDelegation(validator1, staker1);
         assertEq(delegated, 0);
@@ -231,6 +249,12 @@ contract StakingAdditionalTest is Test {
         _rollToNextEpoch();
         _rollToNextEpoch();
         assertEq(staking.getDelegatorFee(validator1, staker1), 6 * ONE);
+    }
+
+    function test_RevertIf_undelegateFromUnknownValidator() public {
+        vm.expectRevert(abi.encodeWithSelector(IStakingContextErrors.ValidatorNotFound.selector, validator3));
+        vm.prank(staker1);
+        staking.undelegate(validator3, ONE);
     }
 
     function test_validatorCanClaimCommissionAndDelegatorRewards() public {
@@ -339,8 +363,13 @@ contract StakingAdditionalTest is Test {
         for (uint256 i = 0; i < 5; i++) {
             _slash(validator2);
         }
+        _depositReward(validator2, ONE);
         _rollToNextEpoch();
         assertEq(staking.getValidatorFee(validator1), 0);
+
+        vm.prank(staker1);
+        staking.claimValidatorFee(validator2);
+        assertEq(systemReward.getSystemFee(), ONE);
     }
 
     function test_incorrectStakingAmounts() public {
@@ -382,7 +411,7 @@ contract StakingAdditionalTest is Test {
 
     function test_validatorCanBeReleasedFromJailByOwner() public {
         _deploy(
-            50, 10, 5, 2, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
+            50, 5, 5, 2, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
         );
         staking.addValidator(validator1);
         staking.addValidator(validator2);
@@ -484,7 +513,6 @@ contract StakingAdditionalTest is Test {
         vm.prank(validator1);
         staking.claimValidatorFeeAtEpoch(validator1, epoch);
 
-        vm.expectRevert(abi.encodeWithSelector(IStakingContextErrors.OnlyValidatorOwner.selector, validator1));
         vm.prank(staker1);
         staking.claimValidatorFee(validator1);
 
@@ -638,6 +666,21 @@ contract StakingAdditionalTest is Test {
         shares[0] = 9_999;
         vm.expectRevert(abi.encodeWithSelector(IStakingContextErrors.BadShareDistribution.selector, uint16(9_999)));
         systemReward.updateDistributionShare(accounts, shares);
+    }
+
+    function test_systemRewardNativeClaimSupportsGasHeavyReceiver() public {
+        GasHeavyReceiver receiver = new GasHeavyReceiver();
+        address[] memory accounts = new address[](1);
+        accounts[0] = address(receiver);
+        uint16[] memory shares = new uint16[](1);
+        shares[0] = 10_000;
+        systemReward.updateDistributionShare(accounts, shares);
+
+        _sendNativeSystemFee(1 ether);
+        systemReward.claimSystemFee();
+
+        assertEq(address(receiver).balance, 1 ether);
+        assertEq(receiver.received(), 1 ether);
     }
 
     function test_systemRewardDecreaseDistributionArraySize() public {

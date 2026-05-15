@@ -243,8 +243,26 @@ contract Staking is IStaking, StakingContext {
 
     function _totalDelegatedToValidator(Validator memory validator) internal view returns (uint256) {
         StakingStorage storage $ = _getStakingStorage();
-        ValidatorSnapshot memory snapshot = $._validatorSnapshots[validator.validatorAddress][validator.changedAt];
+        ValidatorSnapshot memory snapshot = _validatorSnapshotAtOrBefore($, validator, _currentEpoch());
         return uint256(snapshot.totalDelegated) * BALANCE_COMPACT_PRECISION;
+    }
+
+    function _validatorSnapshotAtOrBefore(
+        StakingStorage storage $,
+        Validator memory validator,
+        uint64 epoch
+    ) internal view returns (ValidatorSnapshot memory) {
+        uint64 lookupEpoch = epoch < validator.changedAt ? epoch : validator.changedAt;
+        while (lookupEpoch > 0) {
+            ValidatorSnapshot memory snapshot = $._validatorSnapshots[validator.validatorAddress][lookupEpoch];
+            if (snapshot.totalDelegated > 0 || snapshot.totalRewards > 0 || snapshot.commissionRate > 0 || snapshot.slashesCount > 0) {
+                return snapshot;
+            }
+            unchecked {
+                --lookupEpoch;
+            }
+        }
+        return $._validatorSnapshots[validator.validatorAddress][0];
     }
 
     function delegate(address validatorAddress, uint256 amount) external override {
@@ -357,6 +375,7 @@ contract Staking is IStaking, StakingContext {
         require(amount % BALANCE_COMPACT_PRECISION == 0, WrongAmountPrecision());
         // make sure validator exists at least
         Validator memory validator = $._validatorsMap[fromValidator];
+        require(validator.status != ValidatorStatus.NotFound, ValidatorNotFound(fromValidator));
         uint64 beforeEpoch = _nextEpoch();
         // Lets upgrade next snapshot parameters:
         // + find snapshot for the next epoch after current block
@@ -372,7 +391,7 @@ contract Staking is IStaking, StakingContext {
         ValidatorDelegation storage delegation = $._validatorDelegations[fromValidator][toDelegator];
         require(delegation.delegateQueue.length > 0, DelegationQueueEmpty());
         DelegationOpDelegate storage recentDelegateOp = delegation.delegateQueue[delegation.delegateQueue.length - 1];
-        require(recentDelegateOp.amount >= uint64(amount / BALANCE_COMPACT_PRECISION), InsufficientBalance());
+        require(recentDelegateOp.amount >= uint112(amount / BALANCE_COMPACT_PRECISION), InsufficientBalance());
         uint112 nextDelegatedAmount = recentDelegateOp.amount - uint112(amount / BALANCE_COMPACT_PRECISION);
         if (recentDelegateOp.epoch >= beforeEpoch) {
             // decrease total delegated amount for the next epoch
@@ -815,9 +834,8 @@ contract Staking is IStaking, StakingContext {
         StakingStorage storage $ = _getStakingStorage();
         // make sure validator exists at least
         Validator storage validator = $._validatorsMap[validatorAddress];
-        // only validator owner can claim deposit fee
-        require(msg.sender == validator.ownerAddress, OnlyValidatorOwner(validator.ownerAddress));
-        // claim all validator fees
+        require(validator.status != ValidatorStatus.NotFound, ValidatorNotFound(validatorAddress));
+        // settle all validator fees to the owner and slashed fees to the system reward contract
         _claimValidatorOwnerRewards(validator, _currentEpoch());
     }
 
@@ -825,11 +843,10 @@ contract Staking is IStaking, StakingContext {
         StakingStorage storage $ = _getStakingStorage();
         // make sure validator exists at least
         Validator storage validator = $._validatorsMap[validatorAddress];
-        // only validator owner can claim deposit fee
-        require(msg.sender == validator.ownerAddress, OnlyValidatorOwner(validator.ownerAddress));
+        require(validator.status != ValidatorStatus.NotFound, ValidatorNotFound(validatorAddress));
         // we disallow to claim rewards from future epochs
         require(beforeEpoch <= _currentEpoch(), InvalidClaimEpoch());
-        // claim all validator fees
+        // settle validator fees to the owner and slashed fees to the system reward contract
         _claimValidatorOwnerRewards(validator, beforeEpoch);
     }
 

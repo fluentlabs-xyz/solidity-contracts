@@ -174,10 +174,10 @@ interface IStaking is IValidatorSet, IStakingEvents, IStakingErrors {
     /// @notice Returns validator owner commission accrued but not yet claimable.
     function getPendingValidatorFee(address validator) external view returns (uint256);
 
-    /// @notice Claims all currently claimable validator owner commission.
+    /// @notice Settles all currently claimable validator owner commission and slashed system fees.
     function claimValidatorFee(address validator) external;
 
-    /// @notice Claims validator owner commission accrued before `beforeEpoch`.
+    /// @notice Settles validator owner commission and slashed system fees accrued before `beforeEpoch`.
     function claimValidatorFeeAtEpoch(address validator, uint64 beforeEpoch) external;
 
     /// @notice Returns delegator rewards and matured undelegations currently claimable.

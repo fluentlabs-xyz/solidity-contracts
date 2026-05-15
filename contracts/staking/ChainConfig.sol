@@ -138,6 +138,7 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
     function setMisdemeanorThreshold(uint32 newValue) external override onlyFromGovernance {
         require(newValue > 0, ZeroValue("misdemeanorThreshold"));
         ChainConfigStorage storage $ = _getChainConfigStorage();
+        require(newValue <= $._felonyThreshold, MisdemeanorThresholdNotMet());
         emit MisdemeanorThresholdChanged($._misdemeanorThreshold, newValue);
         $._misdemeanorThreshold = newValue;
     }
@@ -147,8 +148,9 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
     }
 
     function setFelonyThreshold(uint32 newValue) external override onlyFromGovernance {
-        require(newValue >= _getChainConfigStorage()._misdemeanorThreshold, MisdemeanorThresholdNotMet());
+        require(newValue > 0, ZeroValue("felonyThreshold"));
         ChainConfigStorage storage $ = _getChainConfigStorage();
+        require(newValue >= $._misdemeanorThreshold, MisdemeanorThresholdNotMet());
         emit FelonyThresholdChanged($._felonyThreshold, newValue);
         $._felonyThreshold = newValue;
     }
@@ -221,6 +223,7 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
         emit MisdemeanorThresholdChanged(0, misdemeanorThreshold);
 
         require(felonyThreshold > 0, ZeroValue("felonyThreshold"));
+        require(felonyThreshold >= misdemeanorThreshold, MisdemeanorThresholdNotMet());
         $._felonyThreshold = felonyThreshold;
         emit FelonyThresholdChanged(0, felonyThreshold);
 

@@ -37,8 +37,7 @@ contract SystemReward is ISystemReward, StakingContext {
     uint16 internal constant SHARE_MAX_VALUE = 10000; // 100%
 
     // keccak256(abi.encode(uint256(keccak256("Fluent.storage.SystemRewardStorage")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant SYSTEM_REWARD_STORAGE_LOCATION =
-        0x85de466a486fac3ceb8a96c8f08f407e42a5512799e7ca6bc110e97735605700;
+    bytes32 private constant SYSTEM_REWARD_STORAGE_LOCATION = 0x85de466a486fac3ceb8a96c8f08f407e42a5512799e7ca6bc110e97735605700;
 
     /// @custom:storage-location erc7201:Fluent.storage.SystemRewardStorage
     struct SystemRewardStorage {
@@ -74,10 +73,7 @@ contract SystemReward is ISystemReward, StakingContext {
         )
     {}
 
-    function initialize(address initialOwner, address[] calldata accounts, uint16[] calldata shares)
-        external
-        initializer
-    {
+    function initialize(address initialOwner, address[] calldata accounts, uint16[] calldata shares) external initializer {
         __StakingContext_init(initialOwner);
         _updateDistributionShare(accounts, shares);
     }
@@ -111,12 +107,7 @@ contract SystemReward is ISystemReward, StakingContext {
         }
     }
 
-    function updateDistributionShare(address[] calldata accounts, uint16[] calldata shares)
-        external
-        virtual
-        override
-        onlyFromGovernance
-    {
+    function updateDistributionShare(address[] calldata accounts, uint16[] calldata shares) external virtual override onlyFromGovernance {
         _updateDistributionShare(accounts, shares);
     }
 
@@ -162,7 +153,8 @@ contract SystemReward is ISystemReward, StakingContext {
             uint256 nativeAccountFee = (nativeAmountToPay * ds.share) / SHARE_MAX_VALUE;
             uint256 tokenAccountFee = (tokenAmountToPay * ds.share) / SHARE_MAX_VALUE;
             if (nativeAccountFee > 0) {
-                payable(ds.account).transfer(nativeAccountFee);
+                (bool success, ) = payable(ds.account).call{value: nativeAccountFee}("");
+                require(success, UnsafeTransferFailed());
             }
             if (tokenAccountFee > 0) {
                 _stakingToken.safeTransfer(ds.account, tokenAccountFee);
