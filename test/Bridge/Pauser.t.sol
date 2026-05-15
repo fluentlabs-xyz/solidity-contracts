@@ -68,9 +68,8 @@ contract BridgePauserTest is BridgeBase {
         l1Bridge.pause();
 
         vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
-        // `receiveMessageWithProof` is gated by RELAYER_ROLE; prank as `relayer` so the
-        // role check passes and `whenNotPaused` is the modifier that fires next.
-        vm.prank(relayer);
+        // `receiveMessageWithProof` is permissionless; the paused guard should fire first.
+        vm.prank(makeAddr("proofCaller"));
         l1Bridge.receiveMessageWithProof(
             0,
             _dummyHeader(),

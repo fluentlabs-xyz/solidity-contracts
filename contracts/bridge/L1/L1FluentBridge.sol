@@ -231,7 +231,7 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         bytes calldata message,
         MerkleTree.MerkleProof calldata withdrawalProof,
         MerkleTree.MerkleProof calldata blockProof
-    ) external nonReentrant onlyRole(RELAYER_ROLE) whenNotPaused {
+    ) external nonReentrant whenNotPaused {
         // Only finalized batches carry valid state roots — reject unfinalized ones
         // The rollup contract tracks batch lifecycle; finalized means SP1-proven or delay-elapsed
         BatchStatus status = Rollup(getRollup()).getBatch(batchIndex).status;
