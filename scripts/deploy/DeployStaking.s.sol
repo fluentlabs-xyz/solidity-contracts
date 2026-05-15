@@ -6,14 +6,14 @@ import {console2} from "forge-std/console2.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import {Governance} from "../../contracts/governance/Governance.sol";
+import {FluentGovernance} from "../../contracts/governance/FluentGovernance.sol";
 import {ChainConfig} from "../../contracts/staking/ChainConfig.sol";
 import {SlashingIndicator} from "../../contracts/staking/SlashingIndicator.sol";
 import {Staking} from "../../contracts/staking/Staking.sol";
 import {StakingPool} from "../../contracts/staking/StakingPool.sol";
 import {SystemReward} from "../../contracts/staking/SystemReward.sol";
 import {IChainConfig} from "../../contracts/staking/interfaces/IChainConfig.sol";
-import {IGovernance} from "../../contracts/staking/interfaces/IGovernance.sol";
+import {IFluentGovernance} from "../../contracts/staking/interfaces/IFluentGovernance.sol";
 import {ISlashingIndicator} from "../../contracts/staking/interfaces/ISlashingIndicator.sol";
 import {IStaking} from "../../contracts/staking/interfaces/IStaking.sol";
 import {IStakingPool} from "../../contracts/staking/interfaces/IStakingPool.sol";
@@ -107,7 +107,7 @@ contract DeployStaking is DeployBase {
         ISystemReward predictedSystemReward = ISystemReward(vm.computeCreateAddress(tx.origin, nonce + 6));
         IStakingPool predictedStakingPool = IStakingPool(vm.computeCreateAddress(tx.origin, nonce + 8));
         IChainConfig predictedChainConfig = IChainConfig(vm.computeCreateAddress(tx.origin, nonce + 10));
-        IGovernance governance = IGovernance(vm.computeCreateAddress(tx.origin, nonce + 12));
+        IFluentGovernance governance = IFluentGovernance(vm.computeCreateAddress(tx.origin, nonce + 12));
 
         uint256 totalInitialStakes = _sum(p.initialStakes);
         if (totalInitialStakes > 0) {
@@ -216,11 +216,11 @@ contract DeployStaking is DeployBase {
         require(r.stakingPool == address(predictedStakingPool), "staking pool proxy prediction mismatch");
         require(r.chainConfig == address(predictedChainConfig), "chain config proxy prediction mismatch");
 
-        Governance governanceImpl = new Governance(predictedStaking, predictedChainConfig);
+        FluentGovernance governanceImpl = new FluentGovernance(predictedStaking, predictedChainConfig);
         r.governance = address(
             new ERC1967Proxy(
                 address(governanceImpl),
-                abi.encodeCall(Governance.initialize, (p.initialOwner, p.governanceVotingPeriod))
+                abi.encodeCall(FluentGovernance.initialize, (p.initialOwner, p.governanceVotingPeriod))
             )
         );
         r.governanceImpl = address(governanceImpl);

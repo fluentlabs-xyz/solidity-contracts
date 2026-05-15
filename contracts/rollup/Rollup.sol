@@ -120,7 +120,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
 
         uint256 gasLeft = $._gasLeft;
         // Safety check: finalized batches are immutable and must never be rolled back
-        for (uint256 i = lastAcceptedBatchIndex; i >= toBatchIndex;) {
+        for (uint256 i = lastAcceptedBatchIndex; i >= toBatchIndex; ) {
             require(gasleft() >= gasLeft, InsufficientGas());
             require($._batches[i].status != BatchStatus.Finalized, BatchAlreadyFinalized(i));
             // Inclusive range [lastAcceptedBatchIndex .. toBatchIndex]:
@@ -140,7 +140,7 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         uint64 rewindTarget = $._batches[toBatchIndex].sentMessageCursorStart;
 
         // Process each batch in reverse order: refund both challenge families and wipe batch storage
-        for (uint256 i = lastAcceptedBatchIndex; i >= toBatchIndex;) {
+        for (uint256 i = lastAcceptedBatchIndex; i >= toBatchIndex; ) {
             totalIncentiveFees += _processRevertBlockChallenges($._batchChallengedBlocks[i], fee);
             totalIncentiveFees += _processRevertBatchRootChallenge(i, fee);
             _cleanupRevertedBatch(i);

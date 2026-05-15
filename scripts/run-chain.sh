@@ -121,7 +121,6 @@ if [[ -n "$DEPLOYER" ]]; then
     cmd+=(--account "$DEPLOYER")
 fi
 if [[ "$BROADCAST" == "1" || "$BROADCAST" == "true" ]]; then
-    [[ -n "$DEPLOYER" ]] || { echo "DEPLOYER required when BROADCAST=1" >&2; exit 2; }
     cmd+=(--broadcast)
     if [[ "$LAYER" == "l2" ]]; then
         cmd+=(--skip-simulation)

@@ -1,9 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-only
 pragma solidity ^0.8.0;
 
+interface ISystemRewardEvents {
+    event DistributionShareChanged(address account, uint16 share);
+    event FeeClaimed(address account, uint256 nativeAmount, uint256 tokenAmount);
+}
+
 /// @title System reward interface
 /// @notice Receives system fees and distributes them across governance-configured accounts.
-interface ISystemReward {
+interface ISystemReward is ISystemRewardEvents {
+    /// @notice One fee recipient and its share in basis-point-style units.
+    struct DistributionShare {
+        address account;
+        uint16 share;
+    }
+
     /// @notice Replaces fee distribution recipients and shares. Total share must equal 10000.
     function updateDistributionShare(address[] calldata accounts, uint16[] calldata shares) external;
 

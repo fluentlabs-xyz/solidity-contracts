@@ -1,9 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-only
 pragma solidity ^0.8.0;
 
-/// @title Slashing indicator interface
-/// @notice Entry point for reporting validator faults to staking.
+/**
+ * @title Slashing Indicator interface
+ * @author Fluent Labs
+ * @notice Entry point for reporting validator faults to staking.
+ */
 interface ISlashingIndicator {
-    /// @notice Records a slash for `validator`.
+    /**
+     * @dev Records a slash event for `validator`.
+     * @param validator The address of the validator to slash.
+     *
+     * emits:
+     * - ValidatorSlashed(validator, slashes, epoch)
+     */
     function slash(address validator) external;
 }

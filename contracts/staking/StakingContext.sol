@@ -6,59 +6,48 @@ import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Ini
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-import "./interfaces/IChainConfig.sol";
-import "./interfaces/IGovernance.sol";
-import "./interfaces/ISlashingIndicator.sol";
-import "./interfaces/IStaking.sol";
-import "./interfaces/IStakingPool.sol";
-import "./interfaces/ISystemReward.sol";
+import {IChainConfig} from "./interfaces/IChainConfig.sol";
+import {IFluentGovernance} from "./interfaces/IFluentGovernance.sol";
+import {ISlashingIndicator} from "./interfaces/ISlashingIndicator.sol";
+import {IStaking} from "./interfaces/IStaking.sol";
+import {IStakingPool} from "./interfaces/IStakingPool.sol";
+import {ISystemReward} from "./interfaces/ISystemReward.sol";
+import {IStakingContextErrors} from "./interfaces/IStakingContext.sol";
 
-/// @title Staking system context
-/// @notice Stores staking module dependencies and exposes shared access-control modifiers.
-/// @dev Each concrete staking contract wires shared dependencies through immutable constructor arguments.
-abstract contract StakingContext is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable {
-    error AmountTooLow(uint256);
-    error BadCommissionRate(uint16);
-    error MalformedInputLength();
-    error BadShareDistribution(uint16);
-    error DepositIsZero();
-    error DelegationQueueEmpty();
-    error DelegationQueueNotEmpty(uint256);
-    error MalformedInitialBalance();
-    error InitialStakeTooLow(uint256);
-    error InsufficientBalance();
-    error InvalidClaimEpoch();
-    error NotActiveValidator();
-    error NotEnoughBalance();
-    error NotEnoughShares();
-    error NotPendingValidator(address);
-    error EpochIsNotReady(uint64);
-    error NothingToClaim();
-    error NothingToUnstake();
-    error OnlyCoinbase();
-    error OnlyGovernance();
-    error OnlySlashingIndicator();
-    error OnlyStakingContract();
-    error OnlyValidatorOwner(address);
-    error OnlyZeroGasPrice();
-    error PendingUndelegate();
-    error SafeTransferFailed();
-    error StillInJail(address);
-    error UnsafeTransferFailed();
-    error ValidatorAlreadyExists(address);
-    error ValidatorNotFound(address);
-    error ValidatorNotInJail(address);
-    error ValidatorOwnerAlreadyInUse(address);
-    error WrongAmountPrecision();
-    error ZeroAmount();
-    error OwnerCantBeZero();
-
+/**
+ * @title Staking system context
+ * @author Fluent Labs
+ * @notice Stores staking module dependencies and exposes shared access-control modifiers.
+ * @dev Each concrete staking contract wires shared dependencies through immutable constructor arguments.
+ */
+abstract contract StakingContext is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, IStakingContextErrors {
+    /**
+     * @notice The staking contract.
+     */
     IStaking internal immutable _stakingContract;
+    /**
+     * @notice The slashing indicator contract.
+     */
     ISlashingIndicator internal immutable _slashingIndicatorContract;
+    /**
+     * @notice The system reward contract.
+     */
     ISystemReward internal immutable _systemRewardContract;
+    /**
+     * @notice The staking pool contract.
+     */
     IStakingPool internal immutable _stakingPoolContract;
-    IGovernance internal immutable _governanceContract;
+    /**
+     * @notice The governance contract.
+     */
+    IFluentGovernance internal immutable _governanceContract;
+    /**
+     * @notice The chain config contract.
+     */
     IChainConfig internal immutable _chainConfigContract;
+    /**
+     * @notice The staking token.
+     */
     IERC20 internal immutable _stakingToken;
 
     constructor(
@@ -66,7 +55,7 @@ abstract contract StakingContext is Initializable, UUPSUpgradeable, Ownable2Step
         ISlashingIndicator slashingIndicatorContract,
         ISystemReward systemRewardContract,
         IStakingPool stakingPoolContract,
-        IGovernance governanceContract,
+        IFluentGovernance governanceContract,
         IChainConfig chainConfigContract,
         IERC20 stakingToken
     ) {
@@ -88,22 +77,22 @@ abstract contract StakingContext is Initializable, UUPSUpgradeable, Ownable2Step
     }
 
     modifier onlyFromCoinbase() {
-        if (msg.sender != block.coinbase) revert OnlyCoinbase();
+        require(msg.sender == block.coinbase, OnlyCoinbase());
         _;
     }
 
     modifier onlyFromSlashingIndicator() {
-        if (msg.sender != address(_slashingIndicatorContract)) revert OnlySlashingIndicator();
+        require(msg.sender == address(_slashingIndicatorContract), OnlySlashingIndicator());
         _;
     }
 
     modifier onlyFromGovernance() {
-        if (IGovernance(msg.sender) != _governanceContract) revert OnlyGovernance();
+        require(IFluentGovernance(msg.sender) == _governanceContract, OnlyGovernance());
         _;
     }
 
     modifier onlyZeroGasPrice() {
-        if (tx.gasprice != 0) revert OnlyZeroGasPrice();
+        require(tx.gasprice == 0, OnlyZeroGasPrice());
         _;
     }
 
@@ -123,7 +112,7 @@ abstract contract StakingContext is Initializable, UUPSUpgradeable, Ownable2Step
         return _stakingPoolContract;
     }
 
-    function getGovernance() public view returns (IGovernance) {
+    function getGovernance() public view returns (IFluentGovernance) {
         return _governanceContract;
     }
 
