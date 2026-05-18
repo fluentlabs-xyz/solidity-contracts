@@ -11,6 +11,8 @@ import {IStakingPool} from "./interfaces/IStakingPool.sol";
 import {IFluentGovernance} from "./interfaces/IFluentGovernance.sol";
 import {IChainConfig} from "./interfaces/IChainConfig.sol";
 import {StakingContext} from "./StakingContext.sol";
+import {IBLS12381Verifier} from "./interfaces/IBLS12381Verifier.sol";
+import {SimplexEvidenceDecoder} from "../libraries/SimplexEvidenceDecoder.sol";
 
 /**
  * @title Validator staking
@@ -20,6 +22,36 @@ import {StakingContext} from "./StakingContext.sol";
  */
 contract Staking is IStaking, StakingContext {
     using SafeERC20 for IERC20;
+
+    // ERC-7201 storage namespace for consensus keys (separate from StakingStorage):
+    // keccak256(abi.encode(uint256(keccak256("Fluent.storage.ConsensusKeysStorage")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant CONSENSUS_KEYS_STORAGE_LOCATION =
+        0xf295d610a4116363064013aa5e1168427c6b907b208d8be559665c0e7adec500;
+
+    // ERC-7201 storage namespace for per-epoch frozen committee (separate from StakingStorage/ConsensusKeysStorage):
+    // keccak256(abi.encode(uint256(keccak256("Fluent.storage.EpochCommitteeStorage")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant EPOCH_COMMITTEE_STORAGE_LOCATION =
+        0x8f1c49778ec45f03e87f0e3e1567785ab335a882d8dad6d5c44cb7ae50968400;
+
+    // ERC-7201 storage namespace for equivocation tombstones (separate from all of the above):
+    // keccak256(abi.encode(uint256(keccak256("Fluent.storage.EquivocationStorage")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 private constant EQUIVOCATION_STORAGE_LOCATION =
+        0x96610efdc8a37de390ea3757bf0331faa3a74708adc53f30ba708302b0f55800;
+
+    /// @notice BLS signature DST (MinSig MESSAGE) — distinct from PoP's DST.
+    bytes private constant BLS_SIG_DST = "BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_POP_";
+
+    /// @notice BLS PoP DST (MinSig PROOF_OF_POSSESSION) — distinct from BLS_SIG_DST.
+    bytes private constant BLS_POP_DST = "BLS_POP_BLS12381G1_XMD:SHA-256_SSWU_RO_POP_";
+
+    /// @notice Expected length of a compressed BLS12-381 G2 pubkey (MinSig variant).
+    uint256 internal constant BLS_PUBKEY_LENGTH = 96;
+
+    /// @notice Safety margin (in epochs) added to the undelegate period when
+    ///         retaining frozen committees, covering Simplex consensus
+    ///         evidence activity_timeout. Exact value = economics calibration
+    ///         pre-mainnet.
+    uint64 internal constant EPOCH_COMMITTEE_RETENTION_MARGIN = 8;
 
     /**
      * This constant indicates precision of storing compact balances in the storage or floating point. Since default
@@ -84,6 +116,50 @@ contract Staking is IStaking, StakingContext {
     function _getStakingStorage() private pure returns (StakingStorage storage $) {
         assembly {
             $.slot := STAKING_STORAGE_LOCATION
+        }
+    }
+
+    /// @custom:storage-location erc7201:Fluent.storage.ConsensusKeysStorage
+    struct ConsensusKeysStorage {
+        mapping(address => IStaking.ConsensusKeys) consensusKeys;
+    }
+
+    function _getConsensusKeysStorage() private pure returns (ConsensusKeysStorage storage $) {
+        assembly {
+            $.slot := CONSENSUS_KEYS_STORAGE_LOCATION
+        }
+    }
+
+    /// @custom:storage-location erc7201:Fluent.storage.EpochCommitteeStorage
+    struct EpochCommitteeStorage {
+        // epoch => committee addresses in canonical Simplex committee order
+        // (ed25519 peerPubkey ascending, keyless validators excluded).
+        // Empty array == that epoch was never committed (=> unslashable, by design).
+        mapping(uint64 => address[]) committee;
+        // Highest committed epoch, stored as (epoch + 1). 0 == never committed
+        // (genesis-safe idempotent + strictly-monotonic guard).
+        uint64 lastCommittedEpochP1;
+        // Highest pruned epoch, stored as (epoch + 1). Cursor so a bounded
+        // range is pruned each commit even when commits skip epochs.
+        uint64 prunedUpToP1;
+    }
+
+    function _getEpochCommitteeStorage() private pure returns (EpochCommitteeStorage storage $) {
+        assembly {
+            $.slot := EPOCH_COMMITTEE_STORAGE_LOCATION
+        }
+    }
+
+    /// @custom:storage-location erc7201:Fluent.storage.EquivocationStorage
+    struct EquivocationStorage {
+        // validator => permanently slashed for a cryptographic equivocation.
+        // The flag IS the replay guard: one-and-done tombstone.
+        mapping(address => bool) tombstoned;
+    }
+
+    function _getEquivocationStorage() private pure returns (EquivocationStorage storage $) {
+        assembly {
+            $.slot := EQUIVOCATION_STORAGE_LOCATION
         }
     }
 
@@ -226,6 +302,9 @@ contract Staking is IStaking, StakingContext {
 
     /// @inheritdoc IStaking
     function releaseValidatorFromJail(address validatorAddress) external {
+        if (_getEquivocationStorage().tombstoned[validatorAddress]) {
+            revert AlreadySlashedForEquivocation(validatorAddress);
+        }
         StakingStorage storage $ = _getStakingStorage();
         // make sure validator is in jail
         Validator memory validator = $._validatorsMap[validatorAddress];
@@ -903,6 +982,77 @@ contract Staking is IStaking, StakingContext {
         _slashValidator(validatorAddress);
     }
 
+    // ============================
+    //  Consensus Keys (v1 — minimal registry, no on-chain crypto)
+    // ============================
+
+    /// @notice Register consensus keys for `validator` with on-chain
+    ///         Proof-of-Possession. One-shot — no rotation in v1.
+    /// @param blsPubkeyUncompressed 256 B EIP-2537 G2 — compressed on-chain
+    ///                              to the stored 96 B identity.
+    /// @param blsPoPUncompressed    128 B EIP-2537 G1 PoP signature — verify-only.
+    function setConsensusKeys(
+        address validatorAddress,
+        bytes calldata blsPubkeyUncompressed,
+        bytes calldata blsPoPUncompressed,
+        bytes32 peerPubkey
+    ) external override {
+        if (_getEquivocationStorage().tombstoned[validatorAddress]) {
+            revert AlreadySlashedForEquivocation(validatorAddress);
+        }
+        StakingStorage storage $s = _getStakingStorage();
+        Validator memory v = $s._validatorsMap[validatorAddress];
+        if (v.status == ValidatorStatus.NotFound) revert ValidatorNotFound(validatorAddress);
+        if (msg.sender != v.ownerAddress) revert OnlyValidatorOwner(v.ownerAddress);
+        if (blsPubkeyUncompressed.length != 256 || blsPoPUncompressed.length != 128) {
+            revert InvalidConsensusKeyEncoding();
+        }
+
+        ConsensusKeysStorage storage $ck = _getConsensusKeysStorage();
+        if ($ck.consensusKeys[validatorAddress].blsPubkey.length != 0) {
+            revert ConsensusKeysAlreadySet(validatorAddress);
+        }
+
+        address verifierAddr = _chainConfigContract.getBlsVerifier();
+        if (verifierAddr == address(0)) revert BlsVerifierNotConfigured();
+        IBLS12381Verifier verifier = IBLS12381Verifier(verifierAddr);
+
+        // Derive the authoritative compressed identity on-chain: it becomes
+        // BOTH the PoP signed message and the stored key. No compare — PoP
+        // self-proves possession; there is no pre-existing anchor at
+        // registration. PoP: namespace = base fluent_namespace (NO subject
+        // suffix); DST = BLS_POP_… ; one G1 sig.
+        bytes memory blsPubkey = verifier.compressG2(blsPubkeyUncompressed);
+
+        if (!verifier.verify(_fluentNamespace(), blsPubkey, BLS_POP_DST, blsPoPUncompressed, blsPubkeyUncompressed)) {
+            revert InvalidProofOfPossession(validatorAddress);
+        }
+
+        uint64 activationEpoch = _nextEpoch();
+        $ck.consensusKeys[validatorAddress] =
+            IStaking.ConsensusKeys({blsPubkey: blsPubkey, peerPubkey: peerPubkey, activationEpoch: activationEpoch});
+
+        emit ConsensusKeysSet(validatorAddress, blsPubkey, peerPubkey, activationEpoch);
+    }
+
+    function getConsensusKeys(address validatorAddress) external view override returns (IStaking.ConsensusKeys memory) {
+        return _getConsensusKeysStorage().consensusKeys[validatorAddress];
+    }
+
+    function getValidatorsWithKeys()
+        external
+        view
+        override
+        returns (address[] memory addrs, IStaking.ConsensusKeys[] memory keys)
+    {
+        addrs = _getValidators();
+        keys = new IStaking.ConsensusKeys[](addrs.length);
+        ConsensusKeysStorage storage $ck = _getConsensusKeysStorage();
+        for (uint256 i = 0; i < addrs.length; i++) {
+            keys[i] = $ck.consensusKeys[addrs[i]];
+        }
+    }
+
     function _slashValidator(address validatorAddress) internal {
         StakingStorage storage $ = _getStakingStorage();
         // make sure validator exists
@@ -925,5 +1075,245 @@ contract Staking is IStaking, StakingContext {
         }
 
         emit ValidatorSlashed(validatorAddress, slashesCount, epoch);
+    }
+
+    // ============================
+    //  Epoch committee freeze + signer index resolution
+    // ============================
+
+    /// @notice Freezes the canonical consensus committee for the current epoch.
+    /// @dev System call: the sequencer injects this once on the first block of
+    ///      a new epoch (zero gas price, from coinbase), passing the SAME
+    ///      ordered committee it feeds Commonware `Oracle::track`. The contract
+    ///      does NOT trust that input: it verifies `committee` is exactly the
+    ///      keyed subset of `_getValidators()` top-k, strictly ascending by
+    ///      `peerPubkey` (the unique canonical Simplex committee order). The sequencer
+    ///      has zero freedom — it can only submit the one array the contract
+    ///      would itself derive; off-chain sorting just saves the O(m^2)
+    ///      on-chain sort. Idempotent + strictly monotonic — a re-call for an
+    ///      already/older epoch is a no-op; a missed epoch has no record (its
+    ///      evidence is unslashable, by design).
+    /// @param committee Validators in ascending-`peerPubkey` order. Reverts
+    ///        unless it equals the keyed top-k set exactly.
+    function commitEpochCommittee(address[] calldata committee)
+        external
+        virtual
+        override
+        onlyFromCoinbase
+        onlyZeroGasPrice
+    {
+        EpochCommitteeStorage storage $ec = _getEpochCommitteeStorage();
+        uint64 epoch = _currentEpoch();
+        // idempotent + strictly monotonic, genesis-safe (sentinel +1):
+        // refuse any epoch at or below the latest committed one.
+        if ($ec.lastCommittedEpochP1 != 0 && epoch + 1 <= $ec.lastCommittedEpochP1) {
+            return;
+        }
+
+        // 1. mark the keyed subset of the same top-k set the reader is fed via
+        //    getValidatorsWithKeys() into a transient set; count it.
+        address[] memory top = _getValidators();
+        ConsensusKeysStorage storage $ck = _getConsensusKeysStorage();
+        uint256 m = 0;
+        for (uint256 i = 0; i < top.length; i++) {
+            if ($ck.consensusKeys[top[i]].peerPubkey != bytes32(0)) {
+                _tMark(top[i]);
+                m++;
+            }
+        }
+
+        // 2. verify the submitted array IS that set, in strict ascending
+        //    peerPubkey order. length + (∈set) + (strictly ascending ⇒ distinct)
+        //    ⇒ by pigeonhole it is exactly the keyed top-k set, canonically
+        //    ordered. No trust in the sequencer-supplied ordering.
+        if (committee.length != m) revert CommitteeLengthMismatch(m, committee.length);
+        address[] storage stored = $ec.committee[epoch];
+        bytes32 prev = bytes32(0);
+        for (uint256 i = 0; i < committee.length; i++) {
+            address v = committee[i];
+            bytes32 peer = $ck.consensusKeys[v].peerPubkey;
+            if (peer == bytes32(0)) revert CommitteeMemberKeyless(v);
+            if (!_tMarked(v)) revert CommitteeMemberNotInActiveSet(v);
+            if (peer <= prev) revert CommitteeNotStrictlyAscending(v);
+            _tUnmark(v); // consume → a duplicate address fails _tMarked next time
+            prev = peer;
+            stored.push(v);
+        }
+        $ec.lastCommittedEpochP1 = epoch + 1;
+
+        // 3. prune the stale window. A cursor advances even across skipped
+        //    commits, so storage cannot leak under irregular cadence; the
+        //    per-call delete count is bounded to cap gas.
+        _pruneStaleCommittees($ec, epoch);
+
+        emit EpochCommitteeCommitted(epoch, committee);
+    }
+
+    /// @dev Bounded prune of every retained-window-expired epoch since the
+    ///      last prune cursor (handles skipped commits without leaking).
+    function _pruneStaleCommittees(EpochCommitteeStorage storage $ec, uint64 epoch) private {
+        uint64 retention = uint64(_chainConfigContract.getUndelegatePeriod()) + EPOCH_COMMITTEE_RETENTION_MARGIN;
+        if (epoch <= retention) return;
+        uint64 pruneTo = epoch - retention - 1; // newest epoch now outside the window
+        uint64 from = $ec.prunedUpToP1; // already-pruned through (from - 1)
+        uint64 maxDeletes = 16; // gas cap
+        uint64 deleted = 0;
+        while (from <= pruneTo && deleted < maxDeletes) {
+            if ($ec.committee[from].length != 0) {
+                delete $ec.committee[from];
+            }
+            from++;
+            deleted++;
+        }
+        $ec.prunedUpToP1 = from;
+    }
+
+    // Transient membership set (EIP-1153; evm_version=prague). Keyed by raw
+    // address — no other transient storage exists in this contract, so there
+    // is no slot collision. Auto-clears at end of tx.
+    function _tMark(address a) private {
+        assembly {
+            tstore(a, 1)
+        }
+    }
+
+    function _tUnmark(address a) private {
+        assembly {
+            tstore(a, 0)
+        }
+    }
+
+    function _tMarked(address a) private view returns (bool r) {
+        assembly {
+            r := tload(a)
+        }
+    }
+
+    /// @notice Resolves a Simplex signer index for a past epoch to the
+    ///         validator address, using that epoch's frozen committee.
+    function resolveSigner(uint64 epoch, uint32 signerIdx) external view override returns (address) {
+        return _resolveSignerToValidator(epoch, signerIdx);
+    }
+
+    function _resolveSignerToValidator(uint64 epoch, uint32 signerIdx) internal view returns (address) {
+        address[] storage c = _getEpochCommitteeStorage().committee[epoch];
+        uint256 n = c.length;
+        if (n == 0) revert EpochCommitteeNotCommitted(epoch);
+        if (signerIdx >= n) revert SignerIndexOutOfRange(epoch, signerIdx, n);
+        return c[signerIdx];
+    }
+
+    /// @notice Returns the frozen committee for `epoch` (Simplex committee order), or
+    ///         empty if never committed. Consumed by fluent-staking-reader.
+    function getEpochCommittee(uint64 epoch) external view override returns (address[] memory) {
+        return _getEpochCommitteeStorage().committee[epoch];
+    }
+
+    // ============ Equivocation slashing ============
+
+    /// @dev fluent_namespace(chain_id) = "FLUENT_DPOS_V1_" ‖ chain_id u64 BE (23 B).
+    ///      `block.chainid` == the Simplex consensus node `chain_id` (cross-component
+    ///      invariant; the conformance corpus uses 20994).
+    function _fluentNamespace() internal view returns (bytes memory) {
+        return abi.encodePacked(bytes15("FLUENT_DPOS_V1_"), bytes8(uint64(block.chainid)));
+    }
+
+    /// @dev Per-subject namespace: base ‖ subject suffix (plain concat, no
+    ///      length prefix — mirrors commonware_utils::union).
+    function _nsForKind(uint8 kind) internal view returns (bytes memory) {
+        bytes memory base = _fluentNamespace();
+        if (kind == 0) return bytes.concat(base, "_NOTARIZE");
+        if (kind == 1) return bytes.concat(base, "_NULLIFY");
+        return bytes.concat(base, "_FINALIZE"); // kind == 2
+    }
+
+    function _decoder() internal view returns (SimplexEvidenceDecoder) {
+        return SimplexEvidenceDecoder(_chainConfigContract.getEvidenceDecoder());
+    }
+
+    function slashEquivocationNotarize(
+        bytes calldata evidence,
+        bytes calldata pkUncompressed,
+        bytes calldata sig1Uncompressed,
+        bytes calldata sig2Uncompressed
+    ) external override {
+        _slashEquivocation(
+            _decoder().decodeConflictingNotarize(evidence), pkUncompressed, sig1Uncompressed, sig2Uncompressed
+        );
+    }
+
+    function slashEquivocationFinalize(
+        bytes calldata evidence,
+        bytes calldata pkUncompressed,
+        bytes calldata sig1Uncompressed,
+        bytes calldata sig2Uncompressed
+    ) external override {
+        _slashEquivocation(
+            _decoder().decodeConflictingFinalize(evidence), pkUncompressed, sig1Uncompressed, sig2Uncompressed
+        );
+    }
+
+    function slashEquivocationNullifyFinalize(
+        bytes calldata evidence,
+        bytes calldata pkUncompressed,
+        bytes calldata sig1Uncompressed,
+        bytes calldata sig2Uncompressed
+    ) external override {
+        _slashEquivocation(
+            _decoder().decodeNullifyFinalize(evidence), pkUncompressed, sig1Uncompressed, sig2Uncompressed
+        );
+    }
+
+    function _slashEquivocation(
+        SimplexEvidenceDecoder.Decoded memory ev,
+        bytes calldata pkUncompressed,
+        bytes calldata sig1Unc,
+        bytes calldata sig2Unc
+    ) internal {
+        address validator = _resolveSignerToValidator(ev.epoch, ev.signerIdx);
+
+        EquivocationStorage storage $eq = _getEquivocationStorage();
+        if ($eq.tombstoned[validator]) revert AlreadySlashedForEquivocation(validator); // replay guard
+
+        bytes memory pk96 = _getConsensusKeysStorage().consensusKeys[validator].blsPubkey;
+        if (pk96.length != BLS_PUBKEY_LENGTH) revert ConsensusKeysNotSet(validator);
+
+        IBLS12381Verifier verifier = IBLS12381Verifier(_chainConfigContract.getBlsVerifier());
+
+        // Bind caller-supplied uncompressed inputs to the trust anchors:
+        //  - pk   -> the validator's registered compressed key
+        //  - sigN -> the exact 48 B compressed signature inside the evidence
+        if (keccak256(verifier.compressG2(pkUncompressed)) != keccak256(pk96)) {
+            revert EquivocationKeyMismatch();
+        }
+        if (
+            keccak256(verifier.compressG1(sig1Unc)) != keccak256(ev.sig1)
+                || keccak256(verifier.compressG1(sig2Unc)) != keccak256(ev.sig2)
+        ) revert EquivocationSignatureInvalid();
+
+        bool ok1 = verifier.verify(_nsForKind(ev.kind1), ev.msg1, BLS_SIG_DST, sig1Unc, pkUncompressed);
+        bool ok2 = verifier.verify(_nsForKind(ev.kind2), ev.msg2, BLS_SIG_DST, sig2Unc, pkUncompressed);
+        if (!ok1 || !ok2) revert EquivocationSignatureInvalid();
+
+        // CEI: tombstone before any state-changing penalty.
+        $eq.tombstoned[validator] = true;
+        _penalizeEquivocation(validator);
+        emit EquivocationSlashed(validator, ev.epoch, msg.sender);
+    }
+
+    /// @dev Not the misdemeanor/felony liveness counter — equivocation is an
+    ///      immediate permanent jail. Stake-% seizure is intentionally not
+    ///      implemented (deferred).
+    function _penalizeEquivocation(address validatorAddress) internal {
+        StakingStorage storage $ = _getStakingStorage();
+        Validator memory v = $._validatorsMap[validatorAddress];
+        if (v.status == ValidatorStatus.NotFound) revert ValidatorNotFound(validatorAddress);
+        if (v.status == ValidatorStatus.Active) _removeValidatorFromActiveList(validatorAddress);
+        v.status = ValidatorStatus.Jail;
+        // No jailedBefore sentinel: the `tombstoned` flag set by
+        // `_slashEquivocation` is the single never-release mechanism —
+        // unconditional and first in `releaseValidatorFromJail`.
+        $._validatorsMap[validatorAddress] = v;
+        emit ValidatorJailed(validatorAddress, _currentEpoch());
     }
 }

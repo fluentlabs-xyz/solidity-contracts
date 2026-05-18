@@ -150,4 +150,68 @@ interface IStakingContextErrors {
      * @notice Thrown when the owner is zero.
      */
     error OwnerCantBeZero();
+    /**
+     * @notice Thrown when consensus keys are already set for the validator.
+     * @param validator The validator whose keys are already set.
+     */
+    error ConsensusKeysAlreadySet(address validator);
+    /**
+     * @notice Thrown when consensus keys are not set for the validator.
+     * @param validator The validator whose keys are not set.
+     */
+    error ConsensusKeysNotSet(address validator);
+    /**
+     * @notice Thrown when the epoch committee has not been committed.
+     * @param epoch The epoch with no committed committee.
+     */
+    error EpochCommitteeNotCommitted(uint64 epoch);
+    /**
+     * @notice Thrown when a Simplex signer index is out of the committee range.
+     */
+    error SignerIndexOutOfRange(uint64 epoch, uint32 signerIdx, uint256 committeeLen);
+    /**
+     * @notice Thrown when the submitted committee length does not match the keyed top-k set.
+     */
+    error CommitteeLengthMismatch(uint256 expected, uint256 got);
+    /**
+     * @notice Thrown when a committee member has no consensus (peer) key.
+     * @param validator The keyless committee member.
+     */
+    error CommitteeMemberKeyless(address validator);
+    /**
+     * @notice Thrown when a committee member is not in the active set.
+     * @param validator The non-active committee member.
+     */
+    error CommitteeMemberNotInActiveSet(address validator);
+    /**
+     * @notice Thrown when the committee is not in strictly ascending peerPubkey order.
+     * @param validator The member breaking the ordering.
+     */
+    error CommitteeNotStrictlyAscending(address validator);
+    /**
+     * @notice Thrown when the validator was already slashed for an equivocation.
+     * @param validator The tombstoned validator.
+     */
+    error AlreadySlashedForEquivocation(address validator);
+    /**
+     * @notice Thrown when an equivocation signature fails verification or binding.
+     */
+    error EquivocationSignatureInvalid();
+    /**
+     * @notice Thrown when the supplied pubkey does not bind to the registered key.
+     */
+    error EquivocationKeyMismatch();
+    /**
+     * @notice Thrown when the BLS verifier address is not configured.
+     */
+    error BlsVerifierNotConfigured();
+    /**
+     * @notice Thrown when the on-chain Proof-of-Possession fails.
+     * @param validator The validator whose PoP is invalid.
+     */
+    error InvalidProofOfPossession(address validator);
+    /**
+     * @notice Thrown when consensus key encoding (uncompressed lengths) is invalid.
+     */
+    error InvalidConsensusKeyEncoding();
 }
