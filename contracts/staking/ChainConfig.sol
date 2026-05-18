@@ -57,6 +57,9 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
          * @dev Minimum staking amount required to delegate to a validator.
          */
         uint256 _minStakingAmount;
+        // Appended (ERC-7201 safe): equivocation-slashing crypto units.
+        address _blsVerifier;
+        address _evidenceDecoder;
     }
 
     function _getChainConfigStorage() private pure returns (ChainConfigStorage storage $) {
@@ -242,5 +245,29 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
         require(minStakingAmount > 0, ZeroValue("minStakingAmount"));
         $._minStakingAmount = minStakingAmount;
         emit MinStakingAmountChanged(0, minStakingAmount);
+    }
+
+    function getBlsVerifier() external view override returns (address) {
+        ChainConfigStorage storage $ = _getChainConfigStorage();
+        return $._blsVerifier;
+    }
+
+    function setBlsVerifier(address newValue) external override onlyFromGovernance {
+        ChainConfigStorage storage $ = _getChainConfigStorage();
+        address prevValue = $._blsVerifier;
+        $._blsVerifier = newValue;
+        emit BlsVerifierChanged(prevValue, newValue);
+    }
+
+    function getEvidenceDecoder() external view override returns (address) {
+        ChainConfigStorage storage $ = _getChainConfigStorage();
+        return $._evidenceDecoder;
+    }
+
+    function setEvidenceDecoder(address newValue) external override onlyFromGovernance {
+        ChainConfigStorage storage $ = _getChainConfigStorage();
+        address prevValue = $._evidenceDecoder;
+        $._evidenceDecoder = newValue;
+        emit EvidenceDecoderChanged(prevValue, newValue);
     }
 }
