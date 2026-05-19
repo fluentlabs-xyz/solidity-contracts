@@ -14,6 +14,11 @@ interface IStakingEvents {
     event ValidatorSlashed(address indexed validator, uint32 slashes, uint64 epoch);
     event ValidatorOwnerClaimed(address indexed validator, uint256 amount, uint64 epoch);
 
+    // consensus / equivocation events
+    event ConsensusKeysSet(address indexed validator, bytes blsPubkey, bytes32 peerPubkey, uint64 activationEpoch);
+    event EpochCommitteeCommitted(uint64 indexed epoch, address[] committee);
+    event EquivocationSlashed(address indexed validator, uint64 epoch, address indexed reporter);
+
     // staker events
     event Delegated(address indexed validator, address indexed staker, uint256 amount, uint64 epoch);
     event Undelegated(address indexed validator, address indexed staker, uint256 amount, uint64 epoch);
@@ -81,6 +86,13 @@ interface IStaking is IValidatorSet, IStakingEvents, IStakingErrors {
     enum ClaimMode {
         Transfer,
         Redelegate
+    }
+
+    /// @notice Validator's consensus identity: BLS signing key + Ed25519 peer key.
+    struct ConsensusKeys {
+        bytes blsPubkey;
+        bytes32 peerPubkey;
+        uint64 activationEpoch;
     }
 
     /// @notice Returns the epoch derived from the current block number.
@@ -203,4 +215,59 @@ interface IStaking is IValidatorSet, IStakingEvents, IStakingErrors {
 
     /// @notice Applies a slash to `validator`; callable by the slashing indicator.
     function slash(address validator) external;
+
+    /// @notice Sets consensus keys for `validator` with on-chain
+    ///         Proof-of-Possession (one-shot, no rotation in v1). The
+    ///         compressed pubkey is derived on-chain from
+    ///         `blsPubkeyUncompressed` and stored.
+    function setConsensusKeys(
+        address validator,
+        bytes calldata blsPubkeyUncompressed,
+        bytes calldata blsPoPUncompressed,
+        bytes32 peerPubkey
+    ) external;
+
+    /// @notice Returns consensus keys for `validator`, or empty struct if not set.
+    function getConsensusKeys(address validator) external view returns (ConsensusKeys memory);
+
+    /// @notice Returns active validators with their consensus keys in a single call.
+    function getValidatorsWithKeys() external view returns (address[] memory addrs, ConsensusKeys[] memory keys);
+
+    /// @notice Freezes the canonical consensus committee for the current epoch
+    ///         (system call). `committee` must be the keyed top-k set in strict
+    ///         ascending `peerPubkey` order; the contract verifies it.
+    function commitEpochCommittee(address[] calldata committee) external;
+
+    /// @notice Resolves a Simplex signer index (for `epoch`) to a validator address.
+    function resolveSigner(uint64 epoch, uint32 signerIdx) external view returns (address);
+
+    /// @notice Returns the frozen committee for `epoch` in Simplex committee order (empty if uncommitted).
+    function getEpochCommittee(uint64 epoch) external view returns (address[] memory);
+
+    /// @notice Permissionlessly slash a validator for a `ConflictingNotarize`
+    ///         equivocation (two conflicting Notarize votes, same round/signer).
+    function slashEquivocationNotarize(
+        bytes calldata evidence,
+        bytes calldata pkUncompressed,
+        bytes calldata sig1Uncompressed,
+        bytes calldata sig2Uncompressed
+    ) external;
+
+    /// @notice Permissionlessly slash a validator for a `ConflictingFinalize`
+    ///         equivocation (two conflicting Finalize votes, same round/signer).
+    function slashEquivocationFinalize(
+        bytes calldata evidence,
+        bytes calldata pkUncompressed,
+        bytes calldata sig1Uncompressed,
+        bytes calldata sig2Uncompressed
+    ) external;
+
+    /// @notice Permissionlessly slash a validator for a `NullifyFinalize`
+    ///         equivocation (a Nullify and a Finalize, same round/signer).
+    function slashEquivocationNullifyFinalize(
+        bytes calldata evidence,
+        bytes calldata pkUncompressed,
+        bytes calldata sig1Uncompressed,
+        bytes calldata sig2Uncompressed
+    ) external;
 }
