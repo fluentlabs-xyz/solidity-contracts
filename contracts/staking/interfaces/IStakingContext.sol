@@ -211,6 +211,10 @@ interface IStakingContextErrors {
      */
     error BlsVerifierNotConfigured();
     /**
+     * @notice Thrown when the evidence decoder address is not configured.
+     */
+    error EvidenceDecoderNotConfigured();
+    /**
      * @notice Thrown when the on-chain Proof-of-Possession fails.
      * @param validator The validator whose PoP is invalid.
      */

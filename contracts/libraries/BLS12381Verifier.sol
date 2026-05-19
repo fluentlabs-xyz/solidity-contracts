@@ -38,6 +38,7 @@ contract BLS12381Verifier {
     error NamespaceTooLong();
     error DstTooLong(); // RFC 9380 short-DST path only (len <= 255)
     error PrecompileFailed();
+    error InvalidPointLength(); // EIP-2537 width mismatch (G1=128 B, G2=256 B)
 
     /// @notice Verify one MinSig signature: e(sig,-G2gen)·e(H,pk) == 1.
     /// @dev Trust-anchor binding (sig/pk == registered/evidence identity) is
@@ -55,6 +56,9 @@ contract BLS12381Verifier {
         bytes calldata sigUncompressed,
         bytes calldata pkUncompressed
     ) external view returns (bool) {
+        // Pin exact EIP-2537 widths: any deviation shifts the 384-byte
+        // per-pair boundary inside the 2-pair PAIRING input below.
+        if (sigUncompressed.length != 128 || pkUncompressed.length != 256) revert InvalidPointLength();
         _rejectInfinity(sigUncompressed);
         _rejectInfinity(pkUncompressed);
 
@@ -167,20 +171,27 @@ contract BLS12381Verifier {
     ///         on-curve/subgroup left to PAIRING. The caller binds the
     ///         result to its trust anchor.
     function compressG1(bytes calldata uncompressed128) external pure returns (bytes memory) {
+        if (uncompressed128.length != 128) revert InvalidPointLength();
         // x = uncompressed[16:64], y = uncompressed[80:128]
         bytes memory x = _slice48(uncompressed128, 16);
         bytes memory y = _slice48(uncompressed128, 80);
+        // Reject the EIP-2537 infinity encoding: compressing it would yield a
+        // valid-looking 0x80… reference, defeating the trust-anchor bind.
+        if (_fpIsZero(x) && _fpIsZero(y)) revert InfinityPoint();
         x[0] = bytes1(uint8(x[0]) | 0x80 | (_fpGreaterHalf(y) ? 0x20 : 0x00));
         return x;
     }
 
     /// @notice Compress a 256 B EIP-2537 G2 to 96 B zcash (c1-first, MinSig).
     function compressG2(bytes calldata uncompressed256) external pure returns (bytes memory) {
+        if (uncompressed256.length != 256) revert InvalidPointLength();
         // EIP-2537 layout: pad‖x.c0‖pad‖x.c1‖pad‖y.c0‖pad‖y.c1
         bytes memory xc0 = _slice48(uncompressed256, 16);
         bytes memory xc1 = _slice48(uncompressed256, 80);
         bytes memory yc0 = _slice48(uncompressed256, 144);
         bytes memory yc1 = _slice48(uncompressed256, 208);
+        // Reject the EIP-2537 infinity encoding (see compressG1).
+        if (_fpIsZero(xc0) && _fpIsZero(xc1) && _fpIsZero(yc0) && _fpIsZero(yc1)) revert InfinityPoint();
 
         // Fp2 sign (lexicographic, compare by c1 then c0):
         //   sign = (y.c1 > (p-1)/2) OR (y.c1 == 0 AND y.c0 > (p-1)/2)

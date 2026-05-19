@@ -253,6 +253,7 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
     }
 
     function setBlsVerifier(address newValue) external override onlyFromGovernance {
+        require(newValue != address(0), ZeroValue("blsVerifier"));
         ChainConfigStorage storage $ = _getChainConfigStorage();
         address prevValue = $._blsVerifier;
         $._blsVerifier = newValue;
@@ -265,6 +266,7 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
     }
 
     function setEvidenceDecoder(address newValue) external override onlyFromGovernance {
+        require(newValue != address(0), ZeroValue("evidenceDecoder"));
         ChainConfigStorage storage $ = _getChainConfigStorage();
         address prevValue = $._evidenceDecoder;
         $._evidenceDecoder = newValue;
