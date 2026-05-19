@@ -1228,7 +1228,9 @@ contract Staking is IStaking, StakingContext {
     }
 
     function _decoder() internal view returns (SimplexEvidenceDecoder) {
-        return SimplexEvidenceDecoder(_chainConfigContract.getEvidenceDecoder());
+        address decoderAddr = _chainConfigContract.getEvidenceDecoder();
+        if (decoderAddr == address(0)) revert EvidenceDecoderNotConfigured();
+        return SimplexEvidenceDecoder(decoderAddr);
     }
 
     function slashEquivocationNotarize(
@@ -1278,7 +1280,9 @@ contract Staking is IStaking, StakingContext {
         bytes memory pk96 = _getConsensusKeysStorage().consensusKeys[validator].blsPubkey;
         if (pk96.length != BLS_PUBKEY_LENGTH) revert ConsensusKeysNotSet(validator);
 
-        IBLS12381Verifier verifier = IBLS12381Verifier(_chainConfigContract.getBlsVerifier());
+        address verifierAddr = _chainConfigContract.getBlsVerifier();
+        if (verifierAddr == address(0)) revert BlsVerifierNotConfigured();
+        IBLS12381Verifier verifier = IBLS12381Verifier(verifierAddr);
 
         // Bind caller-supplied uncompressed inputs to the trust anchors:
         //  - pk   -> the validator's registered compressed key
