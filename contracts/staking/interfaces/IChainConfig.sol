@@ -10,6 +10,8 @@ interface IChainConfigEvents {
     event UndelegatePeriodChanged(uint32 prevValue, uint32 newValue);
     event MinValidatorStakeAmountChanged(uint256 prevValue, uint256 newValue);
     event MinStakingAmountChanged(uint256 prevValue, uint256 newValue);
+    event BlsVerifierChanged(address prevValue, address newValue);
+    event EvidenceDecoderChanged(address prevValue, address newValue);
 }
 
 /// @title Staking chain configuration interface
@@ -76,4 +78,16 @@ interface IChainConfig {
 
     /// @notice Updates minimum delegation amount. Callable by governance.
     function setMinStakingAmount(uint256 newValue) external;
+
+    /// @notice Address of the BLS12-381 MinSig verify contract.
+    function getBlsVerifier() external view returns (address);
+
+    /// @notice Updates the BLS verifier address. Callable by governance.
+    function setBlsVerifier(address newValue) external;
+
+    /// @notice Address of the Simplex equivocation-evidence decoder contract.
+    function getEvidenceDecoder() external view returns (address);
+
+    /// @notice Updates the evidence decoder address. Callable by governance.
+    function setEvidenceDecoder(address newValue) external;
 }
