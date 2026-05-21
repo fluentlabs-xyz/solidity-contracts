@@ -22,11 +22,36 @@ interface IStakingEvents {
 }
 
 interface IStakingErrors {
+    /**
+     * TODO
+     * @dev selector: 0x00000000
+     */
     error ZeroOwner();
+    /**
+     * TODO
+     * @dev selector: 0x00000000
+     */
     error ZeroValidator();
+    /**
+     * TODO
+     * @dev selector: 0x00000000
+     */
     error ZeroCommissionRate();
+    /**
+     * TODO
+     * @dev selector: 0x00000000
+     */
     error ZeroInitialStake();
+    /**
+     * TODO
+     * @dev selector: 0x00000000
+     */
     error ValidatorHasActiveDelegations(address validator);
+    /**
+     * TODO
+     * @dev selector: 0x00000000
+     */
+    error InvalidEpoch();
 }
 
 /// @title Validator staking interface

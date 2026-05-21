@@ -12,37 +12,65 @@ interface IStakingPoolErrors {
     error ZeroStaker();
 }
 
-/// @title Pooled staking interface
-/// @notice Provides share-based staking into a validator through the underlying `Staking` contract.
+/**
+ * @title IStakingPool interface
+ * @author Fluent Labs
+ * @notice Provides share-based staking into a validator through the underlying `Staking` contract.
+ */
 interface IStakingPool is IStakingPoolEvents, IStakingPoolErrors {
-    /// @notice Accounting state for one validator pool.
+    /**
+     * @notice Accounting state for one validator pool.
+     * @dev The validator pool is used to track the staking and unstaking of a validator.
+     */
     struct ValidatorPool {
+        /// @dev The address of the validator.
         address validatorAddress;
+        /// @dev The total number of shares in the validator pool.
         uint256 sharesSupply;
+        /// @dev The total amount of staked tokens in the validator pool.
         uint256 totalStakedAmount;
+        /// @dev The amount of dust rewards in the pool.
         uint256 dustRewards;
+        /// @dev The amount of pending unstake in the validator pool.
         uint256 pendingUnstake;
-    }
-
-    /// @notice One outstanding unstake request for a staker and validator.
-    struct PendingUnstake {
-        uint256 amount;
-        uint256 shares;
+        /// @dev The epoch of the last update to the validator pool.
         uint64 epoch;
     }
 
-    /// @notice Returns the current stake represented by `staker` shares in `validator` pool.
+    /**
+     * @notice One outstanding unstake request for a staker and validator.
+     */
+    struct PendingUnstake {
+        /// @dev The amount of tokens in the pending unstake.
+        uint256 amount;
+        /// @dev The number of shares in the pending unstake.
+        uint256 shares;
+        /// @dev The epoch of the pending unstake.
+        uint64 epoch;
+    }
+
+    /**
+     * @notice Returns the current stake represented by `staker` shares in `validator` pool.
+     */
     function getStakedAmount(address validator, address staker) external view returns (uint256);
 
-    /// @notice Deposits `amount` staking tokens into `validator` pool and delegates it to staking.
+    /**
+     * @notice Deposits `amount` staking tokens into `validator` pool and delegates it to staking.
+     */
     function stake(address validator, uint256 amount) external;
 
-    /// @notice Starts undelegating `amount` from `validator` pool for `msg.sender`.
+    /**
+     * @notice Starts undelegating `amount` from `validator` pool for `msg.sender`.
+     */
     function unstake(address validator, uint256 amount) external;
 
-    /// @notice Returns matured amount pending claim for `staker` in `validator` pool.
+    /**
+     * @notice Returns matured amount pending claim for `staker` in `validator` pool.
+     */
     function claimableRewards(address validator, address staker) external view returns (uint256);
 
-    /// @notice Claims a matured unstake from `validator` pool.
+    /**
+     * @notice Claims a matured unstake from `validator` pool.
+     */
     function claim(address validator) external;
 }

@@ -9,7 +9,7 @@ import {ChainConfig} from "../../contracts/staking/ChainConfig.sol";
 import {IChainConfig} from "../../contracts/staking/interfaces/IChainConfig.sol";
 import {IFluentGovernance} from "../../contracts/staking/interfaces/IFluentGovernance.sol";
 import {ISlashingIndicator} from "../../contracts/staking/interfaces/ISlashingIndicator.sol";
-import {IStaking} from "../../contracts/staking/interfaces/IStaking.sol";
+import {IStaking, IStakingErrors} from "../../contracts/staking/interfaces/IStaking.sol";
 import {IStakingPool} from "../../contracts/staking/interfaces/IStakingPool.sol";
 import {ISystemReward} from "../../contracts/staking/interfaces/ISystemReward.sol";
 import {SlashingIndicator} from "../../contracts/staking/SlashingIndicator.sol";
@@ -476,6 +476,71 @@ contract StakingAdditionalTest is Test {
         staking.changeValidatorCommissionRate(validator1, 0);
     }
 
+    function test_registerValidatorRejectsInvalidInputsAndDuplicateOwners() public {
+        vm.expectRevert(abi.encodeWithSelector(IStakingContextErrors.InitialStakeTooLow.selector, ONE - 1));
+        vm.prank(validator1);
+        staking.registerValidator(validator1, 1000, ONE - 1);
+
+        vm.expectRevert(IStakingContextErrors.WrongAmountPrecision.selector);
+        vm.prank(validator1);
+        staking.registerValidator(validator1, 1000, ONE + 1);
+
+        vm.expectRevert(abi.encodeWithSelector(IStakingContextErrors.BadCommissionRate.selector, uint16(3001)));
+        vm.prank(validator1);
+        staking.registerValidator(validator1, 3001, ONE);
+
+        vm.prank(validator1);
+        staking.registerValidator(validator1, 3000, ONE);
+
+        vm.expectRevert(abi.encodeWithSelector(IStakingContextErrors.ValidatorAlreadyExists.selector, validator1));
+        vm.prank(staker1);
+        staking.registerValidator(validator1, 1000, ONE);
+
+        vm.expectRevert(abi.encodeWithSelector(IStakingContextErrors.ValidatorOwnerAlreadyInUse.selector, validator2));
+        vm.prank(validator1);
+        staking.registerValidator(validator2, 1000, ONE);
+    }
+
+    function test_validatorLifecycleRejectsInvalidCallersAndStatuses() public {
+        vm.expectRevert(IStakingContextErrors.OnlyGovernance.selector);
+        vm.prank(staker1);
+        staking.addValidator(validator1);
+
+        staking.addValidator(validator1);
+
+        vm.expectRevert(abi.encodeWithSelector(IStakingContextErrors.NotPendingValidator.selector, validator1));
+        staking.activateValidator(validator1);
+
+        vm.expectRevert(IStakingContextErrors.OnlyGovernance.selector);
+        vm.prank(staker1);
+        staking.disableValidator(validator1);
+
+        vm.expectRevert(IStakingContextErrors.OnlyGovernance.selector);
+        vm.prank(staker1);
+        staking.removeValidator(validator1);
+    }
+
+    function test_removeValidatorRevertsWhileDelegationsAreActive() public {
+        staking.addValidator(validator1);
+        vm.prank(staker1);
+        staking.delegate(validator1, ONE);
+        _rollToNextEpoch();
+
+        vm.expectRevert(abi.encodeWithSelector(IStakingErrors.ValidatorHasActiveDelegations.selector, validator1));
+        staking.removeValidator(validator1);
+
+        vm.prank(staker1);
+        staking.undelegate(validator1, ONE);
+        _rollToNextEpoch();
+
+        staking.removeValidator(validator1);
+        assertFalse(staking.isValidator(validator1));
+        _rollToNextEpoch();
+        vm.prank(staker1);
+        staking.claimDelegatorFee(validator1);
+        assertEq(blend.balanceOf(staker1), 1_000_000 ether);
+    }
+
     function test_RevertIf_changeValidatorOwner_newOwnerIsZero() public {
         staking.addValidator(validator1);
 
@@ -773,6 +838,198 @@ contract StakingAdditionalTest is Test {
         assertEq(pool.dustRewards, 0);
         assertEq(staking.getDelegatorFee(validator1, address(stakingPool)), ONE);
         assertEq(blend.balanceOf(address(stakingPool)), 0);
+    }
+
+    function test_stakingPoolRejectsInvalidUnstakeAndClaimStates() public {
+        staking.addValidator(validator1);
+
+        vm.expectRevert(IStakingContextErrors.NothingToUnstake.selector);
+        vm.prank(staker1);
+        stakingPool.unstake(validator1, ONE);
+
+        vm.prank(staker1);
+        stakingPool.stake(validator1, 2 * ONE);
+        _rollToNextEpoch();
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IStakingContextErrors.NotEnoughShares.selector, stakingPool.getShares(validator1, staker1)
+            )
+        );
+        vm.prank(staker1);
+        stakingPool.unstake(validator1, 3 * ONE);
+
+        vm.prank(staker1);
+        stakingPool.unstake(validator1, ONE);
+
+        vm.expectRevert(IStakingContextErrors.PendingUndelegate.selector);
+        vm.prank(staker1);
+        stakingPool.unstake(validator1, ONE);
+
+        vm.expectRevert(IStakingContextErrors.NothingToClaim.selector);
+        vm.prank(staker2);
+        stakingPool.claim(validator1);
+
+        vm.expectRevert();
+        vm.prank(staker1);
+        stakingPool.claim(validator1);
+
+        _rollToNextEpoch();
+        _rollToNextEpoch();
+        vm.prank(staker1);
+        stakingPool.claim(validator1);
+
+        assertEq(stakingPool.claimableRewards(validator1, staker1), 0);
+        assertEq(stakingPool.getStakedAmount(validator1, staker1), ONE);
+    }
+
+    // ---------------------------------------------------------------------
+    // Regression tests for findings from docs/StakingAudit.md
+    // ---------------------------------------------------------------------
+
+    /// @notice L-2: ``changeValidatorOwner`` must explicitly reject calls for unknown validators.
+    function test_changeValidatorOwner_revertsWhenValidatorUnknown() public {
+        vm.expectRevert(abi.encodeWithSelector(IStakingContextErrors.ValidatorNotFound.selector, validator3));
+        vm.prank(validator3);
+        staking.changeValidatorOwner(validator3, owner);
+    }
+
+    /// @notice M-1: ``_disableValidator``/``_activateValidator``/``changeValidatorOwner`` must
+    ///         persist the bumped ``validator.changedAt`` so subsequent snapshot lookups work.
+    function test_validatorChangedAtPersistsThroughLifecycleTransitions() public {
+        vm.prank(validator1);
+        staking.registerValidator(validator1, 1000, 10 * ONE);
+        staking.activateValidator(validator1);
+        _rollToNextEpoch();
+        _rollToNextEpoch();
+
+        uint64 expectedChangedAt = staking.nextEpoch();
+        staking.disableValidator(validator1);
+        (,,,, uint64 changedAt,,,,) = staking.getValidatorStatus(validator1);
+        assertEq(changedAt, expectedChangedAt, "disableValidator must persist changedAt");
+
+        _rollToNextEpoch();
+        expectedChangedAt = staking.nextEpoch();
+        staking.activateValidator(validator1);
+        (,,,, changedAt,,,,) = staking.getValidatorStatus(validator1);
+        assertEq(changedAt, expectedChangedAt, "activateValidator must persist changedAt");
+
+        _rollToNextEpoch();
+        expectedChangedAt = staking.nextEpoch();
+        vm.prank(validator1);
+        staking.changeValidatorOwner(validator1, owner);
+        (,,,, changedAt,,,,) = staking.getValidatorStatus(validator1);
+        assertEq(changedAt, expectedChangedAt, "changeValidatorOwner must persist changedAt");
+    }
+
+    /// @notice M-3: ``registerValidator`` must update internal staking state before pulling
+    ///         tokens (checks-effects-interactions). The accounting must reflect the new
+    ///         validator regardless of where the ERC-20 hook lands.
+    function test_registerValidatorUpdatesStateBeforePullingTokens() public {
+        uint256 balanceBefore = blend.balanceOf(validator1);
+        vm.prank(validator1);
+        staking.registerValidator(validator1, 1000, ONE);
+        assertEq(blend.balanceOf(validator1), balanceBefore - ONE, "tokens pulled");
+        (address ownerAddress, uint8 status,,,,,,,) = staking.getValidatorStatus(validator1);
+        assertEq(ownerAddress, validator1);
+        assertEq(uint256(status), uint256(IStaking.ValidatorStatus.Pending));
+    }
+
+    /// @notice M-4: validator owner cannot drop their self-stake below the configured minimum
+    ///         while other delegators are still trusting them.
+    function test_ownerCannotUndelegateBelowMinimumWhileOtherDelegatorsRemain() public {
+        chainConfig.setMinValidatorStakeAmount(ONE);
+        vm.prank(validator1);
+        staking.registerValidator(validator1, 1000, 5 * ONE);
+        staking.activateValidator(validator1);
+        vm.prank(staker1);
+        staking.delegate(validator1, ONE);
+        _rollToNextEpoch();
+
+        vm.expectRevert(IStakingContextErrors.OwnerSelfStakeBelowMinimum.selector);
+        vm.prank(validator1);
+        staking.undelegate(validator1, 5 * ONE);
+
+        // owner can still drop down to (not below) the minimum while a delegator is present
+        vm.prank(validator1);
+        staking.undelegate(validator1, 4 * ONE);
+        (uint256 ownerStake,) = staking.getValidatorDelegation(validator1, validator1);
+        assertEq(ownerStake, ONE);
+    }
+
+    /// @notice M-4: once all other delegators leave, the owner can drain the validator fully
+    ///         in preparation for a clean ``removeValidator`` call.
+    function test_ownerCanDrainSelfStakeOnceOtherDelegatorsLeave() public {
+        chainConfig.setMinValidatorStakeAmount(ONE);
+        vm.prank(validator1);
+        staking.registerValidator(validator1, 1000, 5 * ONE);
+        staking.activateValidator(validator1);
+        vm.prank(staker1);
+        staking.delegate(validator1, ONE);
+        _rollToNextEpoch();
+
+        vm.prank(staker1);
+        staking.undelegate(validator1, ONE);
+        _rollToNextEpoch();
+        vm.prank(validator1);
+        staking.undelegate(validator1, 5 * ONE);
+        (,, uint256 totalDelegated,,,,,,) = staking.getValidatorStatus(validator1);
+        assertEq(totalDelegated, 0);
+    }
+
+    /// @notice H-2: a delegator who never claims for thousands of epochs can still drain rewards
+    ///         using repeated claim calls — a single call is capped at ``MAX_EPOCHS_PER_CLAIM``.
+    function test_delegatorClaimCapsAtMaxEpochsPerClaim() public {
+        _deploy(1, 50, 150, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000));
+        staking.addValidator(validator1);
+        vm.prank(validator1);
+        staking.changeValidatorCommissionRate(validator1, 0);
+        vm.prank(staker1);
+        staking.delegate(validator1, ONE);
+        _rollToNextEpoch();
+
+        for (uint256 i = 0; i < 1200; i++) {
+            _depositReward(validator1, 1e10);
+            _rollToNextEpoch();
+        }
+
+        uint256 totalRewards = staking.getDelegatorFee(validator1, staker1);
+        assertGt(totalRewards, 1100 * 1e10, "view reports full unclaimed rewards");
+
+        uint256 stakerBalanceBefore = blend.balanceOf(staker1);
+        vm.prank(staker1);
+        staking.claimDelegatorFee(validator1);
+        uint256 firstClaim = blend.balanceOf(staker1) - stakerBalanceBefore;
+        assertLt(firstClaim, totalRewards, "first claim is capped to MAX_EPOCHS_PER_CLAIM");
+
+        vm.prank(staker1);
+        staking.claimDelegatorFee(validator1);
+        uint256 totalClaimed = blend.balanceOf(staker1) - stakerBalanceBefore;
+        assertEq(totalClaimed, totalRewards, "delegator can drain queue with repeated claims");
+    }
+
+    /// @notice H-2: validator owner's claim is also capped per call.
+    function test_validatorOwnerClaimCapsAtMaxEpochsPerClaim() public {
+        _deploy(1, 50, 150, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000));
+        staking.addValidator(validator1);
+        vm.prank(validator1);
+        staking.changeValidatorCommissionRate(validator1, 3000);
+        _rollToNextEpoch();
+
+        for (uint256 i = 0; i < 1200; i++) {
+            _depositReward(validator1, 1e10);
+            _rollToNextEpoch();
+        }
+
+        uint256 totalFee = staking.getValidatorFee(validator1);
+        uint256 ownerBalanceBefore = blend.balanceOf(validator1);
+        staking.claimValidatorFee(validator1);
+        uint256 firstClaim = blend.balanceOf(validator1) - ownerBalanceBefore;
+        assertLt(firstClaim, totalFee, "first claim is capped to MAX_EPOCHS_PER_CLAIM");
+
+        staking.claimValidatorFee(validator1);
+        uint256 totalClaimed = blend.balanceOf(validator1) - ownerBalanceBefore;
+        assertEq(totalClaimed, totalFee, "validator can drain queue with repeated claims");
     }
 
     function test_systemFeeAutoClaimAfterThreshold() public {

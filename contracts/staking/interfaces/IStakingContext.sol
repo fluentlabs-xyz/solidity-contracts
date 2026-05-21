@@ -147,7 +147,12 @@ interface IStakingContextErrors {
      */
     error ZeroAmount();
     /**
-     * @notice Thrown when the owner is zero.
+     * @dev Thrown when the owner is zero.
      */
     error OwnerCantBeZero();
+    /**
+     * @dev Thrown when a validator owner would reduce self-stake below the configured minimum
+     * while other delegators remain.
+     */
+    error OwnerSelfStakeBelowMinimum();
 }
