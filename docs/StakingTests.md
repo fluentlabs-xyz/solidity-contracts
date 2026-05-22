@@ -247,6 +247,14 @@ The setup checks deterministic deployment wiring by comparing each deployed prox
   Scenario: a staker queues two unstakes in different epochs.
   Checks: queue order and amounts are preserved, pool pending total is the sum of queued entries, only matured entries are claimable, partial claims pop matured entries and preserve later entries, and final claim drains the queue while leaving the expected remaining stake.
 
+- `test_stakingPool_claimsMaturedSuffixAfterUndelegatePeriodChange`
+  Scenario: governance lowers the undelegate period after an earlier unstake is queued, causing a later queue entry to mature first.
+  Checks: claimable rewards scan every pending entry independently, claim settles the matured suffix entry, and the still-unmatured earlier entry remains pending.
+
+- `test_stakingPool_claimConsumesDustReservedByPriorClaim`
+  Scenario: two stakers have matured unstakes, and the first pool claim pulls both underlying undelegations from `Staking`.
+  Checks: the second staker's principal is held as pool dust reserve after the first claim and that reserve is consumed when the second staker claims.
+
 - `test_stakingPool_drainsAllMaturedUnstakesInSingleClaim`
   Scenario: a staker queues several unstakes in the same maturity window.
   Checks: `claimableRewards` sums all matured entries and one claim drains every matured pending unstake.

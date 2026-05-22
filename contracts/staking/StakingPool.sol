@@ -39,10 +39,11 @@ contract StakingPool is StakingContext, IStakingPool {
         // validator pools (validator => pool)
         mapping(address => ValidatorPool) validatorPools;
         // pending undelegates queue (validator => staker => pending unstakes)
-        // Each call to `unstake` appends a new entry. Entries are pushed in chronological order,
-        // so their maturity epochs are monotonically non-decreasing and matured entries are
-        // always a prefix of the array, which `claim` drains in a single pass.
         mapping(address => mapping(address => PendingUnstake[])) pendingUnstakes;
+        // first possibly-active pending unstake index (validator => staker => head)
+        mapping(address => mapping(address => uint256)) pendingUnstakeHead;
+        // shares reserved by active pending unstakes (validator => staker => shares)
+        mapping(address => mapping(address => uint256)) pendingUnstakeReservedShares;
         // allocated shares (validator => staker => shares)
         mapping(address => mapping(address => uint256)) stakerShares;
     }
@@ -186,17 +187,14 @@ contract StakingPool is StakingContext, IStakingPool {
         // committed to earlier unstakes to avoid letting the staker over-commit their balance.
         uint256 shares = _convertToShares(amount, validatorPool, Math.Rounding.Ceil);
         PendingUnstake[] storage queue = $.pendingUnstakes[validator][msg.sender];
-        uint256 reservedShares;
-        uint256 queueLength = queue.length;
-        for (uint256 i = 0; i < queueLength; ++i) {
-            reservedShares += queue[i].shares;
-        }
+        uint256 reservedShares = $.pendingUnstakeReservedShares[validator][msg.sender];
         uint256 availableShares = $.stakerShares[validator][msg.sender] - reservedShares;
         require(shares <= availableShares, NotEnoughShares(availableShares));
         // Append a new pending unstake to the staker's queue. Multiple pending unstakes are
         // supported; each entry matures independently after the undelegate period.
         IChainConfig chainConfig = _chainConfigContract;
         queue.push(PendingUnstake({amount: amount, shares: shares, epoch: _stakingContract.nextEpoch() + chainConfig.getUndelegatePeriod()}));
+        $.pendingUnstakeReservedShares[validator][msg.sender] = reservedShares + shares;
         validatorPool.pendingUnstake += amount;
         $.validatorPools[validator] = validatorPool;
         // undelegate
@@ -211,15 +209,13 @@ contract StakingPool is StakingContext, IStakingPool {
         PendingUnstake[] storage queue = $.pendingUnstakes[validator][staker];
         uint64 currentEpoch = _stakingContract.currentEpoch();
         uint256 total;
+        uint256 head = $.pendingUnstakeHead[validator][staker];
         uint256 length = queue.length;
-        // Entries are stored in chronological (push) order, so once we encounter an entry whose
-        // epoch is in the future every following entry is also in the future and we can stop.
-        for (uint256 i = 0; i < length; ++i) {
+        for (uint256 i = head; i < length; ++i) {
             PendingUnstake storage pendingUnstake = queue[i];
-            if (pendingUnstake.epoch > currentEpoch) {
-                break;
+            if (pendingUnstake.amount > 0 && pendingUnstake.epoch <= currentEpoch) {
+                total += pendingUnstake.amount;
             }
-            total += pendingUnstake.amount;
         }
         return total;
     }
@@ -227,7 +223,25 @@ contract StakingPool is StakingContext, IStakingPool {
     /// @inheritdoc IStakingPool
     function getPendingUnstakes(address validator, address staker) external view override returns (PendingUnstake[] memory) {
         StakingPoolStorage storage $ = _getStakingPoolStorage();
-        return $.pendingUnstakes[validator][staker];
+        PendingUnstake[] storage queue = $.pendingUnstakes[validator][staker];
+        uint256 head = $.pendingUnstakeHead[validator][staker];
+        uint256 length = queue.length;
+        uint256 activeCount;
+        for (uint256 i = head; i < length; ++i) {
+            if (queue[i].amount > 0) {
+                ++activeCount;
+            }
+        }
+        PendingUnstake[] memory activeQueue = new PendingUnstake[](activeCount);
+        uint256 j;
+        for (uint256 i = head; i < length; ++i) {
+            PendingUnstake storage pendingUnstake = queue[i];
+            if (pendingUnstake.amount > 0) {
+                activeQueue[j] = pendingUnstake;
+                ++j;
+            }
+        }
+        return activeQueue;
     }
 
     /// @inheritdoc IStakingPool
@@ -235,25 +249,30 @@ contract StakingPool is StakingContext, IStakingPool {
         StakingPoolStorage storage $ = _getStakingPoolStorage();
         PendingUnstake[] storage queue = $.pendingUnstakes[validator][msg.sender];
         uint256 pendingCount = queue.length;
-        require(pendingCount > 0, NothingToClaim());
+        uint256 head = $.pendingUnstakeHead[validator][msg.sender];
+        uint256 reservedShares = $.pendingUnstakeReservedShares[validator][msg.sender];
+        require(head < pendingCount && reservedShares > 0, NothingToClaim());
 
-        // Drain the matured prefix of the queue. Entries are pushed in chronological order, so
-        // their maturity epochs are monotonically non-decreasing and every matured entry sits
-        // at the head of the queue.
         uint64 currentEpoch = _stakingContract.currentEpoch();
         uint256 totalAmount;
         uint256 totalShares;
-        uint256 maturedCount;
-        for (uint256 i = 0; i < pendingCount; ++i) {
+        uint64 nextUnreadyEpoch = type(uint64).max;
+        for (uint256 i = head; i < pendingCount; ++i) {
             PendingUnstake storage pendingUnstake = queue[i];
+            if (pendingUnstake.amount == 0) {
+                continue;
+            }
             if (pendingUnstake.epoch > currentEpoch) {
-                break;
+                if (pendingUnstake.epoch < nextUnreadyEpoch) {
+                    nextUnreadyEpoch = pendingUnstake.epoch;
+                }
+                continue;
             }
             totalAmount += pendingUnstake.amount;
             totalShares += pendingUnstake.shares;
-            ++maturedCount;
+            delete queue[i];
         }
-        require(maturedCount > 0, EpochIsNotReady(queue[0].epoch));
+        require(totalAmount > 0, EpochIsNotReady(nextUnreadyEpoch));
 
         // Pull matured undelegations and any unclaimed delegator rewards from the staking
         // contract. The staking contract releases undelegations on the same matured-epoch rule,
@@ -263,22 +282,28 @@ contract StakingPool is StakingContext, IStakingPool {
         uint256 claimedAmount = _stakingToken.balanceOf(address(this)) - balanceBefore;
 
         $.stakerShares[validator][msg.sender] -= totalShares;
+        $.pendingUnstakeReservedShares[validator][msg.sender] = reservedShares - totalShares;
         ValidatorPool memory validatorPool = _getValidatorPool(validator);
         validatorPool.sharesSupply -= totalShares;
         validatorPool.totalStakedAmount -= totalAmount;
         validatorPool.pendingUnstake -= totalAmount;
-        if (claimedAmount > totalAmount) {
+        if (claimedAmount < totalAmount) {
+            uint256 dustConsumed = totalAmount - claimedAmount;
+            require(dustConsumed <= validatorPool.dustRewards, NotEnoughBalance());
+            validatorPool.dustRewards -= dustConsumed;
+        } else if (claimedAmount > totalAmount) {
             _advanceValidatorPoolRewards(validatorPool, claimedAmount - totalAmount);
         }
         $.validatorPools[validator] = validatorPool;
 
-        // Compact the queue by shifting the unmatured suffix to the front, then truncating.
-        uint256 remaining = pendingCount - maturedCount;
-        for (uint256 i = 0; i < remaining; ++i) {
-            queue[i] = queue[i + maturedCount];
+        while (head < pendingCount && queue[head].amount == 0) {
+            ++head;
         }
-        for (uint256 i = 0; i < maturedCount; ++i) {
-            queue.pop();
+        if (head == pendingCount) {
+            delete $.pendingUnstakes[validator][msg.sender];
+            delete $.pendingUnstakeHead[validator][msg.sender];
+        } else {
+            $.pendingUnstakeHead[validator][msg.sender] = head;
         }
 
         _stakingToken.safeTransfer(msg.sender, totalAmount);

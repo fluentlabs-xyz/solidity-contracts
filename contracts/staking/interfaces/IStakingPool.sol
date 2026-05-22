@@ -73,8 +73,8 @@ interface IStakingPool is IStakingPoolEvents, IStakingPoolErrors {
 
     /**
      * @notice One outstanding unstake request belonging to a single (validator, staker) pair.
-     * @dev Multiple entries may coexist per staker; they are stored in the order they are appended by
-     *      {IStakingPool-unstake} and matured prefix-first by {IStakingPool-claim}.
+     * @dev Multiple entries may coexist per staker; they are stored in submission order, while
+     *      each entry's `epoch` independently determines whether {IStakingPool-claim} can settle it.
      */
     struct PendingUnstake {
         /// @dev Amount of staking tokens reserved for this pending unstake.
@@ -159,9 +159,9 @@ interface IStakingPool is IStakingPoolEvents, IStakingPoolErrors {
 
     /**
      * @notice Returns the full queue of pending unstakes for `staker` in `validator` pool.
-     * @dev Entries are returned in submission order. Maturity epochs are monotonically non-decreasing,
-     *      so callers can binary-search or linearly walk the prefix to determine which entries are
-     *      already claimable.
+     * @dev Entries are returned in submission order and omit entries already settled by {IStakingPool-claim}.
+     *      Callers must inspect each entry's `epoch`; governance changes to the undelegate period can make
+     *      later-submitted entries mature before earlier ones.
      * @param validator Validator pool to query.
      * @param staker Account whose pending unstake queue is returned.
      * @return queue Array of {PendingUnstake} entries in submission order.
@@ -170,7 +170,7 @@ interface IStakingPool is IStakingPoolEvents, IStakingPoolErrors {
 
     /**
      * @notice Claims every matured pending unstake from `validator` pool for `msg.sender`.
-     * @dev Drains the matured prefix of the caller's queue in a single call, burns the corresponding
+     * @dev Drains every matured entry in the caller's queue in a single call, burns the corresponding
      *      shares, settles any unclaimed delegator rewards collected from the underlying staking
      *      contract back into the pool, and transfers the matured tokens to `msg.sender`. Unmatured
      *      entries stay in the queue and can be claimed once they reach their epoch. Reverts with

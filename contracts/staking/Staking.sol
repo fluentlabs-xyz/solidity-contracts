@@ -499,15 +499,19 @@ contract Staking is IStaking, StakingContext {
             ++delegateGap;
         }
         delegation.delegateGap = delegateGap;
-        // process all items from undelegate queue
+        // Process all matured undelegations. The undelegate period is governance-configurable, so
+        // later queue entries can mature before earlier ones if the period decreases.
         uint64 undelegateGap = delegation.undelegateGap;
-        for (uint256 queueLength = delegation.undelegateQueue.length; undelegateGap < queueLength; ) {
-            DelegationOpUndelegate memory undelegateOp = delegation.undelegateQueue[undelegateGap];
-            if (undelegateOp.epoch > beforeEpochExclude) {
-                break;
+        uint256 undelegateQueueLength = delegation.undelegateQueue.length;
+        for (uint256 i = undelegateGap; i < undelegateQueueLength; ++i) {
+            DelegationOpUndelegate memory undelegateOp = delegation.undelegateQueue[i];
+            if (undelegateOp.amount == 0 || undelegateOp.epoch > beforeEpochExclude) {
+                continue;
             }
             availableFunds += uint256(undelegateOp.amount) * BALANCE_COMPACT_PRECISION;
-            delete delegation.undelegateQueue[undelegateGap];
+            delete delegation.undelegateQueue[i];
+        }
+        while (undelegateGap < undelegateQueueLength && delegation.undelegateQueue[undelegateGap].amount == 0) {
             ++undelegateGap;
         }
         delegation.undelegateGap = undelegateGap;
@@ -563,13 +567,12 @@ contract Staking is IStaking, StakingContext {
             }
             ++delegation.delegateGap;
         }
-        // process all items from undelegate queue
+        // process all matured items from undelegate queue
         while (delegation.undelegateGap < delegation.undelegateQueue.length) {
             DelegationOpUndelegate memory undelegateOp = delegation.undelegateQueue[delegation.undelegateGap];
-            if (undelegateOp.epoch > beforeEpoch) {
-                break;
+            if (undelegateOp.amount > 0 && undelegateOp.epoch <= beforeEpoch) {
+                availableFunds += uint256(undelegateOp.amount) * BALANCE_COMPACT_PRECISION;
             }
-            availableFunds += uint256(undelegateOp.amount) * BALANCE_COMPACT_PRECISION;
             ++delegation.undelegateGap;
         }
         // return available for claim funds
