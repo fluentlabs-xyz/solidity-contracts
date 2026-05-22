@@ -4,7 +4,7 @@ pragma solidity ^0.8.0;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-import {IStaking, IStakingEvents, IStakingErrors} from "./interfaces/IStaking.sol";
+import {IStaking} from "./interfaces/IStaking.sol";
 import {ISlashingIndicator} from "./interfaces/ISlashingIndicator.sol";
 import {ISystemReward} from "./interfaces/ISystemReward.sol";
 import {IStakingPool} from "./interfaces/IStakingPool.sol";
@@ -723,8 +723,13 @@ contract Staking is IStaking, StakingContext {
         StakingStorage storage $ = _getStakingStorage();
         Validator memory validator = $._validatorsMap[validatorAddress];
         require(validator.status != ValidatorStatus.NotFound, ValidatorNotFound(validatorAddress));
-        // check if validator has active delegations
-        require(_totalDelegatedToValidator(validator) == 0, ValidatorHasActiveDelegations(validatorAddress));
+        // Removal must account for both currently-active delegations and changes queued for
+        // future epochs; otherwise a same-epoch delegate could be orphaned by removal.
+        ValidatorSnapshot memory latestSnapshot = $._validatorSnapshots[validatorAddress][validator.changedAt];
+        require(
+            _totalDelegatedToValidator(validator) == 0 && latestSnapshot.totalDelegated == 0,
+            ValidatorHasActiveDelegations(validatorAddress)
+        );
         // remove validator from active list if exists
         _removeValidatorFromActiveList(validatorAddress);
         // remove from validators map

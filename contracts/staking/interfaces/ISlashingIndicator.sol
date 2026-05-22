@@ -2,17 +2,18 @@
 pragma solidity ^0.8.0;
 
 /**
- * @title Slashing Indicator interface
+ * @title ISlashingIndicator
  * @author Fluent Labs
- * @notice Entry point for reporting validator faults to staking.
+ * @notice Coinbase-only adapter used by the consensus layer to report validator faults to {IStaking}.
+ * @dev The implementation forwards `slash` calls to {IStaking-slash} and is the only contract
+ *      authorized to do so on behalf of the coinbase address.
  */
 interface ISlashingIndicator {
     /**
-     * @dev Records a slash event for `validator`.
-     * @param validator The address of the validator to slash.
-     *
-     * emits:
-     * - ValidatorSlashed(validator, slashes, epoch)
+     * @notice Records a slash event for `validator`.
+     * @dev Triggers {IStakingEvents-ValidatorSlashed} on the staking contract once accounting
+     *      is updated. Callable only by the coinbase address.
+     * @param validator Validator to slash.
      */
     function slash(address validator) external;
 }

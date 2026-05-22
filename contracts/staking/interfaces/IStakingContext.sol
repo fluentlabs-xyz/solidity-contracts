@@ -1,158 +1,217 @@
 // SPDX-License-Identifier: GPL-3.0-only
 pragma solidity ^0.8.30;
 
+/**
+ * @title IStakingContextErrors
+ * @author Fluent Labs
+ * @notice Shared error library used across the staking module.
+ * @dev Concrete staking contracts inherit this interface through {StakingContext} so that
+ *      `revert` selectors stay consistent across staking, the staking pool, the slashing
+ *      indicator, the system reward, and governance.
+ */
 interface IStakingContextErrors {
     /**
-     * @notice Thrown when the amount is too low.
-     * @param amount The amount that is too low.
+     * @notice Amount is below the configured minimum required for the operation.
+     * @param amount Amount that failed the minimum check.
      */
     error AmountTooLow(uint256 amount);
+
     /**
-     * @notice Thrown when the commission rate is bad.
-     * @param commissionRate The commission rate that is bad.
+     * @notice Validator commission rate is outside the accepted range.
+     * @param commissionRate Commission rate that failed validation.
      */
     error BadCommissionRate(uint16 commissionRate);
+
     /**
-     * @notice Thrown when the input length is malformed.
+     * @notice Parallel-array arguments have mismatched lengths.
+     * @dev Raised by initializers and configuration setters that accept paired arrays
+     *      (e.g. `(accounts, shares)` or `(validators, initialStakes)`).
      */
     error MalformedInputLength();
+
     /**
-     * @notice Thrown when the share distribution is bad.
-     * @param shareDistribution The share distribution that is bad.
+     * @notice Aggregate share distribution failed validation.
+     * @dev Either an individual share is out of bounds, or the sum across recipients is not
+     *      equal to the required total (10_000 basis points).
+     * @param shareDistribution Offending value (either the bad single share or the wrong sum).
      */
     error BadShareDistribution(uint16 shareDistribution);
+
     /**
-     * @notice Thrown when the deposit is zero.
+     * @notice Deposit amount is zero.
      */
     error DepositIsZero();
+
     /**
-     * @notice Thrown when the delegation queue is empty.
+     * @notice Delegator's delegate queue is empty for the targeted validator.
      */
     error DelegationQueueEmpty();
+
     /**
-     * @notice Thrown when the delegation queue is not empty.
-     * @param delegationQueue The delegation queue that is not empty.
+     * @notice Validator still has active delegations preventing the requested operation
+     *         (typically validator removal).
+     * @param delegationQueue Current length of the delegation queue.
      */
     error DelegationQueueNotEmpty(uint256 delegationQueue);
+
     /**
-     * @notice Thrown when the initial balance is malformed.
+     * @notice Initial validator-set balance configuration is malformed.
      */
     error MalformedInitialBalance();
+
     /**
-     * @notice Thrown when the initial stake is too low.
-     * @param initialStake The initial stake that is too low.
+     * @notice Initial validator self-stake is below {IChainConfig-getMinValidatorStakeAmount}.
+     * @param initialStake Provided initial stake.
      */
     error InitialStakeTooLow(uint256 initialStake);
+
     /**
-     * @notice Thrown when the balance is insufficient.
+     * @notice Insufficient balance for the requested staking accounting operation.
      */
     error InsufficientBalance();
+
     /**
-     * @notice Thrown when the claim epoch is invalid.
+     * @notice Claim attempted for an epoch in the future (only past or current epochs are settleable).
      */
     error InvalidClaimEpoch();
+
     /**
-     * @notice Thrown when the validator is not active.
+     * @notice Operation requires the validator to be in {IStaking.ValidatorStatus.Active}.
      */
     error NotActiveValidator();
+
     /**
-     * @notice Thrown when the balance is not enough.
+     * @notice Insufficient balance for the requested staking accounting operation (variant
+     *         used by paths that fall through reward distribution).
      */
     error NotEnoughBalance();
+
     /**
-     * @notice Thrown when the shares are not enough.
-     * @param requiredShares The shares that are not enough.
+     * @notice Caller does not own enough pool shares for the requested unstake.
+     * @param requiredShares Number of shares actually available to the caller after accounting
+     *                       for any pre-existing pending unstakes.
      */
     error NotEnoughShares(uint256 requiredShares);
+
     /**
-     * @notice Thrown when the validator is not pending.
-     * @param validator The validator that is not pending.
+     * @notice Operation requires the validator to be in {IStaking.ValidatorStatus.Pending}.
+     * @param validator Validator whose status failed the check.
      */
     error NotPendingValidator(address validator);
+
     /**
-     * @notice Thrown when the epoch is not ready.
-     * @param epoch The epoch that is not ready.
+     * @notice Pending unstake has not yet reached its maturity epoch.
+     * @param epoch Earliest epoch at which the pending entry becomes claimable.
      */
     error EpochIsNotReady(uint64 epoch);
+
     /**
-     * @notice Thrown when there is nothing to claim.
+     * @notice Caller has nothing to claim from the staking pool or staking contract.
      */
     error NothingToClaim();
+
     /**
-     * @notice Thrown when there is nothing to unstake.
+     * @notice Caller has no active stake to unstake from the targeted validator pool.
      */
     error NothingToUnstake();
+
     /**
-     * @notice Thrown when the sender is not the coinbase.
+     * @notice Caller is not the block coinbase, which is required for the action.
      */
     error OnlyCoinbase();
+
     /**
-     * @notice Thrown when the sender is not the governance.
+     * @notice Caller is not the configured governance contract.
      */
     error OnlyGovernance();
+
     /**
-     * @notice Thrown when the sender is not the slashing indicator.
+     * @notice Caller is not the configured slashing indicator contract.
      */
     error OnlySlashingIndicator();
+
     /**
-     * @notice Thrown when the sender is not the staking contract.
+     * @notice Caller is not the configured staking contract.
      */
     error OnlyStakingContract();
+
     /**
-     * @notice Thrown when the sender is not the validator owner.
-     * @param validator The validator that is not the owner.
+     * @notice Caller is not the registered owner of the targeted validator.
+     * @param validator Validator whose owner check failed.
      */
     error OnlyValidatorOwner(address validator);
+
     /**
-     * @notice Thrown when the sender is not the zero gas price.
+     * @notice Caller must use a zero gas price (system path only).
      */
     error OnlyZeroGasPrice();
+
     /**
-     * @notice Thrown when the pending undelegate is not found.
+     * @notice Reserved for legacy single-pending-unstake enforcement; no longer thrown by the
+     *         staking pool now that multiple in-flight unstakes are supported.
      */
     error PendingUndelegate();
+
     /**
-     * @notice Thrown when the safe transfer failed.
+     * @notice ERC20 `safeTransfer` returned false or did not return.
      */
     error SafeTransferFailed();
+
     /**
-     * @notice Thrown when the sender is still in jail.
-     * @param validator The validator that is still in jail.
+     * @notice Validator is still inside its jail window and cannot be released yet.
+     * @param validator Validator that remains in jail.
      */
     error StillInJail(address validator);
-    error UnsafeTransferFailed();
+
     /**
-     * @notice Thrown when the validator already exists.
-     * @param validator The validator that already exists.
+     * @notice Low-level native ETH transfer failed (e.g. recipient reverted or ran out of gas).
+     */
+    error UnsafeTransferFailed();
+
+    /**
+     * @notice Validator with the same address is already registered.
+     * @param validator Validator address that already exists.
      */
     error ValidatorAlreadyExists(address validator);
+
     /**
-     * @notice Thrown when the validator is not found.
-     * @param validator The validator that is not found.
+     * @notice Validator is not registered in the staking contract.
+     * @param validator Validator address that was not found.
      */
     error ValidatorNotFound(address validator);
+
     /**
-     * @notice Thrown when the validator is not in jail.
-     * @param validator The validator that is not in jail.
+     * @notice Validator is not currently in jail (operation requires the jailed status).
+     * @param validator Validator that is not in jail.
      */
     error ValidatorNotInJail(address validator);
+
     /**
-     * @notice Thrown when the validator owner is already in use.
-     * @param validator The validator that is already in use.
+     * @notice The targeted account is already registered as the owner of another validator.
+     * @param validator Validator the caller tried to (re)register the owner against.
      */
     error ValidatorOwnerAlreadyInUse(address validator);
-    error WrongAmountPrecision();
+
     /**
-     * @notice Thrown when the amount is zero.
+     * @notice Amount is not a multiple of the staking compact balance precision.
+     */
+    error WrongAmountPrecision();
+
+    /**
+     * @notice Amount argument is zero.
      */
     error ZeroAmount();
+
     /**
-     * @dev Thrown when the owner is zero.
+     * @notice Validator owner argument must not be the zero address.
      */
     error OwnerCantBeZero();
+
     /**
-     * @dev Thrown when a validator owner would reduce self-stake below the configured minimum
-     * while other delegators remain.
+     * @notice Validator owner would reduce their self-stake below the configured minimum
+     *         while other delegators remain.
+     * @dev A full owner exit is allowed only when the owner is the sole remaining delegator,
+     *      so governance can subsequently remove the validator.
      */
     error OwnerSelfStakeBelowMinimum();
 }
