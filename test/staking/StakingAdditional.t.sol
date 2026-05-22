@@ -883,6 +883,37 @@ contract StakingAdditionalTest is Test {
         assertEq(stakingPool.getStakedAmount(validator1, staker1), ONE);
     }
 
+    function test_stakingPoolClaimDoesNotTurnPrincipalIntoDustRewards() public {
+        staking.addValidator(validator1);
+
+        vm.prank(staker1);
+        stakingPool.stake(validator1, 10 * ONE);
+        _rollToNextEpoch();
+
+        vm.prank(staker1);
+        stakingPool.unstake(validator1, ONE);
+
+        _rollToNextEpoch();
+        _rollToNextEpoch();
+
+        uint256 ratioBeforeClaim = stakingPool.getRatio(validator1);
+        vm.prank(staker1);
+        stakingPool.claim(validator1);
+
+        StakingPool.ValidatorPool memory poolAfterClaim = stakingPool.getValidatorPool(validator1);
+        assertEq(poolAfterClaim.pendingUnstake, 0, "pending unstake cleared");
+        assertEq(poolAfterClaim.dustRewards, 0, "unstake principal must not become dust rewards");
+        assertEq(poolAfterClaim.totalStakedAmount, 9 * ONE, "remaining pool stake");
+        assertEq(stakingPool.getRatio(validator1), ratioBeforeClaim, "ratio stays stable after claim");
+
+        vm.prank(staker2);
+        stakingPool.stake(validator1, ONE);
+
+        StakingPool.ValidatorPool memory poolAfterNewStake = stakingPool.getValidatorPool(validator1);
+        assertEq(poolAfterNewStake.dustRewards, 0, "no phantom rewards after new stake");
+        assertEq(poolAfterNewStake.totalStakedAmount, 10 * ONE, "new stake succeeds without phantom compounding");
+    }
+
     // ---------------------------------------------------------------------
     // Regression tests for findings from docs/StakingAudit.md
     // ---------------------------------------------------------------------
