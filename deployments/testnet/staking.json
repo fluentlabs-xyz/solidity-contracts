@@ -1,14 +1,14 @@
 {
-  "chain_config": "0x24154Bf3B54815A5c237107df152b60C5ad5Ba0f",
-  "chain_config_impl": "0xf03baAF5649B7F893f6ed09531F6618994615756",
-  "governance": "0xc696AE59d822168cdb60C95eb3CC3C7Af15bDd38",
-  "governance_impl": "0x389a82e033568925717D58E53A6aFBae6b3c23D4",
-  "slashing_indicator": "0xA82659526Ae3a4Ea61049E32031c9c1706e95202",
-  "slashing_indicator_impl": "0xF396D7b1c92294eDaA4AbE0b49af3BeA7b0dfe7B",
-  "staking": "0x5c837630B0fBe1aDB324f19073128546465e59D6",
-  "staking_impl": "0x40527CAB11d3b771a6BB4e1e5178B08135d45450",
-  "staking_pool": "0x06Ae448629Ee8927eaFCA9B496a9341a5F7b7078",
-  "staking_pool_impl": "0x245A44C78aC9793b86bE1d9FA4AC0076D15e7C3A",
-  "system_reward": "0x8413B2dFfE3409A4c00de506c0d9253949adB675",
-  "system_reward_impl": "0x73404945AC8BdC3301672B7A32C055a3d832174c"
+  "chain_config": "0x1798431945171C9592dcdf3E8930fe817d718C36",
+  "chain_config_impl": "0x57c6384Edd37a405589c72138e0e32527F4795B7",
+  "governance": "0x7d2Af25959DB848071465CD1C4077470649E61e8",
+  "governance_impl": "0xf3A8758D98498FAfE27d1642b16Dc0dd61f6dbe5",
+  "slashing_indicator": "0xb030552c262846E3A76663212F6D36c5a38b2064",
+  "slashing_indicator_impl": "0x2fEB7Ddb88671750EC0bAEe5DC4301247FEdf692",
+  "staking": "0x6E56C0034f5dF5ca3152f71Af73348C2Dd2F709D",
+  "staking_impl": "0x86A0C058114F651bc382f43Ab89945B26867f04C",
+  "staking_pool": "0x8bde23DC79F9FB266798d1e5388DcC3fA570dA05",
+  "staking_pool_impl": "0xff6172cA76fc439a0DFc910F930f621d1B49C5E7",
+  "system_reward": "0xc26c95AA7C84a5b6AD2F6e8324c634386150bECD",
+  "system_reward_impl": "0xcFC2fE12017B56b828d151ce72a4836c9054A6b3"
 }

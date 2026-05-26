@@ -241,7 +241,7 @@ contract DeployStaking is DeployBase {
         console2.log("  system reward accounts:", p.systemRewardAccounts.length);
         console2.log("  staking token:", address(p.stakingToken));
 
-        vm.startBroadcast(0x390a4CEdBb65be7511D9E1a35b115376F39DbDF3);
+        vm.startBroadcast();
         StakingDeployment memory r = _deployStaking(p);
         vm.stopBroadcast();
 
