@@ -541,6 +541,17 @@ contract StakingAdditionalTest is Test {
         assertEq(blend.balanceOf(staker1), 1_000_000 ether);
     }
 
+    function test_removeValidatorRevertsWhileDelegationsAreQueued() public {
+        staking.addValidator(validator1);
+        vm.prank(staker1);
+        staking.delegate(validator1, ONE);
+
+        vm.expectRevert(abi.encodeWithSelector(IStakingErrors.ValidatorHasActiveDelegations.selector, validator1));
+        staking.removeValidator(validator1);
+
+        assertTrue(staking.isValidator(validator1));
+    }
+
     function test_RevertIf_changeValidatorOwner_newOwnerIsZero() public {
         staking.addValidator(validator1);
 
@@ -793,9 +804,19 @@ contract StakingAdditionalTest is Test {
 
         vm.prank(staker1);
         stakingPool.unstake(validator1, ONE);
-        assertEq(stakingPool.claimableRewards(validator1, staker1), ONE);
+        // claimableRewards is matured-only: while the pending unstake is still in the
+        // undelegate period it does not contribute to the claimable amount.
+        assertEq(stakingPool.claimableRewards(validator1, staker1), 0, "pending unstake not yet matured");
+        IStakingPool.PendingUnstake[] memory pending = stakingPool.getPendingUnstakes(validator1, staker1);
+        assertEq(pending.length, 1, "single queued pending unstake");
+        assertEq(pending[0].amount, ONE, "pending amount");
+
+        _rollToNextEpoch();
+        _rollToNextEpoch();
+        assertEq(stakingPool.claimableRewards(validator1, staker1), ONE, "matured pending unstake is claimable");
 
         assertEq(stakingPool.claimableRewards(validator1, staker2), 0);
+        assertEq(stakingPool.getPendingUnstakes(validator1, staker2).length, 0);
     }
 
     function test_stakingPool_secondStakerCanStakeWhileFirstHasPendingUnstake() public {
@@ -851,18 +872,22 @@ contract StakingAdditionalTest is Test {
         stakingPool.stake(validator1, 2 * ONE);
         _rollToNextEpoch();
 
+        uint256 sharesBeforeUnstake = stakingPool.getShares(validator1, staker1);
         vm.expectRevert(
-            abi.encodeWithSelector(
-                IStakingContextErrors.NotEnoughShares.selector, stakingPool.getShares(validator1, staker1)
-            )
+            abi.encodeWithSelector(IStakingContextErrors.NotEnoughShares.selector, sharesBeforeUnstake)
         );
         vm.prank(staker1);
         stakingPool.unstake(validator1, 3 * ONE);
 
+        // Multiple in-flight pending unstakes are supported.
         vm.prank(staker1);
         stakingPool.unstake(validator1, ONE);
+        vm.prank(staker1);
+        stakingPool.unstake(validator1, ONE);
+        assertEq(stakingPool.getPendingUnstakes(validator1, staker1).length, 2, "queue holds both pending unstakes");
 
-        vm.expectRevert(IStakingContextErrors.PendingUndelegate.selector);
+        // A third unstake exceeds the staker's remaining (uncommitted) share balance.
+        vm.expectRevert(abi.encodeWithSelector(IStakingContextErrors.NotEnoughShares.selector, uint256(0)));
         vm.prank(staker1);
         stakingPool.unstake(validator1, ONE);
 
@@ -870,6 +895,7 @@ contract StakingAdditionalTest is Test {
         vm.prank(staker2);
         stakingPool.claim(validator1);
 
+        // Pending unstakes have not matured yet.
         vm.expectRevert();
         vm.prank(staker1);
         stakingPool.claim(validator1);
@@ -880,7 +906,162 @@ contract StakingAdditionalTest is Test {
         stakingPool.claim(validator1);
 
         assertEq(stakingPool.claimableRewards(validator1, staker1), 0);
-        assertEq(stakingPool.getStakedAmount(validator1, staker1), ONE);
+        assertEq(stakingPool.getPendingUnstakes(validator1, staker1).length, 0, "queue drained after claim");
+        assertEq(stakingPool.getStakedAmount(validator1, staker1), 0);
+    }
+
+    function test_stakingPool_supportsMultiplePendingUnstakesQueued() public {
+        staking.addValidator(validator1);
+
+        vm.prank(staker1);
+        stakingPool.stake(validator1, 10 * ONE);
+        _rollToNextEpoch();
+
+        vm.prank(staker1);
+        stakingPool.unstake(validator1, 3 * ONE);
+        _rollToNextEpoch();
+        // Second unstake is queued in the next epoch so it matures after the first.
+        vm.prank(staker1);
+        stakingPool.unstake(validator1, 2 * ONE);
+
+        IStakingPool.PendingUnstake[] memory queued = stakingPool.getPendingUnstakes(validator1, staker1);
+        assertEq(queued.length, 2, "two queued pending unstakes");
+        assertEq(queued[0].amount, 3 * ONE, "first pending amount");
+        assertEq(queued[1].amount, 2 * ONE, "second pending amount");
+        assertGt(queued[1].epoch, queued[0].epoch, "queue stays in chronological order");
+
+        StakingPool.ValidatorPool memory pool = stakingPool.getValidatorPool(validator1);
+        assertEq(pool.pendingUnstake, 5 * ONE, "pool reserves the sum of all pending unstakes");
+
+        // Roll forward just enough for the first unstake to mature.
+        _rollToNextEpoch();
+        assertEq(stakingPool.claimableRewards(validator1, staker1), 3 * ONE, "only first matured slot is claimable");
+
+        uint256 staker1BalanceBefore = blend.balanceOf(staker1);
+        vm.prank(staker1);
+        stakingPool.claim(validator1);
+        assertEq(blend.balanceOf(staker1) - staker1BalanceBefore, 3 * ONE, "first matured unstake transferred");
+
+        IStakingPool.PendingUnstake[] memory remaining = stakingPool.getPendingUnstakes(validator1, staker1);
+        assertEq(remaining.length, 1, "matured entry popped, unmatured one preserved");
+        assertEq(remaining[0].amount, 2 * ONE, "unmatured entry survives partial claim");
+        assertEq(stakingPool.claimableRewards(validator1, staker1), 0, "remaining unstake is still pending");
+
+        // Roll forward until the second unstake matures and claim again.
+        _rollToNextEpoch();
+        _rollToNextEpoch();
+        assertEq(stakingPool.claimableRewards(validator1, staker1), 2 * ONE, "second unstake matured");
+
+        vm.prank(staker1);
+        stakingPool.claim(validator1);
+        assertEq(blend.balanceOf(staker1) - staker1BalanceBefore, 5 * ONE, "both pending unstakes claimed in full");
+        assertEq(stakingPool.getPendingUnstakes(validator1, staker1).length, 0, "queue fully drained");
+        assertEq(stakingPool.getStakedAmount(validator1, staker1), 5 * ONE, "remaining stake reflects half drawn down");
+    }
+
+    function test_stakingPool_claimsMaturedSuffixAfterUndelegatePeriodChange() public {
+        staking.addValidator(validator1);
+
+        vm.prank(staker1);
+        stakingPool.stake(validator1, 10 * ONE);
+        _rollToNextEpoch();
+
+        chainConfig.setUndelegatePeriod(3);
+        vm.prank(staker1);
+        stakingPool.unstake(validator1, ONE);
+
+        chainConfig.setUndelegatePeriod(1);
+        vm.prank(staker1);
+        stakingPool.unstake(validator1, 2 * ONE);
+
+        IStakingPool.PendingUnstake[] memory queued = stakingPool.getPendingUnstakes(validator1, staker1);
+        assertEq(queued.length, 2, "two queued entries");
+        assertGt(queued[0].epoch, queued[1].epoch, "later entry matures first after config change");
+
+        _rollToNextEpoch();
+        _rollToNextEpoch();
+        assertEq(stakingPool.claimableRewards(validator1, staker1), 2 * ONE, "matured suffix is claimable");
+
+        uint256 staker1BalanceBefore = blend.balanceOf(staker1);
+        vm.prank(staker1);
+        stakingPool.claim(validator1);
+        assertEq(blend.balanceOf(staker1) - staker1BalanceBefore, 2 * ONE, "suffix entry claimed");
+
+        queued = stakingPool.getPendingUnstakes(validator1, staker1);
+        assertEq(queued.length, 1, "unmatured earlier entry remains");
+        assertEq(queued[0].amount, ONE, "earlier amount preserved");
+    }
+
+    function test_stakingPool_claimConsumesDustReservedByPriorClaim() public {
+        staking.addValidator(validator1);
+
+        vm.prank(staker1);
+        stakingPool.stake(validator1, 10 * ONE);
+        vm.prank(staker2);
+        stakingPool.stake(validator1, 10 * ONE);
+        _rollToNextEpoch();
+
+        vm.prank(staker1);
+        stakingPool.unstake(validator1, ONE);
+        vm.prank(staker2);
+        stakingPool.unstake(validator1, ONE);
+        _rollToNextEpoch();
+        _rollToNextEpoch();
+
+        vm.prank(staker1);
+        stakingPool.claim(validator1);
+        StakingPool.ValidatorPool memory poolAfterFirstClaim = stakingPool.getValidatorPool(validator1);
+        assertEq(poolAfterFirstClaim.dustRewards, ONE, "second staker principal held as reserve");
+
+        vm.prank(staker2);
+        stakingPool.claim(validator1);
+        StakingPool.ValidatorPool memory poolAfterSecondClaim = stakingPool.getValidatorPool(validator1);
+        assertEq(poolAfterSecondClaim.dustRewards, 0, "reserved dust consumed by second claim");
+    }
+
+    function test_stakingPool_drainsAllMaturedUnstakesInSingleClaim() public {
+        staking.addValidator(validator1);
+
+        vm.prank(staker1);
+        stakingPool.stake(validator1, 10 * ONE);
+        _rollToNextEpoch();
+
+        vm.prank(staker1);
+        stakingPool.unstake(validator1, ONE);
+        vm.prank(staker1);
+        stakingPool.unstake(validator1, 2 * ONE);
+        vm.prank(staker1);
+        stakingPool.unstake(validator1, 3 * ONE);
+
+        // Skip past the undelegate period so every queued entry is matured at once.
+        _rollToNextEpoch();
+        _rollToNextEpoch();
+
+        assertEq(stakingPool.claimableRewards(validator1, staker1), 6 * ONE, "all entries matured at once");
+
+        uint256 staker1BalanceBefore = blend.balanceOf(staker1);
+        vm.prank(staker1);
+        stakingPool.claim(validator1);
+
+        assertEq(blend.balanceOf(staker1) - staker1BalanceBefore, 6 * ONE, "single claim drains every matured entry");
+        assertEq(stakingPool.getPendingUnstakes(validator1, staker1).length, 0, "queue fully cleared");
+        assertEq(stakingPool.getStakedAmount(validator1, staker1), 4 * ONE, "remaining stake matches unwithdrawn portion");
+    }
+
+    function test_stakingPool_claimRevertsWhenNoEntryHasMatured() public {
+        staking.addValidator(validator1);
+
+        vm.prank(staker1);
+        stakingPool.stake(validator1, 10 * ONE);
+        _rollToNextEpoch();
+
+        vm.prank(staker1);
+        stakingPool.unstake(validator1, ONE);
+        uint64 pendingEpoch = stakingPool.getPendingUnstakes(validator1, staker1)[0].epoch;
+
+        vm.expectRevert(abi.encodeWithSelector(IStakingContextErrors.EpochIsNotReady.selector, pendingEpoch));
+        vm.prank(staker1);
+        stakingPool.claim(validator1);
     }
 
     function test_stakingPoolClaimDoesNotTurnPrincipalIntoDustRewards() public {

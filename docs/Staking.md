@@ -60,10 +60,10 @@ Validator owners can claim commission through `claimValidatorFee` or `claimValid
 
 Unstaking burns shares only after the underlying undelegation matures:
 
-1. `unstake(validator, amount)` records a pending unstake, reserves the amount, and calls `Staking.undelegate`.
-2. `claim(validator)` becomes available once the pending epoch is reached and transfers staking tokens back to the user.
+1. `unstake(validator, amount)` appends a pending unstake to the staker's queue, reserves the amount, and calls `Staking.undelegate`. A staker may have multiple pending unstakes per validator in flight; each entry matures independently after the undelegate period. The pool enforces that the sum of pending shares never exceeds the staker's share balance.
+2. `claim(validator)` becomes available once one or more entries have matured. A single call drains every matured entry from the head of the queue, transfers the combined staking tokens back to the user, and leaves any still-pending entries in place.
 
-Only one pending unstake per user/validator is supported at a time.
+`claimableRewards(validator, user)` returns the amount of matured (claimable-right-now) unstakes; `getPendingUnstakes(validator, user)` exposes the full queue, including the unmatured maturity epochs.
 
 ## System rewards
 

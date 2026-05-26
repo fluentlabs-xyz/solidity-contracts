@@ -80,9 +80,19 @@ stakingPool.getStakedAmount(validator, user)
 stakingPool.claimableRewards(validator, user)
 ```
 
-`getStakedAmount` returns the current stake represented by the user's pool shares. `claimableRewards` returns the amount
-reserved for a pending unstake; the value may still be waiting for its maturity epoch. It does not mean all accrued
-staking yield; yield is reflected in the pool share ratio and therefore in `getStakedAmount`.
+`getStakedAmount` returns the current stake represented by the user's pool shares. `claimableRewards` returns the sum
+of pending unstakes that have already matured for the user; entries still inside their undelegate period are excluded.
+It does not include accrued staking yield; yield is reflected in the pool share ratio and therefore in
+`getStakedAmount`.
+
+To inspect every queued unstake — including its maturity epoch — use:
+
+```solidity
+stakingPool.getPendingUnstakes(validator, user)
+```
+
+It returns an array of `PendingUnstake { amount, shares, epoch }` entries in submission order. Maturity epochs are
+monotonically non-decreasing, and `claim` always drains the matured prefix of this queue.
 
 If the frontend also imports the full `StakingPool` ABI rather than the minimal interface, these helper reads are
 available:
@@ -93,8 +103,8 @@ stakingPool.getValidatorPool(validator)
 stakingPool.getRatio(validator)
 ```
 
-These are useful for advanced pool analytics, but the basic user position can be rendered with `getStakedAmount` and
-`claimableRewards`.
+These are useful for advanced pool analytics, but the basic user position can be rendered with `getStakedAmount`,
+`claimableRewards`, and `getPendingUnstakes`.
 
 ### 4. Stake
 
@@ -130,22 +140,23 @@ stakingPool.unstake(validator, amount)
 Preflight checks:
 
 - `amount > 0`.
-- `amount <= stakingPool.getStakedAmount(validator, user)`.
-- The user does not already have a pending unstake for the same validator. `StakingPool` supports only one pending
-  unstake per `(validator, user)` at a time; a second request reverts with `PendingUndelegate()`.
+- The shares required for the new unstake (computed from `amount` and the pool ratio) plus the shares already reserved
+  by any in-flight pending unstakes must not exceed `stakingPool.getShares(validator, user)`. As a coarse heuristic the
+  frontend can require `amount <= stakingPool.getStakedAmount(validator, user) - sum(pending amounts)`.
+- `StakingPool` supports multiple pending unstakes per `(validator, user)`; each call enqueues a new entry that
+  matures independently. There is no single-pending-unstake restriction.
 
 Claim availability:
 
 - `unstake` records a pending claim at `staking.nextEpoch() + chainConfig.getUndelegatePeriod()`.
-- The public `claimableRewards(validator, user)` returns the pending amount, but it does not expose the pending epoch.
-- To show an exact claim-ready epoch, index the `StakingPool.Unstake(validator, staker, amount)` transaction and store
-  the expected maturity epoch from the chain reads made at submission time, or add backend indexing from contract state
-  if exposed in a future ABI.
+- `claimableRewards(validator, user)` returns the sum of matured pending unstakes that can be claimed right now.
+- `getPendingUnstakes(validator, user)` returns the full queue including `epoch` (the maturity epoch) for each entry,
+  so the frontend can display when the next slice of stake becomes claimable.
 
 After a successful transaction:
 
 - Watch `StakingPool.Unstake(validator, staker, amount)`.
-- Refresh the user's position and show the pending claim state.
+- Refresh the user's position and show the pending claim state, including the new queue entry.
 
 ### 6. Claim matured unstake
 
@@ -157,16 +168,19 @@ stakingPool.claim(validator)
 
 Preflight checks:
 
-- `stakingPool.claimableRewards(validator, user) > 0`.
-- The locally indexed maturity epoch is less than or equal to `staking.currentEpoch()`.
+- `stakingPool.claimableRewards(validator, user) > 0`. The value already reflects only matured entries, so a
+  non-zero result guarantees the call will succeed.
+- The frontend can additionally read `getPendingUnstakes(validator, user)` to show "X matures at epoch Y" hints.
 
-If the frontend cannot determine the maturity epoch, it can still enable claim once a pending amount exists and handle
-`EpochIsNotReady(uint64)` as a not-ready response from the contract.
+A single `claim` drains every matured entry in the queue in one transaction; any unmatured entries remain queued and
+can be claimed once they reach their epoch. If no entry has matured the call reverts with `EpochIsNotReady(uint64)`,
+returning the next maturity epoch.
 
 After a successful transaction:
 
 - Watch `StakingPool.Claim(validator, staker, amount)`.
-- Refresh `getStakedAmount(validator, user)` and `claimableRewards(validator, user)`.
+- Refresh `getStakedAmount(validator, user)`, `claimableRewards(validator, user)`, and
+  `getPendingUnstakes(validator, user)`.
 
 ## Optional direct Staking actions
 
@@ -357,8 +371,7 @@ cached UI state.
 | `NotActiveValidator()`    | User selected an inactive, pending, jailed, or removed validator.         | Refresh validator list and disable staking for that validator.                        |
 | `AmountTooLow(uint256)`   | Stake amount is below `getMinStakingAmount()`.                            | Show minimum stake before submitting.                                                 |
 | `WrongAmountPrecision()`  | Amount is incompatible with staking compact precision.                    | Ask user to adjust amount; prefer UI increments compatible with `1e10` wei precision. |
-| `PendingUndelegate()`     | User already has one pending pool unstake for the validator.              | Show existing pending claim and disable additional unstake until claim.               |
-| `EpochIsNotReady(uint64)` | Claim attempted before the pending unstake epoch.                         | Show the required epoch and keep claim disabled until then.                           |
+| `EpochIsNotReady(uint64)` | Claim attempted before any pending pool unstake has matured.              | Show the next maturity epoch and keep claim disabled until then.                      |
 | `NothingToClaim()`        | No pending or matured claim exists.                                       | Refresh position and hide claim action.                                               |
 | `OnlyValidatorOwner()`    | Non-validator-owner tried to propose or perform a validator-owner action. | Hide governance/operator controls for this wallet.                                    |
 
