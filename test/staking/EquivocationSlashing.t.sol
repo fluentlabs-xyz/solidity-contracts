@@ -5,8 +5,8 @@ import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {ChainConfig} from "../../contracts/staking/ChainConfig.sol";
-import {SlashingIndicator} from "../../contracts/staking/SlashingIndicator.sol";
 import {Staking} from "../../contracts/staking/Staking.sol";
+import {SYSTEM_CALLER} from "../../contracts/staking/StakingContext.sol";
 import {StakingPool} from "../../contracts/staking/StakingPool.sol";
 import {SystemReward} from "../../contracts/staking/SystemReward.sol";
 import {MockBlendToken} from "../../contracts/staking/mocks/MockBlendToken.sol";
@@ -14,7 +14,6 @@ import {BLS12381Verifier} from "../../contracts/libraries/BLS12381Verifier.sol";
 import {SimplexEvidenceDecoder} from "../../contracts/libraries/SimplexEvidenceDecoder.sol";
 import {IChainConfig} from "../../contracts/staking/interfaces/IChainConfig.sol";
 import {IFluentGovernance} from "../../contracts/staking/interfaces/IFluentGovernance.sol";
-import {ISlashingIndicator} from "../../contracts/staking/interfaces/ISlashingIndicator.sol";
 import {IStaking} from "../../contracts/staking/interfaces/IStaking.sol";
 import {IStakingPool} from "../../contracts/staking/interfaces/IStakingPool.sol";
 import {ISystemReward} from "../../contracts/staking/interfaces/ISystemReward.sol";
@@ -36,7 +35,6 @@ contract EquivocationSlashingTest is Test {
     Staking internal staking;
     StakingPool internal stakingPool;
     ChainConfig internal chainConfig;
-    SlashingIndicator internal slashingIndicator;
     SystemReward internal systemReward;
     MockBlendToken internal blend;
     BLS12381Verifier internal verifier;
@@ -47,9 +45,9 @@ contract EquivocationSlashingTest is Test {
     event EquivocationSlashed(address indexed validator, uint64 epoch, address indexed reporter);
     event ValidatorJailed(address indexed validator, uint64 epoch);
 
-    // --- conformance corpus (SINGLE SOURCE: crates/bls/tests/
-    //     equivocation_evidence_conformance.rs — keep in sync in one PR). ---
-    // COMMITTEE in generation order; OFFENDER = index 0 (sorts to signerIdx 3).
+    /// @dev Conformance corpus mirror of crates/bls/tests/equivocation_evidence_conformance.rs;
+    ///      regenerate both together. COMMITTEE in generation order; OFFENDER = index 0
+    ///      (sorts to signerIdx 3).
     function _committee() internal pure returns (bytes32[4] memory peer, bytes[4] memory bls) {
         peer[0] = 0xff87a0b0a3c7c0ce827e9cada5ff79e75a44a0633bfcb5b50f99307ddb26b337;
         peer[1] = 0x2bd9a6a1b725644b7bfb9de3d3ba78158dfc9cd5eedbfdda5e134f311ffd50f3;
@@ -107,7 +105,6 @@ contract EquivocationSlashingTest is Test {
             hex"00000000000000000000000000000000122220d80bed7ce06a858de220927be7d89ae48e3474bcc1fd46a42f6c36478664899ac23eaa8e23868e8922223cebad00000000000000000000000000000000159ad814eb44847948c580b80ed4c93a72a83bc71a691f5ed34de3e6ec07254c04b5920ff9c92f0eb722a4ee60a46736000000000000000000000000000000000df0bc707524390953f6ddaf1a869fab68cdf6fb706d2b554baa4f8dacd8929bd2345715e53b2f14f7ffa24630b3450500000000000000000000000000000000050d7a0c974f61aaf8bae8f988cff852a55738674991364d48a2d137890de16fc05b111441265afb18e2568a6f9f800a";
     }
 
-    // ---- conflicting_notarize vector ----
     function _cnEvidence() internal pure returns (bytes memory) {
         return
         hex"072a29aa000000000000000000000000000000000000000000000000000000000000aa038aa1d24f195fc333878b14744f62a363acf0051249c949c4cc473850991aa70841eea2171a333b13de2e61fed4936305072a29bb000000000000000000000000000000000000000000000000000000000000bb03923c9abd2f0abe63eed5a2d9ac175032b2b48685c61f9e6a7c8b7419d78077821d82a3bfd41a5f10bcfcd8434444f820";
@@ -139,7 +136,6 @@ contract EquivocationSlashingTest is Test {
         hex"00000000000000000000000000000000123c9abd2f0abe63eed5a2d9ac175032b2b48685c61f9e6a7c8b7419d78077821d82a3bfd41a5f10bcfcd8434444f8200000000000000000000000000000000007d0660c235f4285a0552e8cd8820deeb134e43254f4e7ffc788a62d8bfbe759649fb840f1f2529ffdaf74c54a496df2";
     }
 
-    // ---- conflicting_finalize vector ----
     function _cfEvidence() internal pure returns (bytes memory) {
         return
         hex"072a29cc000000000000000000000000000000000000000000000000000000000000cc039936ff0962301d36721c6d9e7947ec8a340bb9b5b7fcfa74ba2582918c9b3358b31c15c2a8ae372f3340e8c7706d32a6072a29dd000000000000000000000000000000000000000000000000000000000000dd03877570329a653f6cf0916cd5332247cd29a73d60a867dc1d710d5fe1bb4449b1e9393d5f9aed23bb08a2f9aed0e65af2";
@@ -171,7 +167,6 @@ contract EquivocationSlashingTest is Test {
         hex"00000000000000000000000000000000077570329a653f6cf0916cd5332247cd29a73d60a867dc1d710d5fe1bb4449b1e9393d5f9aed23bb08a2f9aed0e65af200000000000000000000000000000000018862d71974a29a8af65cf3f67b6817b5be4571e5a0962c89e37cbafb9cb58c3c4c434e3f005ac10c116b316d245a63";
     }
 
-    // ---- nullify_finalize vector ----
     function _nfEvidence() internal pure returns (bytes memory) {
         return
         hex"072a03b9d1ed34ffda9193ce95eee9ab8db558f4e923a1b58a6f80ca0bf221f7567f72d65132b103190fd5c687f7f7a6cdc3db072a29ee000000000000000000000000000000000000000000000000000000000000ee0389eae226e709054f09892935d13772a1e73b62a8bfbd24e5f1f63617c5242714166f49b52ca5d97475b81820f75a6161";
@@ -209,21 +204,19 @@ contract EquivocationSlashingTest is Test {
 
         uint64 nonce = vm.getNonce(address(this));
         IStaking predictedStaking = IStaking(vm.computeCreateAddress(address(this), nonce + 1));
-        ISlashingIndicator predictedSlashingIndicator =
-            ISlashingIndicator(vm.computeCreateAddress(address(this), nonce + 3));
-        ISystemReward predictedSystemReward = ISystemReward(vm.computeCreateAddress(address(this), nonce + 5));
-        IStakingPool predictedStakingPool = IStakingPool(vm.computeCreateAddress(address(this), nonce + 7));
-        IChainConfig predictedChainConfig = IChainConfig(vm.computeCreateAddress(address(this), nonce + 9));
+        ISystemReward predictedSystemReward = ISystemReward(vm.computeCreateAddress(address(this), nonce + 3));
+        IStakingPool predictedStakingPool = IStakingPool(vm.computeCreateAddress(address(this), nonce + 5));
+        IChainConfig predictedChainConfig = IChainConfig(vm.computeCreateAddress(address(this), nonce + 7));
         IFluentGovernance governance = IFluentGovernance(address(this));
 
         Staking stakingImpl = new Staking(
             predictedStaking,
-            predictedSlashingIndicator,
             predictedSystemReward,
             predictedStakingPool,
             governance,
             predictedChainConfig,
-            blend
+            blend,
+            address(0)
         );
         staking = Staking(
             payable(
@@ -236,26 +229,8 @@ contract EquivocationSlashingTest is Test {
             )
         );
 
-        SlashingIndicator slashingIndicatorImpl = new SlashingIndicator(
-            predictedStaking,
-            predictedSlashingIndicator,
-            predictedSystemReward,
-            predictedStakingPool,
-            governance,
-            predictedChainConfig,
-            blend
-        );
-        slashingIndicator = SlashingIndicator(
-            address(
-                new ERC1967Proxy(
-                    address(slashingIndicatorImpl), abi.encodeCall(SlashingIndicator.initialize, (address(this)))
-                )
-            )
-        );
-
         SystemReward systemRewardImpl = new SystemReward(
             predictedStaking,
-            predictedSlashingIndicator,
             predictedSystemReward,
             predictedStakingPool,
             governance,
@@ -275,7 +250,6 @@ contract EquivocationSlashingTest is Test {
 
         StakingPool stakingPoolImpl = new StakingPool(
             predictedStaking,
-            predictedSlashingIndicator,
             predictedSystemReward,
             predictedStakingPool,
             governance,
@@ -290,7 +264,6 @@ contract EquivocationSlashingTest is Test {
 
         ChainConfig chainConfigImpl = new ChainConfig(
             predictedStaking,
-            predictedSlashingIndicator,
             predictedSystemReward,
             predictedStakingPool,
             governance,
@@ -354,7 +327,6 @@ contract EquivocationSlashingTest is Test {
         return validators[0];
     }
 
-    // ============ Decoder vs corpus ============
 
     function test_decode_conflictingNotarize_matchesCorpus() public view {
         SimplexEvidenceDecoder.Decoded memory d = decoder.decodeConflictingNotarize(_cnEvidence());
@@ -392,7 +364,6 @@ contract EquivocationSlashingTest is Test {
         assertEq(d.sig2, _nfSig2());
     }
 
-    // ============ Decoder negative invariants ============
 
     function test_decode_rejectsSameProposal() public {
         // Make vote 2's (parent,payload) identical to vote 1's by copying
@@ -423,7 +394,6 @@ contract EquivocationSlashingTest is Test {
         decoder.decodeNullifyFinalize(e);
     }
 
-    // ============ End-to-end slash ============
 
     function _assertSlashed(address v) internal view {
         (, uint8 status,,,,,,,) = staking.getValidatorStatus(v);
@@ -457,7 +427,6 @@ contract EquivocationSlashingTest is Test {
         _assertSlashed(_offender());
     }
 
-    // ============ Replay / permanence ============
 
     function test_RevertIf_slashEquivocation_replay() public {
         staking.slashEquivocationNotarize(_cnEvidence(), _pkUnc(), _cnSig1Unc(), _cnSig2Unc());
@@ -488,7 +457,6 @@ contract EquivocationSlashingTest is Test {
         staking.setConsensusKeys(_offender(), pkUnc[0], popUnc[0], peer[0]);
     }
 
-    // ============ Invalid signature ============
 
     function test_RevertIf_slashEquivocation_signatureInvalid() public {
         bytes memory badSig = _cnSig1Unc();
@@ -506,7 +474,6 @@ contract EquivocationSlashingTest is Test {
         staking.slashEquivocationNotarize(_cnEvidence(), pkUnc[1], _cnSig1Unc(), _cnSig2Unc());
     }
 
-    // ============ Decoder error propagation ============
 
     function test_RevertIf_slashEquivocation_epochNotCommitted() public {
         // Tamper the evidence so the round epoch is 8 (never committed) on
@@ -531,7 +498,6 @@ contract EquivocationSlashingTest is Test {
         staking.slashEquivocationNotarize(e, _pkUnc(), _cnSig1Unc(), _cnSig2Unc());
     }
 
-    // ============ Permissionless ============
 
     function test_slashEquivocation_permissionless_anyCaller() public {
         address rando = makeAddr("rando");
@@ -542,7 +508,6 @@ contract EquivocationSlashingTest is Test {
         _assertSlashed(_offender());
     }
 
-    // ============ Storage isolation ============
 
     function test_slashEquivocation_storageIsolated() public {
         // Slashing the offender must not touch the other validators'
@@ -556,7 +521,6 @@ contract EquivocationSlashingTest is Test {
         }
     }
 
-    // ============ Helpers ============
 
     function _canonical() internal view returns (address[] memory out) {
         address[] memory top = staking.getValidators();
@@ -595,8 +559,7 @@ contract EquivocationSlashingTest is Test {
 
     function _commit() internal {
         address[] memory c = _canonical();
-        vm.txGasPrice(0);
-        vm.prank(sequencer);
+        vm.prank(SYSTEM_CALLER);
         staking.commitEpochCommittee(c);
     }
 

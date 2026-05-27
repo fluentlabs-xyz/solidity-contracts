@@ -28,33 +28,29 @@ interface IStakingEvents {
 
 interface IStakingErrors {
     /**
-     * TODO
-     * @dev selector: 0x00000000
+     * @notice Validator owner argument must not be the zero address.
      */
     error ZeroOwner();
     /**
-     * TODO
-     * @dev selector: 0x00000000
+     * @notice Validator address argument must not be the zero address.
      */
     error ZeroValidator();
     /**
-     * TODO
-     * @dev selector: 0x00000000
+     * @notice Validator commission rate must be greater than zero.
      */
     error ZeroCommissionRate();
     /**
-     * TODO
-     * @dev selector: 0x00000000
+     * @notice Initial validator self-stake must be greater than zero.
      */
     error ZeroInitialStake();
     /**
-     * TODO
-     * @dev selector: 0x00000000
+     * @notice Validator removal is blocked because the validator still has active delegations.
+     * @param validator Validator whose delegation total is non-zero.
      */
     error ValidatorHasActiveDelegations(address validator);
     /**
-     * TODO
-     * @dev selector: 0x00000000
+     * @notice Epoch argument is out of the allowed range (e.g. registering a validator with a `sinceEpoch`
+     *         that is past the next epoch boundary).
      */
     error InvalidEpoch();
 }
@@ -238,7 +234,9 @@ interface IStaking is IValidatorSet, IStakingEvents, IStakingErrors {
     /// @notice Claims delegator rewards and matured undelegations accrued before `beforeEpoch`.
     function claimDelegatorFeeAtEpoch(address validator, uint64 beforeEpoch) external;
 
-    /// @notice Applies a slash to `validator`; callable by the slashing indicator.
+    /// @notice Applies a slash to `validator` for sustained liveness misses;
+    ///         callable only by the `LivenessSlashing` predeploy. Reuses
+    ///         the standard jail/felony pipeline.
     function slash(address validator) external;
 
     /// @notice Sets consensus keys for `validator` with on-chain

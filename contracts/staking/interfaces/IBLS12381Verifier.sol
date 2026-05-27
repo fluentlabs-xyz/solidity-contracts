@@ -6,7 +6,7 @@ pragma solidity ^0.8.0;
 interface IBLS12381Verifier {
     /// @notice Verify one MinSig signature: e(sig,-G2gen)·e(H,pk) == 1.
     ///         Pure pairing — the caller binds sig/pk to its trust anchor
-    ///         via compressG1/compressG2.
+    ///         via compressG1Unchecked/compressG2Unchecked.
     function verify(
         bytes calldata namespace,
         bytes calldata message,
@@ -16,8 +16,16 @@ interface IBLS12381Verifier {
     ) external view returns (bool);
 
     /// @notice Compress a 128 B EIP-2537 G1 to 48 B zcash (MinSig).
-    function compressG1(bytes calldata uncompressed128) external pure returns (bytes memory);
+    /// @dev UNCHECKED — performs NO on-curve / subgroup check; the
+    ///      caller MUST bind the output to a trust anchor (e.g. keccak-
+    ///      compare against a pre-anchored 48-byte identity, OR route
+    ///      through `verify(...)` whose PAIRING precompile enforces
+    ///      subgroup membership). The `Unchecked` suffix carries this
+    ///      contract.
+    function compressG1Unchecked(bytes calldata uncompressed128) external pure returns (bytes memory);
 
     /// @notice Compress a 256 B EIP-2537 G2 to 96 B zcash (c1-first, MinSig).
-    function compressG2(bytes calldata uncompressed256) external pure returns (bytes memory);
+    /// @dev UNCHECKED — see `compressG1Unchecked` doc for trust-anchor
+    ///      binding requirement.
+    function compressG2Unchecked(bytes calldata uncompressed256) external pure returns (bytes memory);
 }

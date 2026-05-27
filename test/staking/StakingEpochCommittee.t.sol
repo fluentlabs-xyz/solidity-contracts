@@ -5,15 +5,14 @@ import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {ChainConfig} from "../../contracts/staking/ChainConfig.sol";
-import {SlashingIndicator} from "../../contracts/staking/SlashingIndicator.sol";
 import {Staking} from "../../contracts/staking/Staking.sol";
+import {SYSTEM_CALLER} from "../../contracts/staking/StakingContext.sol";
 import {BLS12381Verifier} from "../../contracts/libraries/BLS12381Verifier.sol";
 import {StakingPool} from "../../contracts/staking/StakingPool.sol";
 import {SystemReward} from "../../contracts/staking/SystemReward.sol";
 import {MockBlendToken} from "../../contracts/staking/mocks/MockBlendToken.sol";
 import {IChainConfig} from "../../contracts/staking/interfaces/IChainConfig.sol";
 import {IFluentGovernance} from "../../contracts/staking/interfaces/IFluentGovernance.sol";
-import {ISlashingIndicator} from "../../contracts/staking/interfaces/ISlashingIndicator.sol";
 import {IStaking} from "../../contracts/staking/interfaces/IStaking.sol";
 import {IStakingPool} from "../../contracts/staking/interfaces/IStakingPool.sol";
 import {ISystemReward} from "../../contracts/staking/interfaces/ISystemReward.sol";
@@ -32,7 +31,6 @@ contract StakingEpochCommitteeTest is Test {
     Staking internal staking;
     StakingPool internal stakingPool;
     ChainConfig internal chainConfig;
-    SlashingIndicator internal slashingIndicator;
     SystemReward internal systemReward;
     MockBlendToken internal blend;
 
@@ -54,8 +52,8 @@ contract StakingEpochCommitteeTest is Test {
     bytes internal constant SIG_UNC_VALID =
         hex"00000000000000000000000000000000027ecd57f1889127d81b2a3c46e1905c419302192ebc90f818c7d272b38a6495337f7dde0733d0d431fc1338e8caf62e00000000000000000000000000000000109a4722abb94b2ffb8685abe75b4fc8336d2f6534b64fee49baa07ab7357de65036fb93ee119860768cc65daa4c7b1e";
 
-    // --- ed25519 ordering conformance corpus (SINGLE SOURCE: crates/bls/
-    //     tests/ed25519_ordering_conformance.rs — keep in sync in one PR). ---
+    /// @dev Conformance corpus mirror of crates/bls/tests/ed25519_ordering_conformance.rs;
+    ///      regenerate both together.
     function _corpus() internal pure returns (bytes32[10] memory p) {
         p[0] = 0x478243aed376da313d7cf3a60637c264cb36acc936efb341ff8d3d712092d244;
         p[1] = 0xc5bbbb60e412879bbec7bb769804fa8e36e68af10d5477280b63deeaca931bed;
@@ -88,21 +86,19 @@ contract StakingEpochCommitteeTest is Test {
 
         uint64 nonce = vm.getNonce(address(this));
         IStaking predictedStaking = IStaking(vm.computeCreateAddress(address(this), nonce + 1));
-        ISlashingIndicator predictedSlashingIndicator =
-            ISlashingIndicator(vm.computeCreateAddress(address(this), nonce + 3));
-        ISystemReward predictedSystemReward = ISystemReward(vm.computeCreateAddress(address(this), nonce + 5));
-        IStakingPool predictedStakingPool = IStakingPool(vm.computeCreateAddress(address(this), nonce + 7));
-        IChainConfig predictedChainConfig = IChainConfig(vm.computeCreateAddress(address(this), nonce + 9));
+        ISystemReward predictedSystemReward = ISystemReward(vm.computeCreateAddress(address(this), nonce + 3));
+        IStakingPool predictedStakingPool = IStakingPool(vm.computeCreateAddress(address(this), nonce + 5));
+        IChainConfig predictedChainConfig = IChainConfig(vm.computeCreateAddress(address(this), nonce + 7));
         IFluentGovernance governance = IFluentGovernance(address(this));
 
         Staking stakingImpl = new Staking(
             predictedStaking,
-            predictedSlashingIndicator,
             predictedSystemReward,
             predictedStakingPool,
             governance,
             predictedChainConfig,
-            blend
+            blend,
+            address(0)
         );
         staking = Staking(
             payable(
@@ -115,26 +111,8 @@ contract StakingEpochCommitteeTest is Test {
             )
         );
 
-        SlashingIndicator slashingIndicatorImpl = new SlashingIndicator(
-            predictedStaking,
-            predictedSlashingIndicator,
-            predictedSystemReward,
-            predictedStakingPool,
-            governance,
-            predictedChainConfig,
-            blend
-        );
-        slashingIndicator = SlashingIndicator(
-            address(
-                new ERC1967Proxy(
-                    address(slashingIndicatorImpl), abi.encodeCall(SlashingIndicator.initialize, (address(this)))
-                )
-            )
-        );
-
         SystemReward systemRewardImpl = new SystemReward(
             predictedStaking,
-            predictedSlashingIndicator,
             predictedSystemReward,
             predictedStakingPool,
             governance,
@@ -154,7 +132,6 @@ contract StakingEpochCommitteeTest is Test {
 
         StakingPool stakingPoolImpl = new StakingPool(
             predictedStaking,
-            predictedSlashingIndicator,
             predictedSystemReward,
             predictedStakingPool,
             governance,
@@ -169,7 +146,6 @@ contract StakingEpochCommitteeTest is Test {
 
         ChainConfig chainConfigImpl = new ChainConfig(
             predictedStaking,
-            predictedSlashingIndicator,
             predictedSystemReward,
             predictedStakingPool,
             governance,
@@ -210,7 +186,6 @@ contract StakingEpochCommitteeTest is Test {
         vm.coinbase(sequencer);
     }
 
-    // ============ Writer (submit + verify) ============
 
     function test_commitEpochCommittee_acceptsCanonicalOrder() public {
         address a = _validator("A", bytes32(uint256(0x30)));
@@ -285,8 +260,7 @@ contract StakingEpochCommitteeTest is Test {
         expected[1] = b;
         vm.expectEmit(true, false, false, true, address(staking));
         emit EpochCommitteeCommitted(3, expected);
-        vm.txGasPrice(0);
-        vm.prank(sequencer);
+        vm.prank(SYSTEM_CALLER);
         staking.commitEpochCommittee(expected);
     }
 
@@ -329,25 +303,13 @@ contract StakingEpochCommitteeTest is Test {
         assertEq(staking.getEpochCommittee(5).length, 1);
     }
 
-    function test_RevertIf_commitEpochCommittee_notCoinbase() public {
+    function test_RevertIf_commitEpochCommittee_nonSystemCaller() public {
         _validator("A", bytes32(uint256(0x10)));
         _rollToEpoch(1);
         address[] memory c = _canonical();
-        vm.txGasPrice(0);
-        vm.prank(makeAddr("notSequencer"));
-        vm.expectRevert(abi.encodeWithSignature("OnlyCoinbase()"));
+        vm.prank(makeAddr("notSystem"));
+        vm.expectRevert(abi.encodeWithSignature("OnlySystemCall()"));
         staking.commitEpochCommittee(c);
-    }
-
-    function test_RevertIf_commitEpochCommittee_nonZeroGasPrice() public {
-        _validator("A", bytes32(uint256(0x10)));
-        _rollToEpoch(1);
-        address[] memory c = _canonical();
-        vm.txGasPrice(1);
-        vm.prank(sequencer);
-        vm.expectRevert(abi.encodeWithSignature("OnlyZeroGasPrice()"));
-        staking.commitEpochCommittee(c);
-        vm.txGasPrice(0);
     }
 
     function test_RevertIf_commitEpochCommittee_wrongOrder() public {
@@ -358,8 +320,7 @@ contract StakingEpochCommitteeTest is Test {
         address[] memory bad = new address[](2);
         bad[0] = b; // 0x20 first — not strictly ascending
         bad[1] = a;
-        vm.txGasPrice(0);
-        vm.prank(sequencer);
+        vm.prank(SYSTEM_CALLER);
         vm.expectRevert(abi.encodeWithSignature("CommitteeNotStrictlyAscending(address)", a));
         staking.commitEpochCommittee(bad);
     }
@@ -371,8 +332,7 @@ contract StakingEpochCommitteeTest is Test {
 
         address[] memory bad = new address[](1);
         bad[0] = a; // only 1 of 2 keyed members
-        vm.txGasPrice(0);
-        vm.prank(sequencer);
+        vm.prank(SYSTEM_CALLER);
         vm.expectRevert(abi.encodeWithSignature("CommitteeLengthMismatch(uint256,uint256)", uint256(2), uint256(1)));
         staking.commitEpochCommittee(bad);
     }
@@ -388,8 +348,7 @@ contract StakingEpochCommitteeTest is Test {
         address[] memory bad = new address[](2);
         bad[0] = keyless;
         bad[1] = b;
-        vm.txGasPrice(0);
-        vm.prank(sequencer);
+        vm.prank(SYSTEM_CALLER);
         vm.expectRevert(abi.encodeWithSignature("CommitteeMemberKeyless(address)", keyless));
         staking.commitEpochCommittee(bad);
     }
@@ -409,14 +368,12 @@ contract StakingEpochCommitteeTest is Test {
         address[] memory bad = new address[](2);
         bad[0] = outsider; // 0x05
         bad[1] = a; // 0x10
-        vm.txGasPrice(0);
-        vm.prank(sequencer);
+        vm.prank(SYSTEM_CALLER);
         // outsider is keyed, so it passes the keyless check but fails set membership
         vm.expectRevert(abi.encodeWithSignature("CommitteeMemberNotInActiveSet(address)", outsider));
         staking.commitEpochCommittee(bad);
     }
 
-    // ============ Resolver ============
 
     function test_resolveSigner_returnsValidatorAtSortedIndex() public {
         address a = _validator("A", bytes32(uint256(0x30)));
@@ -464,8 +421,7 @@ contract StakingEpochCommitteeTest is Test {
             seedOrder[i] = _validator(string.concat("seed", vm.toString(i)), corpus[i]);
         }
         _rollToEpoch(1);
-        vm.txGasPrice(0);
-        vm.prank(sequencer);
+        vm.prank(SYSTEM_CALLER);
         vm.expectRevert(); // CommitteeNotStrictlyAscending at the first descending pair
         staking.commitEpochCommittee(seedOrder);
     }
@@ -532,7 +488,6 @@ contract StakingEpochCommitteeTest is Test {
         assertEq(staking.getEpochCommittee(42).length, 0);
     }
 
-    // ============ Storage isolation ============
 
     function test_commitEpochCommittee_storageIsolatedFromOtherNamespaces() public {
         address a = _validator("A", bytes32(uint256(0x10)));
@@ -547,7 +502,6 @@ contract StakingEpochCommitteeTest is Test {
         assertEq(staking.getConsensusKeys(a).peerPubkey, bytes32(uint256(0x10)));
     }
 
-    // ============ Fuzz / scale ============
 
     function testFuzz_commitEpochCommittee_sortIsTotalOrder(uint256 seed) public {
         uint256 n = 8;
@@ -586,7 +540,6 @@ contract StakingEpochCommitteeTest is Test {
         }
     }
 
-    // ============ Helpers ============
 
     function _validator(string memory label, bytes32 peerPubkey) internal returns (address v) {
         v = makeAddr(label);
@@ -634,8 +587,7 @@ contract StakingEpochCommitteeTest is Test {
 
     function _commit() internal {
         address[] memory c = _canonical();
-        vm.txGasPrice(0);
-        vm.prank(sequencer);
+        vm.prank(SYSTEM_CALLER);
         staking.commitEpochCommittee(c);
     }
 

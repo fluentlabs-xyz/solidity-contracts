@@ -9,11 +9,9 @@ import {FluentGovernance} from "../../contracts/governance/FluentGovernance.sol"
 import {ChainConfig} from "../../contracts/staking/ChainConfig.sol";
 import {IFluentGovernance} from "../../contracts/staking/interfaces/IFluentGovernance.sol";
 import {IChainConfig} from "../../contracts/staking/interfaces/IChainConfig.sol";
-import {ISlashingIndicator} from "../../contracts/staking/interfaces/ISlashingIndicator.sol";
 import {IStaking} from "../../contracts/staking/interfaces/IStaking.sol";
 import {IStakingPool} from "../../contracts/staking/interfaces/IStakingPool.sol";
 import {ISystemReward} from "../../contracts/staking/interfaces/ISystemReward.sol";
-import {SlashingIndicator} from "../../contracts/staking/SlashingIndicator.sol";
 import {Staking} from "../../contracts/staking/Staking.sol";
 import {StakingPool} from "../../contracts/staking/StakingPool.sol";
 import {SystemReward} from "../../contracts/staking/SystemReward.sol";
@@ -98,11 +96,10 @@ contract FluentGovernanceTest is Test {
     function _deploy(uint32 votingPeriod) internal {
         uint64 nonce = vm.getNonce(address(this));
         IStaking predictedStaking = IStaking(vm.computeCreateAddress(address(this), nonce + 1));
-        ISlashingIndicator predictedSlashingIndicator = ISlashingIndicator(vm.computeCreateAddress(address(this), nonce + 3));
-        ISystemReward predictedSystemReward = ISystemReward(vm.computeCreateAddress(address(this), nonce + 5));
-        IStakingPool predictedStakingPool = IStakingPool(vm.computeCreateAddress(address(this), nonce + 7));
-        IChainConfig predictedChainConfig = IChainConfig(vm.computeCreateAddress(address(this), nonce + 9));
-        IFluentGovernance predictedGovernance = IFluentGovernance(vm.computeCreateAddress(address(this), nonce + 11));
+        ISystemReward predictedSystemReward = ISystemReward(vm.computeCreateAddress(address(this), nonce + 3));
+        IStakingPool predictedStakingPool = IStakingPool(vm.computeCreateAddress(address(this), nonce + 5));
+        IChainConfig predictedChainConfig = IChainConfig(vm.computeCreateAddress(address(this), nonce + 7));
+        IFluentGovernance predictedGovernance = IFluentGovernance(vm.computeCreateAddress(address(this), nonce + 9));
 
         address[] memory validators = new address[](2);
         validators[0] = validator1;
@@ -115,12 +112,12 @@ contract FluentGovernanceTest is Test {
 
         Staking stakingImpl = new Staking(
             predictedStaking,
-            predictedSlashingIndicator,
             predictedSystemReward,
             predictedStakingPool,
             predictedGovernance,
             predictedChainConfig,
-            blend
+            blend,
+            address(0)
         );
         staking = Staking(
             payable(
@@ -130,26 +127,12 @@ contract FluentGovernanceTest is Test {
             )
         );
 
-        SlashingIndicator slashingIndicatorImpl = new SlashingIndicator(
-            predictedStaking,
-            predictedSlashingIndicator,
-            predictedSystemReward,
-            predictedStakingPool,
-            predictedGovernance,
-            predictedChainConfig,
-            blend
-        );
-        SlashingIndicator slashingIndicator = SlashingIndicator(
-            address(new ERC1967Proxy(address(slashingIndicatorImpl), abi.encodeCall(SlashingIndicator.initialize, (address(this)))))
-        );
-
         address[] memory rewardAccounts = new address[](1);
         rewardAccounts[0] = treasury;
         uint16[] memory rewardShares = new uint16[](1);
         rewardShares[0] = 10_000;
         SystemReward systemRewardImpl = new SystemReward(
             predictedStaking,
-            predictedSlashingIndicator,
             predictedSystemReward,
             predictedStakingPool,
             predictedGovernance,
@@ -169,7 +152,6 @@ contract FluentGovernanceTest is Test {
 
         StakingPool stakingPoolImpl = new StakingPool(
             predictedStaking,
-            predictedSlashingIndicator,
             predictedSystemReward,
             predictedStakingPool,
             predictedGovernance,
@@ -182,7 +164,6 @@ contract FluentGovernanceTest is Test {
 
         ChainConfig chainConfigImpl = new ChainConfig(
             predictedStaking,
-            predictedSlashingIndicator,
             predictedSystemReward,
             predictedStakingPool,
             predictedGovernance,
@@ -206,7 +187,6 @@ contract FluentGovernanceTest is Test {
         );
 
         assertEq(address(staking), address(predictedStaking));
-        assertEq(address(slashingIndicator), address(predictedSlashingIndicator));
         assertEq(address(systemReward), address(predictedSystemReward));
         assertEq(address(stakingPool), address(predictedStakingPool));
         assertEq(address(chainConfig), address(predictedChainConfig));

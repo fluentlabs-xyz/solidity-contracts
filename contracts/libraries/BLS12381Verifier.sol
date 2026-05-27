@@ -42,8 +42,8 @@ contract BLS12381Verifier {
 
     /// @notice Verify one MinSig signature: e(sig,-G2gen)·e(H,pk) == 1.
     /// @dev Trust-anchor binding (sig/pk == registered/evidence identity) is
-    ///      the CALLER's responsibility via compressG1/compressG2 — this is
-    ///      pure pairing over caller-supplied uncompressed points.
+    ///      the CALLER's responsibility via compressG1Unchecked/compressG2Unchecked
+    ///      — this is pure pairing over caller-supplied uncompressed points.
     /// @param namespace per-subject namespace (e.g. base‖_NOTARIZE, or PoP base)
     /// @param message   Proposal/Round .encode() (slashing) or pubkey (PoP)
     /// @param dst        BLS_SIG_… or BLS_POP_… (43 B)
@@ -72,19 +72,21 @@ contract BLS12381Verifier {
         return ok && out.length == 32 && bytes32(out) == bytes32(uint256(1));
     }
 
-    /// @notice union_unique(ns,msg) = uvarint(len ns) ‖ ns ‖ msg. Namespace
-    ///         is always contract-formed (≤32 B) ⇒ commonware codec UInt is a
-    ///         single byte; the guard makes that invariant explicit.
+    /// @notice union_unique(ns,msg) = single-byte LEB128(len ns) ‖ ns ‖ msg.
+    ///         This is the single-byte LEB128 encoding (high bit cleared for
+    ///         length < 128). The Rust mirror in `crates/bls` uses full LEB128
+    ///         varint; as long as no namespace ever exceeds 127 bytes both
+    ///         representations agree. Current namespaces are 23–32 bytes.
     function unionUnique(bytes calldata ns, bytes calldata msg) public pure returns (bytes memory) {
         if (ns.length >= 0x80) revert NamespaceTooLong();
         return bytes.concat(bytes1(uint8(ns.length)), ns, msg);
     }
 
-    // ------------------------------------------------------------------ //
-    //                          hash-to-G1                                //
-    // ------------------------------------------------------------------ //
-
     function _hashToG1(bytes memory input, bytes calldata dst) internal view returns (bytes memory) {
+        // Long-DST workaround (RFC 9380 §5.3.3 "H(`H2C-OVERSIZE-DST-`||DST)")
+        // is intentionally NOT implemented: both Fluent DSTs
+        // (`BLS_SIG_…_POP_`, `BLS_POP_…_POP_`) are 43 bytes, well under the
+        // 255-byte short-DST limit. Reject anything longer than that limit.
         if (dst.length > 255) revert DstTooLong();
 
         // DST' = dst ‖ I2OSP(len(dst), 1)
@@ -124,10 +126,6 @@ contract BLS12381Verifier {
         }
     }
 
-    // ------------------------------------------------------------------ //
-    //                       precompile helpers                           //
-    // ------------------------------------------------------------------ //
-
     /// MODEXP(base, 1, p): ABI = I2OSP(64,32) ‖ I2OSP(1,32) ‖ I2OSP(48,32)
     /// ‖ base(64B) ‖ exp(0x01) ‖ p(48B); output 48 B = base mod p.
     function _modexpModP(bytes memory base64) private view returns (bytes memory) {
@@ -140,6 +138,19 @@ contract BLS12381Verifier {
     }
 
     /// MAP_FP_TO_G1(16×0x00 ‖ fp48) -> 128 B G1 (EIP-2537).
+    /// @dev Security note: this precompile is expected to clear the
+    ///      BLS12-381 G1 cofactor per RFC 9380 §6.6.3 (the EIP-2537
+    ///      field-to-curve annex prescribes
+    ///      `map_to_curve_simple_swu → iso_map → clear_cofactor`).
+    ///      As of this audit (2026-05-25):
+    ///        - reth/revm:    cleared (blst `src/map_to_g1.c`
+    ///                        `POINTonE1_times_minus_z` + `_dadd`)
+    ///        - go-ethereum:  cleared (gnark-crypto
+    ///                        `ecc/bls12-381/hash_to_g1.go::MapToG1`)
+    ///      If Fluent's L2 EVM client changes, re-verify cofactor
+    ///      clearing in the new implementation. Drift fails closed
+    ///      (PAIRING rejects non-prime-order point → verify returns
+    ///      false → slashing silently does NOT fire).
     function _mapFpToG1(bytes memory fp48) private view returns (bytes memory) {
         bytes memory input = bytes.concat(new bytes(16), fp48);
         (bool ok, bytes memory out) = MAP_FP_TO_G1.staticcall(input);
@@ -154,10 +165,6 @@ contract BLS12381Verifier {
         return out;
     }
 
-    // ------------------------------------------------------------------ //
-    //                       recompress / checks                          //
-    // ------------------------------------------------------------------ //
-
     /// @notice Revert InfinityPoint if every byte of the EIP-2537 point is
     ///         zero (PAIRING silently skips infinity pairs ⇒ forgeable).
     function _rejectInfinity(bytes memory point) internal pure {
@@ -170,7 +177,11 @@ contract BLS12381Verifier {
     /// @notice Compress a 128 B EIP-2537 G1 to 48 B zcash (MinSig). Pure;
     ///         on-curve/subgroup left to PAIRING. The caller binds the
     ///         result to its trust anchor.
-    function compressG1(bytes calldata uncompressed128) external pure returns (bytes memory) {
+    /// @dev UNCHECKED — see interface doc. Naming carries the contract:
+    ///      callers must immediately follow with either a `keccak`-compare
+    ///      against a pre-anchored identity OR a `verify(...)` call that
+    ///      routes through PAIRING (which enforces subgroup membership).
+    function compressG1Unchecked(bytes calldata uncompressed128) external pure returns (bytes memory) {
         if (uncompressed128.length != 128) revert InvalidPointLength();
         // x = uncompressed[16:64], y = uncompressed[80:128]
         bytes memory x = _slice48(uncompressed128, 16);
@@ -183,14 +194,16 @@ contract BLS12381Verifier {
     }
 
     /// @notice Compress a 256 B EIP-2537 G2 to 96 B zcash (c1-first, MinSig).
-    function compressG2(bytes calldata uncompressed256) external pure returns (bytes memory) {
+    /// @dev UNCHECKED — see `compressG1Unchecked` doc for trust-anchor
+    ///      binding requirement.
+    function compressG2Unchecked(bytes calldata uncompressed256) external pure returns (bytes memory) {
         if (uncompressed256.length != 256) revert InvalidPointLength();
         // EIP-2537 layout: pad‖x.c0‖pad‖x.c1‖pad‖y.c0‖pad‖y.c1
         bytes memory xc0 = _slice48(uncompressed256, 16);
         bytes memory xc1 = _slice48(uncompressed256, 80);
         bytes memory yc0 = _slice48(uncompressed256, 144);
         bytes memory yc1 = _slice48(uncompressed256, 208);
-        // Reject the EIP-2537 infinity encoding (see compressG1).
+        // Reject the EIP-2537 infinity encoding (see compressG1Unchecked).
         if (_fpIsZero(xc0) && _fpIsZero(xc1) && _fpIsZero(yc0) && _fpIsZero(yc1)) revert InfinityPoint();
 
         // Fp2 sign (lexicographic, compare by c1 then c0):

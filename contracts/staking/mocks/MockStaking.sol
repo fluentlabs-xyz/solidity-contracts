@@ -10,21 +10,21 @@ import "../Staking.sol";
 contract MockStaking is Staking {
     constructor(
         IStaking stakingContract,
-        ISlashingIndicator slashingIndicatorContract,
         ISystemReward systemRewardContract,
         IStakingPool stakingPoolContract,
         IFluentGovernance governanceContract,
         IChainConfig chainConfigContract,
-        IERC20 stakingToken
+        IERC20 stakingToken,
+        address livenessSlashingAddr
     )
         Staking(
             stakingContract,
-            slashingIndicatorContract,
             systemRewardContract,
             stakingPoolContract,
             governanceContract,
             chainConfigContract,
-            stakingToken
+            stakingToken,
+            livenessSlashingAddr
         )
     {}
 
@@ -46,9 +46,5 @@ contract MockStaking is Staking {
 
     function deposit(address validatorAddress, uint256 amount) external override {
         _depositFee(validatorAddress, amount);
-    }
-
-    function slash(address validatorAddress) external override {
-        _slashValidator(validatorAddress);
     }
 }

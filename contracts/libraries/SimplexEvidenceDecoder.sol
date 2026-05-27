@@ -133,10 +133,6 @@ contract SimplexEvidenceDecoder {
         d.sig2 = s2;
     }
 
-    // ------------------------------------------------------------------ //
-    //                          field readers                             //
-    // ------------------------------------------------------------------ //
-
     /// @dev Round = uvarint(epoch) ‖ uvarint(view); `raw` is the exact
     ///      byte sub-slice the parser walked (the signed Nullify body).
     function _readRound(bytes calldata e, uint256 off)

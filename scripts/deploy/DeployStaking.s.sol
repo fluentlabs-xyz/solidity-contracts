@@ -8,13 +8,12 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {FluentGovernance} from "../../contracts/governance/FluentGovernance.sol";
 import {ChainConfig} from "../../contracts/staking/ChainConfig.sol";
-import {SlashingIndicator} from "../../contracts/staking/SlashingIndicator.sol";
+import {LivenessSlashing} from "../../contracts/staking/LivenessSlashing.sol";
 import {Staking} from "../../contracts/staking/Staking.sol";
 import {StakingPool} from "../../contracts/staking/StakingPool.sol";
 import {SystemReward} from "../../contracts/staking/SystemReward.sol";
 import {IChainConfig} from "../../contracts/staking/interfaces/IChainConfig.sol";
 import {IFluentGovernance} from "../../contracts/staking/interfaces/IFluentGovernance.sol";
-import {ISlashingIndicator} from "../../contracts/staking/interfaces/ISlashingIndicator.sol";
 import {IStaking} from "../../contracts/staking/interfaces/IStaking.sol";
 import {IStakingPool} from "../../contracts/staking/interfaces/IStakingPool.sol";
 import {ISystemReward} from "../../contracts/staking/interfaces/ISystemReward.sol";
@@ -31,8 +30,6 @@ contract DeployStaking is DeployBase {
     struct StakingDeployment {
         address staking;
         address stakingImpl;
-        address slashingIndicator;
-        address slashingIndicatorImpl;
         address systemReward;
         address systemRewardImpl;
         address stakingPool;
@@ -41,6 +38,8 @@ contract DeployStaking is DeployBase {
         address chainConfigImpl;
         address governance;
         address governanceImpl;
+        address livenessSlashing;
+        address livenessSlashingImpl;
     }
 
     struct StakingDeployParams {
@@ -100,14 +99,16 @@ contract DeployStaking is DeployBase {
     }
 
     function _deployStaking(StakingDeployParams memory p) internal returns (StakingDeployment memory r) {
+        // Nonce slots after SlashingIndicator removal:
+        // +2 staking, +4 systemReward, +6 stakingPool, +8 chainConfig,
+        // +10 governance, +12 livenessSlashing.
         uint64 nonce = vm.getNonce(tx.origin);
         IStaking predictedStaking = IStaking(vm.computeCreateAddress(tx.origin, nonce + 2));
-        ISlashingIndicator predictedSlashingIndicator =
-            ISlashingIndicator(vm.computeCreateAddress(tx.origin, nonce + 4));
-        ISystemReward predictedSystemReward = ISystemReward(vm.computeCreateAddress(tx.origin, nonce + 6));
-        IStakingPool predictedStakingPool = IStakingPool(vm.computeCreateAddress(tx.origin, nonce + 8));
-        IChainConfig predictedChainConfig = IChainConfig(vm.computeCreateAddress(tx.origin, nonce + 10));
-        IFluentGovernance governance = IFluentGovernance(vm.computeCreateAddress(tx.origin, nonce + 12));
+        ISystemReward predictedSystemReward = ISystemReward(vm.computeCreateAddress(tx.origin, nonce + 4));
+        IStakingPool predictedStakingPool = IStakingPool(vm.computeCreateAddress(tx.origin, nonce + 6));
+        IChainConfig predictedChainConfig = IChainConfig(vm.computeCreateAddress(tx.origin, nonce + 8));
+        IFluentGovernance governance = IFluentGovernance(vm.computeCreateAddress(tx.origin, nonce + 10));
+        address predictedLivenessSlashing = vm.computeCreateAddress(tx.origin, nonce + 12);
 
         uint256 totalInitialStakes = _sum(p.initialStakes);
         if (totalInitialStakes > 0) {
@@ -116,12 +117,12 @@ contract DeployStaking is DeployBase {
 
         Staking stakingImpl = new Staking(
             predictedStaking,
-            predictedSlashingIndicator,
             predictedSystemReward,
             predictedStakingPool,
             governance,
             predictedChainConfig,
-            p.stakingToken
+            p.stakingToken,
+            predictedLivenessSlashing
         );
         r.staking = address(
             new ERC1967Proxy(
@@ -133,25 +134,8 @@ contract DeployStaking is DeployBase {
         );
         r.stakingImpl = address(stakingImpl);
 
-        SlashingIndicator slashingIndicatorImpl = new SlashingIndicator(
-            predictedStaking,
-            predictedSlashingIndicator,
-            predictedSystemReward,
-            predictedStakingPool,
-            governance,
-            predictedChainConfig,
-            p.stakingToken
-        );
-        r.slashingIndicator = address(
-            new ERC1967Proxy(
-                address(slashingIndicatorImpl), abi.encodeCall(SlashingIndicator.initialize, (p.initialOwner))
-            )
-        );
-        r.slashingIndicatorImpl = address(slashingIndicatorImpl);
-
         SystemReward systemRewardImpl = new SystemReward(
             predictedStaking,
-            predictedSlashingIndicator,
             predictedSystemReward,
             predictedStakingPool,
             governance,
@@ -168,7 +152,6 @@ contract DeployStaking is DeployBase {
 
         StakingPool stakingPoolImpl = new StakingPool(
             predictedStaking,
-            predictedSlashingIndicator,
             predictedSystemReward,
             predictedStakingPool,
             governance,
@@ -182,7 +165,6 @@ contract DeployStaking is DeployBase {
 
         ChainConfig chainConfigImpl = new ChainConfig(
             predictedStaking,
-            predictedSlashingIndicator,
             predictedSystemReward,
             predictedStakingPool,
             governance,
@@ -211,7 +193,6 @@ contract DeployStaking is DeployBase {
         r.chainConfigImpl = address(chainConfigImpl);
 
         require(r.staking == address(predictedStaking), "staking proxy prediction mismatch");
-        require(r.slashingIndicator == address(predictedSlashingIndicator), "slashing proxy prediction mismatch");
         require(r.systemReward == address(predictedSystemReward), "system reward proxy prediction mismatch");
         require(r.stakingPool == address(predictedStakingPool), "staking pool proxy prediction mismatch");
         require(r.chainConfig == address(predictedChainConfig), "chain config proxy prediction mismatch");
@@ -225,6 +206,23 @@ contract DeployStaking is DeployBase {
         );
         r.governanceImpl = address(governanceImpl);
         require(r.governance == address(governance), "governance proxy prediction mismatch");
+
+        LivenessSlashing livenessSlashingImpl = new LivenessSlashing(
+            predictedStaking,
+            predictedSystemReward,
+            predictedStakingPool,
+            governance,
+            predictedChainConfig,
+            p.stakingToken
+        );
+        r.livenessSlashing = address(
+            new ERC1967Proxy(
+                address(livenessSlashingImpl),
+                abi.encodeCall(LivenessSlashing.initialize, (p.initialOwner))
+            )
+        );
+        r.livenessSlashingImpl = address(livenessSlashingImpl);
+        require(r.livenessSlashing == predictedLivenessSlashing, "liveness slashing proxy prediction mismatch");
     }
 
     function run() external {
@@ -254,8 +252,6 @@ contract DeployStaking is DeployBase {
     function _logDeployment(StakingDeployment memory r) internal pure {
         console2.log("Staking deployed:", r.staking);
         console2.log("  impl:", r.stakingImpl);
-        console2.log("SlashingIndicator deployed:", r.slashingIndicator);
-        console2.log("  impl:", r.slashingIndicatorImpl);
         console2.log("SystemReward deployed:", r.systemReward);
         console2.log("  impl:", r.systemRewardImpl);
         console2.log("StakingPool deployed:", r.stakingPool);
@@ -264,13 +260,13 @@ contract DeployStaking is DeployBase {
         console2.log("  impl:", r.chainConfigImpl);
         console2.log("Governance deployed:", r.governance);
         console2.log("  impl:", r.governanceImpl);
+        console2.log("LivenessSlashing deployed:", r.livenessSlashing);
+        console2.log("  impl:", r.livenessSlashingImpl);
     }
 
     function _writeDeployment(StakingDeployment memory r, string memory outputPath) internal {
         string memory out = vm.serializeAddress("deployment", "staking", r.staking);
         out = vm.serializeAddress("deployment", "staking_impl", r.stakingImpl);
-        out = vm.serializeAddress("deployment", "slashing_indicator", r.slashingIndicator);
-        out = vm.serializeAddress("deployment", "slashing_indicator_impl", r.slashingIndicatorImpl);
         out = vm.serializeAddress("deployment", "system_reward", r.systemReward);
         out = vm.serializeAddress("deployment", "system_reward_impl", r.systemRewardImpl);
         out = vm.serializeAddress("deployment", "staking_pool", r.stakingPool);
@@ -279,6 +275,8 @@ contract DeployStaking is DeployBase {
         out = vm.serializeAddress("deployment", "chain_config_impl", r.chainConfigImpl);
         out = vm.serializeAddress("deployment", "governance", r.governance);
         out = vm.serializeAddress("deployment", "governance_impl", r.governanceImpl);
+        out = vm.serializeAddress("deployment", "liveness_slashing", r.livenessSlashing);
+        out = vm.serializeAddress("deployment", "liveness_slashing_impl", r.livenessSlashingImpl);
         vm.writeJson(out, outputPath);
     }
 }

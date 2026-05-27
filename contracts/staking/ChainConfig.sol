@@ -9,7 +9,6 @@ import {IStaking} from "./interfaces/IStaking.sol";
 import {IFluentGovernance} from "./interfaces/IFluentGovernance.sol";
 import {IStakingPool} from "./interfaces/IStakingPool.sol";
 import {ISystemReward} from "./interfaces/ISystemReward.sol";
-import {ISlashingIndicator} from "./interfaces/ISlashingIndicator.sol";
 import {IChainConfig, IChainConfigEvents} from "./interfaces/IChainConfig.sol";
 
 /**
@@ -70,7 +69,6 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
 
     constructor(
         IStaking stakingContract,
-        ISlashingIndicator slashingIndicatorContract,
         ISystemReward systemRewardContract,
         IStakingPool stakingPoolContract,
         IFluentGovernance governanceContract,
@@ -79,7 +77,6 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
     )
         StakingContext(
             stakingContract,
-            slashingIndicatorContract,
             systemRewardContract,
             stakingPoolContract,
             governanceContract,

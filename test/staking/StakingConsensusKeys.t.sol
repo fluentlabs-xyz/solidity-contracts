@@ -5,7 +5,6 @@ import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 import {ChainConfig} from "../../contracts/staking/ChainConfig.sol";
-import {SlashingIndicator} from "../../contracts/staking/SlashingIndicator.sol";
 import {Staking} from "../../contracts/staking/Staking.sol";
 import {BLS12381Verifier} from "../../contracts/libraries/BLS12381Verifier.sol";
 import {StakingPool} from "../../contracts/staking/StakingPool.sol";
@@ -13,7 +12,6 @@ import {SystemReward} from "../../contracts/staking/SystemReward.sol";
 import {MockBlendToken} from "../../contracts/staking/mocks/MockBlendToken.sol";
 import {IChainConfig} from "../../contracts/staking/interfaces/IChainConfig.sol";
 import {IFluentGovernance} from "../../contracts/staking/interfaces/IFluentGovernance.sol";
-import {ISlashingIndicator} from "../../contracts/staking/interfaces/ISlashingIndicator.sol";
 import {IStaking} from "../../contracts/staking/interfaces/IStaking.sol";
 import {IStakingPool} from "../../contracts/staking/interfaces/IStakingPool.sol";
 import {ISystemReward} from "../../contracts/staking/interfaces/ISystemReward.sol";
@@ -24,7 +22,6 @@ contract StakingConsensusKeysTest is Test {
     Staking internal staking;
     StakingPool internal stakingPool;
     ChainConfig internal chainConfig;
-    SlashingIndicator internal slashingIndicator;
     SystemReward internal systemReward;
     MockBlendToken internal blend;
     BLS12381Verifier internal verifier;
@@ -66,21 +63,19 @@ contract StakingConsensusKeysTest is Test {
 
         uint64 nonce = vm.getNonce(address(this));
         IStaking predictedStaking = IStaking(vm.computeCreateAddress(address(this), nonce + 1));
-        ISlashingIndicator predictedSlashingIndicator =
-            ISlashingIndicator(vm.computeCreateAddress(address(this), nonce + 3));
-        ISystemReward predictedSystemReward = ISystemReward(vm.computeCreateAddress(address(this), nonce + 5));
-        IStakingPool predictedStakingPool = IStakingPool(vm.computeCreateAddress(address(this), nonce + 7));
-        IChainConfig predictedChainConfig = IChainConfig(vm.computeCreateAddress(address(this), nonce + 9));
+        ISystemReward predictedSystemReward = ISystemReward(vm.computeCreateAddress(address(this), nonce + 3));
+        IStakingPool predictedStakingPool = IStakingPool(vm.computeCreateAddress(address(this), nonce + 5));
+        IChainConfig predictedChainConfig = IChainConfig(vm.computeCreateAddress(address(this), nonce + 7));
         IFluentGovernance governance = IFluentGovernance(address(this));
 
         Staking stakingImpl = new Staking(
             predictedStaking,
-            predictedSlashingIndicator,
             predictedSystemReward,
             predictedStakingPool,
             governance,
             predictedChainConfig,
-            blend
+            blend,
+            address(0)
         );
         staking = Staking(
             payable(address(
@@ -93,26 +88,8 @@ contract StakingConsensusKeysTest is Test {
                 ))
         );
 
-        SlashingIndicator slashingIndicatorImpl = new SlashingIndicator(
-            predictedStaking,
-            predictedSlashingIndicator,
-            predictedSystemReward,
-            predictedStakingPool,
-            governance,
-            predictedChainConfig,
-            blend
-        );
-        slashingIndicator = SlashingIndicator(
-            address(
-                new ERC1967Proxy(
-                    address(slashingIndicatorImpl), abi.encodeCall(SlashingIndicator.initialize, (address(this)))
-                )
-            )
-        );
-
         SystemReward systemRewardImpl = new SystemReward(
             predictedStaking,
-            predictedSlashingIndicator,
             predictedSystemReward,
             predictedStakingPool,
             governance,
@@ -132,7 +109,6 @@ contract StakingConsensusKeysTest is Test {
 
         StakingPool stakingPoolImpl = new StakingPool(
             predictedStaking,
-            predictedSlashingIndicator,
             predictedSystemReward,
             predictedStakingPool,
             governance,
@@ -147,7 +123,6 @@ contract StakingConsensusKeysTest is Test {
 
         ChainConfig chainConfigImpl = new ChainConfig(
             predictedStaking,
-            predictedSlashingIndicator,
             predictedSystemReward,
             predictedStakingPool,
             governance,
@@ -177,7 +152,6 @@ contract StakingConsensusKeysTest is Test {
         );
 
         assertEq(address(staking), address(predictedStaking));
-        assertEq(address(slashingIndicator), address(predictedSlashingIndicator));
         assertEq(address(systemReward), address(predictedSystemReward));
         assertEq(address(stakingPool), address(predictedStakingPool));
         assertEq(address(chainConfig), address(predictedChainConfig));
@@ -195,7 +169,6 @@ contract StakingConsensusKeysTest is Test {
         staking.addValidator(validator3);
     }
 
-    // ============ Happy path ============
 
     function test_setConsensusKeys_succeeds() public {
         uint64 expectedEpoch = staking.nextEpoch();
@@ -214,7 +187,6 @@ contract StakingConsensusKeysTest is Test {
         _okKeys(validator1, validPeerPk);
     }
 
-    // ============ Reverts (pre-PoP guards) ============
 
     function test_setConsensusKeys_revertsOnUnknownValidator() public {
         address unknown = makeAddr("unknown");
@@ -262,7 +234,6 @@ contract StakingConsensusKeysTest is Test {
         staking.setConsensusKeys(validator1, PK_UNC, SIG_UNC_VALID, validPeerPk2);
     }
 
-    // ============ Reverts (PoP / verifier) ============
 
     function test_setConsensusKeys_revertsOnInvalidPoP() public {
         // Tampered PoP is a well-formed G1 point, so the pairing fails ⇒
@@ -286,7 +257,6 @@ contract StakingConsensusKeysTest is Test {
         assertEq(staking.getConsensusKeys(validator1).blsPubkey, PK_REF);
     }
 
-    // ============ Views ============
 
     function test_getConsensusKeys_returnsEmptyForUnset() public view {
         IStaking.ConsensusKeys memory k = staking.getConsensusKeys(validator2);
@@ -332,7 +302,6 @@ contract StakingConsensusKeysTest is Test {
         assertEq(keys[found3].activationEpoch, 0);
     }
 
-    // ============ Storage isolation ============
 
     function test_consensusKeysStorage_doesNotInterfereWithStakingStorage() public {
         (address ownerBefore, uint8 statusBefore,,,,,,,) = staking.getValidatorStatus(validator1);
@@ -345,7 +314,6 @@ contract StakingConsensusKeysTest is Test {
         assertEq(statusBefore, statusAfter);
     }
 
-    // ============ Scale test ============
 
     function test_getValidatorsWithKeys_n51() public {
         // Add 48 more validators to reach 51 total (validator1, validator2, validator3 added in setUp).
@@ -376,7 +344,6 @@ contract StakingConsensusKeysTest is Test {
         assertEq(keys[found1].blsPubkey, PK_REF);
     }
 
-    // ============ Helpers ============
 
     /// @dev Register the committed valid PoP vector for `who` (PoP has no
     ///      address binding, so the single vector is valid for any address).

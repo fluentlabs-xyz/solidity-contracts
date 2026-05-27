@@ -5,7 +5,6 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 import {IStaking, IStakingEvents, IStakingErrors} from "./interfaces/IStaking.sol";
-import {ISlashingIndicator} from "./interfaces/ISlashingIndicator.sol";
 import {ISystemReward} from "./interfaces/ISystemReward.sol";
 import {IStakingPool} from "./interfaces/IStakingPool.sol";
 import {IFluentGovernance} from "./interfaces/IFluentGovernance.sol";
@@ -48,9 +47,7 @@ contract Staking is IStaking, StakingContext {
     uint256 internal constant BLS_PUBKEY_LENGTH = 96;
 
     /// @notice Safety margin (in epochs) added to the undelegate period when
-    ///         retaining frozen committees, covering Simplex consensus
-    ///         evidence activity_timeout. Exact value = economics calibration
-    ///         pre-mainnet.
+    ///         retaining frozen committees.
     uint64 internal constant EPOCH_COMMITTEE_RETENTION_MARGIN = 8;
 
     /**
@@ -170,25 +167,39 @@ contract Staking is IStaking, StakingContext {
         }
     }
 
+    /// @notice V1: liveness slasher predeploy address. ACL'd as a private
+    ///         immutable here rather than as a `StakingContext` field so the
+    ///         constructor cascade is isolated to `Staking.sol`.
+    address private immutable _livenessSlashingAddr;
+
     constructor(
         IStaking stakingContract,
-        ISlashingIndicator slashingIndicatorContract,
         ISystemReward systemRewardContract,
         IStakingPool stakingPoolContract,
         IFluentGovernance governanceContract,
         IChainConfig chainConfigContract,
-        IERC20 stakingToken
+        IERC20 stakingToken,
+        address livenessSlashingAddr
     )
         StakingContext(
             stakingContract,
-            slashingIndicatorContract,
             systemRewardContract,
             stakingPoolContract,
             governanceContract,
             chainConfigContract,
             stakingToken
         )
-    {}
+    {
+        _livenessSlashingAddr = livenessSlashingAddr;
+    }
+
+    /// @dev Gates the
+    ///      `LivenessSlashing` predeploy as the sole caller of
+    ///      `slash`.
+    modifier onlyFromLivenessSlashing() {
+        require(msg.sender == _livenessSlashingAddr, OnlyLivenessSlashing());
+        _;
+    }
 
     /**
      * @param initialOwner The address of the initial owner of the staking contract.
@@ -452,8 +463,8 @@ contract Staking is IStaking, StakingContext {
             // there is no any delegations at al, lets create the first one
             delegation.delegateQueue.push(DelegationOpDelegate({epoch: atEpoch, amount: uint112(amount / BALANCE_COMPACT_PRECISION)}));
         }
-        // Pull tokens after state updates so callback-capable tokens cannot observe partially
-        // updated delegation accounting.
+        // CEI: pull tokens after all state updates. If the staking token ever becomes
+        // callback-style (ERC-777), a reentrant re-entry would observe consistent state.
         if (pullTokens) {
             _stakingToken.safeTransferFrom(fromDelegator, address(this), amount);
         }
@@ -695,7 +706,12 @@ contract Staking is IStaking, StakingContext {
     function _calcValidatorSnapshotEpochPayout(
         ValidatorSnapshot memory validatorSnapshot
     ) internal view returns (uint256 delegatorFee, uint256 ownerFee, uint256 systemFee) {
-        // detect validator slashing to transfer all rewards to treasury
+        // Reward cliff at misdemeanor (NOT felony): once `slashesCount`
+        // crosses `misdemeanorThreshold` (default 50), BOTH delegator and
+        // owner rewards are zeroed and everything routes to the system
+        // treasury — even though felony/jailing only kicks in at
+        // `felonyThreshold` (default 150). This is an intentional asymmetry:
+        // punishment ramps up well before jailing.
         if (validatorSnapshot.slashesCount >= _chainConfigContract.getMisdemeanorThreshold()) {
             return (delegatorFee = 0, ownerFee = 0, systemFee = validatorSnapshot.totalRewards);
         } else if (validatorSnapshot.totalDelegated == 0) {
@@ -1048,13 +1064,16 @@ contract Staking is IStaking, StakingContext {
         }
     }
 
-    function slash(address validatorAddress) external virtual override onlyFromSlashingIndicator {
+    /// @notice Slash a validator for sustained liveness misses. Sole caller
+    ///         is the `LivenessSlashing` predeploy. Reuses `_slashValidator`.
+    function slash(address validatorAddress)
+        external
+        virtual
+        override
+        onlyFromLivenessSlashing
+    {
         _slashValidator(validatorAddress);
     }
-
-    // ============================
-    //  Consensus Keys (v1 — minimal registry, no on-chain crypto)
-    // ============================
 
     /// @notice Register consensus keys for `validator` with on-chain
     ///         Proof-of-Possession. One-shot — no rotation in v1.
@@ -1077,6 +1096,10 @@ contract Staking is IStaking, StakingContext {
         if (blsPubkeyUncompressed.length != 256 || blsPoPUncompressed.length != 128) {
             revert InvalidConsensusKeyEncoding();
         }
+        // Reject zero peerPubkey: combined with the no-rotation rule this
+        // would self-brick the validator (forever absent from any committee
+        // because byte-lex sort would never produce a slot for `bytes32(0)`).
+        if (peerPubkey == bytes32(0)) revert InvalidConsensusKeyEncoding();
 
         ConsensusKeysStorage storage $ck = _getConsensusKeysStorage();
         if ($ck.consensusKeys[validatorAddress].blsPubkey.length != 0) {
@@ -1092,7 +1115,7 @@ contract Staking is IStaking, StakingContext {
         // self-proves possession; there is no pre-existing anchor at
         // registration. PoP: namespace = base fluent_namespace (NO subject
         // suffix); DST = BLS_POP_… ; one G1 sig.
-        bytes memory blsPubkey = verifier.compressG2(blsPubkeyUncompressed);
+        bytes memory blsPubkey = verifier.compressG2Unchecked(blsPubkeyUncompressed);
 
         if (!verifier.verify(_fluentNamespace(), blsPubkey, BLS_POP_DST, blsPoPUncompressed, blsPubkeyUncompressed)) {
             revert InvalidProofOfPossession(validatorAddress);
@@ -1147,10 +1170,6 @@ contract Staking is IStaking, StakingContext {
         emit ValidatorSlashed(validatorAddress, slashesCount, epoch);
     }
 
-    // ============================
-    //  Epoch committee freeze + signer index resolution
-    // ============================
-
     /// @notice Freezes the canonical consensus committee for the current epoch.
     /// @dev System call: the sequencer injects this once on the first block of
     ///      a new epoch (zero gas price, from coinbase), passing the SAME
@@ -1169,8 +1188,7 @@ contract Staking is IStaking, StakingContext {
         external
         virtual
         override
-        onlyFromCoinbase
-        onlyZeroGasPrice
+        onlySystemCall
     {
         EpochCommitteeStorage storage $ec = _getEpochCommitteeStorage();
         uint64 epoch = _currentEpoch();
@@ -1180,8 +1198,8 @@ contract Staking is IStaking, StakingContext {
             return;
         }
 
-        // 1. mark the keyed subset of the same top-k set the reader is fed via
-        //    getValidatorsWithKeys() into a transient set; count it.
+        // Mark the keyed subset of the same top-k set the reader is fed via
+        // getValidatorsWithKeys() into a transient set; count it.
         address[] memory top = _getValidators();
         ConsensusKeysStorage storage $ck = _getConsensusKeysStorage();
         uint256 m = 0;
@@ -1192,10 +1210,10 @@ contract Staking is IStaking, StakingContext {
             }
         }
 
-        // 2. verify the submitted array IS that set, in strict ascending
-        //    peerPubkey order. length + (∈set) + (strictly ascending ⇒ distinct)
-        //    ⇒ by pigeonhole it is exactly the keyed top-k set, canonically
-        //    ordered. No trust in the sequencer-supplied ordering.
+        // Verify the submitted array IS that set, in strict ascending
+        // peerPubkey order. length + (∈set) + (strictly ascending ⇒ distinct)
+        // ⇒ by pigeonhole it is exactly the keyed top-k set, canonically
+        // ordered. No trust in the sequencer-supplied ordering.
         if (committee.length != m) revert CommitteeLengthMismatch(m, committee.length);
         address[] storage stored = $ec.committee[epoch];
         bytes32 prev = bytes32(0);
@@ -1211,9 +1229,8 @@ contract Staking is IStaking, StakingContext {
         }
         $ec.lastCommittedEpochP1 = epoch + 1;
 
-        // 3. prune the stale window. A cursor advances even across skipped
-        //    commits, so storage cannot leak under irregular cadence; the
-        //    per-call delete count is bounded to cap gas.
+        // Cursor-based prune advances even across skipped commits, so storage
+        // cannot leak under irregular cadence; per-call delete count is gas-capped.
         _pruneStaleCommittees($ec, epoch);
 
         emit EpochCommitteeCommitted(epoch, committee);
@@ -1278,8 +1295,6 @@ contract Staking is IStaking, StakingContext {
     function getEpochCommittee(uint64 epoch) external view override returns (address[] memory) {
         return _getEpochCommitteeStorage().committee[epoch];
     }
-
-    // ============ Equivocation slashing ============
 
     /// @dev fluent_namespace(chain_id) = "FLUENT_DPOS_V1_" ‖ chain_id u64 BE (23 B).
     ///      `block.chainid` == the Simplex consensus node `chain_id` (cross-component
@@ -1357,12 +1372,12 @@ contract Staking is IStaking, StakingContext {
         // Bind caller-supplied uncompressed inputs to the trust anchors:
         //  - pk   -> the validator's registered compressed key
         //  - sigN -> the exact 48 B compressed signature inside the evidence
-        if (keccak256(verifier.compressG2(pkUncompressed)) != keccak256(pk96)) {
+        if (keccak256(verifier.compressG2Unchecked(pkUncompressed)) != keccak256(pk96)) {
             revert EquivocationKeyMismatch();
         }
         if (
-            keccak256(verifier.compressG1(sig1Unc)) != keccak256(ev.sig1)
-                || keccak256(verifier.compressG1(sig2Unc)) != keccak256(ev.sig2)
+            keccak256(verifier.compressG1Unchecked(sig1Unc)) != keccak256(ev.sig1)
+                || keccak256(verifier.compressG1Unchecked(sig2Unc)) != keccak256(ev.sig2)
         ) revert EquivocationSignatureInvalid();
 
         bool ok1 = verifier.verify(_nsForKind(ev.kind1), ev.msg1, BLS_SIG_DST, sig1Unc, pkUncompressed);

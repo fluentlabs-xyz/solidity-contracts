@@ -8,11 +8,9 @@ import {IStakingContextErrors} from "../../contracts/staking/interfaces/IStaking
 import {ChainConfig} from "../../contracts/staking/ChainConfig.sol";
 import {IChainConfig} from "../../contracts/staking/interfaces/IChainConfig.sol";
 import {IFluentGovernance} from "../../contracts/staking/interfaces/IFluentGovernance.sol";
-import {ISlashingIndicator} from "../../contracts/staking/interfaces/ISlashingIndicator.sol";
 import {IStaking, IStakingErrors} from "../../contracts/staking/interfaces/IStaking.sol";
 import {IStakingPool} from "../../contracts/staking/interfaces/IStakingPool.sol";
 import {ISystemReward} from "../../contracts/staking/interfaces/ISystemReward.sol";
-import {SlashingIndicator} from "../../contracts/staking/SlashingIndicator.sol";
 import {Staking} from "../../contracts/staking/Staking.sol";
 import {StakingPool} from "../../contracts/staking/StakingPool.sol";
 import {SystemReward} from "../../contracts/staking/SystemReward.sol";
@@ -32,7 +30,6 @@ contract StakingAdditionalTest is Test {
     Staking internal staking;
     StakingPool internal stakingPool;
     ChainConfig internal chainConfig;
-    SlashingIndicator internal slashingIndicator;
     SystemReward internal systemReward;
     MockBlendToken internal blend;
 
@@ -61,7 +58,6 @@ contract StakingAdditionalTest is Test {
 
     function test_canAddAndRemoveValidator() public {
         assertEq(address(staking.getStaking()), address(staking));
-        assertEq(address(staking.getSlashingIndicator()), address(slashingIndicator));
         assertEq(address(staking.getSystemReward()), address(systemReward));
         assertEq(address(staking.getStakingPool()), address(stakingPool));
         assertEq(address(staking.getGovernance()), address(this));
@@ -80,7 +76,6 @@ contract StakingAdditionalTest is Test {
 
     function test_ownerControlsUUPSUpgrade() public {
         assertEq(staking.owner(), address(this));
-        assertEq(slashingIndicator.owner(), address(this));
         assertEq(systemReward.owner(), address(this));
         assertEq(stakingPool.owner(), address(this));
         assertEq(chainConfig.owner(), address(this));
@@ -89,12 +84,12 @@ contract StakingAdditionalTest is Test {
         Staking predictedProxy = Staking(_computeCreateAddress(address(this), nonce + 1));
         Staking implementation = new Staking(
             predictedProxy,
-            ISlashingIndicator(address(predictedProxy)),
             ISystemReward(address(predictedProxy)),
             IStakingPool(address(predictedProxy)),
             IFluentGovernance(address(this)),
             IChainConfig(address(predictedProxy)),
-            blend
+            blend,
+            address(0)
         );
         Staking proxy = Staking(
             address(
@@ -106,12 +101,12 @@ contract StakingAdditionalTest is Test {
         );
         Staking upgradedImplementation = new Staking(
             proxy,
-            ISlashingIndicator(address(proxy)),
             ISystemReward(address(proxy)),
             IStakingPool(address(proxy)),
             IFluentGovernance(address(this)),
             IChainConfig(address(proxy)),
-            blend
+            blend,
+            address(0)
         );
 
         assertEq(address(proxy), address(predictedProxy));
@@ -1092,11 +1087,9 @@ contract StakingAdditionalTest is Test {
     ) internal {
         uint64 nonce = vm.getNonce(address(this));
         IStaking predictedStaking = IStaking(_computeCreateAddress(address(this), nonce + 1));
-        ISlashingIndicator predictedSlashingIndicator =
-            ISlashingIndicator(_computeCreateAddress(address(this), nonce + 3));
-        ISystemReward predictedSystemReward = ISystemReward(_computeCreateAddress(address(this), nonce + 5));
-        IStakingPool predictedStakingPool = IStakingPool(_computeCreateAddress(address(this), nonce + 7));
-        IChainConfig predictedChainConfig = IChainConfig(_computeCreateAddress(address(this), nonce + 9));
+        ISystemReward predictedSystemReward = ISystemReward(_computeCreateAddress(address(this), nonce + 3));
+        IStakingPool predictedStakingPool = IStakingPool(_computeCreateAddress(address(this), nonce + 5));
+        IChainConfig predictedChainConfig = IChainConfig(_computeCreateAddress(address(this), nonce + 7));
         IFluentGovernance governance = IFluentGovernance(address(this));
 
         uint256 totalInitialStakes = _sum(initialStakes);
@@ -1107,12 +1100,12 @@ contract StakingAdditionalTest is Test {
 
         Staking stakingImpl = new Staking(
             predictedStaking,
-            predictedSlashingIndicator,
             predictedSystemReward,
             predictedStakingPool,
             governance,
             predictedChainConfig,
-            blend
+            blend,
+            address(0)
         );
         staking = Staking(
             payable(address(
@@ -1123,26 +1116,8 @@ contract StakingAdditionalTest is Test {
                 ))
         );
 
-        SlashingIndicator slashingIndicatorImpl = new SlashingIndicator(
-            predictedStaking,
-            predictedSlashingIndicator,
-            predictedSystemReward,
-            predictedStakingPool,
-            governance,
-            predictedChainConfig,
-            blend
-        );
-        slashingIndicator = SlashingIndicator(
-            address(
-                new ERC1967Proxy(
-                    address(slashingIndicatorImpl), abi.encodeCall(SlashingIndicator.initialize, (address(this)))
-                )
-            )
-        );
-
         SystemReward systemRewardImpl = new SystemReward(
             predictedStaking,
-            predictedSlashingIndicator,
             predictedSystemReward,
             predictedStakingPool,
             governance,
@@ -1160,7 +1135,6 @@ contract StakingAdditionalTest is Test {
 
         StakingPool stakingPoolImpl = new StakingPool(
             predictedStaking,
-            predictedSlashingIndicator,
             predictedSystemReward,
             predictedStakingPool,
             governance,
@@ -1175,7 +1149,6 @@ contract StakingAdditionalTest is Test {
 
         ChainConfig chainConfigImpl = new ChainConfig(
             predictedStaking,
-            predictedSlashingIndicator,
             predictedSystemReward,
             predictedStakingPool,
             governance,
@@ -1205,7 +1178,6 @@ contract StakingAdditionalTest is Test {
         );
 
         assertEq(address(staking), address(predictedStaking));
-        assertEq(address(slashingIndicator), address(predictedSlashingIndicator));
         assertEq(address(systemReward), address(predictedSystemReward));
         assertEq(address(stakingPool), address(predictedStakingPool));
         assertEq(address(chainConfig), address(predictedChainConfig));
@@ -1243,8 +1215,11 @@ contract StakingAdditionalTest is Test {
     }
 
     function _slash(address validator) internal {
-        vm.coinbase(address(this));
-        slashingIndicator.slash(validator);
+        // Staking is deployed with _livenessSlashingAddr = address(0)
+        // in this test stack; pranking address(0) satisfies the
+        // onlyFromLivenessSlashing modifier.
+        vm.prank(address(0));
+        staking.slash(validator);
     }
 
     function _fund(address account) internal {

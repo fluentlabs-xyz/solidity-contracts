@@ -17,17 +17,18 @@ interface IChainConfigEvents {
 /// @title Staking chain configuration interface
 /// @notice Exposes governance-controlled parameters used by validator staking and reward accounting.
 interface IChainConfig {
-    /// ================ Errors ================
-
     /**
-     * @notice Thrown when the value is zero.
-     * @dev selector: TODO
+     * @notice Value must be strictly greater than zero.
+     * @param field Name of the rejected configuration field, included for off-chain diagnostics.
      */
     error ZeroValue(string field);
 
     /**
-     * @notice Thrown when the misdemeanor threshold is not met.
-     * @dev selector: TODO
+     * @notice Slash threshold ordering invariant was violated.
+     * @dev Misdemeanor threshold must be `<=` felony threshold (and felony must be `>=`
+     *      misdemeanor) so escalation always progresses; raised by either setter when the new
+     *      value would invert the ordering, and by initialization when the bootstrap parameters
+     *      are inconsistent.
      */
     error MisdemeanorThresholdNotMet();
 

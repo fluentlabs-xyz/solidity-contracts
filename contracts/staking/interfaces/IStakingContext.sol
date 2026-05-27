@@ -91,9 +91,16 @@ interface IStakingContextErrors {
      */
     error OnlyGovernance();
     /**
-     * @notice Thrown when the sender is not the slashing indicator.
+     * @notice Thrown when the sender is not the EIP-4788 system-caller
+     *         sentinel. Used by `onlySystemCall`.
      */
-    error OnlySlashingIndicator();
+    error OnlySystemCall();
+    /**
+     * @notice Thrown when the sender is not the `LivenessSlashing`
+     *         predeploy. Used by `Staking.onlyFromLivenessSlashing`
+     *         to gate `slash`.
+     */
+    error OnlyLivenessSlashing();
     /**
      * @notice Thrown when the sender is not the staking contract.
      */

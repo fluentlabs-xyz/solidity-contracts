@@ -10,7 +10,6 @@ import "../SystemReward.sol";
 contract MockSystemReward is SystemReward {
     constructor(
         IStaking stakingContract,
-        ISlashingIndicator slashingIndicatorContract,
         ISystemReward systemRewardContract,
         IStakingPool stakingPoolContract,
         IFluentGovernance governanceContract,
@@ -19,7 +18,6 @@ contract MockSystemReward is SystemReward {
     )
         SystemReward(
             stakingContract,
-            slashingIndicatorContract,
             systemRewardContract,
             stakingPoolContract,
             governanceContract,

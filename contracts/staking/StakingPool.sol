@@ -7,7 +7,6 @@ import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 import {IStaking} from "./interfaces/IStaking.sol";
 import {IStakingPool} from "./interfaces/IStakingPool.sol";
-import {ISlashingIndicator} from "./interfaces/ISlashingIndicator.sol";
 import {ISystemReward} from "./interfaces/ISystemReward.sol";
 import {IFluentGovernance} from "./interfaces/IFluentGovernance.sol";
 import {IChainConfig} from "./interfaces/IChainConfig.sol";
@@ -55,7 +54,6 @@ contract StakingPool is StakingContext, IStakingPool {
 
     constructor(
         IStaking stakingContract,
-        ISlashingIndicator slashingIndicatorContract,
         ISystemReward systemRewardContract,
         IStakingPool stakingPoolContract,
         IFluentGovernance governanceContract,
@@ -64,7 +62,6 @@ contract StakingPool is StakingContext, IStakingPool {
     )
         StakingContext(
             stakingContract,
-            slashingIndicatorContract,
             systemRewardContract,
             stakingPoolContract,
             governanceContract,

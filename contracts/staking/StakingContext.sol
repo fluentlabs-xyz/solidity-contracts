@@ -8,11 +8,13 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {IChainConfig} from "./interfaces/IChainConfig.sol";
 import {IFluentGovernance} from "./interfaces/IFluentGovernance.sol";
-import {ISlashingIndicator} from "./interfaces/ISlashingIndicator.sol";
 import {IStaking} from "./interfaces/IStaking.sol";
 import {IStakingPool} from "./interfaces/IStakingPool.sol";
 import {ISystemReward} from "./interfaces/ISystemReward.sol";
 import {IStakingContextErrors} from "./interfaces/IStakingContext.sol";
+
+// EIP-4788 / EIP-7002 / EIP-2935 canonical system sentinel address.
+address constant SYSTEM_CALLER = 0xffffFFFfFFffffffffffffffFfFFFfffFFFfFFfE;
 
 /**
  * @title Staking system context
@@ -21,38 +23,15 @@ import {IStakingContextErrors} from "./interfaces/IStakingContext.sol";
  * @dev Each concrete staking contract wires shared dependencies through immutable constructor arguments.
  */
 abstract contract StakingContext is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, IStakingContextErrors {
-    /**
-     * @notice The staking contract.
-     */
     IStaking internal immutable _stakingContract;
-    /**
-     * @notice The slashing indicator contract.
-     */
-    ISlashingIndicator internal immutable _slashingIndicatorContract;
-    /**
-     * @notice The system reward contract.
-     */
     ISystemReward internal immutable _systemRewardContract;
-    /**
-     * @notice The staking pool contract.
-     */
     IStakingPool internal immutable _stakingPoolContract;
-    /**
-     * @notice The governance contract.
-     */
     IFluentGovernance internal immutable _governanceContract;
-    /**
-     * @notice The chain config contract.
-     */
     IChainConfig internal immutable _chainConfigContract;
-    /**
-     * @notice The staking token.
-     */
     IERC20 internal immutable _stakingToken;
 
     constructor(
         IStaking stakingContract,
-        ISlashingIndicator slashingIndicatorContract,
         ISystemReward systemRewardContract,
         IStakingPool stakingPoolContract,
         IFluentGovernance governanceContract,
@@ -60,13 +39,11 @@ abstract contract StakingContext is Initializable, UUPSUpgradeable, Ownable2Step
         IERC20 stakingToken
     ) {
         _stakingContract = stakingContract;
-        _slashingIndicatorContract = slashingIndicatorContract;
         _systemRewardContract = systemRewardContract;
         _stakingPoolContract = stakingPoolContract;
         _governanceContract = governanceContract;
         _chainConfigContract = chainConfigContract;
         _stakingToken = stakingToken;
-        // Disable initializer for UUPS proxy contract.
         _disableInitializers();
     }
 
@@ -81,8 +58,10 @@ abstract contract StakingContext is Initializable, UUPSUpgradeable, Ownable2Step
         _;
     }
 
-    modifier onlyFromSlashingIndicator() {
-        require(msg.sender == address(_slashingIndicatorContract), OnlySlashingIndicator());
+    /// @dev System-call entry-point guard. Only callable when `msg.sender`
+    ///      is the canonical EIP-4788 sentinel.
+    modifier onlySystemCall() {
+        require(msg.sender == SYSTEM_CALLER, OnlySystemCall());
         _;
     }
 
@@ -98,10 +77,6 @@ abstract contract StakingContext is Initializable, UUPSUpgradeable, Ownable2Step
 
     function getStaking() public view returns (IStaking) {
         return _stakingContract;
-    }
-
-    function getSlashingIndicator() public view returns (ISlashingIndicator) {
-        return _slashingIndicatorContract;
     }
 
     function getSystemReward() public view returns (ISystemReward) {

@@ -8,8 +8,7 @@ pragma solidity ^0.8.0;
  */
 interface IFluentGovernance {
     /**
-     * @dev The `account` is not a validator owner.
-     * @dev selector: TODO
+     * @notice Caller is not the active validator owner required by a governance action.
      */
     error OnlyValidatorOwner();
 

@@ -83,7 +83,6 @@ contract BlsHashToG1ConformanceTest is Test {
         }
     }
 
-    // ---- end-to-end verify corpus (PoP DST, real keys) ---- //
     // PoP message == the pubkey, so a valid PoP signature is a complete
     // verify tuple. ns = fluent_namespace(C_MAIN), dst = POP.
 
@@ -109,8 +108,8 @@ contract BlsHashToG1ConformanceTest is Test {
 
     function test_verify_endToEnd() public view {
         // On-chain compression must equal the corpus compressed vectors.
-        assertEq(v.compressG2(PK_UNC), PK_REF, "compressG2(PK_UNC)");
-        assertEq(v.compressG1(SIG_UNC_VALID), SIG_REF_VALID, "compressG1(SIG_UNC_VALID)");
+        assertEq(v.compressG2Unchecked(PK_UNC), PK_REF, "compressG2Unchecked(PK_UNC)");
+        assertEq(v.compressG1Unchecked(SIG_UNC_VALID), SIG_REF_VALID, "compressG1Unchecked(SIG_UNC_VALID)");
 
         // pkRef is also the message for both verify rows.
         bool valid = v.verify(VERIFY_NS, PK_REF, DST_POP, SIG_UNC_VALID, PK_UNC);
@@ -121,7 +120,6 @@ contract BlsHashToG1ConformanceTest is Test {
         assertFalse(tampered, "verify_pop_tampered_sig");
     }
 
-    // ---- negative tests ---- //
 
     function test_verify_revertsInfinity_sig() public {
         bytes memory zeroSig = new bytes(128);
@@ -135,7 +133,6 @@ contract BlsHashToG1ConformanceTest is Test {
         v.verify(VERIFY_NS, PK_REF, DST_POP, SIG_UNC_VALID, zeroPk);
     }
 
-    // ---- precompile presence guards ---- //
     // Mirror Eip2537Conformance.t.sol's present-guard: an absent precompile
     // "succeeds" with empty output; a real one rejects malformed input.
 

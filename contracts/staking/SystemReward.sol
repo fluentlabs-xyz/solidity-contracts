@@ -6,7 +6,6 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 
 import {StakingContext} from "./StakingContext.sol";
 import {IStaking} from "./interfaces/IStaking.sol";
-import {ISlashingIndicator} from "./interfaces/ISlashingIndicator.sol";
 import {ISystemReward} from "./interfaces/ISystemReward.sol";
 import {IStakingPool} from "./interfaces/IStakingPool.sol";
 import {IFluentGovernance} from "./interfaces/IFluentGovernance.sol";
@@ -55,7 +54,6 @@ contract SystemReward is ISystemReward, StakingContext {
 
     constructor(
         IStaking stakingContract,
-        ISlashingIndicator slashingIndicatorContract,
         ISystemReward systemRewardContract,
         IStakingPool stakingPoolContract,
         IFluentGovernance governanceContract,
@@ -64,7 +62,6 @@ contract SystemReward is ISystemReward, StakingContext {
     )
         StakingContext(
             stakingContract,
-            slashingIndicatorContract,
             systemRewardContract,
             stakingPoolContract,
             governanceContract,

@@ -9,7 +9,6 @@ import {MockStaking} from "../../contracts/staking/mocks/MockStaking.sol";
 import {MockSystemReward} from "../../contracts/staking/mocks/MockSystemReward.sol";
 import {IChainConfig} from "../../contracts/staking/interfaces/IChainConfig.sol";
 import {IFluentGovernance} from "../../contracts/staking/interfaces/IFluentGovernance.sol";
-import {ISlashingIndicator} from "../../contracts/staking/interfaces/ISlashingIndicator.sol";
 import {IStaking} from "../../contracts/staking/interfaces/IStaking.sol";
 import {IStakingPool} from "../../contracts/staking/interfaces/IStakingPool.sol";
 import {ISystemReward} from "../../contracts/staking/interfaces/ISystemReward.sol";
@@ -26,8 +25,6 @@ contract ReplaceStakingWithMocks is Script {
     struct StakingAddresses {
         address staking;
         address stakingImpl;
-        address slashingIndicator;
-        address slashingIndicatorImpl;
         address systemReward;
         address systemRewardImpl;
         address stakingPool;
@@ -52,7 +49,6 @@ contract ReplaceStakingWithMocks is Script {
 
         _assertHasCode(a.staking, "staking proxy");
         _assertHasCode(a.systemReward, "system reward proxy");
-        _assertHasCode(a.slashingIndicator, "slashing indicator proxy");
         _assertHasCode(a.stakingPool, "staking pool proxy");
         _assertHasCode(a.chainConfig, "chain config proxy");
         _assertHasCode(a.governance, "governance proxy");
@@ -68,18 +64,17 @@ contract ReplaceStakingWithMocks is Script {
 
         MockStaking mockStaking = new MockStaking(
             IStaking(a.staking),
-            ISlashingIndicator(a.slashingIndicator),
             ISystemReward(a.systemReward),
             IStakingPool(a.stakingPool),
             IFluentGovernance(a.governance),
             IChainConfig(a.chainConfig),
-            stakingToken
+            stakingToken,
+            address(0)
         );
         _upgradeToAndCall(a.staking, address(mockStaking));
 
         MockSystemReward mockSystemReward = new MockSystemReward(
             IStaking(a.staking),
-            ISlashingIndicator(a.slashingIndicator),
             ISystemReward(a.systemReward),
             IStakingPool(a.stakingPool),
             IFluentGovernance(a.governance),
@@ -113,8 +108,6 @@ contract ReplaceStakingWithMocks is Script {
     function _readStakingAddresses(string memory json) internal pure returns (StakingAddresses memory a) {
         a.staking = json.readAddress(".staking");
         a.stakingImpl = json.readAddress(".staking_impl");
-        a.slashingIndicator = json.readAddress(".slashing_indicator");
-        a.slashingIndicatorImpl = json.readAddress(".slashing_indicator_impl");
         a.systemReward = json.readAddress(".system_reward");
         a.systemRewardImpl = json.readAddress(".system_reward_impl");
         a.stakingPool = json.readAddress(".staking_pool");
@@ -144,8 +137,6 @@ contract ReplaceStakingWithMocks is Script {
     function _writeStakingAddresses(StakingAddresses memory a, string memory outputPath) internal {
         string memory out = vm.serializeAddress("stakingDeployment", "staking", a.staking);
         out = vm.serializeAddress("stakingDeployment", "staking_impl", a.stakingImpl);
-        out = vm.serializeAddress("stakingDeployment", "slashing_indicator", a.slashingIndicator);
-        out = vm.serializeAddress("stakingDeployment", "slashing_indicator_impl", a.slashingIndicatorImpl);
         out = vm.serializeAddress("stakingDeployment", "system_reward", a.systemReward);
         out = vm.serializeAddress("stakingDeployment", "system_reward_impl", a.systemRewardImpl);
         out = vm.serializeAddress("stakingDeployment", "staking_pool", a.stakingPool);
