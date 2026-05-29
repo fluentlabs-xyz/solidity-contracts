@@ -62,8 +62,13 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         ///      consumed by the rollup. Computed at send as
         ///      `block.number + _depositProcessingWindow` and never modified.
         mapping(uint64 => uint64) _sentMessageProcessByBlock;
+        /// @dev Originating rollup batch index for messages that failed during proof-based
+        ///      receive. Restored during {receiveFailedMessage} retries so gateway
+        ///      fast-withdrawal checks see the original batch context. Zero means unset;
+        ///      proof-based withdrawals cannot originate from genesis batch 0.
+        mapping(bytes32 => uint256) _failedMessageBatchIndex;
         /// @dev Reserved for future storage fields.
-        uint256[50] __gap;
+        uint256[49] __gap;
     }
 
     // ============ Transient storage ============
@@ -264,8 +269,26 @@ contract L1FluentBridge is FluentBridge, IL1FluentBridge {
         // Execute the cross-chain message with gasleft(), forwarding remaining gas
         // _receiveMessage records the outcome (Success/Failed) in storage
         (bool success, bytes memory data) = _receiveMessage(getExecuteGasLimit(), from, to, value, message, messageHash);
+        if (success) {
+            delete _getL1FluentBridgeStorage()._failedMessageBatchIndex[messageHash];
+        } else {
+            _getL1FluentBridgeStorage()._failedMessageBatchIndex[messageHash] = batchIndex;
+        }
         emit ReceivedMessage(messageHash, success, data);
         // Clear the transient batch index
+        _currentBatchIndex = 0;
+    }
+
+    function _beforeRetryFailedMessage(bytes32 messageHash) internal override {
+        uint256 batchIndex = _getL1FluentBridgeStorage()._failedMessageBatchIndex[messageHash];
+        if (batchIndex == 0) return;
+        _currentBatchIndex = batchIndex;
+    }
+
+    function _afterRetryFailedMessage(bytes32 messageHash, bool success) internal override {
+        if (success) {
+            delete _getL1FluentBridgeStorage()._failedMessageBatchIndex[messageHash];
+        }
         _currentBatchIndex = 0;
     }
 
