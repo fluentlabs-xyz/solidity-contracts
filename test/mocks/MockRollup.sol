@@ -6,6 +6,7 @@ import {BatchRecord, BatchStatus} from "../../contracts/interfaces/rollup/IRollu
 contract MockRollup {
     bool public finalized;
     bool public corrupted;
+    BatchStatus public batchStatusOverride;
     mapping(uint256 => bytes32) public batchRoots;
 
     function setFinalized(bool value) external {
@@ -14,6 +15,10 @@ contract MockRollup {
 
     function setCorrupted(bool value) external {
         corrupted = value;
+    }
+
+    function setBatchStatus(BatchStatus status) external {
+        batchStatusOverride = status;
     }
 
     function setBatchRoot(uint256 batchIndex, bytes32 root) external {
@@ -28,13 +33,19 @@ contract MockRollup {
         return corrupted;
     }
 
+    function isBatchPreconfirmed(uint256) external view returns (bool) {
+        return batchStatusOverride == BatchStatus.Preconfirmed;
+    }
+
     function getBatch(uint256 batchIndex) external view returns (BatchRecord memory) {
+        BatchStatus status = batchStatusOverride;
+        if (status == BatchStatus.None && finalized) status = BatchStatus.Finalized;
         return
             BatchRecord({
                 batchRoot: batchRoots[batchIndex],
                 acceptedAtBlock: 0,
                 expectedBlobs: 0,
-                status: finalized ? BatchStatus.Finalized : BatchStatus.None,
+                status: status,
                 sentMessageCursorStart: 0,
                 submitBlobsWindowSnapshot: 0,
                 preconfirmationWindowSnapshot: 0,

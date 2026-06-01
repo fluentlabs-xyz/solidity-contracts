@@ -128,7 +128,9 @@ abstract contract FluentBridge is FluentBridgeStorageLayout, IFluentBridgeWrite 
             return;
         }
 
+        _beforeRetryFailedMessage(messageHash);
         (bool success, bytes memory data) = _receiveMessage(gasleft(), from, to, value, message, messageHash);
+        _afterRetryFailedMessage(messageHash, success);
         emit RetriedFailedMessage(messageHash, success, data);
     }
 
@@ -148,6 +150,17 @@ abstract contract FluentBridge is FluentBridgeStorageLayout, IFluentBridgeWrite 
     ) internal virtual returns (bool) {
         return true;
     }
+
+    /**
+     * @dev Hook called immediately before retrying a message previously marked as Failed.
+     *      L1 overrides this to restore proof-origin batch context for optimistic withdrawals.
+     */
+    function _beforeRetryFailedMessage(bytes32 /* messageHash */) internal virtual {}
+
+    /**
+     * @dev Hook called after a failed-message retry is attempted.
+     */
+    function _afterRetryFailedMessage(bytes32 /* messageHash */, bool /* success */) internal virtual {}
 
     /**
      * @dev Core message execution: sets {_nativeSender} for cross-chain sender identification,

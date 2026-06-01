@@ -5,14 +5,32 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 
 import {L1FluentBridge} from "../../contracts/bridge/L1/L1FluentBridge.sol";
 import {FluentBridgeStorageLayout} from "../../contracts/bridge/FluentBridgeStorageLayout.sol";
-import {IFluentBridge, IFluentBridgeEvents} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
+import {IFluentBridge, IFluentBridgeEvents, IFluentBridgeRead} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {IL1FluentBridge} from "../../contracts/interfaces/bridge/IL1FluentBridge.sol";
 import {IFluentBridgeErrors} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {MerkleTree} from "../../contracts/libraries/MerkleTree.sol";
-import {L2BlockHeader} from "../../contracts/interfaces/rollup/IRollupTypes.sol";
+import {BatchStatus, L2BlockHeader} from "../../contracts/interfaces/rollup/IRollupTypes.sol";
 import {IRollupErrors} from "../../contracts/interfaces/rollup/IRollup.sol";
 import {MockRollup} from "../mocks/MockRollup.sol";
 import {BridgeBase, NoopReceiver, RevertingReceiver} from "./Base.t.sol";
+
+contract PreconfirmedRetryReceiver {
+    IFluentBridgeRead internal immutable bridge;
+    bool internal shouldFail = true;
+
+    constructor(IFluentBridgeRead bridge_) {
+        bridge = bridge_;
+    }
+
+    function setShouldFail(bool value) external {
+        shouldFail = value;
+    }
+
+    function handle() external view {
+        require(bridge.isCurrentBatchPreconfirmed(), "missing-preconfirmed-context");
+        if (shouldFail) revert("first-failure");
+    }
+}
 
 contract L1FluentBridgeTest is BridgeBase {
     address internal otherBridge = makeAddr("otherBridge");
@@ -470,6 +488,63 @@ contract L1FluentBridgeTest is BridgeBase {
             emptyProof,
             emptyProof
         );
+    }
+
+    function test_receiveFailedMessage_restoresPreconfirmedBatchContext() public {
+        rollup.setBatchStatus(BatchStatus.Preconfirmed);
+
+        address from = makeAddr("l2sender");
+        PreconfirmedRetryReceiver target = new PreconfirmedRetryReceiver(IFluentBridgeRead(address(l1Bridge)));
+        address payable to = payable(address(target));
+        _registerOnL1Bridge(to);
+
+        uint256 value = 0;
+        uint256 chainId = block.chainid + 1;
+        uint256 validUntilBlockNumber = 1;
+        uint256 messageNonce = 0;
+        bytes memory message = abi.encodeCall(PreconfirmedRetryReceiver.handle, ());
+
+        bytes32 messageHash = keccak256(
+            abi.encode(from, to, value, chainId, validUntilBlockNumber, messageNonce, message)
+        );
+
+        L2BlockHeader memory header = L2BlockHeader({
+            previousBlockHash: bytes32(uint256(1)),
+            blockHash: bytes32(uint256(2)),
+            withdrawalRoot: messageHash,
+            depositRoot: bytes32(0),
+            depositCount: 0
+        });
+
+        bytes32 commitment = keccak256(
+            abi.encodePacked(header.previousBlockHash, header.blockHash, header.withdrawalRoot, header.depositRoot)
+        );
+        rollup.setBatchRoot(1, commitment);
+
+        MerkleTree.MerkleProof memory emptyProof = MerkleTree.MerkleProof(0, "");
+
+        vm.prank(relayer);
+        l1Bridge.receiveMessageWithProof(
+            1,
+            header,
+            from,
+            to,
+            value,
+            chainId,
+            validUntilBlockNumber,
+            messageNonce,
+            message,
+            emptyProof,
+            emptyProof
+        );
+
+        assertEq(uint8(l1Bridge.getReceivedMessage(messageHash)), uint8(IFluentBridge.MessageStatus.Failed));
+
+        target.setShouldFail(false);
+
+        l1Bridge.receiveFailedMessage(from, to, value, chainId, validUntilBlockNumber, messageNonce, message);
+
+        assertEq(uint8(l1Bridge.getReceivedMessage(messageHash)), uint8(IFluentBridge.MessageStatus.Success));
     }
 
     // ============ receiveMessageWithProof revert paths ============
