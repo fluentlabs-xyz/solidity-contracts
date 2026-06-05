@@ -3,11 +3,7 @@ pragma solidity 0.8.30;
 
 import {GatewayBase} from "./GatewayBase.sol";
 import {FluentBridge} from "../bridge/FluentBridge.sol";
-import {
-    IFluentRuntime,
-    IFluentRuntimeGateway,
-    IFluentRuntimeResponseHandler
-} from "../interfaces/gateways/IFluentRuntimeGateway.sol";
+import {IFluentRuntimeGateway, IFluentRuntimeResponseHandler} from "../interfaces/gateways/IFluentRuntimeGateway.sol";
 
 /**
  * @title FluentRuntimeGateway
@@ -15,8 +11,9 @@ import {
  * @dev Source-chain users submit the Fluent Runtime payload plus native value for runtime execution.
  *      The existing FluentBridge message lifecycle then handles relay delivery, failure
  *      recording, and retry. On the destination chain, this gateway verifies the remote
- *      gateway sender, forwards the request to the configured Fluent Runtime endpoint,
- *      and stores the execution result for a follow-up response message back to the source gateway.
+ *      gateway sender, deploys WASM bytecode with native CREATE or invokes an existing
+ *      WASM contract directly, and stores the execution result for a follow-up response
+ *      message back to the source gateway.
  */
 contract FluentRuntimeGateway is GatewayBase, IFluentRuntimeGateway {
     /// @dev keccak256(abi.encode(uint256(keccak256("Fluent.storage.FluentRuntimeGatewayStorage")) - 1)) & ~bytes32(uint256(0xff))
@@ -25,10 +22,9 @@ contract FluentRuntimeGateway is GatewayBase, IFluentRuntimeGateway {
 
     /// @custom:storage-location erc7201:Fluent.storage.FluentRuntimeGatewayStorage
     struct FluentRuntimeGatewayStorage {
-        address _runtime;
         uint256 _nextRequestNonce;
         mapping(bytes32 requestId => ExecutionResult result) _executionResults;
-        uint256[47] __gap;
+        uint256[48] __gap;
     }
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -36,9 +32,8 @@ contract FluentRuntimeGateway is GatewayBase, IFluentRuntimeGateway {
         _disableInitializers();
     }
 
-    function initialize(address initialOwner, address bridgeContract, address runtime) external initializer {
+    function initialize(address initialOwner, address bridgeContract) external initializer {
         __GatewayBase_init(initialOwner, bridgeContract);
-        _setRuntime(runtime);
     }
 
     function requestDeploy(bytes calldata wasmBytecode, bytes calldata constructorCalldata)
@@ -88,7 +83,7 @@ contract FluentRuntimeGateway is GatewayBase, IFluentRuntimeGateway {
         require(requester != address(0), InvalidRecipient());
         require(wasmBytecode.length != 0, EmptyWasmBytecode());
 
-        (bool success, bytes memory returnData) = _callDeployRuntime(requester, wasmBytecode, constructorCalldata);
+        (bool success, bytes memory returnData) = _deployWasmNative(wasmBytecode, constructorCalldata);
         _recordExecutionResult(requestId, requester, responseHandler, success, returnData, false);
     }
 
@@ -104,7 +99,7 @@ contract FluentRuntimeGateway is GatewayBase, IFluentRuntimeGateway {
         require(requester != address(0), InvalidRecipient());
         require(wasmContract != address(0), InvalidWasmContract());
 
-        (bool success, bytes memory resultData) = _callInvokeRuntime(requester, wasmContract, calldataPayload);
+        (bool success, bytes memory resultData) = _invokeWasmContract(wasmContract, calldataPayload);
         _recordExecutionResult(requestId, requester, responseHandler, success, resultData, false);
     }
 
@@ -180,20 +175,12 @@ contract FluentRuntimeGateway is GatewayBase, IFluentRuntimeGateway {
         }
     }
 
-    function getRuntime() public view returns (address) {
-        return _getFluentRuntimeGatewayStorage()._runtime;
-    }
-
     function getNextRequestNonce() public view returns (uint256) {
         return _getFluentRuntimeGatewayStorage()._nextRequestNonce;
     }
 
     function getExecutionResult(bytes32 requestId) public view returns (ExecutionResult memory) {
         return _getFluentRuntimeGatewayStorage()._executionResults[requestId];
-    }
-
-    function setRuntime(address newRuntime) external onlyOwner {
-        _setRuntime(newRuntime);
     }
 
     function _requestDeploy(bytes calldata wasmBytecode, bytes calldata constructorCalldata, address responseHandler)
@@ -234,47 +221,36 @@ contract FluentRuntimeGateway is GatewayBase, IFluentRuntimeGateway {
         );
     }
 
-    function _callDeployRuntime(address requester, bytes calldata wasmBytecode, bytes calldata constructorCalldata)
+    function _deployWasmNative(bytes calldata wasmBytecode, bytes calldata constructorCalldata)
         internal
         returns (bool success, bytes memory returnData)
     {
-        address runtime = getRuntime();
-        if (runtime == address(0)) {
-            return (false, abi.encodeWithSelector(RuntimeNotConfigured.selector));
+        bytes memory initCode = abi.encodePacked(wasmBytecode, constructorCalldata);
+        address deployed;
+        uint256 value = msg.value;
+
+        assembly ("memory-safe") {
+            deployed := create(value, add(initCode, 0x20), mload(initCode))
         }
 
-        return runtime.call{value: msg.value}(
-            abi.encodeCall(IFluentRuntime.deployWasm, (requester, wasmBytecode, constructorCalldata))
-        );
+        if (deployed == address(0)) {
+            return (false, abi.encodeWithSelector(NativeWasmDeployFailed.selector));
+        }
+
+        return (true, abi.encode(deployed));
     }
 
-    function _callInvokeRuntime(address requester, address wasmContract, bytes calldata calldataPayload)
+    function _invokeWasmContract(address wasmContract, bytes calldata calldataPayload)
         internal
         returns (bool success, bytes memory resultData)
     {
-        address runtime = getRuntime();
-        if (runtime == address(0)) {
-            return (false, abi.encodeWithSelector(RuntimeNotConfigured.selector));
-        }
-
-        (success, resultData) = runtime.call{value: msg.value}(
-            abi.encodeCall(IFluentRuntime.invokeWasm, (requester, wasmContract, calldataPayload))
-        );
-        if (success) {
-            resultData = abi.decode(resultData, (bytes));
-        }
+        return wasmContract.call{value: msg.value}(calldataPayload);
     }
 
     function _takeNextRequestId(address requester) internal returns (bytes32 requestId) {
         FluentRuntimeGatewayStorage storage $ = _getFluentRuntimeGatewayStorage();
         uint256 nonce = $._nextRequestNonce++;
         requestId = keccak256(abi.encode(address(this), block.chainid, requester, nonce));
-    }
-
-    function _setRuntime(address newRuntime) internal {
-        FluentRuntimeGatewayStorage storage $ = _getFluentRuntimeGatewayStorage();
-        emit RuntimeUpdated($._runtime, newRuntime);
-        $._runtime = newRuntime;
     }
 
     receive() external payable {}

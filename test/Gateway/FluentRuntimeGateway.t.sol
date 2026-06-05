@@ -13,7 +13,29 @@ import {
 } from "../../contracts/interfaces/gateways/IFluentRuntimeGateway.sol";
 import {FluentRuntimeGateway} from "../../contracts/gateways/FluentRuntimeGateway.sol";
 import {GatewayBase} from "./Base.t.sol";
-import {MockFluentRuntime} from "../mocks/MockFluentRuntime.sol";
+
+contract NativeWasmDeployTarget {
+    uint256 public immutable initialValue;
+
+    constructor(uint256 initialValue_) payable {
+        initialValue = initialValue_;
+    }
+}
+
+contract NativeWasmInvokeTarget {
+    uint256 public lastValue;
+    bytes public lastPayload;
+
+    function run(bytes calldata payload) external payable returns (uint256) {
+        lastValue = msg.value;
+        lastPayload = payload;
+        return 123;
+    }
+
+    function fail() external pure {
+        revert("RUNTIME_REVERT");
+    }
+}
 
 contract RecordingFluentRuntimeResponseHandler is IFluentRuntimeResponseHandler {
     bytes32 public lastRequestId;
@@ -33,7 +55,6 @@ contract RecordingFluentRuntimeResponseHandler is IFluentRuntimeResponseHandler 
 
 contract FluentRuntimeGatewayTest is GatewayBase {
     FluentRuntimeGateway internal fluentRuntimeGateway;
-    MockFluentRuntime internal runtime;
 
     function setUp() public override {
         super.setUp();
@@ -42,11 +63,9 @@ contract FluentRuntimeGatewayTest is GatewayBase {
     }
 
     function _deployFluentRuntimeGateway() internal {
-        runtime = new MockFluentRuntime();
         FluentRuntimeGateway impl = new FluentRuntimeGateway();
-        ERC1967Proxy proxy = new ERC1967Proxy(
-            address(impl), abi.encodeCall(FluentRuntimeGateway.initialize, (admin, address(bridge), address(runtime)))
-        );
+        ERC1967Proxy proxy =
+            new ERC1967Proxy(address(impl), abi.encodeCall(FluentRuntimeGateway.initialize, (admin, address(bridge))));
         fluentRuntimeGateway = FluentRuntimeGateway(payable(address(proxy)));
 
         vm.prank(admin);
@@ -60,7 +79,6 @@ contract FluentRuntimeGatewayTest is GatewayBase {
         assertEq(fluentRuntimeGateway.owner(), admin);
         assertEq(fluentRuntimeGateway.getBridgeContract(), address(bridge));
         assertEq(fluentRuntimeGateway.getOtherSideGateway(), remoteGateway);
-        assertEq(fluentRuntimeGateway.getRuntime(), address(runtime));
     }
 
     function test_requestDeploy_sendsBridgeMessageAndLocksValue() public {
@@ -85,9 +103,8 @@ contract FluentRuntimeGatewayTest is GatewayBase {
 
     function test_requestDeploy_withoutOtherSideGateway_revertsOnUnregisteredDestination() public {
         FluentRuntimeGateway impl = new FluentRuntimeGateway();
-        ERC1967Proxy proxy = new ERC1967Proxy(
-            address(impl), abi.encodeCall(FluentRuntimeGateway.initialize, (admin, address(bridge), address(runtime)))
-        );
+        ERC1967Proxy proxy =
+            new ERC1967Proxy(address(impl), abi.encodeCall(FluentRuntimeGateway.initialize, (admin, address(bridge))));
         FluentRuntimeGateway localGateway = FluentRuntimeGateway(payable(address(proxy)));
 
         vm.prank(user);
@@ -115,9 +132,9 @@ contract FluentRuntimeGatewayTest is GatewayBase {
         fluentRuntimeGateway.requestInvoke(address(0), "");
     }
 
-    function test_receiveDeployRequest_viaBridge_callsRuntime() public {
-        bytes memory wasmBytecode = hex"0061736d01000000";
-        bytes memory constructorCalldata = abi.encode("init");
+    function test_receiveDeployRequest_viaBridge_usesNativeCreate() public {
+        bytes memory wasmBytecode = type(NativeWasmDeployTarget).creationCode;
+        bytes memory constructorCalldata = abi.encode(uint256(42));
         uint256 value = 0.4 ether;
         bytes32 requestId = keccak256("deploy-request");
         bytes memory message = abi.encodeCall(
@@ -127,42 +144,42 @@ contract FluentRuntimeGatewayTest is GatewayBase {
         bytes32 messageHash = _relayWasmMessage(remoteGateway, address(fluentRuntimeGateway), value, message);
 
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Success));
-        assertEq(runtime.lastRequester(), user);
-        assertEq(runtime.lastValue(), value);
-        assertEq(runtime.lastWasmHash(), keccak256(wasmBytecode));
-        assertEq(runtime.lastConstructorCalldata(), constructorCalldata);
-        _assertStoredResult(requestId, true, abi.encode(runtime.lastWasmContract()));
+        IFluentRuntimeGateway.ExecutionResult memory result = fluentRuntimeGateway.getExecutionResult(requestId);
+        address deployed = abi.decode(result.returnData, (address));
+        assertTrue(result.received);
+        assertTrue(result.success);
+        assertEq(deployed.code.length > 0, true);
+        assertEq(deployed.balance, value);
+        assertEq(NativeWasmDeployTarget(payable(deployed)).initialValue(), 42);
     }
 
-    function test_receiveInvokeRequest_viaBridge_callsRuntimeAndStoresResponse() public {
-        address wasmContract = makeAddr("wasmContract");
-        bytes memory calldataPayload = abi.encodeWithSignature("run(bytes)", hex"1234");
+    function test_receiveInvokeRequest_viaBridge_callsWasmContractAndStoresResponse() public {
+        NativeWasmInvokeTarget wasmContract = new NativeWasmInvokeTarget();
+        bytes memory calldataPayload = abi.encodeCall(NativeWasmInvokeTarget.run, (hex"1234"));
         bytes memory expectedReturn = abi.encode(uint256(123));
         bytes32 requestId = keccak256("invoke-request");
         uint256 value = 0.05 ether;
-        runtime.setNextInvokeReturnData(expectedReturn);
         bytes memory message = abi.encodeCall(
-            FluentRuntimeGateway.receiveInvokeRequest, (requestId, user, address(0), wasmContract, calldataPayload)
+            FluentRuntimeGateway.receiveInvokeRequest,
+            (requestId, user, address(0), address(wasmContract), calldataPayload)
         );
 
         bytes32 messageHash = _relayWasmMessage(remoteGateway, address(fluentRuntimeGateway), value, message);
 
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Success));
-        assertEq(runtime.lastRequester(), user);
-        assertEq(runtime.lastWasmContract(), wasmContract);
-        assertEq(runtime.lastValue(), value);
-        assertEq(runtime.lastCalldataPayload(), calldataPayload);
+        assertEq(wasmContract.lastValue(), value);
+        assertEq(wasmContract.lastPayload(), hex"1234");
         _assertStoredResult(requestId, true, expectedReturn);
     }
 
     function test_sendExecutionResult_sendsStoredResponse() public {
+        NativeWasmInvokeTarget wasmContract = new NativeWasmInvokeTarget();
         bytes32 requestId = keccak256("stored-response");
         bytes memory expectedReturn = abi.encode(uint256(123));
         bytes memory message = abi.encodeCall(
             FluentRuntimeGateway.receiveInvokeRequest,
-            (requestId, user, address(0), makeAddr("wasmContract"), abi.encodeWithSignature("run()"))
+            (requestId, user, address(0), address(wasmContract), abi.encodeCall(NativeWasmInvokeTarget.run, (hex"")))
         );
-        runtime.setNextInvokeReturnData(expectedReturn);
         _relayWasmMessage(remoteGateway, address(fluentRuntimeGateway), 0, message);
 
         vm.recordLogs();
@@ -184,26 +201,27 @@ contract FluentRuntimeGatewayTest is GatewayBase {
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
     }
 
-    function test_receiveDeployRequest_withoutRuntime_marksFailed() public {
-        vm.prank(admin);
-        fluentRuntimeGateway.setRuntime(address(0));
-        bytes32 requestId = keccak256("missing-runtime");
-        bytes memory message =
-            abi.encodeCall(FluentRuntimeGateway.receiveDeployRequest, (requestId, user, address(0), hex"0061736d", ""));
+    function test_receiveDeployRequest_invalidNativeCreate_sendsFailedResponse() public {
+        bytes32 requestId = keccak256("invalid-create");
+        bytes memory message = abi.encodeCall(
+            FluentRuntimeGateway.receiveDeployRequest, (requestId, user, address(0), hex"60006000fd", "")
+        );
 
         bytes32 messageHash = _relayWasmMessage(remoteGateway, address(fluentRuntimeGateway), 0, message);
 
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Success));
         _assertStoredResult(
-            requestId, false, abi.encodeWithSelector(IFluentRuntimeGatewayErrors.RuntimeNotConfigured.selector)
+            requestId, false, abi.encodeWithSelector(IFluentRuntimeGatewayErrors.NativeWasmDeployFailed.selector)
         );
     }
 
-    function test_receiveDeployRequest_runtimeRevert_sendsFailedResponse() public {
-        runtime.setShouldRevert(true);
-        bytes32 requestId = keccak256("runtime-revert");
-        bytes memory message =
-            abi.encodeCall(FluentRuntimeGateway.receiveDeployRequest, (requestId, user, address(0), hex"0061736d", ""));
+    function test_receiveInvokeRequest_wasmRevert_sendsFailedResponse() public {
+        NativeWasmInvokeTarget wasmContract = new NativeWasmInvokeTarget();
+        bytes32 requestId = keccak256("wasm-revert");
+        bytes memory message = abi.encodeCall(
+            FluentRuntimeGateway.receiveInvokeRequest,
+            (requestId, user, address(0), address(wasmContract), abi.encodeCall(NativeWasmInvokeTarget.fail, ()))
+        );
 
         bytes32 messageHash = _relayWasmMessage(remoteGateway, address(fluentRuntimeGateway), 0, message);
 

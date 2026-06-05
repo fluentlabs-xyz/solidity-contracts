@@ -191,7 +191,7 @@ forge coverage --ir-minimum --report lcov
 | **[`docs/UpgradeSafety.md`](docs/UpgradeSafety.md)** | All UUPS proxy and beacon upgrade surfaces, required 6-step upgrade procedure, unsafe scripts, deployment checks, auditor evidence checklist. |
 | **[`docs/Addresses.md`](docs/Addresses.md)** | Deployed contract addresses for Sepolia (L1) and Fluent testnet (L2), chain IDs, RPC endpoints, explorer links, verification instructions. |
 | **[`docs/DeveloperGuide.md`](docs/DeveloperGuide.md)** | Usage examples (deposit/withdraw scripts), extending the system (new gateways, message paths), troubleshooting common errors. |
-| **[`docs/FluentRuntimeGateway.md`](docs/FluentRuntimeGateway.md)** | Fluent Runtime deploy/invoke gateway flow, response storage, callback handling, runtime ABI, and deployment notes. |
+| **[`docs/FluentRuntimeGateway.md`](docs/FluentRuntimeGateway.md)** | Fluent Runtime deploy/invoke gateway flow, native L2 execution, response storage, callback handling, and deployment notes. |
 
 ---
 
