@@ -107,6 +107,12 @@ contract DeployStaking is DeployBase {
         // Nonce slots after SlashingIndicator removal:
         // +2 staking, +4 systemReward, +6 stakingPool, +8 chainConfig,
         // +10 governance, +12 livenessSlashing.
+        //
+        // `Staking` is DELEGATECALL-linked to the `StakingDpos` library. Forge
+        // auto-deploys that library through the deterministic CREATE2 deployer
+        // (0x4e59...), NOT a CREATE from `tx.origin`, so it consumes no slot in
+        // this sequence — these offsets are unchanged by the link. Do not bump
+        // them for the library.
         uint64 nonce = vm.getNonce(tx.origin);
         IStaking predictedStaking = IStaking(vm.computeCreateAddress(tx.origin, nonce + 2));
         ISystemReward predictedSystemReward = ISystemReward(vm.computeCreateAddress(tx.origin, nonce + 4));
@@ -223,8 +229,7 @@ contract DeployStaking is DeployBase {
         );
         r.livenessSlashing = address(
             new ERC1967Proxy(
-                address(livenessSlashingImpl),
-                abi.encodeCall(LivenessSlashing.initialize, (p.initialOwner))
+                address(livenessSlashingImpl), abi.encodeCall(LivenessSlashing.initialize, (p.initialOwner))
             )
         );
         r.livenessSlashingImpl = address(livenessSlashingImpl);
