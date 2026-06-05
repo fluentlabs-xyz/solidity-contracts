@@ -53,7 +53,60 @@ contract RecordingFluentRuntimeResponseHandler is IFluentRuntimeResponseHandler 
     }
 }
 
+contract ReenteringWasmInvokeTarget {
+    IFluentRuntimeGateway internal immutable gateway;
+    bytes4 public caughtSelector;
+
+    constructor(IFluentRuntimeGateway gateway_) {
+        gateway = gateway_;
+    }
+
+    function run() external payable returns (bytes4) {
+        try gateway.requestDeploy(hex"00", "") returns (bytes32) {
+            caughtSelector = bytes4(0);
+        } catch (bytes memory reason) {
+            caughtSelector = _selector(reason);
+        }
+        return caughtSelector;
+    }
+
+    function _selector(bytes memory reason) private pure returns (bytes4 selector) {
+        if (reason.length >= 4) {
+            assembly ("memory-safe") {
+                selector := mload(add(reason, 0x20))
+            }
+        }
+    }
+}
+
+contract ReenteringFluentRuntimeResponseHandler is IFluentRuntimeResponseHandler {
+    IFluentRuntimeGateway internal immutable gateway;
+    bytes4 public caughtSelector;
+
+    constructor(IFluentRuntimeGateway gateway_) {
+        gateway = gateway_;
+    }
+
+    function handleFluentRuntimeResult(bytes32, address, bool, bytes calldata) external {
+        try gateway.requestDeploy(hex"00", "") returns (bytes32) {
+            caughtSelector = bytes4(0);
+        } catch (bytes memory reason) {
+            caughtSelector = _selector(reason);
+        }
+    }
+
+    function _selector(bytes memory reason) private pure returns (bytes4 selector) {
+        if (reason.length >= 4) {
+            assembly ("memory-safe") {
+                selector := mload(add(reason, 0x20))
+            }
+        }
+    }
+}
+
 contract FluentRuntimeGatewayTest is GatewayBase {
+    bytes4 private constant REENTRANCY_GUARD_REENTRANT_CALL = bytes4(keccak256("ReentrancyGuardReentrantCall()"));
+
     FluentRuntimeGateway internal fluentRuntimeGateway;
 
     function setUp() public override {
@@ -235,6 +288,23 @@ contract FluentRuntimeGatewayTest is GatewayBase {
         _assertStoredResult(requestId, false, _runtimeRevertData(), true);
     }
 
+    function test_receiveInvokeRequest_reentrantWasmCannotCreateOutboundRequest() public {
+        ReenteringWasmInvokeTarget wasmContract = new ReenteringWasmInvokeTarget(fluentRuntimeGateway);
+        bytes32 requestId = keccak256("reentrant-wasm");
+        bytes memory expectedReturn = abi.encode(REENTRANCY_GUARD_REENTRANT_CALL);
+        bytes memory message = abi.encodeCall(
+            FluentRuntimeGateway.receiveInvokeRequest,
+            (requestId, user, address(0), address(wasmContract), abi.encodeCall(ReenteringWasmInvokeTarget.run, ()))
+        );
+
+        bytes32 messageHash = _relayWasmMessage(remoteGateway, address(fluentRuntimeGateway), 0, message);
+
+        assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Success));
+        assertEq(wasmContract.caughtSelector(), REENTRANCY_GUARD_REENTRANT_CALL);
+        assertEq(fluentRuntimeGateway.getNextRequestNonce(), 0);
+        _assertStoredResult(requestId, true, expectedReturn, true);
+    }
+
     function test_receiveExecutionResult_viaBridge_storesResult() public {
         bytes32 requestId = keccak256("result");
         bytes memory returnData = abi.encode(address(0xBEEF));
@@ -273,6 +343,21 @@ contract FluentRuntimeGatewayTest is GatewayBase {
         assertEq(handler.lastRequester(), user);
         assertTrue(handler.lastSuccess());
         assertEq(handler.lastReturnData(), returnData);
+    }
+
+    function test_receiveExecutionResult_reentrantHandlerCannotCreateOutboundRequest() public {
+        ReenteringFluentRuntimeResponseHandler handler =
+            new ReenteringFluentRuntimeResponseHandler(fluentRuntimeGateway);
+        bytes32 requestId = keccak256("reentrant-handler");
+        bytes memory message = abi.encodeCall(
+            FluentRuntimeGateway.receiveExecutionResult, (requestId, user, address(handler), true, hex"01")
+        );
+
+        bytes32 messageHash = _relayWasmMessage(remoteGateway, address(fluentRuntimeGateway), 0, message);
+
+        assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Success));
+        assertEq(handler.caughtSelector(), REENTRANCY_GUARD_REENTRANT_CALL);
+        assertEq(fluentRuntimeGateway.getNextRequestNonce(), 0);
     }
 
     function test_receiveExecutionResult_duplicate_marksFailed() public {

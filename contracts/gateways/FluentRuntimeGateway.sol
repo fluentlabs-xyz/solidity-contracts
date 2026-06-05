@@ -83,9 +83,39 @@ contract FluentRuntimeGateway is GatewayBase, IFluentRuntimeGateway {
         require(requester != address(0), InvalidRecipient());
         require(wasmBytecode.length != 0, EmptyWasmBytecode());
 
-        (bool success, bytes memory returnData) = _deployWasmNative(wasmBytecode, constructorCalldata);
-        _recordExecutionResult(requestId, requester, responseHandler, success, returnData, false);
-        _sendExecutionResponse(requestId);
+        bytes memory initCode = abi.encodePacked(wasmBytecode, constructorCalldata);
+        address deployed;
+        uint256 value = msg.value;
+        assembly ("memory-safe") {
+            deployed := create(value, add(initCode, 0x20), mload(initCode))
+        }
+
+        bool success = deployed != address(0);
+        bytes memory returnData =
+            success ? abi.encode(deployed) : abi.encodeWithSelector(NativeWasmDeployFailed.selector);
+
+        FluentRuntimeGatewayStorage storage $ = _getFluentRuntimeGatewayStorage();
+        require(!$._executionResults[requestId].received, ResultAlreadyReceived(requestId));
+        $._executionResults[requestId] = ExecutionResult({
+            received: true,
+            success: success,
+            requester: requester,
+            responseHandler: responseHandler,
+            responseSent: true,
+            returnData: returnData
+        });
+        emit FluentRuntimeExecutionResultReady(requestId, requester, responseHandler, success, returnData);
+
+        bytes memory message = abi.encodeCall(
+            FluentRuntimeGateway.receiveExecutionResult, (requestId, requester, responseHandler, success, returnData)
+        );
+        FluentBridge bridge = FluentBridge(getBridgeContract());
+        uint256 fee = bridge.getSentMessageFee();
+        uint256 balance = address(this).balance;
+        require(balance >= fee, InsufficientResponseFee(fee, balance));
+        bridge.sendMessage{value: fee}(getOtherSideGateway(), message);
+
+        emit FluentRuntimeExecutionResponseSent(requestId, requester, success, keccak256(returnData));
     }
 
     function receiveInvokeRequest(
@@ -100,9 +130,30 @@ contract FluentRuntimeGateway is GatewayBase, IFluentRuntimeGateway {
         require(requester != address(0), InvalidRecipient());
         require(wasmContract != address(0), InvalidWasmContract());
 
-        (bool success, bytes memory resultData) = _invokeWasmContract(wasmContract, calldataPayload);
-        _recordExecutionResult(requestId, requester, responseHandler, success, resultData, false);
-        _sendExecutionResponse(requestId);
+        (bool success, bytes memory returnData) = wasmContract.call{value: msg.value}(calldataPayload);
+
+        FluentRuntimeGatewayStorage storage $ = _getFluentRuntimeGatewayStorage();
+        require(!$._executionResults[requestId].received, ResultAlreadyReceived(requestId));
+        $._executionResults[requestId] = ExecutionResult({
+            received: true,
+            success: success,
+            requester: requester,
+            responseHandler: responseHandler,
+            responseSent: true,
+            returnData: returnData
+        });
+        emit FluentRuntimeExecutionResultReady(requestId, requester, responseHandler, success, returnData);
+
+        bytes memory message = abi.encodeCall(
+            FluentRuntimeGateway.receiveExecutionResult, (requestId, requester, responseHandler, success, returnData)
+        );
+        FluentBridge bridge = FluentBridge(getBridgeContract());
+        uint256 fee = bridge.getSentMessageFee();
+        uint256 balance = address(this).balance;
+        require(balance >= fee, InsufficientResponseFee(fee, balance));
+        bridge.sendMessage{value: fee}(getOtherSideGateway(), message);
+
+        emit FluentRuntimeExecutionResponseSent(requestId, requester, success, keccak256(returnData));
     }
 
     function receiveExecutionResult(
@@ -116,37 +167,6 @@ contract FluentRuntimeGateway is GatewayBase, IFluentRuntimeGateway {
         require(requestId != bytes32(0), InvalidRequestId());
         require(requester != address(0), InvalidRecipient());
 
-        _recordExecutionResult(requestId, requester, responseHandler, success, returnData, true);
-    }
-
-    function _sendExecutionResponse(bytes32 requestId) internal {
-        FluentRuntimeGatewayStorage storage $ = _getFluentRuntimeGatewayStorage();
-        ExecutionResult storage result = $._executionResults[requestId];
-
-        result.responseSent = true;
-        bytes memory message = abi.encodeCall(
-            FluentRuntimeGateway.receiveExecutionResult,
-            (requestId, result.requester, result.responseHandler, result.success, result.returnData)
-        );
-        FluentBridge bridge = FluentBridge(getBridgeContract());
-        uint256 fee = bridge.getSentMessageFee();
-        uint256 balance = address(this).balance;
-        require(balance >= fee, InsufficientResponseFee(fee, balance));
-        bridge.sendMessage{value: fee}(getOtherSideGateway(), message);
-
-        emit FluentRuntimeExecutionResponseSent(
-            requestId, result.requester, result.success, keccak256(result.returnData)
-        );
-    }
-
-    function _recordExecutionResult(
-        bytes32 requestId,
-        address requester,
-        address responseHandler,
-        bool success,
-        bytes memory returnData,
-        bool callHandler
-    ) internal {
         FluentRuntimeGatewayStorage storage $ = _getFluentRuntimeGatewayStorage();
         require(!$._executionResults[requestId].received, ResultAlreadyReceived(requestId));
         $._executionResults[requestId] = ExecutionResult({
@@ -158,13 +178,9 @@ contract FluentRuntimeGateway is GatewayBase, IFluentRuntimeGateway {
             returnData: returnData
         });
 
-        if (callHandler) {
-            emit FluentRuntimeExecutionResultReceived(requestId, requester, responseHandler, success, returnData);
-        } else {
-            emit FluentRuntimeExecutionResultReady(requestId, requester, responseHandler, success, returnData);
-        }
+        emit FluentRuntimeExecutionResultReceived(requestId, requester, responseHandler, success, returnData);
 
-        if (callHandler && responseHandler != address(0)) {
+        if (responseHandler != address(0)) {
             (bool handlerSuccess, bytes memory handlerReturnData) = responseHandler.call(
                 abi.encodeCall(
                     IFluentRuntimeResponseHandler.handleFluentRuntimeResult, (requestId, requester, success, returnData)
@@ -220,32 +236,6 @@ contract FluentRuntimeGateway is GatewayBase, IFluentRuntimeGateway {
         emit FluentRuntimeInvokeRequested(
             requestId, requester, wasmContract, responseHandler, msg.value, keccak256(calldataPayload)
         );
-    }
-
-    function _deployWasmNative(bytes calldata wasmBytecode, bytes calldata constructorCalldata)
-        internal
-        returns (bool success, bytes memory returnData)
-    {
-        bytes memory initCode = abi.encodePacked(wasmBytecode, constructorCalldata);
-        address deployed;
-        uint256 value = msg.value;
-
-        assembly ("memory-safe") {
-            deployed := create(value, add(initCode, 0x20), mload(initCode))
-        }
-
-        if (deployed == address(0)) {
-            return (false, abi.encodeWithSelector(NativeWasmDeployFailed.selector));
-        }
-
-        return (true, abi.encode(deployed));
-    }
-
-    function _invokeWasmContract(address wasmContract, bytes calldata calldataPayload)
-        internal
-        returns (bool success, bytes memory resultData)
-    {
-        return wasmContract.call{value: msg.value}(calldataPayload);
     }
 
     function _takeNextRequestId(address requester) internal returns (bytes32 requestId) {
