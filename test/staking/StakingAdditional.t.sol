@@ -279,6 +279,7 @@ contract StakingAdditionalTest is Test {
         vm.prank(staker1);
         staking.delegate(validator1, ONE);
         _rollToNextEpoch();
+        _rollToNextEpoch(); // warmup=2: both delegations effective (e+2) before deposits
 
         _depositReward(validator1, ONE / 2);
         _rollToNextEpoch();
@@ -323,6 +324,7 @@ contract StakingAdditionalTest is Test {
         vm.prank(staker1);
         staking.delegate(validator1, ONE);
         _rollToNextEpoch();
+        _rollToNextEpoch(); // warmup=2: delegated stake effective at e+2 before deposits
 
         vm.expectRevert(IStakingContextErrors.DepositIsZero.selector);
         _depositReward(validator1, 0);
@@ -520,6 +522,7 @@ contract StakingAdditionalTest is Test {
         vm.prank(staker1);
         staking.delegate(validator1, ONE);
         _rollToNextEpoch();
+        _rollToNextEpoch(); // warmup=2: delegation effective at e+2 (active) before remove check
 
         vm.expectRevert(abi.encodeWithSelector(IStakingErrors.ValidatorHasActiveDelegations.selector, validator1));
         staking.removeValidator(validator1);
@@ -549,6 +552,7 @@ contract StakingAdditionalTest is Test {
         vm.prank(staker1);
         staking.delegate(validator1, ONE);
         _rollToNextEpoch();
+        _rollToNextEpoch(); // warmup=2: delegated stake effective at e+2 before deposit
         _depositReward(validator1, ONE);
 
         assertEq(staking.getPendingDelegatorFee(validator1, staker1), ONE);
@@ -598,6 +602,7 @@ contract StakingAdditionalTest is Test {
         vm.prank(staker1);
         staking.delegate(validator1, ONE);
         _rollToNextEpoch();
+        _rollToNextEpoch(); // warmup=2: delegated stake effective at e+2 before deposit
 
         _depositReward(validator1, ONE);
         _rollToNextEpoch();
@@ -651,6 +656,7 @@ contract StakingAdditionalTest is Test {
         vm.prank(staker1);
         staking.delegate(validator1, ONE);
         _rollToNextEpoch();
+        _rollToNextEpoch(); // warmup=2: delegated stake effective at e+2 before deposit
         _depositReward(validator1, ONE + 123);
         _rollToNextEpoch();
 
@@ -775,6 +781,7 @@ contract StakingAdditionalTest is Test {
         vm.prank(staker1);
         stakingPool.stake(validator1, 10 * ONE);
         _rollToNextEpoch();
+        _rollToNextEpoch(); // warmup=2: pool stake effective at e+2 before deposit
         _depositReward(validator1, ONE);
         _rollToNextEpoch();
 
@@ -819,6 +826,7 @@ contract StakingAdditionalTest is Test {
         vm.prank(staker1);
         stakingPool.stake(validator1, 10 * ONE);
         _rollToNextEpoch();
+        _rollToNextEpoch(); // warmup=2: pool stake effective at e+2 before unstake+deposit
 
         vm.prank(staker1);
         stakingPool.unstake(validator1, 8 * ONE);
@@ -1170,7 +1178,8 @@ contract StakingAdditionalTest is Test {
                             validatorJailEpochLength,
                             undelegatePeriod,
                             minValidatorStakeAmount,
-                            minStakingAmount
+                            minStakingAmount,
+                            uint64(0)
                         )
                     )
                 )

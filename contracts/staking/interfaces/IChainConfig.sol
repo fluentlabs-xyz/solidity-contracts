@@ -12,6 +12,7 @@ interface IChainConfigEvents {
     event MinStakingAmountChanged(uint256 prevValue, uint256 newValue);
     event BlsVerifierChanged(address prevValue, address newValue);
     event EvidenceDecoderChanged(address prevValue, address newValue);
+    event DposActivationBlockChanged(uint64 prevValue, uint64 newValue);
 }
 
 /// @title Staking chain configuration interface
@@ -32,6 +33,14 @@ interface IChainConfig {
      */
     error MisdemeanorThresholdNotMet();
 
+    /// @notice DPoS activation block must be a multiple of `epochBlockInterval`
+    ///         so absolute and relative epoch boundaries coincide.
+    error UnalignedActivationBlock();
+
+    /// @notice DPoS activation block must not be in the past (would jump the
+    ///         epoch clock discontinuously and strand the commit cursor).
+    error ActivationBlockInPast();
+
     /// @notice Maximum number of validators returned in the active validator set.
     function getActiveValidatorsLength() external view returns (uint32);
 
@@ -43,6 +52,12 @@ interface IChainConfig {
 
     /// @notice Updates the staking epoch length. Callable by governance.
     function setEpochBlockInterval(uint32 newValue) external;
+
+    /// @notice Block at which DPoS epoch numbering rebases to zero (0 ⇒ absolute).
+    function getDposActivationBlock() external view returns (uint64);
+
+    /// @notice Sets the DPoS activation block (aligned, not in the past). Callable by governance.
+    function setDposActivationBlock(uint64 newValue) external;
 
     /// @notice Number of slash events treated as a misdemeanor threshold.
     function getMisdemeanorThreshold() external view returns (uint32);

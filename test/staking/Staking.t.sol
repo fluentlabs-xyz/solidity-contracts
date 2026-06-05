@@ -126,7 +126,8 @@ contract StakingFoundryTest is Test {
                             uint32(7),
                             uint32(1),
                             uint256(ONE),
-                            uint256(ONE)
+                            uint256(ONE),
+                            uint64(0)
                         )
                     )
                 )
@@ -190,6 +191,7 @@ contract StakingFoundryTest is Test {
         vm.prank(staker2);
         staking.delegate(validator2, 2 * ONE);
         _rollToNextEpoch();
+        _rollToNextEpoch(); // warmup=2: delegated stake effective at e+2
 
         address[] memory validators = staking.getValidators();
         assertEq(validators[0], validator2);
@@ -242,6 +244,7 @@ contract StakingFoundryTest is Test {
         vm.prank(staker3);
         staking.delegate(validator3, ONE);
         _rollToNextEpoch();
+        _rollToNextEpoch(); // warmup=2: delegated stake becomes effective at e+2
 
         address[] memory validators = staking.getValidators();
         assertEq(validators.length, 3);
@@ -258,6 +261,7 @@ contract StakingFoundryTest is Test {
         assertEq(validators[1], validator2);
         assertEq(validators[2], validator3);
         _rollToNextEpoch();
+        _rollToNextEpoch(); // warmup=2: validator4's delegation effective at e+2
 
         validators = staking.getValidators();
         assertEq(validators.length, 3);
@@ -297,6 +301,7 @@ contract StakingFoundryTest is Test {
         assertEq(stakingPool.getStakedAmount(validator1, staker1), 50 * ONE);
 
         _rollToNextEpoch();
+        _rollToNextEpoch(); // warmup=2: staked 50 effective at e+2 before the reward deposit
         vm.coinbase(validator1);
         vm.prank(validator1);
         staking.deposit(validator1, (101 * ONE) / 100);

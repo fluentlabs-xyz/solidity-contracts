@@ -186,6 +186,15 @@ interface IStakingContextErrors {
      */
     error CommitteeLengthMismatch(uint256 expected, uint256 got);
     /**
+     * @notice Thrown when commitEpochCommittee is called for an epoch beyond the
+     *         allowed lookahead (target > currentEpoch + 1), i.e. before its stake
+     *         snapshot is final. The executor's catch-up loop only commits within
+     *         range, so this signals an out-of-range / buggy call.
+     * @param target The next-uncommitted epoch the call attempted to commit.
+     * @param currentEpoch The current epoch at the call.
+     */
+    error EpochNotYetCommittable(uint64 target, uint64 currentEpoch);
+    /**
      * @notice Thrown when a committee member has no consensus (peer) key.
      * @param validator The keyless committee member.
      */

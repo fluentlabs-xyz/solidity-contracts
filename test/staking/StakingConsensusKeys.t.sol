@@ -144,7 +144,8 @@ contract StakingConsensusKeysTest is Test {
                             uint32(7),
                             uint32(7),
                             uint256(ONE),
-                            uint256(ONE)
+                            uint256(ONE),
+                            uint64(0)
                         )
                     )
                 )
@@ -244,7 +245,13 @@ contract StakingConsensusKeysTest is Test {
     }
 
     function test_setConsensusKeys_revertsWhenVerifierUnset() public {
-        chainConfig.setBlsVerifier(address(0));
+        // ChainConfig.setBlsVerifier rejects address(0) (ZeroValue guard), so the
+        // "verifier unset" state is reached by mocking getBlsVerifier() -> 0. This
+        // exercises the BlsVerifierNotConfigured branch in setConsensusKeys
+        // (Staking.sol: verifierAddr == address(0) -> revert).
+        vm.mockCall(
+            address(chainConfig), abi.encodeWithSignature("getBlsVerifier()"), abi.encode(address(0))
+        );
         vm.prank(validator1);
         vm.expectRevert(abi.encodeWithSignature("BlsVerifierNotConfigured()"));
         staking.setConsensusKeys(validator1, PK_UNC, SIG_UNC_VALID, validPeerPk);

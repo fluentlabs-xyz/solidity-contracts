@@ -59,6 +59,10 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
         // Appended (ERC-7201 safe): equivocation-slashing crypto units.
         address _blsVerifier;
         address _evidenceDecoder;
+        // Appended (ERC-7201 safe): block at which DPoS epoch numbering rebases
+        // to zero — `_currentEpoch = (block.number - this) / interval`. Zero ⇒
+        // absolute numbering (pre-migration / non-DPoS default).
+        uint64 _dposActivationBlock;
     }
 
     function _getChainConfigStorage() private pure returns (ChainConfigStorage storage $) {
@@ -94,7 +98,8 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
         uint32 validatorJailEpochLength,
         uint32 undelegatePeriod,
         uint256 minValidatorStakeAmount,
-        uint256 minStakingAmount
+        uint256 minStakingAmount,
+        uint64 dposActivationBlock
     ) external initializer {
         __StakingContext_init(initialOwner);
         __ChainConfig_init(
@@ -105,7 +110,8 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
             validatorJailEpochLength,
             undelegatePeriod,
             minValidatorStakeAmount,
-            minStakingAmount
+            minStakingAmount,
+            dposActivationBlock
         );
     }
 
@@ -129,6 +135,22 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
         ChainConfigStorage storage $ = _getChainConfigStorage();
         emit EpochBlockIntervalChanged($._epochBlockInterval, newValue);
         $._epochBlockInterval = newValue;
+    }
+
+    function getDposActivationBlock() external view override returns (uint64) {
+        return _getChainConfigStorage()._dposActivationBlock;
+    }
+
+    function setDposActivationBlock(uint64 newValue) external override onlyFromGovernance {
+        ChainConfigStorage storage $ = _getChainConfigStorage();
+        // Aligned activation keeps absolute and relative epoch boundaries
+        // coincident, so the rebase is a clean re-index (no split epoch).
+        require(newValue % $._epochBlockInterval == 0, UnalignedActivationBlock());
+        // A past activation would jump `_currentEpoch` discontinuously and
+        // strand the committee commit cursor; only forward activation is safe.
+        require(newValue >= block.number, ActivationBlockInPast());
+        emit DposActivationBlockChanged($._dposActivationBlock, newValue);
+        $._dposActivationBlock = newValue;
     }
 
     function getMisdemeanorThreshold() external view override returns (uint32) {
@@ -207,7 +229,8 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
         uint32 validatorJailEpochLength,
         uint32 undelegatePeriod,
         uint256 minValidatorStakeAmount,
-        uint256 minStakingAmount
+        uint256 minStakingAmount,
+        uint64 dposActivationBlock
     ) internal onlyInitializing {
         ChainConfigStorage storage $ = _getChainConfigStorage();
         require(activeValidatorsLength > 0, ZeroValue("activeValidatorsLength"));
@@ -242,6 +265,10 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
         require(minStakingAmount > 0, ZeroValue("minStakingAmount"));
         $._minStakingAmount = minStakingAmount;
         emit MinStakingAmountChanged(0, minStakingAmount);
+
+        require(dposActivationBlock % epochBlockInterval == 0, UnalignedActivationBlock());
+        $._dposActivationBlock = dposActivationBlock;
+        emit DposActivationBlockChanged(0, dposActivationBlock);
     }
 
     function getBlsVerifier() external view override returns (address) {

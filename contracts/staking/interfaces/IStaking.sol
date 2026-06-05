@@ -256,9 +256,27 @@ interface IStaking is IValidatorSet, IStakingEvents, IStakingErrors {
     /// @notice Returns active validators with their consensus keys in a single call.
     function getValidatorsWithKeys() external view returns (address[] memory addrs, ConsensusKeys[] memory keys);
 
-    /// @notice Freezes the canonical consensus committee for the current epoch
-    ///         (system call). `committee` must be the keyed top-k set in strict
-    ///         ascending `peerPubkey` order; the contract verifies it.
+    /// @notice Epoch-parameterized variant of {getValidatorsWithKeys}: the
+    ///         stake-weighted keyed top-k set as of `epoch`. Used by the executor to
+    ///         derive the committee for the epoch it commits one ahead.
+    function getValidatorsWithKeysAt(uint64 epoch)
+        external
+        view
+        returns (address[] memory addrs, ConsensusKeys[] memory keys);
+
+    /// @notice The next epoch whose committee is not yet committed (commit cursor).
+    function nextEpochToCommit() external view returns (uint64);
+
+    /// @notice The epoch whose effective stake (EffBal) selects the next committee
+    ///         to commit: `nextEpochToCommit() - 1` (0 at genesis). The executor
+    ///         passes this to {getValidatorsWithKeysAt}.
+    function committeeSelectionEpoch() external view returns (uint64);
+
+    /// @notice Freezes the canonical consensus committee one epoch ahead (system
+    ///         call): commits the next-uncommitted epoch `N = nextEpochToCommit()`,
+    ///         selecting it from `EffBal(N-1)` (spec §4.4). `committee` must be the
+    ///         keyed top-k set in strict ascending `peerPubkey` order; the contract
+    ///         verifies it. Reverts if `N > currentEpoch + 1`.
     function commitEpochCommittee(address[] calldata committee) external;
 
     /// @notice Resolves a Simplex signer index (for `epoch`) to a validator address.

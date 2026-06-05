@@ -174,7 +174,7 @@ contract FluentGovernanceTest is Test {
             address(
                 new ERC1967Proxy(
                     address(chainConfigImpl),
-                    abi.encodeCall(ChainConfig.initialize, (address(this), 3, 50, 50, 150, 7, 1, ONE, ONE))
+                    abi.encodeCall(ChainConfig.initialize, (address(this), 3, 50, 50, 150, 7, 1, ONE, ONE, uint64(0)))
                 )
             )
         );

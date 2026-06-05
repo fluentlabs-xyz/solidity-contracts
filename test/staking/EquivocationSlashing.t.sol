@@ -285,7 +285,8 @@ contract EquivocationSlashingTest is Test {
                             uint32(7),
                             uint32(7), // undelegatePeriod
                             uint256(ONE),
-                            uint256(ONE)
+                            uint256(ONE),
+                            uint64(0)
                         )
                     )
                 )
@@ -522,8 +523,8 @@ contract EquivocationSlashingTest is Test {
     }
 
 
-    function _canonical() internal view returns (address[] memory out) {
-        address[] memory top = staking.getValidators();
+    function _canonicalAt(uint64 epoch) internal view returns (address[] memory out) {
+        (address[] memory top, ) = staking.getValidatorsWithKeysAt(epoch);
         address[] memory keyed = new address[](top.length);
         bytes32[] memory pk = new bytes32[](top.length);
         uint256 m = 0;
@@ -557,10 +558,19 @@ contract EquivocationSlashingTest is Test {
         assertEq(staking.currentEpoch(), epoch, "epoch roll mismatch");
     }
 
+    /// @dev Ahead-commit model: drive commitEpochCommittee to catch up every
+    ///      uncommitted epoch through the current one (it commits the
+    ///      next-uncommitted epoch, gated target<=currentEpoch+1), so the
+    ///      evidence epoch's committee is committed.
     function _commit() internal {
-        address[] memory c = _canonical();
-        vm.prank(SYSTEM_CALLER);
-        staking.commitEpochCommittee(c);
+        uint64 cur = staking.currentEpoch();
+        while (staking.nextEpochToCommit() <= cur) {
+            uint64 t = staking.nextEpochToCommit();
+            // committee[t] selected from EffBal(t-1) (spec §4.4); genesis t=0 → snapshot[0].
+            address[] memory c = _canonicalAt(t == 0 ? 0 : t - 1);
+            vm.prank(SYSTEM_CALLER);
+            staking.commitEpochCommittee(c);
+        }
     }
 
     function _singleton(address value) internal pure returns (address[] memory values) {

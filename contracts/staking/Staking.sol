@@ -50,6 +50,15 @@ contract Staking is IStaking, StakingContext {
     ///         retaining frozen committees.
     uint64 internal constant EPOCH_COMMITTEE_RETENTION_MARGIN = 8;
 
+    /// @notice Two-epoch warmup: stake delegated in epoch e becomes effective at
+    ///         e+2 (PoS spec §4.2). This depth is what lets the committee for epoch
+    ///         N be selected one epoch ahead. committee[N] is selected from
+    ///         EffBal(N-1) = snapshot[N-1] (§4.4); with WARMUP_DELAY=2 its
+    ///         contributing delegations come from epoch (N-1)-WARMUP_DELAY = N-3, so
+    ///         snapshot[N-1] is final by the first block of epoch N-1 — see
+    ///         commitEpochCommittee's `target <= currentEpoch+1` gate.
+    uint64 internal constant WARMUP_DELAY = 2;
+
     /**
      * This constant indicates precision of storing compact balances in the storage or floating point. Since default
      * balance precision is 256 bits it might gain some overhead on the storage because we don't need to store such huge
@@ -339,8 +348,12 @@ contract Staking is IStaking, StakingContext {
     }
 
     function _totalDelegatedToValidator(Validator memory validator) internal view returns (uint256) {
+        return _totalDelegatedToValidatorAt(validator, _currentEpoch());
+    }
+
+    function _totalDelegatedToValidatorAt(Validator memory validator, uint64 epoch) internal view returns (uint256) {
         StakingStorage storage $ = _getStakingStorage();
-        ValidatorSnapshot memory snapshot = _validatorSnapshotAtOrBefore($, validator, _currentEpoch());
+        ValidatorSnapshot memory snapshot = _validatorSnapshotAtOrBefore($, validator, epoch);
         return uint256(snapshot.totalDelegated) * BALANCE_COMPACT_PRECISION;
     }
 
@@ -385,7 +398,17 @@ contract Staking is IStaking, StakingContext {
     }
 
     function _currentEpoch() internal view returns (uint64) {
-        return uint64(block.number / _chainConfigContract.getEpochBlockInterval() + 0);
+        // DPoS epochs are numbered relative to `dposActivationBlock` so a
+        // Tempo→DPoS migration anchor at a high block becomes epoch 0 (see
+        // ChainConfig.dposActivationBlock). Pre-activation blocks clamp to 0 —
+        // reachable only in a predeploy window before the switch; in production
+        // the contract is introduced at activation so block.number >= activation
+        // always holds. activation == 0 ⇒ absolute numbering (degenerate).
+        uint64 activation = _chainConfigContract.getDposActivationBlock();
+        if (block.number < activation) {
+            return 0;
+        }
+        return uint64((block.number - activation) / _chainConfigContract.getEpochBlockInterval());
     }
 
     function _nextEpoch() internal view returns (uint64) {
@@ -436,10 +459,10 @@ contract Staking is IStaking, StakingContext {
         // make sure validator exists at least
         Validator memory validator = $._validatorsMap[toValidator];
         require(validator.status != ValidatorStatus.NotFound, ValidatorNotFound(toValidator));
-        uint64 atEpoch = _nextEpoch();
-        // Lets upgrade next snapshot parameters:
-        // + find snapshot for the next epoch after current block
-        // + increase total delegated amount in the next epoch for this validator
+        uint64 atEpoch = _currentEpoch() + WARMUP_DELAY; // warmup: effective at epoch e+2
+        // Upgrade the warmup-target (e+2) snapshot:
+        // + find snapshot for atEpoch (e+2)
+        // + increase total delegated amount at atEpoch for this validator
         // + re-save validator because last affected epoch might change
         ValidatorSnapshot storage validatorSnapshot = _touchValidatorSnapshot(validator, atEpoch);
         validatorSnapshot.totalDelegated += uint112(amount / BALANCE_COMPACT_PRECISION);
@@ -917,6 +940,16 @@ contract Staking is IStaking, StakingContext {
     }
 
     function _getValidators() internal view returns (address[] memory) {
+        return _getValidatorsAt(_currentEpoch());
+    }
+
+    /// @dev Stake-weighted top-k active set ranked by each validator's
+    ///      delegated stake AS OF `epoch` (not necessarily the current epoch).
+    ///      Selecting at a future `epoch` is what enables committing the
+    ///      committee one epoch ahead (see commitEpochCommittee); the snapshot
+    ///      copy-forward in _validatorSnapshotAtOrBefore makes a future epoch's
+    ///      stake resolvable once its contributing delegations have landed.
+    function _getValidatorsAt(uint64 epoch) internal view returns (address[] memory) {
         StakingStorage storage $ = _getStakingStorage();
         uint256 n = $._activeValidatorsList.length;
         address[] memory orderedValidators = new address[](n);
@@ -933,7 +966,7 @@ contract Staking is IStaking, StakingContext {
             Validator memory currentMax = $._validatorsMap[orderedValidators[nextValidator]];
             for (uint256 j = i + 1; j < n; j++) {
                 Validator memory current = $._validatorsMap[orderedValidators[j]];
-                if (_totalDelegatedToValidator(currentMax) < _totalDelegatedToValidator(current)) {
+                if (_totalDelegatedToValidatorAt(currentMax, epoch) < _totalDelegatedToValidatorAt(current, epoch)) {
                     nextValidator = j;
                     currentMax = current;
                 }
@@ -1146,6 +1179,40 @@ contract Staking is IStaking, StakingContext {
         }
     }
 
+    /// @notice Epoch-parameterized variant of getValidatorsWithKeys: the
+    ///         stake-weighted keyed top-k set as of `epoch`. The executor uses
+    ///         this to derive the committee for a future epoch it is about to
+    ///         commit one epoch ahead (see commitEpochCommittee).
+    function getValidatorsWithKeysAt(uint64 epoch)
+        external
+        view
+        override
+        returns (address[] memory addrs, IStaking.ConsensusKeys[] memory keys)
+    {
+        addrs = _getValidatorsAt(epoch);
+        keys = new IStaking.ConsensusKeys[](addrs.length);
+        ConsensusKeysStorage storage $ck = _getConsensusKeysStorage();
+        for (uint256 i = 0; i < addrs.length; i++) {
+            keys[i] = $ck.consensusKeys[addrs[i]];
+        }
+    }
+
+    /// @notice The next epoch whose committee is not yet committed
+    ///         (== lastCommittedEpochP1). The executor reads this to know which
+    ///         epoch to derive + commit next in its ahead-of-time catch-up loop.
+    function nextEpochToCommit() external view override returns (uint64) {
+        return _getEpochCommitteeStorage().lastCommittedEpochP1;
+    }
+
+    /// @notice The epoch whose EffBal selects the next committee to commit:
+    ///         `nextEpochToCommit() - 1` (0 at genesis). The executor passes this
+    ///         to getValidatorsWithKeysAt so the derived committee matches the
+    ///         contract's `_getValidatorsAt(selectionEpoch)` verification.
+    function committeeSelectionEpoch() external view override returns (uint64) {
+        uint64 target = _getEpochCommitteeStorage().lastCommittedEpochP1;
+        return target == 0 ? 0 : target - 1;
+    }
+
     function _slashValidator(address validatorAddress) internal {
         StakingStorage storage $ = _getStakingStorage();
         // make sure validator exists
@@ -1191,16 +1258,30 @@ contract Staking is IStaking, StakingContext {
         onlySystemCall
     {
         EpochCommitteeStorage storage $ec = _getEpochCommitteeStorage();
-        uint64 epoch = _currentEpoch();
-        // idempotent + strictly monotonic, genesis-safe (sentinel +1):
-        // refuse any epoch at or below the latest committed one.
-        if ($ec.lastCommittedEpochP1 != 0 && epoch + 1 <= $ec.lastCommittedEpochP1) {
-            return;
-        }
+        uint64 cur = _currentEpoch();
+        // Commit the NEXT-uncommitted epoch, one epoch ahead. `lastCommittedEpochP1`
+        // doubles as "next epoch to commit" (epochs 0..lastCommittedEpochP1-1 are
+        // already committed; the genesis sentinel 0 ⇒ commit epoch 0).
+        //
+        // committee[N] is selected from EffBal(N-1) — the effective stake of the
+        // PREVIOUS epoch (PoS spec §4.4: at ∂e, S_{e+2} is chosen from EffBal(e+1);
+        // with N=e+2 that is EffBal(N-1)). Genesis (target 0) has no prior epoch and
+        // uses snapshot[0].
+        //
+        // The gate `target <= cur + 1` is the snapshot-finality guarantee:
+        // committee[target] reads snapshot[target-1], whose contributing delegations
+        // come from epoch (target-1)-WARMUP_DELAY = target-3; with WARMUP_DELAY=2
+        // those are final once cur >= target-1, i.e. target <= cur+1. It also bounds
+        // the lookahead (committee committed at the first block of epoch target-1 =
+        // ∂(target-2), matching §4.4). Fail-loud (revert): the executor's catch-up
+        // loop only calls within range, so an out-of-range call is a bug.
+        uint64 target = $ec.lastCommittedEpochP1;
+        if (target > cur + 1) revert EpochNotYetCommittable(target, cur);
+        uint64 selectionEpoch = target == 0 ? 0 : target - 1; // EffBal(target-1); cf. committeeSelectionEpoch()
 
-        // Mark the keyed subset of the same top-k set the reader is fed via
-        // getValidatorsWithKeys() into a transient set; count it.
-        address[] memory top = _getValidators();
+        // Mark the keyed subset of the top-k set AS OF `selectionEpoch` into a
+        // transient set; count it.
+        address[] memory top = _getValidatorsAt(selectionEpoch);
         ConsensusKeysStorage storage $ck = _getConsensusKeysStorage();
         uint256 m = 0;
         for (uint256 i = 0; i < top.length; i++) {
@@ -1215,7 +1296,7 @@ contract Staking is IStaking, StakingContext {
         // ⇒ by pigeonhole it is exactly the keyed top-k set, canonically
         // ordered. No trust in the sequencer-supplied ordering.
         if (committee.length != m) revert CommitteeLengthMismatch(m, committee.length);
-        address[] storage stored = $ec.committee[epoch];
+        address[] storage stored = $ec.committee[target];
         bytes32 prev = bytes32(0);
         for (uint256 i = 0; i < committee.length; i++) {
             address v = committee[i];
@@ -1227,13 +1308,14 @@ contract Staking is IStaking, StakingContext {
             prev = peer;
             stored.push(v);
         }
-        $ec.lastCommittedEpochP1 = epoch + 1;
+        $ec.lastCommittedEpochP1 = target + 1;
 
-        // Cursor-based prune advances even across skipped commits, so storage
-        // cannot leak under irregular cadence; per-call delete count is gas-capped.
-        _pruneStaleCommittees($ec, epoch);
+        // Prune relative to the CURRENT epoch (the real retention horizon), not the
+        // future `target` being committed. Cursor-based prune advances even across
+        // skipped commits; per-call delete count is gas-capped.
+        _pruneStaleCommittees($ec, cur);
 
-        emit EpochCommitteeCommitted(epoch, committee);
+        emit EpochCommitteeCommitted(target, committee);
     }
 
     /// @dev Bounded prune of every retained-window-expired epoch since the

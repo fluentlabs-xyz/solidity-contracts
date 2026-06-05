@@ -167,7 +167,8 @@ contract StakingEpochCommitteeTest is Test {
                             uint32(7),
                             uint32(7), // undelegatePeriod
                             uint256(ONE),
-                            uint256(ONE)
+                            uint256(ONE),
+                            uint64(0)
                         )
                     )
                 )
@@ -254,6 +255,13 @@ contract StakingEpochCommitteeTest is Test {
         address a = _validator("A", bytes32(uint256(0x10)));
         address b = _validator("B", bytes32(uint256(0x20)));
         _rollToEpoch(3);
+        // Catch up committees 0,1,2 so the next commit targets epoch 3.
+        while (staking.nextEpochToCommit() < 3) {
+            uint64 t = staking.nextEpochToCommit();
+            address[] memory cc = _canonicalAt(t == 0 ? 0 : t - 1);
+            vm.prank(SYSTEM_CALLER);
+            staking.commitEpochCommittee(cc);
+        }
 
         address[] memory expected = new address[](2);
         expected[0] = a;
@@ -294,19 +302,28 @@ contract StakingEpochCommitteeTest is Test {
     function test_commitEpochCommittee_doesNotRewritePastEpoch() public {
         _validator("A", bytes32(uint256(0x10)));
         _rollToEpoch(5);
-        _commit();
+        _commit(); // commits committees 0..5
 
-        _rollToEpoch(3);
-        _commit(); // epoch 3 < lastCommitted 5 ⇒ no-op
+        // Past epochs are immutable: commitEpochCommittee only ever targets the
+        // next-uncommitted epoch (lastCommittedEpochP1), never a committed one.
+        assertEq(staking.nextEpochToCommit(), 6, "cursor advanced past all committed epochs");
+        address[] memory at3 = staking.getEpochCommittee(3);
+        assertEq(at3.length, 1);
 
-        assertEq(staking.getEpochCommittee(3).length, 0, "past epoch must not be (re)written");
+        _rollToEpoch(7);
+        _commit(); // commits 6,7 — must not touch epoch 3
+
+        address[] memory still3 = staking.getEpochCommittee(3);
+        assertEq(still3.length, at3.length, "past epoch must not be rewritten");
+        assertEq(still3[0], at3[0]);
         assertEq(staking.getEpochCommittee(5).length, 1);
     }
 
     function test_RevertIf_commitEpochCommittee_nonSystemCaller() public {
         _validator("A", bytes32(uint256(0x10)));
         _rollToEpoch(1);
-        address[] memory c = _canonical();
+        uint64 t = staking.nextEpochToCommit();
+        address[] memory c = _canonicalAt(t == 0 ? 0 : t - 1);
         vm.prank(makeAddr("notSystem"));
         vm.expectRevert(abi.encodeWithSignature("OnlySystemCall()"));
         staking.commitEpochCommittee(c);
@@ -397,7 +414,7 @@ contract StakingEpochCommitteeTest is Test {
         }
 
         _rollToEpoch(4);
-        _commit(); // _canonical() reproduces the Simplex committee order
+        _commit(); // _canonicalAt() reproduces the Simplex committee order
 
         address[] memory committee = staking.getEpochCommittee(4);
         assertEq(committee.length, 10);
@@ -548,10 +565,13 @@ contract StakingEpochCommitteeTest is Test {
         staking.setConsensusKeys(v, PK_UNC, SIG_UNC_VALID, peerPubkey);
     }
 
-    /// @dev Reproduces the contract's canonical committee off-chain: the keyed
-    ///      subset of getValidators() top-k, sorted ascending by peerPubkey.
-    function _canonical() internal view returns (address[] memory out) {
-        address[] memory top = staking.getValidators();
+    /// @dev Reproduces the contract's canonical committee off-chain for a given
+    ///      epoch: the keyed subset of getValidatorsWithKeysAt(epoch) top-k,
+    ///      sorted ascending by peerPubkey. Parameterized by epoch because the
+    ///      ahead-commit model commits committee[target] for target possibly
+    ///      below the current epoch.
+    function _canonicalAt(uint64 epoch) internal view returns (address[] memory out) {
+        (address[] memory top, ) = staking.getValidatorsWithKeysAt(epoch);
         address[] memory keyed = new address[](top.length);
         bytes32[] memory pk = new bytes32[](top.length);
         uint256 m = 0;
@@ -585,10 +605,20 @@ contract StakingEpochCommitteeTest is Test {
         assertEq(staking.currentEpoch(), epoch, "epoch roll mismatch");
     }
 
+    /// @dev Ahead-commit model: `commitEpochCommittee` commits the next-uncommitted
+    ///      epoch (lastCommittedEpochP1), gated `target <= currentEpoch+1`. Drive it
+    ///      to catch up every uncommitted epoch through the current one, so
+    ///      `getEpochCommittee(currentEpoch)` is populated — preserving the intent
+    ///      of pre-change tests that did `_rollToEpoch(N); _commit();`.
     function _commit() internal {
-        address[] memory c = _canonical();
-        vm.prank(SYSTEM_CALLER);
-        staking.commitEpochCommittee(c);
+        uint64 cur = staking.currentEpoch();
+        while (staking.nextEpochToCommit() <= cur) {
+            uint64 t = staking.nextEpochToCommit();
+            // committee[t] is selected from EffBal(t-1) (spec §4.4); genesis t=0 → snapshot[0].
+            address[] memory c = _canonicalAt(t == 0 ? 0 : t - 1);
+            vm.prank(SYSTEM_CALLER);
+            staking.commitEpochCommittee(c);
+        }
     }
 
     function _singleton(address value) internal pure returns (address[] memory values) {
@@ -606,5 +636,87 @@ contract StakingEpochCommitteeTest is Test {
         for (uint256 i = 0; i < len; i++) {
             out[i] = bytes1(b);
         }
+    }
+
+    // --- dposActivationBlock / relative epoch numbering ---
+
+    event DposActivationBlockChanged(uint64 prevValue, uint64 newValue);
+
+    function test_dposActivationBlock_defaultsToZero() public view {
+        assertEq(chainConfig.getDposActivationBlock(), 0);
+    }
+
+    function test_setDposActivationBlock_alignedFutureWorks() public {
+        uint64 activation = 5 * EPOCH_INTERVAL; // aligned, >= block 1
+        vm.expectEmit(false, false, false, true, address(chainConfig));
+        emit DposActivationBlockChanged(0, activation);
+        chainConfig.setDposActivationBlock(activation);
+        assertEq(chainConfig.getDposActivationBlock(), activation);
+    }
+
+    function test_RevertIf_setDposActivationBlock_unaligned() public {
+        vm.expectRevert(abi.encodeWithSignature("UnalignedActivationBlock()"));
+        chainConfig.setDposActivationBlock(5 * EPOCH_INTERVAL + 1);
+    }
+
+    function test_RevertIf_setDposActivationBlock_inThePast() public {
+        vm.roll(10 * EPOCH_INTERVAL);
+        vm.expectRevert(abi.encodeWithSignature("ActivationBlockInPast()"));
+        chainConfig.setDposActivationBlock(5 * EPOCH_INTERVAL);
+    }
+
+    function test_RevertIf_setDposActivationBlock_notGovernance() public {
+        vm.prank(makeAddr("stranger"));
+        vm.expectRevert(abi.encodeWithSignature("OnlyGovernance()"));
+        chainConfig.setDposActivationBlock(5 * EPOCH_INTERVAL);
+    }
+
+    /// `_currentEpoch` rebases to the activation block: epoch 0 starts at
+    /// `activation`, advances every `EPOCH_INTERVAL`, and clamps to 0 before it.
+    function test_currentEpoch_relativeToActivation() public {
+        uint64 activation = 5 * EPOCH_INTERVAL;
+        chainConfig.setDposActivationBlock(activation);
+
+        vm.roll(activation - EPOCH_INTERVAL); // pre-activation
+        assertEq(staking.currentEpoch(), 0, "pre-activation clamps to 0");
+
+        vm.roll(activation); // exactly activation
+        assertEq(staking.currentEpoch(), 0, "activation = relative epoch 0");
+
+        vm.roll(activation + EPOCH_INTERVAL);
+        assertEq(staking.currentEpoch(), 1);
+
+        vm.roll(activation + 3 * EPOCH_INTERVAL + 1);
+        assertEq(staking.currentEpoch(), 3);
+    }
+
+    function test_RevertIf_initialize_unalignedActivation() public {
+        ChainConfig impl = new ChainConfig(
+            IStaking(address(staking)),
+            ISystemReward(address(systemReward)),
+            IStakingPool(address(stakingPool)),
+            IFluentGovernance(address(this)),
+            IChainConfig(address(chainConfig)),
+            blend
+        );
+        vm.expectRevert(abi.encodeWithSignature("UnalignedActivationBlock()"));
+        new ERC1967Proxy(
+            address(impl),
+            abi.encodeCall(
+                ChainConfig.initialize,
+                (
+                    address(this),
+                    ACTIVE_LEN,
+                    EPOCH_INTERVAL,
+                    uint32(50),
+                    uint32(150),
+                    uint32(7),
+                    uint32(7),
+                    uint256(ONE),
+                    uint256(ONE),
+                    uint64(EPOCH_INTERVAL + 1) // unaligned
+                )
+            )
+        );
     }
 }

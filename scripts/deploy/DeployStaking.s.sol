@@ -58,6 +58,7 @@ contract DeployStaking is DeployBase {
         uint32 undelegatePeriod;
         uint256 minValidatorStakeAmount;
         uint256 minStakingAmount;
+        uint64 dposActivationBlock;
         IERC20 stakingToken;
     }
 
@@ -78,6 +79,10 @@ contract DeployStaking is DeployBase {
         p.undelegatePeriod = uint32(json.readUint(".staking.undelegatePeriod"));
         p.minValidatorStakeAmount = json.readUint(".staking.minValidatorStakeAmount");
         p.minStakingAmount = json.readUint(".staking.minStakingAmount");
+        // Optional: absent ⇒ 0 ⇒ absolute epoch numbering (set later via governance at migration).
+        p.dposActivationBlock = vm.keyExistsJson(json, ".staking.dposActivationBlock")
+            ? uint64(json.readUint(".staking.dposActivationBlock"))
+            : 0;
         p.stakingToken = IERC20(vm.envOr("STAKING_TOKEN", json.readAddress(".staking.token")));
 
         require(p.initialValidators.length == p.initialStakes.length, "staking initial validators/stakes mismatch");
@@ -185,7 +190,8 @@ contract DeployStaking is DeployBase {
                         p.validatorJailEpochLength,
                         p.undelegatePeriod,
                         p.minValidatorStakeAmount,
-                        p.minStakingAmount
+                        p.minStakingAmount,
+                        p.dposActivationBlock
                     )
                 )
             )
