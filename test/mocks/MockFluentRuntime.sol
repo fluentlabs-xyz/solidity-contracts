@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
-import {IFluentWasmRuntime} from "../../contracts/interfaces/gateways/IWasmGateway.sol";
+import {IFluentRuntime} from "../../contracts/interfaces/gateways/IFluentRuntimeGateway.sol";
 
-contract MockWasmRuntime is IFluentWasmRuntime {
+contract MockFluentRuntime is IFluentRuntime {
     address public lastRequester;
     address public lastWasmContract;
     uint256 public lastValue;
