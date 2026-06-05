@@ -12,8 +12,7 @@ interface IFluentRuntimeGatewayErrors {
     error InvalidRequestId();
     error NativeWasmDeployFailed();
     error ResultAlreadyReceived(bytes32 requestId);
-    error ResultNotReady(bytes32 requestId);
-    error ResultAlreadySent(bytes32 requestId);
+    error InsufficientResponseFee(uint256 required, uint256 available);
 }
 
 interface IFluentRuntimeGatewayEvents {
@@ -66,7 +65,6 @@ interface IFluentRuntimeGateway is IFluentRuntimeGatewayErrors, IFluentRuntimeGa
 
     function getNextRequestNonce() external view returns (uint256);
     function getExecutionResult(bytes32 requestId) external view returns (ExecutionResult memory);
-    function sendExecutionResult(bytes32 requestId) external payable;
     function requestDeploy(bytes calldata wasmBytecode, bytes calldata constructorCalldata)
         external
         payable

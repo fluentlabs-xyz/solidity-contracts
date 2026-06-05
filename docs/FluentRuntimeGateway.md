@@ -11,10 +11,9 @@
 5. The destination gateway verifies `getNativeSender() == otherSideGateway`, then handles execution on L2 directly:
    - deploy requests use native `CREATE` with `wasmBytecode || constructorCalldata` as init code;
    - invoke requests call `wasmContract` with `calldataPayload`.
-6. The destination gateway stores `ExecutionResult` under `requestId` and emits `FluentRuntimeExecutionResultReady`. WASM call reverts are stored as `success = false` with the revert data; native deploy failures are stored with `NativeWasmDeployFailed`; neither case makes the bridge delivery fail.
-7. Anyone can call `sendExecutionResult(requestId)` on the destination gateway, paying the local bridge fee if one is configured. This sends the stored result back to the source gateway.
-8. The source gateway stores the returned result under the same `requestId` and emits `FluentRuntimeExecutionResultReceived`. Users can manually verify the result with `getExecutionResult(requestId)`.
-9. If a response handler was provided, the source gateway calls `handleFluentRuntimeResult(requestId, requester, success, returnData)` after storing the result.
+6. The destination gateway stores `ExecutionResult` under `requestId`, emits `FluentRuntimeExecutionResultReady`, then immediately calls `FluentBridge.sendMessage` to return the result to the source gateway. WASM call reverts are stored as `success = false` with the revert data; native deploy failures are stored with `NativeWasmDeployFailed`; neither case makes the bridge delivery fail.
+7. The source gateway stores the returned result under the same `requestId` and emits `FluentRuntimeExecutionResultReceived`. Users can manually verify the result with `getExecutionResult(requestId)`.
+8. If a response handler was provided, the source gateway calls `handleFluentRuntimeResult(requestId, requester, success, returnData)` after storing the result.
 
 ## Response Handler Interface
 

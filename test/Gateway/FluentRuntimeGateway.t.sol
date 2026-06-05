@@ -141,6 +141,7 @@ contract FluentRuntimeGatewayTest is GatewayBase {
             FluentRuntimeGateway.receiveDeployRequest, (requestId, user, address(0), wasmBytecode, constructorCalldata)
         );
 
+        vm.recordLogs();
         bytes32 messageHash = _relayWasmMessage(remoteGateway, address(fluentRuntimeGateway), value, message);
 
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Success));
@@ -151,6 +152,8 @@ contract FluentRuntimeGatewayTest is GatewayBase {
         assertEq(deployed.code.length > 0, true);
         assertEq(deployed.balance, value);
         assertEq(NativeWasmDeployTarget(payable(deployed)).initialValue(), 42);
+        assertTrue(result.responseSent);
+        _assertResponseSent(requestId, true, result.returnData);
     }
 
     function test_receiveInvokeRequest_viaBridge_callsWasmContractAndStoresResponse() public {
@@ -164,15 +167,17 @@ contract FluentRuntimeGatewayTest is GatewayBase {
             (requestId, user, address(0), address(wasmContract), calldataPayload)
         );
 
+        vm.recordLogs();
         bytes32 messageHash = _relayWasmMessage(remoteGateway, address(fluentRuntimeGateway), value, message);
 
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Success));
         assertEq(wasmContract.lastValue(), value);
         assertEq(wasmContract.lastPayload(), hex"1234");
-        _assertStoredResult(requestId, true, expectedReturn);
+        _assertStoredResult(requestId, true, expectedReturn, true);
+        _assertResponseSent(requestId, true, expectedReturn);
     }
 
-    function test_sendExecutionResult_sendsStoredResponse() public {
+    function test_receiveInvokeRequest_sendsStoredResponseImmediately() public {
         NativeWasmInvokeTarget wasmContract = new NativeWasmInvokeTarget();
         bytes32 requestId = keccak256("stored-response");
         bytes memory expectedReturn = abi.encode(uint256(123));
@@ -180,14 +185,15 @@ contract FluentRuntimeGatewayTest is GatewayBase {
             FluentRuntimeGateway.receiveInvokeRequest,
             (requestId, user, address(0), address(wasmContract), abi.encodeCall(NativeWasmInvokeTarget.run, (hex"")))
         );
-        _relayWasmMessage(remoteGateway, address(fluentRuntimeGateway), 0, message);
+        uint256 outboundNonceBefore = bridge.getNonce();
 
         vm.recordLogs();
-        fluentRuntimeGateway.sendExecutionResult(requestId);
+        _relayWasmMessage(remoteGateway, address(fluentRuntimeGateway), 0, message);
 
         _assertResponseSent(requestId, true, expectedReturn);
         IFluentRuntimeGateway.ExecutionResult memory result = fluentRuntimeGateway.getExecutionResult(requestId);
         assertTrue(result.responseSent);
+        assertEq(bridge.getNonce(), outboundNonceBefore + 1);
     }
 
     function test_receiveRequest_fromWrongGateway_marksFailed() public {
@@ -211,7 +217,7 @@ contract FluentRuntimeGatewayTest is GatewayBase {
 
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Success));
         _assertStoredResult(
-            requestId, false, abi.encodeWithSelector(IFluentRuntimeGatewayErrors.NativeWasmDeployFailed.selector)
+            requestId, false, abi.encodeWithSelector(IFluentRuntimeGatewayErrors.NativeWasmDeployFailed.selector), true
         );
     }
 
@@ -226,7 +232,7 @@ contract FluentRuntimeGatewayTest is GatewayBase {
         bytes32 messageHash = _relayWasmMessage(remoteGateway, address(fluentRuntimeGateway), 0, message);
 
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Success));
-        _assertStoredResult(requestId, false, _runtimeRevertData());
+        _assertStoredResult(requestId, false, _runtimeRevertData(), true);
     }
 
     function test_receiveExecutionResult_viaBridge_storesResult() public {
@@ -315,13 +321,16 @@ contract FluentRuntimeGatewayTest is GatewayBase {
         revert("response event not found");
     }
 
-    function _assertStoredResult(bytes32 requestId, bool success, bytes memory returnData) internal view {
+    function _assertStoredResult(bytes32 requestId, bool success, bytes memory returnData, bool responseSent)
+        internal
+        view
+    {
         IFluentRuntimeGateway.ExecutionResult memory result = fluentRuntimeGateway.getExecutionResult(requestId);
         assertTrue(result.received);
         assertEq(result.success, success);
         assertEq(result.requester, user);
         assertEq(result.responseHandler, address(0));
-        assertFalse(result.responseSent);
+        assertEq(result.responseSent, responseSent);
         assertEq(result.returnData, returnData);
     }
 

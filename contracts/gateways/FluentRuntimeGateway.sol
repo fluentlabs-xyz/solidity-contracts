@@ -85,6 +85,7 @@ contract FluentRuntimeGateway is GatewayBase, IFluentRuntimeGateway {
 
         (bool success, bytes memory returnData) = _deployWasmNative(wasmBytecode, constructorCalldata);
         _recordExecutionResult(requestId, requester, responseHandler, success, returnData, false);
+        _sendExecutionResponse(requestId);
     }
 
     function receiveInvokeRequest(
@@ -101,6 +102,7 @@ contract FluentRuntimeGateway is GatewayBase, IFluentRuntimeGateway {
 
         (bool success, bytes memory resultData) = _invokeWasmContract(wasmContract, calldataPayload);
         _recordExecutionResult(requestId, requester, responseHandler, success, resultData, false);
+        _sendExecutionResponse(requestId);
     }
 
     function receiveExecutionResult(
@@ -117,11 +119,9 @@ contract FluentRuntimeGateway is GatewayBase, IFluentRuntimeGateway {
         _recordExecutionResult(requestId, requester, responseHandler, success, returnData, true);
     }
 
-    function sendExecutionResult(bytes32 requestId) external payable nonReentrant {
+    function _sendExecutionResponse(bytes32 requestId) internal {
         FluentRuntimeGatewayStorage storage $ = _getFluentRuntimeGatewayStorage();
         ExecutionResult storage result = $._executionResults[requestId];
-        require(result.received, ResultNotReady(requestId));
-        require(!result.responseSent, ResultAlreadySent(requestId));
 
         result.responseSent = true;
         bytes memory message = abi.encodeCall(
@@ -130,8 +130,9 @@ contract FluentRuntimeGateway is GatewayBase, IFluentRuntimeGateway {
         );
         FluentBridge bridge = FluentBridge(getBridgeContract());
         uint256 fee = bridge.getSentMessageFee();
-        require(msg.value == fee, ExactFeeRequired());
-        bridge.sendMessage{value: msg.value}(getOtherSideGateway(), message);
+        uint256 balance = address(this).balance;
+        require(balance >= fee, InsufficientResponseFee(fee, balance));
+        bridge.sendMessage{value: fee}(getOtherSideGateway(), message);
 
         emit FluentRuntimeExecutionResponseSent(
             requestId, result.requester, result.success, keccak256(result.returnData)

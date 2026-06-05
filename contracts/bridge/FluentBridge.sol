@@ -39,7 +39,7 @@ import {FluentBridgeStorageLayout} from "./FluentBridgeStorageLayout.sol";
  */
 abstract contract FluentBridge is FluentBridgeStorageLayout, IFluentBridgeWrite {
     /// @inheritdoc IFluentBridgeWrite
-    function sendMessage(address to, bytes calldata message) external payable virtual whenNotPaused nonReentrant {
+    function sendMessage(address to, bytes calldata message) external payable virtual whenNotPaused {
         require(to != address(this) && to != getOtherBridge(), InvalidDestinationAddress());
         require(_getFluentBridgeStorage()._gatewayWhitelist[to], GatewayNotWhitelisted());
         _beforeSendMessage(to, message);
