@@ -13,6 +13,7 @@ interface IFluentRuntimeGatewayErrors {
     error NativeWasmDeployFailed();
     error ResultAlreadyReceived(bytes32 requestId);
     error InsufficientResponseFee(uint256 required, uint256 available);
+    error BlendFeeNotConfigured();
 }
 
 interface IFluentRuntimeGatewayEvents {
@@ -51,6 +52,17 @@ interface IFluentRuntimeGatewayEvents {
     event FluentRuntimeExecutionResultHandlerCalled(
         bytes32 indexed requestId, address indexed responseHandler, bool success, bytes returnData
     );
+    event FluentRuntimeBlendFeeConfigUpdated(
+        address indexed blendToken,
+        address indexed feeRecipient,
+        uint256 deployBaseFee,
+        uint256 deployFeePerByte,
+        uint256 invokeBaseFee,
+        uint256 invokeFeePerByte
+    );
+    event FluentRuntimeBlendFeeCharged(
+        bytes32 indexed requestId, address indexed requester, address indexed feeRecipient, uint256 amount
+    );
 }
 
 interface IFluentRuntimeGateway is IFluentRuntimeGatewayErrors, IFluentRuntimeGatewayEvents {
@@ -65,6 +77,30 @@ interface IFluentRuntimeGateway is IFluentRuntimeGatewayErrors, IFluentRuntimeGa
 
     function getNextRequestNonce() external view returns (uint256);
     function getExecutionResult(bytes32 requestId) external view returns (ExecutionResult memory);
+    function getBlendFeeConfig()
+        external
+        view
+        returns (
+            address blendToken,
+            address feeRecipient,
+            uint256 deployBaseFee,
+            uint256 deployFeePerByte,
+            uint256 invokeBaseFee,
+            uint256 invokeFeePerByte
+        );
+    function quoteDeployFee(bytes calldata wasmBytecode, bytes calldata constructorCalldata)
+        external
+        view
+        returns (uint256);
+    function quoteInvokeFee(bytes calldata calldataPayload) external view returns (uint256);
+    function setBlendFeeConfig(
+        address blendToken,
+        address feeRecipient,
+        uint256 deployBaseFee,
+        uint256 deployFeePerByte,
+        uint256 invokeBaseFee,
+        uint256 invokeFeePerByte
+    ) external;
     function requestDeploy(bytes calldata wasmBytecode, bytes calldata constructorCalldata)
         external
         payable

@@ -3,6 +3,8 @@ pragma solidity 0.8.30;
 
 import {GatewayBase} from "./GatewayBase.sol";
 import {FluentBridge} from "../bridge/FluentBridge.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IFluentRuntimeGateway, IFluentRuntimeResponseHandler} from "../interfaces/gateways/IFluentRuntimeGateway.sol";
 
 /**
@@ -16,6 +18,8 @@ import {IFluentRuntimeGateway, IFluentRuntimeResponseHandler} from "../interface
  *      message back to the source gateway.
  */
 contract FluentRuntimeGateway is GatewayBase, IFluentRuntimeGateway {
+    using SafeERC20 for IERC20;
+
     /// @dev keccak256(abi.encode(uint256(keccak256("Fluent.storage.FluentRuntimeGatewayStorage")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant FLUENT_RUNTIME_GATEWAY_STORAGE_LOCATION =
         0x2807da62fe306b92f6c239ad34f50ac03f4b03d7d4316b1c510c1b590f8eb400;
@@ -24,7 +28,13 @@ contract FluentRuntimeGateway is GatewayBase, IFluentRuntimeGateway {
     struct FluentRuntimeGatewayStorage {
         uint256 _nextRequestNonce;
         mapping(bytes32 requestId => ExecutionResult result) _executionResults;
-        uint256[48] __gap;
+        address _blendToken;
+        address _feeRecipient;
+        uint256 _deployBaseFee;
+        uint256 _deployFeePerByte;
+        uint256 _invokeBaseFee;
+        uint256 _invokeFeePerByte;
+        uint256[42] __gap;
     }
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -34,6 +44,17 @@ contract FluentRuntimeGateway is GatewayBase, IFluentRuntimeGateway {
 
     function initialize(address initialOwner, address bridgeContract) external initializer {
         __GatewayBase_init(initialOwner, bridgeContract);
+    }
+
+    function setBlendFeeConfig(
+        address blendToken,
+        address feeRecipient,
+        uint256 deployBaseFee,
+        uint256 deployFeePerByte,
+        uint256 invokeBaseFee,
+        uint256 invokeFeePerByte
+    ) external onlyOwner {
+        _setBlendFeeConfig(blendToken, feeRecipient, deployBaseFee, deployFeePerByte, invokeBaseFee, invokeFeePerByte);
     }
 
     function requestDeploy(bytes calldata wasmBytecode, bytes calldata constructorCalldata)
@@ -200,6 +221,44 @@ contract FluentRuntimeGateway is GatewayBase, IFluentRuntimeGateway {
         return _getFluentRuntimeGatewayStorage()._executionResults[requestId];
     }
 
+    function getBlendFeeConfig()
+        public
+        view
+        returns (
+            address blendToken,
+            address feeRecipient,
+            uint256 deployBaseFee,
+            uint256 deployFeePerByte,
+            uint256 invokeBaseFee,
+            uint256 invokeFeePerByte
+        )
+    {
+        FluentRuntimeGatewayStorage storage $ = _getFluentRuntimeGatewayStorage();
+        return
+            (
+                $._blendToken,
+                $._feeRecipient,
+                $._deployBaseFee,
+                $._deployFeePerByte,
+                $._invokeBaseFee,
+                $._invokeFeePerByte
+            );
+    }
+
+    function quoteDeployFee(bytes calldata wasmBytecode, bytes calldata constructorCalldata)
+        public
+        view
+        returns (uint256)
+    {
+        FluentRuntimeGatewayStorage storage $ = _getFluentRuntimeGatewayStorage();
+        return $._deployBaseFee + (wasmBytecode.length + constructorCalldata.length) * $._deployFeePerByte;
+    }
+
+    function quoteInvokeFee(bytes calldata calldataPayload) public view returns (uint256) {
+        FluentRuntimeGatewayStorage storage $ = _getFluentRuntimeGatewayStorage();
+        return $._invokeBaseFee + calldataPayload.length * $._invokeFeePerByte;
+    }
+
     function _requestDeploy(bytes calldata wasmBytecode, bytes calldata constructorCalldata, address responseHandler)
         internal
         returns (bytes32 requestId)
@@ -208,6 +267,8 @@ contract FluentRuntimeGateway is GatewayBase, IFluentRuntimeGateway {
 
         address requester = msg.sender;
         requestId = _takeNextRequestId(requester);
+        uint256 blendFee = quoteDeployFee(wasmBytecode, constructorCalldata);
+        _chargeBlendFee(requestId, requester, blendFee);
         bytes memory message = abi.encodeCall(
             FluentRuntimeGateway.receiveDeployRequest,
             (requestId, requester, responseHandler, wasmBytecode, constructorCalldata)
@@ -227,6 +288,8 @@ contract FluentRuntimeGateway is GatewayBase, IFluentRuntimeGateway {
 
         address requester = msg.sender;
         requestId = _takeNextRequestId(requester);
+        uint256 blendFee = quoteInvokeFee(calldataPayload);
+        _chargeBlendFee(requestId, requester, blendFee);
         bytes memory message = abi.encodeCall(
             FluentRuntimeGateway.receiveInvokeRequest,
             (requestId, requester, responseHandler, wasmContract, calldataPayload)
@@ -242,6 +305,38 @@ contract FluentRuntimeGateway is GatewayBase, IFluentRuntimeGateway {
         FluentRuntimeGatewayStorage storage $ = _getFluentRuntimeGatewayStorage();
         uint256 nonce = $._nextRequestNonce++;
         requestId = keccak256(abi.encode(address(this), block.chainid, requester, nonce));
+    }
+
+    function _setBlendFeeConfig(
+        address blendToken,
+        address feeRecipient,
+        uint256 deployBaseFee,
+        uint256 deployFeePerByte,
+        uint256 invokeBaseFee,
+        uint256 invokeFeePerByte
+    ) internal {
+        FluentRuntimeGatewayStorage storage $ = _getFluentRuntimeGatewayStorage();
+        $._blendToken = blendToken;
+        $._feeRecipient = feeRecipient;
+        $._deployBaseFee = deployBaseFee;
+        $._deployFeePerByte = deployFeePerByte;
+        $._invokeBaseFee = invokeBaseFee;
+        $._invokeFeePerByte = invokeFeePerByte;
+        emit FluentRuntimeBlendFeeConfigUpdated(
+            blendToken, feeRecipient, deployBaseFee, deployFeePerByte, invokeBaseFee, invokeFeePerByte
+        );
+    }
+
+    function _chargeBlendFee(bytes32 requestId, address requester, uint256 amount) internal {
+        if (amount == 0) return;
+
+        FluentRuntimeGatewayStorage storage $ = _getFluentRuntimeGatewayStorage();
+        address blendToken = $._blendToken;
+        address feeRecipient = $._feeRecipient;
+        require(blendToken != address(0) && feeRecipient != address(0), BlendFeeNotConfigured());
+
+        IERC20(blendToken).safeTransferFrom(requester, feeRecipient, amount);
+        emit FluentRuntimeBlendFeeCharged(requestId, requester, feeRecipient, amount);
     }
 
     receive() external payable {}

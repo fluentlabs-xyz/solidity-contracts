@@ -13,6 +13,7 @@ import {
 } from "../../contracts/interfaces/gateways/IFluentRuntimeGateway.sol";
 import {FluentRuntimeGateway} from "../../contracts/gateways/FluentRuntimeGateway.sol";
 import {GatewayBase} from "./Base.t.sol";
+import {MockERC20Token} from "../mocks/MockERC20.sol";
 
 contract NativeWasmDeployTarget {
     uint256 public immutable initialValue;
@@ -108,6 +109,8 @@ contract FluentRuntimeGatewayTest is GatewayBase {
     bytes4 private constant REENTRANCY_GUARD_REENTRANT_CALL = bytes4(keccak256("ReentrancyGuardReentrantCall()"));
 
     FluentRuntimeGateway internal fluentRuntimeGateway;
+    MockERC20Token internal blend;
+    address internal feeRecipient = makeAddr("feeRecipient");
 
     function setUp() public override {
         super.setUp();
@@ -120,6 +123,7 @@ contract FluentRuntimeGatewayTest is GatewayBase {
         ERC1967Proxy proxy =
             new ERC1967Proxy(address(impl), abi.encodeCall(FluentRuntimeGateway.initialize, (admin, address(bridge))));
         fluentRuntimeGateway = FluentRuntimeGateway(payable(address(proxy)));
+        blend = new MockERC20Token("Blend", "BLEND", 1_000_000 ether, user);
 
         vm.prank(admin);
         fluentRuntimeGateway.setOtherSideGateway(remoteGateway);
@@ -132,6 +136,28 @@ contract FluentRuntimeGatewayTest is GatewayBase {
         assertEq(fluentRuntimeGateway.owner(), admin);
         assertEq(fluentRuntimeGateway.getBridgeContract(), address(bridge));
         assertEq(fluentRuntimeGateway.getOtherSideGateway(), remoteGateway);
+        (
+            address blendToken,
+            address configuredRecipient,
+            uint256 deployBaseFee,
+            uint256 deployFeePerByte,
+            uint256 invokeBaseFee,
+            uint256 invokeFeePerByte
+        ) = fluentRuntimeGateway.getBlendFeeConfig();
+        assertEq(blendToken, address(0));
+        assertEq(configuredRecipient, address(0));
+        assertEq(deployBaseFee, 0);
+        assertEq(deployFeePerByte, 0);
+        assertEq(invokeBaseFee, 0);
+        assertEq(invokeFeePerByte, 0);
+    }
+
+    function test_setBlendFeeConfig_updatesQuoteRates() public {
+        vm.prank(admin);
+        fluentRuntimeGateway.setBlendFeeConfig(address(blend), feeRecipient, 1 ether, 2 ether, 3 ether, 4 ether);
+
+        assertEq(fluentRuntimeGateway.quoteDeployFee(hex"010203", hex"0405"), 11 ether);
+        assertEq(fluentRuntimeGateway.quoteInvokeFee(hex"010203"), 15 ether);
     }
 
     function test_requestDeploy_sendsBridgeMessageAndLocksValue() public {
@@ -146,6 +172,31 @@ contract FluentRuntimeGatewayTest is GatewayBase {
         assertEq(address(bridge).balance, value);
         assertEq(fluentRuntimeGateway.getNextRequestNonce(), 1);
         assertEq(requestId, keccak256(abi.encode(address(fluentRuntimeGateway), block.chainid, user, uint256(0))));
+    }
+
+    function test_requestDeploy_chargesBlendFee() public {
+        bytes memory wasmBytecode = hex"0061736d";
+        bytes memory constructorCalldata = abi.encode(uint256(42));
+        uint256 expectedFee = 1 ether + (wasmBytecode.length + constructorCalldata.length) * 0.1 ether;
+
+        vm.prank(admin);
+        fluentRuntimeGateway.setBlendFeeConfig(address(blend), feeRecipient, 1 ether, 0.1 ether, 2 ether, 0.2 ether);
+        vm.prank(user);
+        blend.approve(address(fluentRuntimeGateway), expectedFee);
+
+        vm.prank(user);
+        fluentRuntimeGateway.requestDeploy(wasmBytecode, constructorCalldata);
+
+        assertEq(blend.balanceOf(feeRecipient), expectedFee);
+    }
+
+    function test_requestDeploy_revertsWhenBlendFeeConfiguredWithoutToken() public {
+        vm.prank(admin);
+        fluentRuntimeGateway.setBlendFeeConfig(address(0), feeRecipient, 1 ether, 0, 0, 0);
+
+        vm.prank(user);
+        vm.expectRevert(IFluentRuntimeGatewayErrors.BlendFeeNotConfigured.selector);
+        fluentRuntimeGateway.requestDeploy(hex"0061736d", "");
     }
 
     function test_requestDeploy_revertsForEmptyBytecode() public {
@@ -177,6 +228,22 @@ contract FluentRuntimeGatewayTest is GatewayBase {
         assertEq(address(bridge).balance, value);
         assertEq(fluentRuntimeGateway.getNextRequestNonce(), 1);
         assertEq(requestId, keccak256(abi.encode(address(fluentRuntimeGateway), block.chainid, user, uint256(0))));
+    }
+
+    function test_requestInvoke_chargesBlendFee() public {
+        address wasmContract = makeAddr("wasmContract");
+        bytes memory calldataPayload = abi.encodeWithSignature("run(uint256)", 7);
+        uint256 expectedFee = 2 ether + calldataPayload.length * 0.2 ether;
+
+        vm.prank(admin);
+        fluentRuntimeGateway.setBlendFeeConfig(address(blend), feeRecipient, 1 ether, 0.1 ether, 2 ether, 0.2 ether);
+        vm.prank(user);
+        blend.approve(address(fluentRuntimeGateway), expectedFee);
+
+        vm.prank(user);
+        fluentRuntimeGateway.requestInvoke(wasmContract, calldataPayload);
+
+        assertEq(blend.balanceOf(feeRecipient), expectedFee);
     }
 
     function test_requestInvoke_revertsForZeroWasmContract() public {
