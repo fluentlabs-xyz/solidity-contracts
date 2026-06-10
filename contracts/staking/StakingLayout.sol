@@ -83,6 +83,13 @@ library StakingLayout {
     /// @custom:storage-location erc7201:Fluent.storage.ConsensusKeysStorage
     struct ConsensusKeysStorage {
         mapping(address => IStaking.ConsensusKeys) consensusKeys;
+        // Reverse index peerPubkey => owning validator. Enforces global
+        // peerPubkey uniqueness at registration: a duplicate of an existing
+        // (e.g. top-k) validator's ed25519 key would otherwise make every
+        // future `commitEpochCommittee` unsatisfiable (two equal peerPubkeys
+        // break the strictly-ascending committee order while both are counted
+        // in `m`) => total chain halt. Append-only field (ERC-7201 safe).
+        mapping(bytes32 => address) peerPubkeyOwner;
     }
 
     /// @custom:storage-location erc7201:Fluent.storage.EpochCommitteeStorage

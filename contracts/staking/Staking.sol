@@ -43,11 +43,6 @@ contract Staking is IStaking, StakingContext {
     uint16 internal constant COMMISSION_RATE_MIN_VALUE = 0; // 0%
     uint16 internal constant COMMISSION_RATE_MAX_VALUE = 3000; // 30%
     /**
-     * @dev Gas limit reserved for internal transfers to contracts with expensive fallback logic,
-     * such as transparent or beacon proxies with multiple storage reads.
-     */
-    uint64 internal constant TRANSFER_GAS_LIMIT = 30000;
-    /**
      * @dev Maximum number of epochs processed by a single state-changing claim.
      *
      * This bounds reward and undelegation iteration so accounts with long unclaimed ranges can
@@ -1135,6 +1130,10 @@ contract Staking is IStaking, StakingContext {
     ///         empty if never committed. Consumed by fluent-staking-reader.
     function getEpochCommittee(uint64 epoch) external view override returns (address[] memory) {
         return StakingLayout.epochCommitteeStorage().committee[epoch];
+    }
+
+    function getEpochCommitteeLength(uint64 epoch) external view override returns (uint256) {
+        return StakingLayout.epochCommitteeStorage().committee[epoch].length;
     }
 
     /// @custom:oz-upgrades-unsafe-allow delegatecall

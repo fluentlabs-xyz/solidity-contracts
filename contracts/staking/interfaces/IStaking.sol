@@ -285,6 +285,11 @@ interface IStaking is IValidatorSet, IStakingEvents, IStakingErrors {
     /// @notice Returns the frozen committee for `epoch` in Simplex committee order (empty if uncommitted).
     function getEpochCommittee(uint64 epoch) external view returns (address[] memory);
 
+    /// @notice Length of the frozen committee for `epoch` (0 if uncommitted).
+    /// @dev A single SLOAD — avoids copying the whole committee array to memory
+    ///      just to read its length (the per-block `processBitmap` hot path).
+    function getEpochCommitteeLength(uint64 epoch) external view returns (uint256);
+
     /// @notice Permissionlessly slash a validator for a `ConflictingNotarize`
     ///         equivocation (two conflicting Notarize votes, same round/signer).
     function slashEquivocationNotarize(

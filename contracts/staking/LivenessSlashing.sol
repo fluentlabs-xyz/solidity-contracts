@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {StakingContext} from "./StakingContext.sol";
+import {StakingDpos} from "./StakingDpos.sol";
 import {IStaking} from "./interfaces/IStaking.sol";
 import {ISystemReward} from "./interfaces/ISystemReward.sol";
 import {IStakingPool} from "./interfaces/IStakingPool.sol";
@@ -92,6 +93,25 @@ contract LivenessSlashing is StakingContext {
         LivenessSlashingStorage storage $ = _getLivenessSlashingStorage();
         if (blockNumber <= $._lastProcessedBlock) return;
         $._lastProcessedBlock = blockNumber;
+
+        // The consensus `verify` predicate is deliberately structural-only over a
+        // non-deterministic cert bitmap, so a Byzantine proposer freely chooses
+        // `epoch` and `committeeSize` in the header. `epoch` and `committeeSize`
+        // ARE deterministic over agreed state, so validate them here (the single
+        // trust boundary) — a missing check let a single proposer accumulate
+        // `missCounter[stale_epoch][victim]` (never reset by honest blocks, which
+        // only write the current epoch) to a slash of an honest validator, or
+        // index a phantom signer past the committed committee (audit P2-5).
+        // Skip-not-revert: an honest cert always passes; rejecting malformed input
+        // by skipping this block's accounting avoids coupling to the executor's
+        // tolerated-revert set and never wedges the chain.
+        uint64 currentEpoch = StakingDpos._epochAt(_chainConfigContract, blockNumber);
+        bool epochInWindow = epoch == currentEpoch || (currentEpoch > 0 && epoch == currentEpoch - 1);
+        if (!epochInWindow) return;
+        // Ties the proposer-supplied size to the committed committee, eliminating
+        // phantom indices (`resolveSigner` past the real length) outright. Length-
+        // only getter (single SLOAD) — not getEpochCommittee (copies the array).
+        if (_stakingContract.getEpochCommitteeLength(epoch) != committeeSize) return;
 
         uint256 expectedLen = (uint256(committeeSize) + 7) / 8;
         require(signersBitmap.length == expectedLen, InvalidBitmapLength());

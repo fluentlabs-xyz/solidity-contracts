@@ -33,14 +33,21 @@ library StakingDpos {
     ///         retaining frozen committees.
     uint64 internal constant EPOCH_COMMITTEE_RETENTION_MARGIN = 8;
 
-    /// @dev Epoch math, mirroring `Staking._currentEpoch`. `cfg` is passed in
-    ///      because immutables are not reachable under DELEGATECALL.
-    function _currentEpoch(IChainConfig cfg) internal view returns (uint64) {
+    /// @dev Epoch math at an arbitrary block, mirroring `Staking._currentEpoch`.
+    ///      `cfg` is passed in because immutables are not reachable under
+    ///      DELEGATECALL. Single source of the relative-epoch formula; reused by
+    ///      `LivenessSlashing.processBitmap` so the window check and the commit
+    ///      cursor can never disagree on epoch numbering.
+    function _epochAt(IChainConfig cfg, uint256 blockNumber) internal view returns (uint64) {
         uint64 activation = cfg.getDposActivationBlock();
-        if (block.number < activation) {
+        if (blockNumber < activation) {
             return 0;
         }
-        return uint64((block.number - activation) / cfg.getEpochBlockInterval());
+        return uint64((blockNumber - activation) / cfg.getEpochBlockInterval());
+    }
+
+    function _currentEpoch(IChainConfig cfg) internal view returns (uint64) {
+        return _epochAt(cfg, block.number);
     }
 
     function _nextEpoch(IChainConfig cfg) internal view returns (uint64) {
@@ -80,6 +87,11 @@ library StakingDpos {
         if ($ck.consensusKeys[validatorAddress].blsPubkey.length != 0) {
             revert IStakingContextErrors.ConsensusKeysAlreadySet(validatorAddress);
         }
+        // Global peerPubkey uniqueness (mirrors ValidatorOwnerAlreadyInUse): a
+        // duplicate would make `commitEpochCommittee` permanently unsatisfiable.
+        if ($ck.peerPubkeyOwner[peerPubkey] != address(0)) {
+            revert IStakingContextErrors.PeerPubkeyAlreadyInUse(peerPubkey);
+        }
 
         address verifierAddr = cfg.getBlsVerifier();
         if (verifierAddr == address(0)) revert IStakingContextErrors.BlsVerifierNotConfigured();
@@ -99,6 +111,7 @@ library StakingDpos {
         uint64 activationEpoch = _nextEpoch(cfg);
         $ck.consensusKeys[validatorAddress] =
             IStaking.ConsensusKeys({blsPubkey: blsPubkey, peerPubkey: peerPubkey, activationEpoch: activationEpoch});
+        $ck.peerPubkeyOwner[peerPubkey] = validatorAddress;
 
         emit IStakingEvents.ConsensusKeysSet(validatorAddress, blsPubkey, peerPubkey, activationEpoch);
     }

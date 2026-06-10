@@ -41,6 +41,24 @@ interface IChainConfig {
     ///         epoch clock discontinuously and strand the commit cursor).
     error ActivationBlockInPast();
 
+    /// @notice `activeValidatorsLength` must not exceed `MAX_ACTIVE_VALIDATORS`
+    ///         — kept lock-step with the consensus peer-set cap
+    ///         (`fluentbase_p2p::MAX_PEER_SET_SIZE`) and the `committee_size: u8`
+    ///         extra-data wire format. A larger value would desync the on-chain
+    ///         committee from the consensus oracle.
+    error MaxActiveValidatorsExceeded(uint32 requested, uint32 max);
+
+    /// @notice Epoch-numbering parameters (`epochBlockInterval`,
+    ///         `dposActivationBlock`) are immutable once DPoS activation has
+    ///         passed — a live change renumbers every epoch, stranding committed
+    ///         committees and splitting restart-vs-running nodes.
+    error DposAlreadyActive();
+
+    /// @notice The undelegation window (`undelegatePeriod × epochBlockInterval`,
+    ///         in blocks) must outlive the equivocation-evidence finality window
+    ///         so stake cannot exit before it can be slashed.
+    error UndelegateWindowTooShort(uint256 windowBlocks, uint256 minBlocks);
+
     /// @notice Maximum number of validators returned in the active validator set.
     function getActiveValidatorsLength() external view returns (uint32);
 

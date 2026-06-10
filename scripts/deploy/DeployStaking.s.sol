@@ -59,6 +59,7 @@ contract DeployStaking is DeployBase {
         uint256 minValidatorStakeAmount;
         uint256 minStakingAmount;
         uint64 dposActivationBlock;
+        uint256 minUndelegateBlocks;
         IERC20 stakingToken;
     }
 
@@ -80,6 +81,9 @@ contract DeployStaking is DeployBase {
         p.minValidatorStakeAmount = json.readUint(".staking.minValidatorStakeAmount");
         p.minStakingAmount = json.readUint(".staking.minStakingAmount");
         // Optional: absent ⇒ 0 ⇒ absolute epoch numbering (set later via governance at migration).
+        p.minUndelegateBlocks = vm.keyExistsJson(json, ".staking.minUndelegateBlocks")
+            ? json.readUint(".staking.minUndelegateBlocks")
+            : 0;
         p.dposActivationBlock = vm.keyExistsJson(json, ".staking.dposActivationBlock")
             ? uint64(json.readUint(".staking.dposActivationBlock"))
             : 0;
@@ -180,7 +184,8 @@ contract DeployStaking is DeployBase {
             predictedStakingPool,
             governance,
             predictedChainConfig,
-            p.stakingToken
+            p.stakingToken,
+            p.minUndelegateBlocks
         );
         r.chainConfig = address(
             new ERC1967Proxy(

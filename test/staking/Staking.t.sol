@@ -83,7 +83,7 @@ contract StakingFoundryTest is Test {
                     new ERC1967Proxy(
                         address(systemRewardImpl),
                         abi.encodeCall(
-                            SystemReward.initialize, (address(this), _singleton(address(0)), _singleton16(10_000))
+                            SystemReward.initialize, (address(this), _singleton(address(this)), _singleton16(10_000))
                         )
                     )
                 ))
@@ -109,7 +109,8 @@ contract StakingFoundryTest is Test {
             predictedStakingPool,
             governance,
             predictedChainConfig,
-            blend
+            blend,
+            0 // minUndelegateBlocks: F1 floor off in tests
         );
         chainConfig = ChainConfig(
             address(

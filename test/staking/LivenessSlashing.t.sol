@@ -19,10 +19,25 @@ import {ISystemReward} from "../../contracts/staking/interfaces/ISystemReward.so
 ///         Implements just the IStaking surface `LivenessSlashing` touches.
 contract MockStakingForLiveness {
     mapping(uint64 epoch => mapping(uint32 signerIdx => address)) public committee;
+    mapping(uint64 epoch => uint256) public committeeSize;
     address[] public slashed;
 
     function setSigner(uint64 epoch, uint32 signerIdx, address validator) external {
         committee[epoch][signerIdx] = validator;
+    }
+
+    /// Set the committed committee length for `epoch` (P2-5 cross-check:
+    /// `processBitmap`'s `committeeSize` must equal `getEpochCommittee(epoch).length`).
+    function setCommitteeSize(uint64 epoch, uint256 size) external {
+        committeeSize[epoch] = size;
+    }
+
+    function getEpochCommittee(uint64 epoch) external view returns (address[] memory) {
+        return new address[](committeeSize[epoch]);
+    }
+
+    function getEpochCommitteeLength(uint64 epoch) external view returns (uint256) {
+        return committeeSize[epoch];
     }
 
     function resolveSigner(uint64 epoch, uint32 signerIdx) external view returns (address) {
@@ -38,18 +53,45 @@ contract MockStakingForLiveness {
     }
 }
 
+/// @notice Mock ChainConfig exposing just the two getters `LivenessSlashing`
+///         reads for `_currentEpochAt` (P2-5 epoch-window check).
+contract MockChainConfigForLiveness {
+    uint64 public dposActivationBlock;
+    uint32 public epochBlockInterval;
+
+    constructor(uint64 activation, uint32 interval) {
+        dposActivationBlock = activation;
+        epochBlockInterval = interval;
+    }
+
+    function getDposActivationBlock() external view returns (uint64) {
+        return dposActivationBlock;
+    }
+
+    function getEpochBlockInterval() external view returns (uint32) {
+        return epochBlockInterval;
+    }
+}
+
 /// @notice Unit tests for `LivenessSlashing.processBitmap`.
 contract LivenessSlashingTest is Test {
     LivenessSlashing internal liveness;
     MockStakingForLiveness internal mockStaking;
+    MockChainConfigForLiveness internal mockChainConfig;
 
     /// Mirror of `LivenessSlashing.MISS_THRESHOLD`. Asserted on entry to the
     /// threshold tests — if `MISS_THRESHOLD` changes in the contract, this
     /// constant must follow (and the per-test loop bounds with it).
     uint32 internal constant MISS_THRESHOLD = 50;
 
+    /// Epoch length used by the mock ChainConfig. Large enough that every test's
+    /// per-epoch block offsets (≤ MISS_THRESHOLD) stay inside one epoch, so the
+    /// P2-5 window check (`epoch == currentEpoch`) holds for `_block(epoch, off)`.
+    uint64 internal constant INTERVAL = 1000;
+
     function setUp() public {
         mockStaking = new MockStakingForLiveness();
+        mockChainConfig = new MockChainConfigForLiveness(0, uint32(INTERVAL));
         // Other StakingContext deps are unused in the liveness path — pass
         // anything castable to the right type.
         LivenessSlashing impl = new LivenessSlashing(
@@ -57,7 +99,7 @@ contract LivenessSlashingTest is Test {
             ISystemReward(payable(address(0xdead))),
             IStakingPool(payable(address(0xdead))),
             IFluentGovernance(address(0xdead)),
-            IChainConfig(address(0xdead)),
+            IChainConfig(address(mockChainConfig)),
             IERC20(address(0xdead))
         );
         liveness = LivenessSlashing(
@@ -95,14 +137,24 @@ contract LivenessSlashingTest is Test {
         return b;
     }
 
+    /// Block number inside `epoch` at the given intra-epoch `offset`, so
+    /// `_currentEpochAt(block) == epoch` and the P2-5 window check passes.
+    function _block(uint64 epoch, uint64 offset) internal pure returns (uint64) {
+        return epoch * INTERVAL + offset;
+    }
+
+    /// Drive `processBitmap` for `epoch` at intra-epoch block `offset`. Keeps the
+    /// mock's committed committee length in sync with `committeeSize` so the P2-5
+    /// size cross-check passes (the on-chain committee always matches the cert).
     function _process(
         uint64 epoch,
-        uint64 blockNumber,
+        uint64 offset,
         uint8 committeeSize,
         bytes memory bitmap
     ) internal {
+        mockStaking.setCommitteeSize(epoch, committeeSize);
         vm.prank(SYSTEM_CALLER);
-        liveness.processBitmap(epoch, blockNumber, committeeSize, bitmap);
+        liveness.processBitmap(epoch, _block(epoch, offset), committeeSize, bitmap);
     }
 
     /// One absent validator → counter increments by 1.
@@ -151,17 +203,51 @@ contract LivenessSlashingTest is Test {
         // Same blockNumber → guard returns early; counter does not advance.
         _process(7, 5, 8, missBitmap);
         assertEq(liveness.missCount(7, 4), 1);
-        assertEq(liveness.lastProcessedBlock(), 5);
+        assertEq(liveness.lastProcessedBlock(), _block(7, 5));
     }
 
     /// `signersBitmap.length != ceil(committeeSize/8)` → revert with
     /// `InvalidBitmapLength`.
     function test_invalid_bitmap_length_reverts() public {
-        // committeeSize=8 expects 1 byte; pass 2 bytes.
+        // committeeSize=8 expects 1 byte; pass 2 bytes. Set up the epoch/committee
+        // so the call reaches the bitmap-length check (past the P2-5 guards).
+        mockStaking.setCommitteeSize(7, 8);
         bytes memory bad = new bytes(2);
         vm.prank(SYSTEM_CALLER);
         vm.expectRevert(LivenessSlashing.InvalidBitmapLength.selector);
-        liveness.processBitmap(7, 1, 8, bad);
+        liveness.processBitmap(7, _block(7, 1), 8, bad);
+    }
+
+    /// P2-5: a cert stamped with an epoch outside {current, current-1} is skipped
+    /// (no counter accumulation) — blocks the stale-epoch slash-an-honest attack.
+    function test_stale_epoch_is_skipped() public {
+        // Process at block in epoch 9 but stamp a far-past epoch 2.
+        mockStaking.setCommitteeSize(2, 8);
+        bytes memory missBitmap = _allPresentExcept(8, 3);
+        vm.prank(SYSTEM_CALLER);
+        liveness.processBitmap(2, _block(9, 1), 8, missBitmap);
+        assertEq(liveness.missCount(2, 3), 0, "stale-epoch accounting must be skipped");
+    }
+
+    /// P2-5: a cert whose committeeSize disagrees with the committed committee
+    /// length is skipped (blocks phantom-index inflation).
+    function test_committee_size_mismatch_is_skipped() public {
+        // Committed committee for epoch 7 has length 8, but the cert claims 16.
+        mockStaking.setCommitteeSize(7, 8);
+        bytes memory bitmap = new bytes(2); // ceil(16/8) = 2 bytes
+        vm.prank(SYSTEM_CALLER);
+        liveness.processBitmap(7, _block(7, 1), 16, bitmap);
+        assertEq(liveness.missCount(7, 10), 0, "size-mismatch accounting must be skipped");
+    }
+
+    /// P2-5: the prev-epoch boundary lag (epoch == current-1) IS in-window.
+    function test_prev_epoch_boundary_in_window() public {
+        // Block in epoch 9, cert for epoch 8 (the boundary-lag case).
+        mockStaking.setCommitteeSize(8, 8);
+        bytes memory missBitmap = _allPresentExcept(8, 3);
+        vm.prank(SYSTEM_CALLER);
+        liveness.processBitmap(8, _block(9, 0), 8, missBitmap);
+        assertEq(liveness.missCount(8, 3), 1, "current-1 epoch must still be accounted");
     }
 
     /// `committeeSize == 0` → early return (cold-start / no-prev-cert).

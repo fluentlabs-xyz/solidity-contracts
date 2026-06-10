@@ -101,7 +101,7 @@ contract StakingConsensusKeysTest is Test {
                     new ERC1967Proxy(
                         address(systemRewardImpl),
                         abi.encodeCall(
-                            SystemReward.initialize, (address(this), _singleton(address(0)), _singleton16(10_000))
+                            SystemReward.initialize, (address(this), _singleton(address(this)), _singleton16(10_000))
                         )
                     )
                 ))
@@ -127,7 +127,8 @@ contract StakingConsensusKeysTest is Test {
             predictedStakingPool,
             governance,
             predictedChainConfig,
-            blend
+            blend,
+            0 // minUndelegateBlocks: F1 floor off in tests
         );
         chainConfig = ChainConfig(
             address(
@@ -137,7 +138,7 @@ contract StakingConsensusKeysTest is Test {
                         ChainConfig.initialize,
                         (
                             address(this),
-                            uint32(60),
+                            uint32(51),
                             uint32(10),
                             uint32(50),
                             uint32(150),
@@ -188,6 +189,19 @@ contract StakingConsensusKeysTest is Test {
         _okKeys(validator1, validPeerPk);
     }
 
+
+    function test_setConsensusKeys_revertsOnDuplicatePeerPubkey() public {
+        // validator1 registers peerPubkey P (PoP has no address binding, so the
+        // same valid BLS vector works for any validator).
+        _okKeys(validator1, validPeerPk);
+        // validator2 reusing validator1's peerPubkey is rejected — a duplicate
+        // would make every future commitEpochCommittee unsatisfiable (two equal
+        // peerPubkeys break the strictly-ascending committee order) => chain
+        // halt (audit P2-12).
+        vm.prank(validator2);
+        vm.expectRevert(abi.encodeWithSignature("PeerPubkeyAlreadyInUse(bytes32)", validPeerPk));
+        staking.setConsensusKeys(validator2, PK_UNC, SIG_UNC_VALID, validPeerPk);
+    }
 
     function test_setConsensusKeys_revertsOnUnknownValidator() public {
         address unknown = makeAddr("unknown");

@@ -27,7 +27,7 @@ import {ISystemReward} from "../../contracts/staking/interfaces/ISystemReward.so
 contract EquivocationSlashingTest is Test {
     uint256 internal constant ONE = 1 ether;
     uint32 internal constant EPOCH_INTERVAL = 10;
-    uint32 internal constant ACTIVE_LEN = 60;
+    uint32 internal constant ACTIVE_LEN = 51; // == MAX_ACTIVE_VALIDATORS cap
     uint64 internal constant CHAIN_ID = 20_994; // == fluent_namespace base in the corpus
     uint64 internal constant CORPUS_EPOCH = 7;
     uint32 internal constant CORPUS_SIGNER_IDX = 3;
@@ -242,7 +242,7 @@ contract EquivocationSlashingTest is Test {
                 address(
                     new ERC1967Proxy(
                         address(systemRewardImpl),
-                        abi.encodeCall(SystemReward.initialize, (address(this), _singleton(address(0)), _singleton16(10_000)))
+                        abi.encodeCall(SystemReward.initialize, (address(this), _singleton(address(this)), _singleton16(10_000)))
                     )
                 )
             )
@@ -268,7 +268,8 @@ contract EquivocationSlashingTest is Test {
             predictedStakingPool,
             governance,
             predictedChainConfig,
-            blend
+            blend,
+            0 // minUndelegateBlocks: F1 floor off in tests
         );
         chainConfig = ChainConfig(
             address(

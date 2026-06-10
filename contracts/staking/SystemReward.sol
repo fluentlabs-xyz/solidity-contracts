@@ -89,6 +89,12 @@ contract SystemReward is ISystemReward, StakingContext {
         for (uint256 i = 0; i < accounts.length; i++) {
             address account = accounts[i];
             uint16 share = shares[i];
+            // A zero-address recipient with a non-zero share permanently bricks
+            // fee distribution: the ERC-20 leg of `_claimSystemFee` reverts on
+            // transfer to address(0), and since the setter force-claims BEFORE
+            // rewriting shares, even the corrective tx reverts (recoverable only
+            // by a UUPS upgrade). Reject it here (audit P2-7).
+            require(account != address(0), BadShareDistribution(share));
             require(share >= SHARE_MIN_VALUE && share <= SHARE_MAX_VALUE, BadShareDistribution(share));
             if (i >= $.distributionShares.length) {
                 $.distributionShares.push(DistributionShare(account, share));

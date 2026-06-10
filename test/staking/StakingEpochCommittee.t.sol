@@ -23,7 +23,7 @@ import {ISystemReward} from "../../contracts/staking/interfaces/ISystemReward.so
 contract StakingEpochCommitteeTest is Test {
     uint256 internal constant ONE = 1 ether;
     uint32 internal constant EPOCH_INTERVAL = 10; // ChainConfig.epochBlockInterval below
-    uint32 internal constant ACTIVE_LEN = 60; // ChainConfig.activeValidatorsLength below
+    uint32 internal constant ACTIVE_LEN = 51; // ChainConfig.activeValidatorsLength below (== MAX_ACTIVE_VALIDATORS cap)
     uint64 internal constant RETENTION_MARGIN = 8; // Staking.EPOCH_COMMITTEE_RETENTION_MARGIN
     uint64 internal constant UNDELEGATE_PERIOD = 7; // ChainConfig.undelegatePeriod below
     // retention window = UNDELEGATE_PERIOD + RETENTION_MARGIN.
@@ -124,7 +124,7 @@ contract StakingEpochCommitteeTest is Test {
                 address(
                     new ERC1967Proxy(
                         address(systemRewardImpl),
-                        abi.encodeCall(SystemReward.initialize, (address(this), _singleton(address(0)), _singleton16(10_000)))
+                        abi.encodeCall(SystemReward.initialize, (address(this), _singleton(address(this)), _singleton16(10_000)))
                     )
                 )
             )
@@ -150,7 +150,8 @@ contract StakingEpochCommitteeTest is Test {
             predictedStakingPool,
             governance,
             predictedChainConfig,
-            blend
+            blend,
+            0 // minUndelegateBlocks: F1 floor off in tests
         );
         chainConfig = ChainConfig(
             address(
@@ -697,7 +698,8 @@ contract StakingEpochCommitteeTest is Test {
             IStakingPool(address(stakingPool)),
             IFluentGovernance(address(this)),
             IChainConfig(address(chainConfig)),
-            blend
+            blend,
+            0 // minUndelegateBlocks: F1 floor off in tests
         );
         vm.expectRevert(abi.encodeWithSignature("UnalignedActivationBlock()"));
         new ERC1967Proxy(

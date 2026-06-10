@@ -1161,7 +1161,8 @@ contract StakingAdditionalTest is Test {
             predictedStakingPool,
             governance,
             predictedChainConfig,
-            blend
+            blend,
+            0 // minUndelegateBlocks: F1 floor off in tests
         );
         chainConfig = ChainConfig(
             address(

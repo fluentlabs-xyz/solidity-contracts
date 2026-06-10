@@ -168,6 +168,13 @@ interface IStakingContextErrors {
      */
     error ConsensusKeysAlreadySet(address validator);
     /**
+     * @notice Thrown when a peerPubkey is already registered to another validator.
+     * @dev Enforces global peerPubkey uniqueness — a duplicate would make
+     *      `commitEpochCommittee` permanently unsatisfiable (chain halt).
+     * @param peerPubkey The duplicate ed25519 consensus peer public key.
+     */
+    error PeerPubkeyAlreadyInUse(bytes32 peerPubkey);
+    /**
      * @notice Thrown when consensus keys are not set for the validator.
      * @param validator The validator whose keys are not set.
      */
