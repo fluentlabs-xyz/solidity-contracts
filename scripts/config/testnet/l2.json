@@ -23,10 +23,10 @@
     },
     "staking": {
         "activeValidatorsLength": 21,
-        "epochBlockInterval": 200,
+        "epochBlockInterval": 432000,
         "misdemeanorThreshold": 50,
         "felonyThreshold": 150,
-        "validatorJailEpochLength": 7,
+        "validatorJailEpochLength": 1,
         "undelegatePeriod": 1728,
         "minUndelegateBlocks": 345600,
         "minValidatorStakeAmount": "1000000000000000000",

@@ -406,6 +406,33 @@ contract StakingAdditionalTest is Test {
         assertEq(statusAfter, 3);
     }
 
+    /// P1: the jail trigger is `>=`, not `==`. If governance lowers felonyThreshold
+    /// below a validator's already-accumulated per-epoch slash count, the next
+    /// slash must still jail it (with `==` the equality is never hit again and the
+    /// jail is skipped forever).
+    function test_jailFiresWhenFelonyLoweredBelowAccumulatedCount() public {
+        _deploy(
+            300, 2, 20, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
+        );
+        staking.addValidator(validator1);
+        staking.addValidator(validator2);
+
+        // Accumulate 18 slashes in one epoch — below felony=20, not jailed.
+        for (uint256 i = 0; i < 18; i++) {
+            _slash(validator2);
+        }
+        (, uint8 statusBefore,,,,,,,) = staking.getValidatorStatus(validator2);
+        assertTrue(statusBefore != 3, "must not be jailed below felony");
+
+        // Governance lowers felony to 10 — now strictly below the count (18).
+        chainConfig.setFelonyThreshold(10);
+
+        // Next slash (count 19 >= 10) jails via `>=`. `==` would skip (19 != 10).
+        _slash(validator2);
+        (, uint8 statusAfter,,,,,,,) = staking.getValidatorStatus(validator2);
+        assertEq(statusAfter, 3, "jailed via >= after felony lowered below count");
+    }
+
     function test_validatorCanBeReleasedFromJailByOwner() public {
         _deploy(
             50, 5, 5, 2, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)

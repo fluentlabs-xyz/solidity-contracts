@@ -50,6 +50,25 @@ library StakingLayout {
      */
     uint256 internal constant BALANCE_COMPACT_PRECISION = 1e10;
 
+    /// @notice Two-epoch warmup: stake delegated in epoch e becomes effective at
+    ///         e+2 (PoS spec §4.2). This depth is what lets the committee for epoch
+    ///         N be selected one epoch ahead. committee[N] is selected from
+    ///         EffBal(N-1) = snapshot[N-1] (§4.4); with WARMUP_DELAY=2 its
+    ///         contributing delegations come from epoch (N-1)-WARMUP_DELAY = N-3, so
+    ///         snapshot[N-1] is final by the first block of epoch N-1 — see
+    ///         commitEpochCommittee's `target <= currentEpoch+1` gate. Shared by
+    ///         `Staking` and `StakingEconomics`; single source.
+    uint64 internal constant WARMUP_DELAY = 2;
+
+    /**
+     * @dev Maximum number of epochs processed by a single state-changing claim.
+     *
+     * This bounds reward and undelegation iteration so accounts with long unclaimed ranges can
+     * settle progressively instead of requiring one transaction to process the entire history.
+     * Shared by `Staking` and `StakingEconomics`; single source.
+     */
+    uint64 internal constant MAX_EPOCHS_PER_CLAIM = 1000;
+
     /// @dev keccak256(abi.encode(uint256(keccak256("Fluent.storage.StakingStorage")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 internal constant STAKING_STORAGE_LOCATION =
         0x4102a9ba7244b40639ebe412c7bfc792b19c048efdf631bf4f130fef80c0df00;
@@ -153,6 +172,55 @@ library StakingLayout {
             }
             $._activeValidatorsList.pop();
         }
+    }
+
+    /// @dev Materialize (and lazily initialize) the snapshot at `epoch`, copying
+    ///      params forward from the validator's last-modified snapshot. Returns a
+    ///      storage ref → must stay `internal` (inlined). Mutates the caller's
+    ///      `validator` memory (`changedAt`) by reference, exactly as before; the
+    ///      caller persists `validator` afterwards. Relocated from `Staking` (no
+    ///      immutable / `_currentEpoch` dependency) so both `Staking` lifecycle/slash
+    ///      and the `StakingEconomics` delegation/deposit paths call one copy.
+    function touchValidatorSnapshot(StakingStorage storage $, IStaking.Validator memory validator, uint64 epoch)
+        internal
+        returns (IStaking.ValidatorSnapshot storage snapshot)
+    {
+        snapshot = $._validatorSnapshots[validator.validatorAddress][epoch];
+        // if snapshot is already initialized then just return it
+        if (snapshot.totalDelegated > 0) {
+            return snapshot;
+        }
+        // find previous snapshot to copy parameters from it
+        IStaking.ValidatorSnapshot memory lastModifiedSnapshot =
+            $._validatorSnapshots[validator.validatorAddress][validator.changedAt];
+        // last modified snapshot might store zero value, for first delegation it might happen and its not critical
+        snapshot.totalDelegated = lastModifiedSnapshot.totalDelegated;
+        snapshot.commissionRate = lastModifiedSnapshot.commissionRate;
+        // we must save last affected epoch for this validator to be able to restore total delegated
+        // amount in the future (check condition upper)
+        if (epoch > validator.changedAt) {
+            validator.changedAt = epoch;
+        }
+    }
+
+    /// @dev View counterpart of {touchValidatorSnapshot}: returns the materialized
+    ///      snapshot in memory without writing storage (used by the at-epoch views).
+    function touchValidatorSnapshotImmutable(
+        StakingStorage storage $,
+        IStaking.Validator memory validator,
+        uint64 epoch
+    ) internal view returns (IStaking.ValidatorSnapshot memory snapshot) {
+        snapshot = $._validatorSnapshots[validator.validatorAddress][epoch];
+        // if snapshot is already initialized then just return it
+        if (snapshot.totalDelegated > 0) {
+            return snapshot;
+        }
+        // find previous snapshot to copy parameters from it
+        IStaking.ValidatorSnapshot memory lastModifiedSnapshot =
+            $._validatorSnapshots[validator.validatorAddress][validator.changedAt];
+        // last modified snapshot might store zero value, for first delegation it might happen and its not critical
+        snapshot.totalDelegated = lastModifiedSnapshot.totalDelegated;
+        snapshot.commissionRate = lastModifiedSnapshot.commissionRate;
     }
 
     /// @dev Most-recent snapshot at or before `epoch` (copy-forward walk). Shared

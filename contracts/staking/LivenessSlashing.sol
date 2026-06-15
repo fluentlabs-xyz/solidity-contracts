@@ -18,11 +18,6 @@ import {IChainConfig} from "./interfaces/IChainConfig.sol";
 ///         signer bitmap of the previous finalized cert. At threshold,
 ///         calls `Staking.slash(victim)`.
 contract LivenessSlashing is StakingContext {
-    /// @notice Per-block on-chain miss counter, system-call-driven.
-    ///         Operator-chosen at deployment. Deferred (separate ticket):
-    ///         decay, emergency-unjail governance call, ChainConfig migration.
-    uint32 private constant MISS_THRESHOLD = 50;
-
     /// @notice Emitted when sustained-miss threshold is reached and a
     ///         slash is dispatched to `Staking.slash`.
     event LivenessSlashDispatched(
@@ -117,6 +112,9 @@ contract LivenessSlashing is StakingContext {
         require(signersBitmap.length == expectedLen, InvalidBitmapLength());
 
         mapping(uint32 => uint32) storage missCounter = $._missCounter[epoch];
+        // Single SLOAD via the config getter (sentinel-defaults to 50); read
+        // once, not per committee member.
+        uint32 missThreshold = _chainConfigContract.getMissThreshold();
 
         for (uint8 i = 0; i < committeeSize; i++) {
             bool present = (uint8(signersBitmap[i >> 3]) >> (i & 7)) & 1 == 1;
@@ -124,7 +122,7 @@ contract LivenessSlashing is StakingContext {
                 if (missCounter[i] != 0) missCounter[i] = 0;
             } else {
                 uint32 c = missCounter[i] + 1;
-                if (c >= MISS_THRESHOLD) {
+                if (c >= missThreshold) {
                     missCounter[i] = 0;
                     address victim = _stakingContract.resolveSigner(epoch, uint32(i));
                     emit LivenessSlashDispatched(epoch, uint32(i), victim);

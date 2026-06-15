@@ -7,6 +7,7 @@ interface IChainConfigEvents {
     event MisdemeanorThresholdChanged(uint32 prevValue, uint32 newValue);
     event FelonyThresholdChanged(uint32 prevValue, uint32 newValue);
     event ValidatorJailEpochLengthChanged(uint32 prevValue, uint32 newValue);
+    event MissThresholdChanged(uint32 prevValue, uint32 newValue);
     event UndelegatePeriodChanged(uint32 prevValue, uint32 newValue);
     event MinValidatorStakeAmountChanged(uint256 prevValue, uint256 newValue);
     event MinStakingAmountChanged(uint256 prevValue, uint256 newValue);
@@ -94,6 +95,14 @@ interface IChainConfig {
 
     /// @notice Updates validator jail duration in epochs. Callable by governance.
     function setValidatorJailEpochLength(uint32 newValue) external;
+
+    /// @notice Consecutive missed blocks that dispatch one liveness slash.
+    ///         Defaults to 50 when unset (sentinel) so an un-migrated config
+    ///         never reads 0 (which would slash on the first absence).
+    function getMissThreshold() external view returns (uint32);
+
+    /// @notice Updates the consecutive-miss liveness threshold. Callable by governance.
+    function setMissThreshold(uint32 newValue) external;
 
     /// @notice Number of epochs before undelegated funds become claimable.
     function getUndelegatePeriod() external view returns (uint32);

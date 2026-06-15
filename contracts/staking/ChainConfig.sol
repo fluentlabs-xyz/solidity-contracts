@@ -22,12 +22,19 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
     // keccak256(abi.encode(uint256(keccak256("Fluent.storage.ChainConfigStorage")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant CHAIN_CONFIG_STORAGE_LOCATION = 0x8046150a36ce023dec392c496d6e64fcdc42b4e5054073dafc987cdbcc500e00;
 
-    /// @notice Hard cap on `activeValidatorsLength`. MUST stay byte-equal to
-    ///         `fluentbase_p2p::constants::MAX_PEER_SET_SIZE` (51) and ≤ 255
-    ///         (the `committee_size: u8` extra-data wire format). Raising it
-    ///         requires a coordinated bump on both the contract and the Rust
-    ///         consensus side in the same release.
+    /// @notice Hard cap on `activeValidatorsLength` (the COMMITTEE size; the
+    ///         tier-2 registry fed to the p2p tracker is uncapped here). MUST
+    ///         stay byte-equal to `fluentbase_p2p::constants::MAX_COMMITTEE_SIZE`
+    ///         (51) and ≤ 255 (the `committee_size: u8` extra-data wire format).
+    ///         Raising it requires a coordinated bump on both the contract and
+    ///         the Rust consensus side in the same release.
     uint32 public constant MAX_ACTIVE_VALIDATORS = 51;
+
+    /// @notice Default consecutive-miss liveness threshold, used when the
+    ///         `_missThreshold` storage slot is unset (0) — i.e. a config
+    ///         initialized before this field was appended. MUST stay byte-equal
+    ///         to the Rust/Solidity liveness wire expectation.
+    uint32 public constant DEFAULT_MISS_THRESHOLD = 50;
 
     // F1 exit-before-slash floor: the undelegation window
     // (undelegatePeriod * epochBlockInterval, in blocks) must be >= this.
@@ -78,6 +85,9 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
         // to zero — `_currentEpoch = (block.number - this) / interval`. Zero ⇒
         // absolute numbering (pre-migration / non-DPoS default).
         uint64 _dposActivationBlock;
+        // Appended (ERC-7201 safe): consecutive missed blocks per liveness slash
+        // dispatch. Zero ⇒ DEFAULT_MISS_THRESHOLD (sentinel; see getMissThreshold).
+        uint32 _missThreshold;
     }
 
     function _getChainConfigStorage() private pure returns (ChainConfigStorage storage $) {
@@ -225,6 +235,18 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
         ChainConfigStorage storage $ = _getChainConfigStorage();
         emit ValidatorJailEpochLengthChanged($._validatorJailEpochLength, newValue);
         $._validatorJailEpochLength = newValue;
+    }
+
+    function getMissThreshold() external view override returns (uint32) {
+        uint32 stored = _getChainConfigStorage()._missThreshold;
+        return stored == 0 ? DEFAULT_MISS_THRESHOLD : stored;
+    }
+
+    function setMissThreshold(uint32 newValue) external override onlyFromGovernance {
+        require(newValue > 0, ZeroValue("missThreshold"));
+        ChainConfigStorage storage $ = _getChainConfigStorage();
+        emit MissThresholdChanged($._missThreshold, newValue);
+        $._missThreshold = newValue;
     }
 
     function getUndelegatePeriod() external view override returns (uint32) {

@@ -1,0 +1,47 @@
+{
+    "chainId": 2026,
+    "roles": {
+        "initialOwner": "0x01d081de579d7d615da0d25526be370bd8fa41d0",
+        "admin": "0x01d081de579d7d615da0d25526be370bd8fa41d0",
+        "pauser": "0x01d081de579d7d615da0d25526be370bd8fa41d0",
+        "relayer": "0x01d081de579d7d615da0d25526be370bd8fa41d0"
+    },
+    "staking": {
+        "activeValidatorsLength": 5,
+        "epochBlockInterval": 64,
+        "misdemeanorThreshold": 1,
+        "felonyThreshold": 1,
+        "validatorJailEpochLength": 4,
+        "undelegatePeriod": 4,
+        "minUndelegateBlocks": 0,
+        "minValidatorStakeAmount": "1000000000000000000",
+        "minStakingAmount": "1000000000000000000",
+        "token": "0x0000000000000000000000000000000000000000",
+        "initialValidators": [
+            "0x01d081de579d7d615da0d25526be370bd8fa41d0",
+            "0x401dcd045e02bee4a8b2f9856ee2c6ccd5c035fb",
+            "0x9c57bee385ff8946533c643ff9c471609778a6ae",
+            "0xfaa2defca2f77efaeff60ceded8dd9270e03cad0",
+            "0x68cd251ccf6a288c07753142321d702a0bace241"
+        ],
+        "initialStakes": [
+            "5000000000000000000",
+            "1000000000000000000",
+            "1000000000000000000",
+            "1000000000000000000",
+            "1000000000000000000"
+        ],
+        "initialCommissionRate": 0,
+        "systemReward": {
+            "accounts": [
+                "0x01d081de579d7d615da0d25526be370bd8fa41d0"
+            ],
+            "shares": [
+                10000
+            ]
+        }
+    },
+    "governance": {
+        "votingPeriod": 10
+    }
+}

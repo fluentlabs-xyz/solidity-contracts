@@ -58,6 +58,7 @@ contract MockStakingForLiveness {
 contract MockChainConfigForLiveness {
     uint64 public dposActivationBlock;
     uint32 public epochBlockInterval;
+    uint32 public missThreshold = 50;
 
     constructor(uint64 activation, uint32 interval) {
         dposActivationBlock = activation;
@@ -71,6 +72,14 @@ contract MockChainConfigForLiveness {
     function getEpochBlockInterval() external view returns (uint32) {
         return epochBlockInterval;
     }
+
+    function getMissThreshold() external view returns (uint32) {
+        return missThreshold;
+    }
+
+    function setMissThreshold(uint32 v) external {
+        missThreshold = v;
+    }
 }
 
 /// @notice Unit tests for `LivenessSlashing.processBitmap`.
@@ -79,9 +88,10 @@ contract LivenessSlashingTest is Test {
     MockStakingForLiveness internal mockStaking;
     MockChainConfigForLiveness internal mockChainConfig;
 
-    /// Mirror of `LivenessSlashing.MISS_THRESHOLD`. Asserted on entry to the
-    /// threshold tests — if `MISS_THRESHOLD` changes in the contract, this
-    /// constant must follow (and the per-test loop bounds with it).
+    /// Mirror of the mock ChainConfig's default `missThreshold` (50, =
+    /// `ChainConfig.DEFAULT_MISS_THRESHOLD`). `LivenessSlashing` now reads the
+    /// threshold from ChainConfig per block; the threshold tests run at this
+    /// default. `test_missThreshold_is_config_driven` exercises a non-default.
     uint32 internal constant MISS_THRESHOLD = 50;
 
     /// Epoch length used by the mock ChainConfig. Large enough that every test's
@@ -180,6 +190,25 @@ contract LivenessSlashingTest is Test {
         }
         // Final miss → slash + counter reset.
         _process(9, MISS_THRESHOLD, 8, missBitmap);
+        assertEq(liveness.missCount(9, 2), 0);
+        assertEq(mockStaking.slashedLength(), 1);
+        assertEq(mockStaking.slashed(0), victim);
+    }
+
+    /// The miss threshold is read from ChainConfig, not a contract constant:
+    /// a governance-set value of 3 must dispatch the slash after 3 consecutive
+    /// misses, not 50.
+    function test_missThreshold_is_config_driven() public {
+        mockChainConfig.setMissThreshold(3);
+        address victim = makeAddr("victim");
+        mockStaking.setSigner(9, 2, victim);
+
+        bytes memory missBitmap = _allPresentExcept(8, 2);
+        _process(9, 1, 8, missBitmap);
+        _process(9, 2, 8, missBitmap);
+        assertEq(mockStaking.slashedLength(), 0, "no slash before threshold");
+        // Third consecutive miss → slash + reset.
+        _process(9, 3, 8, missBitmap);
         assertEq(liveness.missCount(9, 2), 0);
         assertEq(mockStaking.slashedLength(), 1);
         assertEq(mockStaking.slashed(0), victim);

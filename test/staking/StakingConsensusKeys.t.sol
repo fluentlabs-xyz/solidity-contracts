@@ -324,6 +324,38 @@ contract StakingConsensusKeysTest is Test {
     }
 
 
+    function test_getRegistryWithKeys_returnsBeyondTopK() public {
+        // Registry = the FULL active list; getValidatorsWithKeys = top-k only.
+        // With k=2 and 3 active validators the two views must diverge.
+        chainConfig.setActiveValidatorsLength(2);
+        _okKeys(validator1, validPeerPk);
+
+        (address[] memory topAddrs,) = staking.getValidatorsWithKeys();
+        (address[] memory regAddrs, IStaking.ConsensusKeys[] memory regKeys) = staking.getRegistryWithKeys();
+
+        assertEq(topAddrs.length, 2);
+        assertEq(regAddrs.length, 3);
+        assertEq(regKeys.length, 3);
+
+        uint256 found1 = type(uint256).max;
+        for (uint256 i = 0; i < regAddrs.length; i++) {
+            if (regAddrs[i] == validator1) found1 = i;
+        }
+        assertTrue(found1 != type(uint256).max);
+        assertEq(regKeys[found1].peerPubkey, validPeerPk);
+    }
+
+    function test_getRegistryWithKeys_dropsDeactivatedValidator() public {
+        staking.disableValidator(validator2);
+
+        (address[] memory regAddrs,) = staking.getRegistryWithKeys();
+
+        assertEq(regAddrs.length, 2);
+        for (uint256 i = 0; i < regAddrs.length; i++) {
+            assertTrue(regAddrs[i] != validator2);
+        }
+    }
+
     function test_consensusKeysStorage_doesNotInterfereWithStakingStorage() public {
         (address ownerBefore, uint8 statusBefore,,,,,,,) = staking.getValidatorStatus(validator1);
 

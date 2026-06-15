@@ -159,4 +159,24 @@ contract ChainConfigGuardsTest is Test {
         vm.expectRevert(IChainConfig.UnalignedActivationBlock.selector);
         cc.setEpochBlockInterval(300);
     }
+
+    // --- missThreshold (config-driven liveness granularity) --------------------
+
+    function test_getMissThreshold_defaultsTo50_whenUnset() public {
+        // Never set after init: the sentinel getter returns DEFAULT_MISS_THRESHOLD.
+        ChainConfig cc = _good();
+        assertEq(cc.getMissThreshold(), 50);
+    }
+
+    function test_setMissThreshold_updates() public {
+        ChainConfig cc = _good();
+        cc.setMissThreshold(7);
+        assertEq(cc.getMissThreshold(), 7);
+    }
+
+    function test_setMissThreshold_rejectsZero() public {
+        ChainConfig cc = _good();
+        vm.expectRevert(abi.encodeWithSelector(IChainConfig.ZeroValue.selector, "missThreshold"));
+        cc.setMissThreshold(0);
+    }
 }

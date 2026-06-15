@@ -19,6 +19,7 @@ abstract contract DeployBase is Script {
     /// @dev Resolves the deployment target from CHAIN. `NETWORK` is still accepted for older scripts,
     ///      but release/migration flows should use CHAIN so the wrapper can also select the matching RPC.
     ///      Supported CHAIN values: L1_MAINNET, L1_SEPOLIA, L2_MAINNET, L2_TESTNET, LOCAL_L1, LOCAL_L2.
+    ///      (The local-dpos-smoke devnet selects its config via the legacy NETWORK=local-dpos-smoke/l2.)
     function _activeChain() internal view returns (TargetChain memory c) {
         string memory chain = vm.envOr("CHAIN", string(""));
         if (bytes(chain).length == 0) {

@@ -91,6 +91,21 @@ contract DeployStaking is DeployBase {
 
         require(p.initialValidators.length == p.initialStakes.length, "staking initial validators/stakes mismatch");
         require(p.systemRewardAccounts.length == p.systemRewardShares.length, "system reward accounts/shares mismatch");
+
+        // Liveness reachability (audit P2): one slash dispatch costs MISS_THRESHOLD
+        // (50, ChainConfig.DEFAULT_MISS_THRESHOLD) consecutive misses, so at most
+        // `interval / 50` dispatches can accrue per epoch. A felony/misdemeanor
+        // threshold above that ceiling makes the consequence UNREACHABLE — a
+        // silently dead liveness mechanism. Fail at deploy, not in production.
+        uint32 maxDispatchesPerEpoch = p.epochBlockInterval / 50;
+        require(
+            p.felonyThreshold <= maxDispatchesPerEpoch,
+            "felony threshold unreachable: lower felonyThreshold or raise epochBlockInterval (need felony <= interval/50)"
+        );
+        require(
+            p.misdemeanorThreshold <= maxDispatchesPerEpoch,
+            "misdemeanor threshold unreachable: lower misdemeanorThreshold or raise epochBlockInterval (need misdemeanor <= interval/50)"
+        );
     }
 
     function _toUint16Array(uint256[] memory values) internal pure returns (uint16[] memory out) {
@@ -255,7 +270,7 @@ contract DeployStaking is DeployBase {
         console2.log("  system reward accounts:", p.systemRewardAccounts.length);
         console2.log("  staking token:", address(p.stakingToken));
 
-        vm.startBroadcast(0x390a4CEdBb65be7511D9E1a35b115376F39DbDF3);
+        vm.startBroadcast(vm.envOr("DEPLOYER", address(0x390a4CEdBb65be7511D9E1a35b115376F39DbDF3)));
         StakingDeployment memory r = _deployStaking(p);
         vm.stopBroadcast();
 

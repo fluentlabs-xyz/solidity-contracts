@@ -256,6 +256,13 @@ interface IStaking is IValidatorSet, IStakingEvents, IStakingErrors {
     /// @notice Returns active validators with their consensus keys in a single call.
     function getValidatorsWithKeys() external view returns (address[] memory addrs, ConsensusKeys[] memory keys);
 
+    /// @notice The FULL Active-status validator registry (`_activeValidatorsList`)
+    ///         with consensus keys — unlike {getValidatorsWithKeys}, NOT truncated
+    ///         to the stake-weighted top-k committee. Feeds the consensus p2p
+    ///         tier-2 peer set: every activated validator (in or out of the
+    ///         committee, including the sequencer) stays connected.
+    function getRegistryWithKeys() external view returns (address[] memory addrs, ConsensusKeys[] memory keys);
+
     /// @notice Epoch-parameterized variant of {getValidatorsWithKeys}: the
     ///         stake-weighted keyed top-k set as of `epoch`. Used by the executor to
     ///         derive the committee for the epoch it commits one ahead.
