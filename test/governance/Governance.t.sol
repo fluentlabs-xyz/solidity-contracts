@@ -18,6 +18,7 @@ import {Staking} from "../../contracts/staking/Staking.sol";
 import {StakingPool} from "../../contracts/staking/StakingPool.sol";
 import {SystemReward} from "../../contracts/staking/SystemReward.sol";
 import {MockBlendToken} from "../../contracts/staking/mocks/MockBlendToken.sol";
+import {MockStakingVault} from "../../contracts/staking/mocks/MockStakingVault.sol";
 
 contract FluentGovernanceTest is Test {
     uint256 internal constant ONE = 1 ether;
@@ -26,6 +27,7 @@ contract FluentGovernanceTest is Test {
     ChainConfig internal chainConfig;
     FluentGovernance internal governance;
     MockBlendToken internal blend;
+    MockStakingVault internal stakingVault;
 
     address internal owner = makeAddr("owner");
     address internal treasury = makeAddr("treasury");
@@ -36,6 +38,7 @@ contract FluentGovernanceTest is Test {
 
     function setUp() public {
         blend = new MockBlendToken();
+        stakingVault = new MockStakingVault(blend);
         _deploy(5);
     }
 
@@ -174,7 +177,8 @@ contract FluentGovernanceTest is Test {
             predictedStakingPool,
             predictedGovernance,
             predictedChainConfig,
-            blend
+            blend,
+            stakingVault
         );
         StakingPool stakingPool = StakingPool(
             payable(address(new ERC1967Proxy(address(stakingPoolImpl), abi.encodeCall(StakingPool.initialize, (address(this))))))

@@ -40,15 +40,34 @@ interface IStakingPoolErrors {
      * @notice Staker address argument must not be the zero address.
      */
     error ZeroStaker();
+
+    /**
+     * @notice Vault address argument must not be the zero address.
+     */
+    error ZeroVault();
+
+    /**
+     * @notice Vault underlying asset does not match the staking token.
+     */
+    error VaultAssetMismatch(address expected, address actual);
+
+    /**
+     * @notice The vault minted fewer shares than the validator-pool ratio requires.
+     */
+    error VaultShareShortfall(uint256 minted, uint256 required);
 }
 
 /**
  * @title IStakingPool
  * @author Fluent Labs
  * @notice Share-based pooled staking on top of the underlying `Staking` contract.
- * @dev Users deposit the staking ERC20 against a specific validator and receive a proportional share of
- *      the pool's delegated stake plus compounded rewards. The pool handles delegation, periodic reward
- *      claims, and unstake finalization on behalf of all depositors.
+ * @dev Users deposit the staking ERC20 against a specific validator and receive ERC-4626 vault
+ *      shares at the validator-pool exchange rate (late depositors mint fewer shares once rewards
+ *      have accrued). The pool handles delegation, periodic reward claims, and unstake
+ *      finalization on behalf of all depositors.
+ *
+ *      Integrators must ensure stakers approve the linked vault share token to this pool before
+ *      calling {claim}; matured unstakes burn the reserved vault shares via `transferFrom`.
  */
 interface IStakingPool is IStakingPoolEvents, IStakingPoolErrors {
     /**
@@ -125,9 +144,16 @@ interface IStakingPool is IStakingPoolEvents, IStakingPoolErrors {
     function getRatio(address validator) external view returns (uint256 ratio);
 
     /**
+     * @notice Returns the ERC-4626 vault whose shares represent stakers' pooled positions.
+     */
+    function getVault() external view returns (address vault);
+
+    /**
      * @notice Deposits `amount` staking tokens into `validator` pool and delegates them via the underlying staking contract.
-     * @dev Pulls `amount` from `msg.sender` (prior ERC20 approval required), mints pool shares at the
-     *      current ratio, and calls {IStaking-delegate}. Emits {IStakingPoolEvents-Staked}.
+     * @dev Pulls `amount` from `msg.sender` (prior ERC-20 approval on the staking token required),
+     *      mints ERC-4626 vault shares to `msg.sender` at the validator-pool exchange rate (so late
+     *      depositors receive fewer shares once rewards have compounded), and calls {IStaking-delegate}.
+     *      Emits {IStakingPoolEvents-Staked}.
      * @param validator Validator pool to deposit into.
      * @param amount Staking token amount to deposit.
      */
@@ -136,10 +162,12 @@ interface IStakingPool is IStakingPoolEvents, IStakingPoolErrors {
     /**
      * @notice Starts undelegating `amount` from `validator` pool for `msg.sender`.
      * @dev Appends a new {PendingUnstake} entry to the caller's queue and calls {IStaking-undelegate}.
-     *      A staker may keep multiple pending unstakes in flight per validator; each entry matures
-     *      independently after the configured undelegate period and is settled via {IStakingPool-claim}.
-     *      The call reverts with `NotEnoughShares` if `amount` plus the shares already reserved by
-     *      earlier pending entries would exceed the staker's share balance. Emits {IStakingPoolEvents-Unstaked}.
+     *      Vault shares minted on {IStakingPool-stake} are burned at claim time; the reserved
+     *      share count follows the validator-pool exchange rate. A staker may keep multiple pending
+     *      multiple pending unstakes in flight per validator; each entry matures independently after the configured undelegate period
+     *      and is settled via {IStakingPool-claim}. The call reverts with `NotEnoughShares` if `amount`
+     *      plus the shares already reserved by earlier pending entries would exceed the staker's share
+     *      balance. Emits {IStakingPoolEvents-Unstaked}.
      * @param validator Validator pool to unstake from.
      * @param amount Staking token amount to unstake.
      */
@@ -170,12 +198,13 @@ interface IStakingPool is IStakingPoolEvents, IStakingPoolErrors {
 
     /**
      * @notice Claims every matured pending unstake from `validator` pool for `msg.sender`.
-     * @dev Drains every matured entry in the caller's queue in a single call, burns the corresponding
-     *      shares, settles any unclaimed delegator rewards collected from the underlying staking
-     *      contract back into the pool, and transfers the matured tokens to `msg.sender`. Unmatured
-     *      entries stay in the queue and can be claimed once they reach their epoch. Reverts with
-     *      `NothingToClaim` when the queue is empty and with `EpochIsNotReady` when no entry has
-     *      matured yet. Emits {IStakingPoolEvents-RewardsClaimed}.
+     * @dev Drains every matured entry in the caller's queue in a single call, pulls the reserved
+     *      ERC-4626 vault shares from `msg.sender` (requires a prior `approve` on the vault share
+     *      token to this pool), burns them, settles any unclaimed delegator rewards collected from
+     *      the underlying staking contract back into the pool, and transfers the matured tokens to
+     *      `msg.sender`. Unmatured entries stay in the queue and can be claimed once they reach
+     *      their epoch. Reverts with `NothingToClaim` when the queue is empty and with
+     *      `EpochIsNotReady` when no entry has matured yet. Emits {IStakingPoolEvents-RewardsClaimed}.
      * @param validator Validator pool to claim from.
      */
     function claim(address validator) external;

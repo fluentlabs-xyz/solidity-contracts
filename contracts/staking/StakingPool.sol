@@ -2,6 +2,7 @@
 pragma solidity ^0.8.0;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
@@ -18,11 +19,17 @@ import {StakingContext} from "./StakingContext.sol";
  * @title Share-based pooled staking
  * @author Fluent Labs
  * @notice Lets users pool the staking ERC20 per validator while the pool handles delegation, reward claiming, and unstake finalization.
- * @dev Pool shares represent a proportional claim on validator-specific delegated stake plus compounded rewards.
+ * @dev Pool shares are ERC-4626 vault tokens minted at the validator-pool exchange rate. Stakers
+ *      must approve the vault share token to this contract before calling {claim}.
  */
 contract StakingPool is StakingContext, IStakingPool {
     using SafeERC20 for IERC20;
     using Math for uint256;
+
+    /**
+     * @notice ERC-4626 vault whose shares represent a staker's pooled position.
+     */
+    IERC4626 internal immutable _vault;
 
     /**
      * @notice This value must the same as in Staking smart contract.
@@ -76,7 +83,8 @@ contract StakingPool is StakingContext, IStakingPool {
         IStakingPool stakingPoolContract,
         IFluentGovernance governanceContract,
         IChainConfig chainConfigContract,
-        IERC20 stakingToken
+        IERC20 stakingToken,
+        IERC4626 vault
     )
         StakingContext(
             stakingContract,
@@ -87,7 +95,11 @@ contract StakingPool is StakingContext, IStakingPool {
             chainConfigContract,
             stakingToken
         )
-    {}
+    {
+        require(address(vault) != address(0), ZeroVault());
+        require(vault.asset() == address(stakingToken), VaultAssetMismatch(address(stakingToken), vault.asset()));
+        _vault = vault;
+    }
 
     function initialize(address initialOwner) external initializer {
         __StakingContext_init(initialOwner);
@@ -119,6 +131,11 @@ contract StakingPool is StakingContext, IStakingPool {
     function getRatio(address validator) external view returns (uint256) {
         ValidatorPool memory validatorPool = _getValidatorPool(validator);
         return _calcRatio(validatorPool);
+    }
+
+    /// @inheritdoc IStakingPool
+    function getVault() external view returns (address) {
+        return address(_vault);
     }
 
     function _getValidatorPool(address validator) internal view returns (ValidatorPool memory) {
@@ -162,7 +179,10 @@ contract StakingPool is StakingContext, IStakingPool {
         StakingPoolStorage storage $ = _getStakingPoolStorage();
         ValidatorPool memory validatorPool = _getValidatorPool(validator);
         uint256 shares = _convertToShares(amount, validatorPool, Math.Rounding.Floor);
+
         _stakingToken.safeTransferFrom(msg.sender, address(this), amount);
+        _issueVaultShares(msg.sender, amount, shares);
+
         // increase total accumulated shares for the staker
         $.stakerShares[validator][msg.sender] += shares;
         // increase staking params for ratio calculation
@@ -245,6 +265,8 @@ contract StakingPool is StakingContext, IStakingPool {
     }
 
     /// @inheritdoc IStakingPool
+    /// @dev Pulls reserved vault shares from `msg.sender`; the caller must have approved this pool
+    ///      on the vault ERC-20 beforehand.
     function claim(address validator) external override {
         StakingPoolStorage storage $ = _getStakingPoolStorage();
         PendingUnstake[] storage queue = $.pendingUnstakes[validator][msg.sender];
@@ -281,6 +303,9 @@ contract StakingPool is StakingContext, IStakingPool {
         _stakingContract.claimDelegatorFee(validator);
         uint256 claimedAmount = _stakingToken.balanceOf(address(this)) - balanceBefore;
 
+        IERC20(address(_vault)).safeTransferFrom(msg.sender, address(this), totalShares);
+        _vault.redeem(totalShares, address(this), address(this));
+
         $.stakerShares[validator][msg.sender] -= totalShares;
         $.pendingUnstakeReservedShares[validator][msg.sender] = reservedShares - totalShares;
         ValidatorPool memory validatorPool = _getValidatorPool(validator);
@@ -312,6 +337,26 @@ contract StakingPool is StakingContext, IStakingPool {
 
     function _approveStaking(uint256 amount) internal {
         _stakingToken.forceApprove(address(_stakingContract), amount);
+    }
+
+    /**
+     * @dev Deposits `assets` into the linked vault, minting exactly `shares` vault tokens to
+     *      `receiver`. Any excess minted by the vault (when its spot rate is below the
+     *      validator-pool rate) is redeemed back to the pool. Reverts if the vault mints fewer
+     *      than `shares` — production vaults must keep pace with pool accounting.
+     */
+    function _issueVaultShares(address receiver, uint256 assets, uint256 shares) internal {
+        _stakingToken.forceApprove(address(_vault), assets);
+        uint256 mintedShares = _vault.deposit(assets, address(this));
+        if (mintedShares < shares) {
+            revert VaultShareShortfall(mintedShares, shares);
+        }
+        if (mintedShares > shares) {
+            _vault.redeem(mintedShares - shares, address(this), address(this));
+        }
+        if (shares != 0) {
+            IERC20(address(_vault)).safeTransfer(receiver, shares);
+        }
     }
 
     // ============ Internal functions ============

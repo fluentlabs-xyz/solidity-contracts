@@ -5,12 +5,14 @@ import {stdJson} from "forge-std/StdJson.sol";
 import {console2} from "forge-std/console2.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 
 import {FluentGovernance} from "../../contracts/governance/FluentGovernance.sol";
 import {ChainConfig} from "../../contracts/staking/ChainConfig.sol";
 import {SlashingIndicator} from "../../contracts/staking/SlashingIndicator.sol";
 import {Staking} from "../../contracts/staking/Staking.sol";
 import {StakingPool} from "../../contracts/staking/StakingPool.sol";
+import {MockStakingVault} from "../../contracts/staking/mocks/MockStakingVault.sol";
 import {SystemReward} from "../../contracts/staking/SystemReward.sol";
 import {IChainConfig} from "../../contracts/staking/interfaces/IChainConfig.sol";
 import {IFluentGovernance} from "../../contracts/staking/interfaces/IFluentGovernance.sol";
@@ -37,6 +39,7 @@ contract DeployStaking is DeployBase {
         address systemRewardImpl;
         address stakingPool;
         address stakingPoolImpl;
+        address stakingVault;
         address chainConfig;
         address chainConfigImpl;
         address governance;
@@ -100,6 +103,14 @@ contract DeployStaking is DeployBase {
     }
 
     function _deployStaking(StakingDeployParams memory p) internal returns (StakingDeployment memory r) {
+        IERC4626 stakingVault = IERC4626(vm.envOr("STAKING_VAULT", address(0)));
+        if (address(stakingVault) == address(0)) {
+            stakingVault = IERC4626(address(new MockStakingVault(p.stakingToken)));
+        } else {
+            require(stakingVault.asset() == address(p.stakingToken), "staking vault asset mismatch");
+        }
+        r.stakingVault = address(stakingVault);
+
         uint64 nonce = vm.getNonce(tx.origin);
         IStaking predictedStaking = IStaking(vm.computeCreateAddress(tx.origin, nonce + 2));
         ISlashingIndicator predictedSlashingIndicator =
@@ -173,7 +184,8 @@ contract DeployStaking is DeployBase {
             predictedStakingPool,
             governance,
             predictedChainConfig,
-            p.stakingToken
+            p.stakingToken,
+            stakingVault
         );
         r.stakingPool = address(
             new ERC1967Proxy(address(stakingPoolImpl), abi.encodeCall(StakingPool.initialize, (p.initialOwner)))

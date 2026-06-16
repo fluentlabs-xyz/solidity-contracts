@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
@@ -17,6 +18,7 @@ import {Staking} from "../../contracts/staking/Staking.sol";
 import {StakingPool} from "../../contracts/staking/StakingPool.sol";
 import {SystemReward} from "../../contracts/staking/SystemReward.sol";
 import {MockBlendToken} from "../../contracts/staking/mocks/MockBlendToken.sol";
+import {MockStakingVault} from "../../contracts/staking/mocks/MockStakingVault.sol";
 
 contract GasHeavyReceiver {
     uint256 public received;
@@ -35,6 +37,7 @@ contract StakingAdditionalTest is Test {
     SlashingIndicator internal slashingIndicator;
     SystemReward internal systemReward;
     MockBlendToken internal blend;
+    MockStakingVault internal stakingVault;
 
     address internal owner = makeAddr("owner");
     address internal treasury = makeAddr("treasury");
@@ -46,6 +49,7 @@ contract StakingAdditionalTest is Test {
 
     function setUp() public {
         blend = new MockBlendToken();
+        stakingVault = new MockStakingVault(blend);
         vm.deal(address(this), 1_000_000 ether);
         _fund(owner);
         _fund(treasury);
@@ -819,6 +823,46 @@ contract StakingAdditionalTest is Test {
         assertEq(stakingPool.getPendingUnstakes(validator1, staker2).length, 0);
     }
 
+    function test_stakingPool_lateDepositorMintsFewerVaultShares() public {
+        staking.addValidator(validator1);
+
+        vm.prank(staker1);
+        stakingPool.stake(validator1, 10 * ONE);
+        _rollToNextEpoch();
+        _depositReward(validator1, ONE);
+        _rollToNextEpoch();
+
+        vm.prank(staker2);
+        stakingPool.stake(validator1, ONE);
+
+        uint256 staker2VaultShares = IERC20(stakingPool.getVault()).balanceOf(staker2);
+        assertLt(staker2VaultShares, ONE, "late depositor should mint fewer than 1:1 vault shares");
+        assertEq(staker2VaultShares, stakingPool.getShares(validator1, staker2), "vault balance matches pool shares");
+        assertEq(stakingPool.getShares(validator1, staker1), 10 * ONE, "first depositor keeps 1:1 shares");
+    }
+
+    function test_RevertIf_claim_withoutVaultShareApproval() public {
+        address freshStaker = makeAddr("freshStaker");
+        staking.addValidator(validator1);
+        _fund(freshStaker);
+
+        vm.startPrank(freshStaker);
+        blend.approve(address(stakingPool), type(uint256).max);
+        stakingPool.stake(validator1, 10 * ONE);
+        stakingPool.unstake(validator1, ONE);
+        vm.stopPrank();
+
+        _rollToNextEpoch();
+        _rollToNextEpoch();
+
+        assertGt(stakingPool.claimableRewards(validator1, freshStaker), 0);
+        assertEq(IERC20(stakingPool.getVault()).allowance(freshStaker, address(stakingPool)), 0);
+
+        vm.prank(freshStaker);
+        vm.expectRevert();
+        stakingPool.claim(validator1);
+    }
+
     function test_stakingPool_secondStakerCanStakeWhileFirstHasPendingUnstake() public {
         staking.addValidator(validator1);
 
@@ -1346,7 +1390,8 @@ contract StakingAdditionalTest is Test {
             predictedStakingPool,
             governance,
             predictedChainConfig,
-            blend
+            blend,
+            stakingVault
         );
         stakingPool = StakingPool(
             payable(address(
@@ -1436,6 +1481,7 @@ contract StakingAdditionalTest is Test {
         vm.startPrank(account);
         blend.approve(address(staking), type(uint256).max);
         blend.approve(address(stakingPool), type(uint256).max);
+        IERC20(stakingPool.getVault()).approve(address(stakingPool), type(uint256).max);
         vm.stopPrank();
     }
 

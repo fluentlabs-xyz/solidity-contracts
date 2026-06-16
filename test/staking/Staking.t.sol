@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity 0.8.30;
 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
@@ -11,6 +12,7 @@ import {Staking} from "../../contracts/staking/Staking.sol";
 import {StakingPool} from "../../contracts/staking/StakingPool.sol";
 import {SystemReward} from "../../contracts/staking/SystemReward.sol";
 import {MockBlendToken} from "../../contracts/staking/mocks/MockBlendToken.sol";
+import {MockStakingVault} from "../../contracts/staking/mocks/MockStakingVault.sol";
 import {IChainConfig} from "../../contracts/staking/interfaces/IChainConfig.sol";
 import {IFluentGovernance} from "../../contracts/staking/interfaces/IFluentGovernance.sol";
 import {ISlashingIndicator} from "../../contracts/staking/interfaces/ISlashingIndicator.sol";
@@ -27,6 +29,7 @@ contract StakingFoundryTest is Test {
     SlashingIndicator internal slashingIndicator;
     SystemReward internal systemReward;
     MockBlendToken internal blend;
+    MockStakingVault internal stakingVault;
 
     address internal staker1 = makeAddr("staker1");
     address internal staker2 = makeAddr("staker2");
@@ -38,6 +41,7 @@ contract StakingFoundryTest is Test {
 
     function setUp() public {
         blend = new MockBlendToken();
+        stakingVault = new MockStakingVault(blend);
         _fund(staker1);
         _fund(staker2);
         _fund(staker3);
@@ -114,7 +118,8 @@ contract StakingFoundryTest is Test {
             predictedStakingPool,
             governance,
             predictedChainConfig,
-            blend
+            blend,
+            stakingVault
         );
         stakingPool = StakingPool(
             payable(address(new ERC1967Proxy(address(stakingPoolImpl), abi.encodeCall(StakingPool.initialize, (address(this))))))
@@ -331,6 +336,7 @@ contract StakingFoundryTest is Test {
         vm.startPrank(account);
         blend.approve(address(staking), type(uint256).max);
         blend.approve(address(stakingPool), type(uint256).max);
+        IERC20(stakingPool.getVault()).approve(address(stakingPool), type(uint256).max);
         vm.stopPrank();
     }
 
