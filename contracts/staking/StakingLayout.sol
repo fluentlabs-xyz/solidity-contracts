@@ -85,6 +85,10 @@ library StakingLayout {
     bytes32 internal constant EQUIVOCATION_STORAGE_LOCATION =
         0x96610efdc8a37de390ea3757bf0331faa3a74708adc53f30ba708302b0f55800;
 
+    /// @dev keccak256(abi.encode(uint256(keccak256("Fluent.storage.EpochBeaconStorage")) - 1)) & ~bytes32(uint256(0xff))
+    bytes32 internal constant EPOCH_BEACON_STORAGE_LOCATION =
+        0xd9eff1b8c318f0d144ec006a3ad306d57c34b8d91ebd3ec67df12b9551f47c00;
+
     /// @custom:storage-location erc7201:Fluent.storage.StakingStorage
     struct StakingStorage {
         // mapping from validator address to validator
@@ -132,6 +136,19 @@ library StakingLayout {
         mapping(address => bool) tombstoned;
     }
 
+    /// @custom:storage-location erc7201:Fluent.storage.EpochBeaconStorage
+    struct EpochBeaconStorage {
+        // epoch => the per-epoch DKG group public key PK_epoch (opaque bytes —
+        // the encoded commonware Output's group key). Empty == that epoch had no
+        // threshold randomness (the beacon used the deterministic fallback);
+        // apps read beaconAssurance() (== key non-empty) to pause.
+        mapping(uint64 => bytes) groupPubKey;
+        // Highest committed beacon epoch, stored as (epoch + 1). 0 == never
+        // committed (genesis-safe idempotent + strictly-monotonic guard); mirror
+        // of EpochCommitteeStorage.lastCommittedEpochP1.
+        uint64 lastBeaconEpochP1;
+    }
+
     function stakingStorage() internal pure returns (StakingStorage storage $) {
         assembly {
             $.slot := STAKING_STORAGE_LOCATION
@@ -153,6 +170,12 @@ library StakingLayout {
     function equivocationStorage() internal pure returns (EquivocationStorage storage $) {
         assembly {
             $.slot := EQUIVOCATION_STORAGE_LOCATION
+        }
+    }
+
+    function epochBeaconStorage() internal pure returns (EpochBeaconStorage storage $) {
+        assembly {
+            $.slot := EPOCH_BEACON_STORAGE_LOCATION
         }
     }
 

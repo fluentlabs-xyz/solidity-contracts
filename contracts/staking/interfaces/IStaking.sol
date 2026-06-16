@@ -17,6 +17,10 @@ interface IStakingEvents {
     // consensus / equivocation events
     event ConsensusKeysSet(address indexed validator, bytes blsPubkey, bytes32 peerPubkey, uint64 activationEpoch);
     event EpochCommitteeCommitted(uint64 indexed epoch, address[] committee);
+    /// @notice The per-epoch randomness-beacon group public key was committed.
+    ///         `assured` is false when the epoch had no threshold randomness
+    ///         (empty key — the beacon fell back to a deterministic value).
+    event EpochBeaconKeyCommitted(uint64 indexed epoch, bool assured);
     event EquivocationSlashed(address indexed validator, uint64 epoch, address indexed reporter);
 
     // staker events
@@ -129,9 +133,7 @@ interface IStaking is IValidatorSet, IStakingEvents, IStakingErrors {
     function isValidator(address validator) external view returns (bool);
 
     /// @notice Returns current validator metadata and latest accounting snapshot.
-    function getValidatorStatus(
-        address validator
-    )
+    function getValidatorStatus(address validator)
         external
         view
         returns (
@@ -147,10 +149,7 @@ interface IStaking is IValidatorSet, IStakingEvents, IStakingErrors {
         );
 
     /// @notice Returns validator metadata with accounting materialized at `epoch`.
-    function getValidatorStatusAtEpoch(
-        address validator,
-        uint64 epoch
-    )
+    function getValidatorStatusAtEpoch(address validator, uint64 epoch)
         external
         view
         returns (
@@ -193,7 +192,10 @@ interface IStaking is IValidatorSet, IStakingEvents, IStakingErrors {
     function changeValidatorOwner(address validator, address newOwner) external;
 
     /// @notice Returns a delegator's latest delegated amount and the epoch it became effective.
-    function getValidatorDelegation(address validator, address delegator) external view returns (uint256 delegatedAmount, uint64 atEpoch);
+    function getValidatorDelegation(address validator, address delegator)
+        external
+        view
+        returns (uint256 delegatedAmount, uint64 atEpoch);
 
     /// @notice Delegates `amount` staking tokens to `validator`, effective from the next epoch.
     function delegate(address validator, uint256 amount) external;
@@ -223,10 +225,10 @@ interface IStaking is IValidatorSet, IStakingEvents, IStakingErrors {
     function claimDelegatorFee(address validator) external;
 
     /// @notice Calculates reward amount that can be compacted and redelegated without precision dust.
-    function calcAvailableForRedelegateAmount(
-        address validator,
-        address delegator
-    ) external view returns (uint256 delegatedAmount, uint256 dustAmount);
+    function calcAvailableForRedelegateAmount(address validator, address delegator)
+        external
+        view
+        returns (uint256 delegatedAmount, uint256 dustAmount);
 
     /// @notice Claims currently claimable delegator rewards and immediately redelegates compactable amount.
     function redelegateDelegatorFee(address validator) external;
@@ -296,6 +298,28 @@ interface IStaking is IValidatorSet, IStakingEvents, IStakingErrors {
     /// @dev A single SLOAD — avoids copying the whole committee array to memory
     ///      just to read its length (the per-block `processBitmap` hot path).
     function getEpochCommitteeLength(uint64 epoch) external view returns (uint256);
+
+    /// @notice The next epoch whose randomness-beacon key is not yet committed
+    ///         (beacon commit cursor; mirror of {nextEpochToCommit}).
+    function nextEpochForBeaconKey() external view returns (uint64);
+
+    /// @notice Freezes the per-epoch beacon group public key `PK_epoch` one epoch
+    ///         ahead (system call). The executor injects the DKG outcome's group
+    ///         key, already agreed in consensus (embedded in the boundary
+    ///         OrderBlock + validity-checked) and re-derived by the STF — so this
+    ///         stores opaque bytes rather than re-deriving them. An EMPTY
+    ///         `groupPubKey` records a no-assurance epoch (the beacon used the
+    ///         deterministic fallback). Reverts if the target epoch `> currentEpoch + 1`.
+    function commitEpochBeaconKey(bytes calldata groupPubKey) external;
+
+    /// @notice The committed beacon group public key `PK_epoch` for `epoch`
+    ///         (empty if uncommitted or a fallback epoch). Verified against by the
+    ///         consensus seed verifier and the STF.
+    function getEpochBeaconKey(uint64 epoch) external view returns (bytes memory);
+
+    /// @notice Whether `epoch` has threshold randomness (a non-empty `PK_epoch`).
+    ///         False ⇒ `prev_randao` used the deterministic fallback; apps pause.
+    function beaconAssurance(uint64 epoch) external view returns (bool);
 
     /// @notice Permissionlessly slash a validator for a `ConflictingNotarize`
     ///         equivocation (two conflicting Notarize votes, same round/signer).

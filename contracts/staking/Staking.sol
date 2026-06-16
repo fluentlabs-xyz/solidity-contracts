@@ -714,6 +714,41 @@ contract Staking is IStaking, StakingContext {
         return StakingLayout.epochCommitteeStorage().committee[epoch].length;
     }
 
+    /// @notice The next epoch whose beacon key is not yet committed (mirror of
+    ///         {nextEpochToCommit} for the randomness beacon).
+    function nextEpochForBeaconKey() external view override returns (uint64) {
+        return StakingLayout.epochBeaconStorage().lastBeaconEpochP1;
+    }
+
+    /// @notice Freezes the per-epoch beacon group public key `PK_epoch`.
+    /// @dev System call, mirroring {commitEpochCommittee}: commits the
+    ///      next-uncommitted beacon epoch one ahead, with the same
+    ///      `target <= currentEpoch + 1` monotonic gate. Unlike the committee,
+    ///      the key is NOT re-derived on-chain — it is the DKG outcome already
+    ///      agreed in consensus (embedded in the boundary OrderBlock + validity
+    ///      checked) and re-derived by the STF, so it is stored as opaque bytes.
+    ///      An EMPTY `groupPubKey` records a no-assurance (fallback) epoch.
+    function commitEpochBeaconKey(bytes calldata groupPubKey) external virtual override onlySystemCall {
+        uint64 cur = _currentEpoch();
+        StakingLayout.EpochBeaconStorage storage $ = StakingLayout.epochBeaconStorage();
+        uint64 target = $.lastBeaconEpochP1;
+        if (target > cur + 1) revert EpochNotYetCommittable(target, cur);
+        $.groupPubKey[target] = groupPubKey;
+        $.lastBeaconEpochP1 = target + 1;
+        emit EpochBeaconKeyCommitted(target, groupPubKey.length > 0);
+    }
+
+    /// @notice The committed beacon group public key `PK_epoch` for `epoch`
+    ///         (empty if uncommitted or a fallback epoch).
+    function getEpochBeaconKey(uint64 epoch) external view override returns (bytes memory) {
+        return StakingLayout.epochBeaconStorage().groupPubKey[epoch];
+    }
+
+    /// @notice Whether `epoch` has threshold randomness (a non-empty `PK_epoch`).
+    function beaconAssurance(uint64 epoch) external view override returns (bool) {
+        return StakingLayout.epochBeaconStorage().groupPubKey[epoch].length > 0;
+    }
+
     /// @custom:oz-upgrades-unsafe-allow delegatecall
     function slashEquivocationNotarize(
         bytes calldata evidence,
