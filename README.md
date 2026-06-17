@@ -9,7 +9,7 @@ Fluent is a Layer 2 blockchain that settles on Ethereum. This repository contain
 | Directory | Contracts | Purpose |
 |-----------|-----------|---------|
 | `contracts/bridge/` | `FluentBridge` (abstract), `L1FluentBridge`, `L2FluentBridge`, storage layout | Cross-chain message transport: send, receive (relayer), receive-with-proof (L1), rollback, retry |
-| `contracts/gateways/` | `GatewayBase` (abstract), `ERC20Gateway`, `NativeGateway` | User-facing asset entrypoints. Lock/escrow on source, mint/release on destination |
+| `contracts/gateways/` | `GatewayBase` (abstract), `ERC20Gateway`, `NativeGateway`, `FluentRuntimeGateway` | User-facing asset and runtime entrypoints. Lock/escrow on source, mint/release on destination, or relay Fluent Runtime deploy/invoke requests |
 | `contracts/factories/` | `GenericTokenFactory`, `ERC20TokenFactory`, `UniversalTokenFactory` | Deterministic CREATE2 deployment of pegged tokens on the destination chain |
 | `contracts/tokens/` | `ERC20PeggedToken` | Beacon-proxied pegged ERC-20 representation on L2 |
 | `contracts/rollup/` | `Rollup`, `RollupStorageLayout` | L1 rollup: batch lifecycle, challenges, finalization, bridge deposit consumption |
@@ -191,6 +191,7 @@ forge coverage --ir-minimum --report lcov
 | **[`docs/UpgradeSafety.md`](docs/UpgradeSafety.md)** | All UUPS proxy and beacon upgrade surfaces, required 6-step upgrade procedure, unsafe scripts, deployment checks, auditor evidence checklist. |
 | **[`docs/Addresses.md`](docs/Addresses.md)** | Deployed contract addresses for Sepolia (L1) and Fluent testnet (L2), chain IDs, RPC endpoints, explorer links, verification instructions. |
 | **[`docs/DeveloperGuide.md`](docs/DeveloperGuide.md)** | Usage examples (deposit/withdraw scripts), extending the system (new gateways, message paths), troubleshooting common errors. |
+| **[`docs/FluentRuntimeGateway.md`](docs/FluentRuntimeGateway.md)** | Fluent Runtime deploy/invoke gateway flow, native L2 execution, response storage, callback handling, and deployment notes. |
 
 ---
 

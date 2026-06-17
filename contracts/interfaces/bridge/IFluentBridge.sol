@@ -26,6 +26,16 @@ interface IFluentBridgeAdmin {
      * @param newRelayer The address of the relayer role.
      */
     function setRelayerRole(address newRelayer) external;
+    /**
+     * @notice Register a gateway as an allowed Bridge send destination and receive target.
+     * @param gateway The gateway address to activate.
+     */
+    function registerGateway(address gateway) external;
+    /**
+     * @notice Remove a gateway from the allowed Bridge send/receive set.
+     * @param gateway The gateway address to deactivate.
+     */
+    function unregisterGateway(address gateway) external;
 }
 
 /**
@@ -61,6 +71,10 @@ interface IFluentBridgeRead {
      *      treat the call as unrestricted; outside a receive the return is always false.
      */
     function isCurrentBatchPreconfirmed() external view returns (bool);
+    /**
+     * @notice Returns whether a gateway is registered for Bridge send/receive routing.
+     */
+    function isGatewayRegistered(address gateway) external view returns (bool);
 }
 
 /**
