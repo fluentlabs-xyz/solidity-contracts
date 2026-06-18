@@ -9,7 +9,11 @@ import {WETHGateway} from "../../contracts/gateways/WETHGateway.sol";
 import {NativeGateway} from "../../contracts/gateways/NativeGateway.sol";
 import {IFluentBridge, IFluentBridgeErrors} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {IGatewayBaseErrors, IGatewayBaseEvents} from "../../contracts/interfaces/gateways/IGatewayBase.sol";
-import {IWETHGateway, IWETHGatewayErrors, IWETHGatewayEvents} from "../../contracts/interfaces/gateways/IWETHGateway.sol";
+import {
+    IWETHGateway,
+    IWETHGatewayErrors,
+    IWETHGatewayEvents
+} from "../../contracts/interfaces/gateways/IWETHGateway.sol";
 import {
     MockWETH,
     BadWrapMockWETH,
@@ -36,8 +40,7 @@ contract WETHGatewayTest is GatewayBase {
 
         WETHGateway impl = new WETHGateway();
         ERC1967Proxy proxy = new ERC1967Proxy(
-            address(impl),
-            abi.encodeCall(WETHGateway.initialize, (admin, address(bridge), address(weth)))
+            address(impl), abi.encodeCall(WETHGateway.initialize, (admin, address(bridge), address(weth)))
         );
         wethGateway = WETHGateway(payable(address(proxy)));
 
@@ -71,7 +74,8 @@ contract WETHGatewayTest is GatewayBase {
         bytes memory message = abi.encodeCall(IWETHGateway.receiveWETH, (user, recipient, amount));
         uint256 nonce = bridge.getReceivedNonce();
         uint256 sourceBlock = nextSourceBlock++;
-        messageHash = _bridgeMessageHash(remoteGateway, address(wethGateway), amount, sourceChainId, sourceBlock, nonce, message);
+        messageHash =
+            _bridgeMessageHash(remoteGateway, address(wethGateway), amount, sourceChainId, sourceBlock, nonce, message);
         vm.deal(address(bridge), address(bridge).balance + amount);
         vm.prank(relayer);
         bridge.receiveMessage(remoteGateway, address(wethGateway), amount, sourceChainId, sourceBlock, nonce, message);
@@ -99,8 +103,7 @@ contract WETHGatewayTest is GatewayBase {
     function test_initialize_zeroWETH_thenSetWETH() public {
         WETHGateway impl = new WETHGateway();
         ERC1967Proxy proxy = new ERC1967Proxy(
-            address(impl),
-            abi.encodeCall(WETHGateway.initialize, (admin, address(bridge), address(0)))
+            address(impl), abi.encodeCall(WETHGateway.initialize, (admin, address(bridge), address(0)))
         );
         WETHGateway g = WETHGateway(payable(address(proxy)));
         assertEq(g.getWETH(), address(0));
@@ -113,8 +116,7 @@ contract WETHGatewayTest is GatewayBase {
     function test_RevertIf_sendWETH_WETHNotConfigured_beforeSetWETH() public {
         WETHGateway impl = new WETHGateway();
         ERC1967Proxy proxy = new ERC1967Proxy(
-            address(impl),
-            abi.encodeCall(WETHGateway.initialize, (admin, address(bridge), address(0)))
+            address(impl), abi.encodeCall(WETHGateway.initialize, (admin, address(bridge), address(0)))
         );
         WETHGateway g = WETHGateway(payable(address(proxy)));
         vm.prank(admin);
@@ -176,7 +178,8 @@ contract WETHGatewayTest is GatewayBase {
         // Make bridge fee deterministic and non-zero: fee = gasLimit * (gasPrice*scalar/1e18 + overhead)
         // with scalar=0, overhead=1, gasLimit=1 => fee=1.
         vm.prank(admin);
-        (bool ok, ) = address(bridge).call(abi.encodeWithSignature("setGasPriceConfig(uint256,uint256,uint256)", 1, 0, 1));
+        (bool ok,) =
+            address(bridge).call(abi.encodeWithSignature("setGasPriceConfig(uint256,uint256,uint256)", 1, 0, 1));
         assertTrue(ok, "setGasPriceConfig failed");
 
         (bool feeOk, bytes memory feeData) = address(bridge).staticcall(abi.encodeWithSignature("getSentMessageFee()"));
@@ -201,7 +204,8 @@ contract WETHGatewayTest is GatewayBase {
 
     function test_RevertIf_sendWETH_feeMismatch_whenBridgeFeeIsNonZero() public {
         vm.prank(admin);
-        (bool ok, ) = address(bridge).call(abi.encodeWithSignature("setGasPriceConfig(uint256,uint256,uint256)", 1, 0, 1));
+        (bool ok,) =
+            address(bridge).call(abi.encodeWithSignature("setGasPriceConfig(uint256,uint256,uint256)", 1, 0, 1));
         assertTrue(ok, "setGasPriceConfig failed");
         (bool feeOk, bytes memory feeData) = address(bridge).staticcall(abi.encodeWithSignature("getSentMessageFee()"));
         assertTrue(feeOk, "getSentMessageFee failed");
@@ -231,8 +235,7 @@ contract WETHGatewayTest is GatewayBase {
     function test_RevertIf_sendWETH_otherSideGatewayUnset() public {
         WETHGateway impl = new WETHGateway();
         ERC1967Proxy proxy = new ERC1967Proxy(
-            address(impl),
-            abi.encodeCall(WETHGateway.initialize, (admin, address(bridge), address(weth)))
+            address(impl), abi.encodeCall(WETHGateway.initialize, (admin, address(bridge), address(weth)))
         );
         WETHGateway freshGateway = WETHGateway(payable(address(proxy)));
         // No `setOtherSideGateway` call → stored as zero.
@@ -242,7 +245,9 @@ contract WETHGatewayTest is GatewayBase {
         weth.approve(address(freshGateway), amount);
 
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(IGatewayBaseErrors.ZeroAddressNotAllowed.selector, "getOtherSideGateway"));
+        vm.expectRevert(
+            abi.encodeWithSelector(IGatewayBaseErrors.ZeroAddressNotAllowed.selector, "getOtherSideGateway")
+        );
         freshGateway.sendWETH(recipient, amount);
     }
 
@@ -307,13 +312,7 @@ contract WETHGatewayTest is GatewayBase {
         uint256 nonce = bridge.getReceivedNonce();
         uint256 sourceBlock = nextSourceBlock++;
         bytes32 messageHash = _bridgeMessageHash(
-            wrongRemoteGateway,
-            address(wethGateway),
-            amount,
-            sourceChainId,
-            sourceBlock,
-            nonce,
-            message
+            wrongRemoteGateway, address(wethGateway), amount, sourceChainId, sourceBlock, nonce, message
         );
         vm.deal(address(bridge), amount);
 
@@ -322,7 +321,9 @@ contract WETHGatewayTest is GatewayBase {
         _registerGateway(wrongRemoteGateway);
 
         vm.prank(relayer);
-        bridge.receiveMessage(wrongRemoteGateway, address(wethGateway), amount, sourceChainId, sourceBlock, nonce, message);
+        bridge.receiveMessage(
+            wrongRemoteGateway, address(wethGateway), amount, sourceChainId, sourceBlock, nonce, message
+        );
 
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
         // No WETH must have been minted to anyone on a failed delivery.
@@ -336,18 +337,14 @@ contract WETHGatewayTest is GatewayBase {
         uint256 nonce = bridge.getReceivedNonce();
         uint256 sourceBlock = nextSourceBlock++;
         bytes32 messageHash = _bridgeMessageHash(
-            remoteGateway,
-            address(wethGateway),
-            bridgeValue,
-            sourceChainId,
-            sourceBlock,
-            nonce,
-            message
+            remoteGateway, address(wethGateway), bridgeValue, sourceChainId, sourceBlock, nonce, message
         );
         vm.deal(address(bridge), bridgeValue);
 
         vm.prank(relayer);
-        bridge.receiveMessage(remoteGateway, address(wethGateway), bridgeValue, sourceChainId, sourceBlock, nonce, message);
+        bridge.receiveMessage(
+            remoteGateway, address(wethGateway), bridgeValue, sourceChainId, sourceBlock, nonce, message
+        );
 
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
     }
@@ -357,7 +354,8 @@ contract WETHGatewayTest is GatewayBase {
         bytes memory message = abi.encodeCall(IWETHGateway.receiveWETH, (user, address(0), amount));
         uint256 nonce = bridge.getReceivedNonce();
         uint256 sourceBlock = nextSourceBlock++;
-        bytes32 messageHash = _bridgeMessageHash(remoteGateway, address(wethGateway), amount, sourceChainId, sourceBlock, nonce, message);
+        bytes32 messageHash =
+            _bridgeMessageHash(remoteGateway, address(wethGateway), amount, sourceChainId, sourceBlock, nonce, message);
         vm.deal(address(bridge), amount);
 
         vm.prank(relayer);
@@ -375,7 +373,8 @@ contract WETHGatewayTest is GatewayBase {
         bytes memory message = abi.encodeCall(IWETHGateway.receiveWETH, (user, recipient, amount));
         uint256 nonce = bridge.getReceivedNonce();
         uint256 sourceBlock = nextSourceBlock++;
-        bytes32 messageHash = _bridgeMessageHash(remoteGateway, address(wethGateway), amount, sourceChainId, sourceBlock, nonce, message);
+        bytes32 messageHash =
+            _bridgeMessageHash(remoteGateway, address(wethGateway), amount, sourceChainId, sourceBlock, nonce, message);
         vm.deal(address(bridge), amount);
 
         vm.prank(relayer);
@@ -395,7 +394,8 @@ contract WETHGatewayTest is GatewayBase {
         bytes memory message = abi.encodeCall(IWETHGateway.receiveWETH, (user, recipient, amount));
         uint256 nonce = bridge.getReceivedNonce();
         uint256 sourceBlock = nextSourceBlock++;
-        bytes32 messageHash = _bridgeMessageHash(remoteGateway, address(wethGateway), amount, sourceChainId, sourceBlock, nonce, message);
+        bytes32 messageHash =
+            _bridgeMessageHash(remoteGateway, address(wethGateway), amount, sourceChainId, sourceBlock, nonce, message);
         vm.deal(address(bridge), amount);
 
         vm.prank(relayer);
@@ -415,7 +415,8 @@ contract WETHGatewayTest is GatewayBase {
         bytes memory message = abi.encodeCall(IWETHGateway.receiveWETH, (user, recipient, amount));
         uint256 nonce = bridge.getReceivedNonce();
         uint256 sourceBlock = nextSourceBlock++;
-        bytes32 messageHash = _bridgeMessageHash(remoteGateway, address(wethGateway), amount, sourceChainId, sourceBlock, nonce, message);
+        bytes32 messageHash =
+            _bridgeMessageHash(remoteGateway, address(wethGateway), amount, sourceChainId, sourceBlock, nonce, message);
 
         vm.deal(address(bridge), amount);
         vm.prank(relayer);
@@ -430,7 +431,9 @@ contract WETHGatewayTest is GatewayBase {
 
         vm.deal(address(bridge), amount);
         vm.prank(relayer);
-        bridge.receiveFailedMessage(remoteGateway, address(wethGateway), amount, sourceChainId, sourceBlock, nonce, message);
+        bridge.receiveFailedMessage(
+            remoteGateway, address(wethGateway), amount, sourceChainId, sourceBlock, nonce, message
+        );
 
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Success));
         assertEq(weth.balanceOf(recipient), amount);
@@ -447,9 +450,17 @@ contract WETHGatewayTest is GatewayBase {
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
 
         address nativeKey = wethGateway.NATIVE_LIMIT_KEY();
-        (, uint256 hourlyUsed, , uint256 dailyUsed) = fastWithdrawalList.getUsage(nativeKey);
+        (, uint256 hourlyUsed,, uint256 dailyUsed) = fastWithdrawalList.getUsage(nativeKey);
         assertEq(hourlyUsed, 0);
         assertEq(dailyUsed, 0);
+    }
+
+    function test_receiveWETH_marksFailedWhenPreconfirmedAndWhitelistDisabled() public {
+        _mockBridgePreconfirmed(true);
+
+        bytes32 messageHash = _relayReceiveWETH(1 ether);
+        assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
+        assertEq(wethGateway.isWhitelistEnabled(), false);
     }
 
     function test_receiveWETH_finalizedBatchSkipsLimitsForUnregisteredNative() public {
@@ -474,7 +485,7 @@ contract WETHGatewayTest is GatewayBase {
         bytes32 okHash = _relayReceiveWETH(1 ether);
         assertEq(uint256(bridge.getReceivedMessage(okHash)), uint256(IFluentBridge.MessageStatus.Success));
 
-        (, uint256 hourlyUsed, , uint256 dailyUsed) = fastWithdrawalList.getUsage(nativeKey);
+        (, uint256 hourlyUsed,, uint256 dailyUsed) = fastWithdrawalList.getUsage(nativeKey);
         assertEq(hourlyUsed, 1 ether);
         assertEq(dailyUsed, 1 ether);
 
@@ -482,7 +493,7 @@ contract WETHGatewayTest is GatewayBase {
         bytes32 overHash = _relayReceiveWETH(2 ether);
         assertEq(uint256(bridge.getReceivedMessage(overHash)), uint256(IFluentBridge.MessageStatus.Failed));
 
-        (, hourlyUsed, , dailyUsed) = fastWithdrawalList.getUsage(nativeKey);
+        (, hourlyUsed,, dailyUsed) = fastWithdrawalList.getUsage(nativeKey);
         assertEq(hourlyUsed, 1 ether);
         assertEq(dailyUsed, 1 ether);
     }
@@ -514,7 +525,7 @@ contract WETHGatewayTest is GatewayBase {
 
     function test_bridgePause_blocksSendAndReceive() public {
         vm.prank(admin);
-        (bool pauseOk, ) = address(bridge).call(abi.encodeWithSignature("pause()"));
+        (bool pauseOk,) = address(bridge).call(abi.encodeWithSignature("pause()"));
         assertTrue(pauseOk, "bridge pause call failed");
 
         uint256 amount = 1 ether;
@@ -543,7 +554,7 @@ contract WETHGatewayTest is GatewayBase {
         vm.deal(user, 2 ether);
         uint256 beforeBal = address(wethGateway).balance;
         vm.prank(user);
-        (bool ok, ) = address(wethGateway).call{value: 0.25 ether}("");
+        (bool ok,) = address(wethGateway).call{value: 0.25 ether}("");
         assertTrue(ok, "direct ETH transfer to WETH gateway failed");
         assertEq(address(wethGateway).balance - beforeBal, 0.25 ether);
     }

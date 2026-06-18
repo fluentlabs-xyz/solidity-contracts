@@ -21,6 +21,12 @@ interface IERC20GatewayBridgingCheck {
     function isBridgingExcludedOrigin(address originToken) external view returns (bool);
 }
 
+/// @dev Minimal surface for {GatewayBase} fast-withdrawal deployment invariants.
+interface IGatewayFastWithdrawalConfig {
+    function getFastWithdrawalList() external view returns (address);
+    function isWhitelistEnabled() external view returns (bool);
+}
+
 /// @title VerifyDeployments
 /// @notice Single entrypoint for deployment sanity checks (no broadcast).
 ///
@@ -114,6 +120,8 @@ contract VerifyDeployments is DeployBase {
         console2.log("Checked:", checked);
         console2.log("Failed:", failed);
         console2.log("Skipped:", skipped);
+        _verifyFastWithdrawalPolicy(json);
+
         require(failed == 0, "Deployment verification failed");
     }
 
@@ -136,7 +144,9 @@ contract VerifyDeployments is DeployBase {
         address wethGwL2 = vm.envAddress("WETH_GATEWAY_L2");
 
         require(l1Bridge != address(0) && l2Bridge != address(0), "manifest: bridge missing");
-        require(l2Factory != address(0) && l2Erc20Gateway != address(0), "manifest: L2 factory or erc20_gateway missing");
+        require(
+            l2Factory != address(0) && l2Erc20Gateway != address(0), "manifest: L2 factory or erc20_gateway missing"
+        );
         require(l1Erc20Gateway != address(0), "manifest: L1 erc20_gateway missing");
         require(wethGwL1 != address(0) && wethGwL2 != address(0), "WETH_GATEWAY_L1 / WETH_GATEWAY_L2 required");
 
@@ -234,5 +244,28 @@ contract VerifyDeployments is DeployBase {
         string memory env = vm.envOr("ENV", string("testnet"));
         string memory layer = vm.envString("LAYER");
         return string.concat("deployments/", env, "/", layer, ".json");
+    }
+
+    function _verifyFastWithdrawalPolicy(string memory json) internal view {
+        address list = _readAddr(json, "fast_withdrawal_list_proxy");
+        if (list == address(0)) return;
+
+        address erc20Gateway = _readAddr(json, "erc20_gateway");
+        address nativeGateway = _readAddr(json, "native_gateway");
+        require(erc20Gateway != address(0), "fastlist invariant: erc20_gateway missing");
+        require(nativeGateway != address(0), "fastlist invariant: native_gateway missing");
+
+        _requireGatewayFastWithdrawalEnabled(erc20Gateway, list, "erc20_gateway");
+        _requireGatewayFastWithdrawalEnabled(nativeGateway, list, "native_gateway");
+        console2.log("Fast-withdrawal policy: erc20/native gateways wired and enabled");
+    }
+
+    function _requireGatewayFastWithdrawalEnabled(address gateway, address expectedList, string memory label)
+        internal
+        view
+    {
+        IGatewayFastWithdrawalConfig cfg = IGatewayFastWithdrawalConfig(gateway);
+        require(cfg.getFastWithdrawalList() == expectedList, string.concat("fastlist invariant: wrong list on ", label));
+        require(cfg.isWhitelistEnabled(), string.concat("fastlist invariant: whitelist disabled on ", label));
     }
 }

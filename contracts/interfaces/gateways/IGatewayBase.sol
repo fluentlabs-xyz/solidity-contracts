@@ -64,6 +64,14 @@ interface IGatewayBaseErrors {
     error FastWithdrawalListNotConfigured();
 
     /**
+     * @notice The originating L1 batch is `Preconfirmed` but optimistic-withdrawal
+     *         enforcement is disabled on this gateway. The user must wait for the
+     *         batch to reach `Finalized`, or the gateway owner must enable the
+     *         whitelist policy after wiring the {IFastWithdrawalList}.
+     */
+    error FastWithdrawalWhitelistDisabled();
+
+    /**
      * @notice The originating L1 batch is `Preconfirmed` but `token` is not on the
      *         {IFastWithdrawalList} allowlist. The user must wait for the batch to reach
      *         `Finalized` before withdrawing this token, or the admin must register the
