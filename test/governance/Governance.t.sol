@@ -93,7 +93,75 @@ contract FluentGovernanceTest is Test {
         assertEq(governance.votingPeriod(), 5);
     }
 
+    /// Audit 2b: with a non-zero DPoS activation, governance voting power must be read at
+    /// the REBASED epoch and via the at-or-before snapshot — not the absolute epoch that
+    /// leaked `getValidatorStatusAtEpoch`'s `changedAt` (future/latest) stake.
+    function test_votingPowerUsesRebasedEpoch_notAbsolute() public {
+        _deploy(1000, 100); // interval=50 ⇒ activation aligned; K = activation/interval = 2
+        vm.roll(200); // rebased epoch = (200-100)/50 = 2
+
+        uint256 snapBlock = block.number;
+        assertEq(staking.getValidatorDelegatedStakeAt(validator1, snapBlock), ONE, "genesis power at snapshot");
+
+        // validator1 delegates +ONE at epoch 2 ⇒ effective at epoch 4 (warmup): snapshot slot[4], changedAt=4.
+        blend.mint(validator1, ONE);
+        vm.startPrank(validator1);
+        blend.approve(address(staking), ONE);
+        staking.delegate(validator1, ONE);
+        vm.stopPrank();
+
+        // The historical read at `snapBlock` (epoch 2) must STILL be the genesis ONE:
+        // the fresh stake is warming up and must not retroactively count.
+        assertEq(
+            staking.getValidatorDelegatedStakeAt(validator1, snapBlock),
+            ONE,
+            "historical power must exclude post-snapshot / warmup stake"
+        );
+
+        // Prove the divergence is real: the old absolute-epoch getter (blockNumber/interval
+        // = 200/50 = 4) hits the future warmup slot and leaks the inflated 2*ONE.
+        (,, uint256 leaked,,,,,,) = staking.getValidatorStatusAtEpoch(validator1, uint64(snapBlock / 50));
+        assertEq(leaked, 2 * ONE, "sanity: absolute-epoch getter leaks the future stake");
+        assertTrue(
+            leaked != staking.getValidatorDelegatedStakeAt(validator1, snapBlock), "fix diverges from leaky path"
+        );
+    }
+
+    /// Audit 2b end-to-end: a validator that delegates AFTER a proposal snapshot must not
+    /// inflate its own vote weight on that proposal (per-timepoint snapshot preserved).
+    function test_delegateAfterSnapshotCannotInflateVoteWeight() public {
+        _deploy(1000, 100); // long voting period, activation=100, interval=50
+        vm.roll(200); // rebased epoch 2
+
+        address[] memory targets = new address[](1);
+        targets[0] = owner;
+        uint256[] memory values = new uint256[](1);
+        bytes[] memory calldatas = new bytes[](1);
+        calldatas[0] = hex"";
+
+        vm.prank(validator1);
+        uint256 proposalId = governance.propose(targets, values, calldatas, "p"); // snapshot = block 200
+
+        // Attempt to inflate weight by delegating more AFTER the snapshot.
+        blend.mint(validator1, ONE);
+        vm.startPrank(validator1);
+        blend.approve(address(staking), ONE);
+        staking.delegate(validator1, ONE);
+        vm.stopPrank();
+
+        vm.roll(block.number + 1); // enter Active voting window
+        vm.prank(validator1);
+        governance.castVote(proposalId, 1); // support = For
+
+        (, uint256 forVotes,) = governance.proposalVotes(proposalId);
+        assertEq(forVotes, ONE, "vote weight must use proposal-snapshot stake, not post-snapshot delegation");
+    }
+
     function _deploy(uint32 votingPeriod) internal {
+        _deploy(votingPeriod, uint64(0));
+    }
+
+    function _deploy(uint32 votingPeriod, uint64 dposActivationBlock) internal {
         uint64 nonce = vm.getNonce(address(this));
         IStaking predictedStaking = IStaking(vm.computeCreateAddress(address(this), nonce + 1));
         ISystemReward predictedSystemReward = ISystemReward(vm.computeCreateAddress(address(this), nonce + 3));
@@ -175,7 +243,7 @@ contract FluentGovernanceTest is Test {
             address(
                 new ERC1967Proxy(
                     address(chainConfigImpl),
-                    abi.encodeCall(ChainConfig.initialize, (address(this), 3, 50, 50, 150, 7, 1, ONE, ONE, uint64(0)))
+                    abi.encodeCall(ChainConfig.initialize, (address(this), 3, 50, 50, 150, 7, 1, ONE, ONE, dposActivationBlock))
                 )
             )
         );

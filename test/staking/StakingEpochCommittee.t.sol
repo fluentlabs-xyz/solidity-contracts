@@ -506,6 +506,71 @@ contract StakingEpochCommitteeTest is Test {
         assertEq(staking.getEpochCommittee(42).length, 0);
     }
 
+    function test_getEpochCommitteeWithStakes_joinsCommitteeKeysAndStakes() public {
+        address a = _validator("A", bytes32(uint256(0x10)));
+        address b = _validator("B", bytes32(uint256(0x20)));
+        uint256 stakeA = 3 * ONE;
+        uint256 stakeB = 5 * ONE;
+        // Delegated at epoch 0 ⇒ effective at epoch 2 (WARMUP_DELAY), changedAt==2.
+        _delegate(a, stakeA);
+        _delegate(b, stakeB);
+
+        _rollToEpoch(2);
+        _commit();
+
+        (address[] memory addrs, IStaking.ConsensusKeys[] memory keys, uint256[] memory stakes) =
+            staking.getEpochCommitteeWithStakes(2);
+
+        address[] memory committee = staking.getEpochCommittee(2);
+        assertEq(addrs.length, committee.length, "addrs length mismatch");
+        assertEq(keys.length, addrs.length, "keys length mismatch");
+        assertEq(stakes.length, addrs.length, "stakes length mismatch");
+
+        // committee order is ascending peerPubkey ⇒ [a (0x10), b (0x20)].
+        assertEq(addrs[0], a, "addrs[0]");
+        assertEq(addrs[1], b, "addrs[1]");
+        assertEq(keys[0].peerPubkey, bytes32(uint256(0x10)), "keys[0].peerPubkey");
+        assertEq(keys[1].peerPubkey, bytes32(uint256(0x20)), "keys[1].peerPubkey");
+        assertEq(stakes[0], stakeA, "stakes[0] (wei)");
+        assertEq(stakes[1], stakeB, "stakes[1] (wei)");
+    }
+
+    function test_getEpochCommitteeWithStakes_emptyForUncommittedEpoch() public view {
+        (address[] memory addrs, IStaking.ConsensusKeys[] memory keys, uint256[] memory stakes) =
+            staking.getEpochCommitteeWithStakes(42);
+        assertEq(addrs.length, 0, "addrs");
+        assertEq(keys.length, 0, "keys");
+        assertEq(stakes.length, 0, "stakes");
+    }
+
+    /// Regression for D3: the getter reports the at-or-before-`epoch` snapshot
+    /// (`totalDelegatedToValidatorAt` → `validatorSnapshotAtOrBefore`), NOT the
+    /// `changedAt`-leaking value `getValidatorStatusAtEpoch` returns when a
+    /// validator's stake last changed AFTER `epoch` (`changedAt > epoch`). A
+    /// future-leaking weight would split leader election across nodes.
+    function test_getEpochCommitteeWithStakes_usesAtOrBeforeEpochStake() public {
+        address v = _validator("V", bytes32(uint256(0x10)));
+        uint256 first = 2 * ONE; // delegated at epoch 0 ⇒ slot[2], changedAt==2
+        uint256 second = 4 * ONE; // delegated at epoch 3 ⇒ slot[5], changedAt==5
+        _delegate(v, first);
+        _rollToEpoch(3);
+        _delegate(v, second);
+
+        _rollToEpoch(4);
+        _commit(); // committee[4] is selected from EffBal(3) == `first`; V is in it.
+
+        (,, uint256[] memory stakes) = staking.getEpochCommitteeWithStakes(4);
+        assertEq(stakes.length, 1, "committee size");
+        // epoch 4 sits between slot[2] and slot[5]: the at-or-before value is `first`.
+        assertEq(stakes[0], first, "getter must report at-or-before-epoch stake");
+
+        // The divergent getter leaks the future (slot[changedAt=5]) value — proving
+        // the regression is real and that this getter does NOT use that path.
+        (,, uint256 leaked,,,,,,) = staking.getValidatorStatusAtEpoch(v, 4);
+        assertEq(leaked, first + second, "getValidatorStatusAtEpoch leaks slot[changedAt]");
+        assertTrue(leaked != stakes[0], "the two stake sources must diverge here");
+    }
+
 
     function test_commitEpochCommittee_storageIsolatedFromOtherNamespaces() public {
         address a = _validator("A", bytes32(uint256(0x10)));
@@ -564,6 +629,18 @@ contract StakingEpochCommitteeTest is Test {
         staking.addValidator(v); // governance == address(this); owner == v
         vm.prank(v);
         staking.setConsensusKeys(v, PK_UNC, SIG_UNC_VALID, peerPubkey);
+    }
+
+    /// @dev Delegate `amount` BLEND to `validator` from a funded staker. Effective
+    ///      at `currentEpoch + WARMUP_DELAY` (snapshot written there, `changedAt`
+    ///      advanced to it) — see {StakingLayout.touchValidatorSnapshot}.
+    function _delegate(address validator, uint256 amount) internal {
+        address staker = makeAddr("committeeStaker");
+        blend.mint(staker, amount);
+        vm.startPrank(staker);
+        blend.approve(address(staking), amount);
+        staking.delegate(validator, amount);
+        vm.stopPrank();
     }
 
     /// @dev Reproduces the contract's canonical committee off-chain for a given

@@ -36,6 +36,17 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
     ///         to the Rust/Solidity liveness wire expectation.
     uint32 public constant DEFAULT_MISS_THRESHOLD = 50;
 
+    /// @notice Default reporter cut (basis points) of an equivocation stake seizure, used
+    ///         when the `_slashReporterRewardBps` slot is unset (0). 3000 = 30% reporter,
+    ///         70% burned.
+    uint32 public constant DEFAULT_SLASH_REPORTER_BPS = 3000;
+
+    /// @notice Upper bound on the reporter cut. Capped strictly below 100% so an
+    ///         equivocation seizure always destroys real capital (the burned remainder is
+    ///         the economic deterrent). A 100% reporter cut would let a colluding
+    ///         self-reporter recover the entire seized self-stake, neutering the penalty.
+    uint32 public constant MAX_SLASH_REPORTER_BPS = 5000; // 50%
+
     // F1 exit-before-slash floor: the undelegation window
     // (undelegatePeriod * epochBlockInterval, in blocks) must be >= this.
     // Immutable (set at implementation deploy) so it cannot be lowered by the
@@ -88,6 +99,10 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
         // Appended (ERC-7201 safe): consecutive missed blocks per liveness slash
         // dispatch. Zero ⇒ DEFAULT_MISS_THRESHOLD (sentinel; see getMissThreshold).
         uint32 _missThreshold;
+        // Appended (ERC-7201 safe): reporter's cut (basis points) of an equivocation
+        // stake seizure; the remainder is burned. Zero ⇒ DEFAULT_SLASH_REPORTER_BPS
+        // (sentinel; see getSlashReporterRewardBps).
+        uint32 _slashReporterRewardBps;
     }
 
     function _getChainConfigStorage() private pure returns (ChainConfigStorage storage $) {
@@ -247,6 +262,19 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
         ChainConfigStorage storage $ = _getChainConfigStorage();
         emit MissThresholdChanged($._missThreshold, newValue);
         $._missThreshold = newValue;
+    }
+
+    function getSlashReporterRewardBps() external view override returns (uint32) {
+        uint32 stored = _getChainConfigStorage()._slashReporterRewardBps;
+        return stored == 0 ? DEFAULT_SLASH_REPORTER_BPS : stored;
+    }
+
+    function setSlashReporterRewardBps(uint32 newValue) external override onlyFromGovernance {
+        require(newValue > 0, ZeroValue("slashReporterRewardBps"));
+        require(newValue <= MAX_SLASH_REPORTER_BPS, SlashReporterRewardBpsTooHigh(newValue, MAX_SLASH_REPORTER_BPS));
+        ChainConfigStorage storage $ = _getChainConfigStorage();
+        emit SlashReporterRewardBpsChanged($._slashReporterRewardBps, newValue);
+        $._slashReporterRewardBps = newValue;
     }
 
     function getUndelegatePeriod() external view override returns (uint32) {

@@ -182,6 +182,24 @@ contract Staking is IStaking, StakingContext {
     }
 
     /// @inheritdoc IStaking
+    function getValidatorDelegatedStakeAt(address validatorAddress, uint256 blockNumber)
+        external
+        view
+        override
+        returns (uint256)
+    {
+        StakingLayout.StakingStorage storage $ = StakingLayout.stakingStorage();
+        Validator memory validator = $._validatorsMap[validatorAddress];
+        if (validator.status == ValidatorStatus.NotFound) {
+            return 0;
+        }
+        // Rebased epoch + at-or-before snapshot — identical to committee selection's
+        // effective-stake source, and NOT getValidatorStatusAtEpoch's changedAt-leaking
+        // read, so a historical `blockNumber` resolves to the stake effective then.
+        return StakingLayout.totalDelegatedToValidatorAt(validator, _epochAtBlock(blockNumber));
+    }
+
+    /// @inheritdoc IStaking
     function getValidatorByOwner(address owner) external view override returns (address) {
         return StakingLayout.stakingStorage()._validatorOwners[owner];
     }
@@ -229,17 +247,24 @@ contract Staking is IStaking, StakingContext {
     }
 
     function _currentEpoch() internal view returns (uint64) {
-        // DPoS epochs are numbered relative to `dposActivationBlock` so a
-        // Tempo→DPoS migration anchor at a high block becomes epoch 0 (see
-        // ChainConfig.dposActivationBlock). Pre-activation blocks clamp to 0 —
-        // reachable only in a predeploy window before the switch; in production
-        // the contract is introduced at activation so block.number >= activation
-        // always holds. activation == 0 ⇒ absolute numbering (degenerate).
+        return _epochAtBlock(block.number);
+    }
+
+    /// @dev Rebased epoch at an arbitrary block. DPoS epochs are numbered relative to
+    ///      `dposActivationBlock` so a Tempo→DPoS migration anchor at a high block becomes
+    ///      epoch 0 (see ChainConfig.dposActivationBlock). Pre-activation blocks clamp to 0 —
+    ///      reachable only in a predeploy window before the switch; in production the
+    ///      contract is introduced at activation so block.number >= activation always holds.
+    ///      activation == 0 ⇒ absolute numbering (degenerate). Single source of the
+    ///      block→epoch formula: shared by `_currentEpoch` and the block-parameterized
+    ///      voting-power read (`getValidatorDelegatedStakeAt`) so governance and staking can
+    ///      never disagree on epoch numbering (audit 2b).
+    function _epochAtBlock(uint256 blockNumber) internal view returns (uint64) {
         uint64 activation = _chainConfigContract.getDposActivationBlock();
-        if (block.number < activation) {
+        if (blockNumber < activation) {
             return 0;
         }
-        return uint64((block.number - activation) / _chainConfigContract.getEpochBlockInterval());
+        return uint64((blockNumber - activation) / _chainConfigContract.getEpochBlockInterval());
     }
 
     function _nextEpoch() internal view returns (uint64) {
@@ -714,39 +739,26 @@ contract Staking is IStaking, StakingContext {
         return StakingLayout.epochCommitteeStorage().committee[epoch].length;
     }
 
-    /// @notice The next epoch whose beacon key is not yet committed (mirror of
-    ///         {nextEpochToCommit} for the randomness beacon).
-    function nextEpochForBeaconKey() external view override returns (uint64) {
-        return StakingLayout.epochBeaconStorage().lastBeaconEpochP1;
-    }
-
-    /// @notice Freezes the per-epoch beacon group public key `PK_epoch`.
-    /// @dev System call, mirroring {commitEpochCommittee}: commits the
-    ///      next-uncommitted beacon epoch one ahead, with the same
-    ///      `target <= currentEpoch + 1` monotonic gate. Unlike the committee,
-    ///      the key is NOT re-derived on-chain — it is the DKG outcome already
-    ///      agreed in consensus (embedded in the boundary OrderBlock + validity
-    ///      checked) and re-derived by the STF, so it is stored as opaque bytes.
-    ///      An EMPTY `groupPubKey` records a no-assurance (fallback) epoch.
-    function commitEpochBeaconKey(bytes calldata groupPubKey) external virtual override onlySystemCall {
-        uint64 cur = _currentEpoch();
-        StakingLayout.EpochBeaconStorage storage $ = StakingLayout.epochBeaconStorage();
-        uint64 target = $.lastBeaconEpochP1;
-        if (target > cur + 1) revert EpochNotYetCommittable(target, cur);
-        $.groupPubKey[target] = groupPubKey;
-        $.lastBeaconEpochP1 = target + 1;
-        emit EpochBeaconKeyCommitted(target, groupPubKey.length > 0);
-    }
-
-    /// @notice The committed beacon group public key `PK_epoch` for `epoch`
-    ///         (empty if uncommitted or a fallback epoch).
-    function getEpochBeaconKey(uint64 epoch) external view override returns (bytes memory) {
-        return StakingLayout.epochBeaconStorage().groupPubKey[epoch];
-    }
-
-    /// @notice Whether `epoch` has threshold randomness (a non-empty `PK_epoch`).
-    function beaconAssurance(uint64 epoch) external view override returns (bool) {
-        return StakingLayout.epochBeaconStorage().groupPubKey[epoch].length > 0;
+    /// @inheritdoc IStaking
+    function getEpochCommitteeWithStakes(uint64 epoch)
+        external
+        view
+        override
+        returns (address[] memory addrs, IStaking.ConsensusKeys[] memory keys, uint256[] memory stakes)
+    {
+        StakingLayout.StakingStorage storage $ = StakingLayout.stakingStorage();
+        addrs = StakingLayout.epochCommitteeStorage().committee[epoch];
+        uint256 n = addrs.length;
+        keys = new IStaking.ConsensusKeys[](n);
+        stakes = new uint256[](n);
+        StakingLayout.ConsensusKeysStorage storage $ck = StakingLayout.consensusKeysStorage();
+        for (uint256 i = 0; i < n; i++) {
+            keys[i] = $ck.consensusKeys[addrs[i]];
+            Validator memory validator = $._validatorsMap[addrs[i]];
+            // at-or-before-`epoch` effective stake — the SAME helper committee
+            // selection ranks by, so leader weight is in lockstep with membership.
+            stakes[i] = StakingLayout.totalDelegatedToValidatorAt(validator, epoch);
+        }
     }
 
     /// @custom:oz-upgrades-unsafe-allow delegatecall
@@ -757,7 +769,7 @@ contract Staking is IStaking, StakingContext {
         bytes calldata sig2Uncompressed
     ) external override {
         StakingDpos.slashEquivocationNotarize(
-            _chainConfigContract, evidence, pkUncompressed, sig1Uncompressed, sig2Uncompressed
+            _chainConfigContract, _stakingToken, evidence, pkUncompressed, sig1Uncompressed, sig2Uncompressed
         );
     }
 
@@ -769,7 +781,7 @@ contract Staking is IStaking, StakingContext {
         bytes calldata sig2Uncompressed
     ) external override {
         StakingDpos.slashEquivocationFinalize(
-            _chainConfigContract, evidence, pkUncompressed, sig1Uncompressed, sig2Uncompressed
+            _chainConfigContract, _stakingToken, evidence, pkUncompressed, sig1Uncompressed, sig2Uncompressed
         );
     }
 
@@ -781,7 +793,7 @@ contract Staking is IStaking, StakingContext {
         bytes calldata sig2Uncompressed
     ) external override {
         StakingDpos.slashEquivocationNullifyFinalize(
-            _chainConfigContract, evidence, pkUncompressed, sig1Uncompressed, sig2Uncompressed
+            _chainConfigContract, _stakingToken, evidence, pkUncompressed, sig1Uncompressed, sig2Uncompressed
         );
     }
 }

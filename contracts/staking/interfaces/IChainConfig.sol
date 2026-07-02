@@ -8,6 +8,7 @@ interface IChainConfigEvents {
     event FelonyThresholdChanged(uint32 prevValue, uint32 newValue);
     event ValidatorJailEpochLengthChanged(uint32 prevValue, uint32 newValue);
     event MissThresholdChanged(uint32 prevValue, uint32 newValue);
+    event SlashReporterRewardBpsChanged(uint32 prevValue, uint32 newValue);
     event UndelegatePeriodChanged(uint32 prevValue, uint32 newValue);
     event MinValidatorStakeAmountChanged(uint256 prevValue, uint256 newValue);
     event MinStakingAmountChanged(uint256 prevValue, uint256 newValue);
@@ -60,6 +61,10 @@ interface IChainConfig {
     ///         so stake cannot exit before it can be slashed.
     error UndelegateWindowTooShort(uint256 windowBlocks, uint256 minBlocks);
 
+    /// @notice The equivocation reporter reward (basis points) exceeds the cap.
+    ///         Capped strictly below 100% so a seizure always burns a deterrent remainder.
+    error SlashReporterRewardBpsTooHigh(uint32 requested, uint32 max);
+
     /// @notice Maximum number of validators returned in the active validator set.
     function getActiveValidatorsLength() external view returns (uint32);
 
@@ -103,6 +108,13 @@ interface IChainConfig {
 
     /// @notice Updates the consecutive-miss liveness threshold. Callable by governance.
     function setMissThreshold(uint32 newValue) external;
+
+    /// @notice Reporter's cut (basis points) of an equivocation stake seizure; the
+    ///         remainder is burned. Defaults to 3000 (30%) when unset (sentinel).
+    function getSlashReporterRewardBps() external view returns (uint32);
+
+    /// @notice Updates the equivocation reporter reward (basis points). Callable by governance.
+    function setSlashReporterRewardBps(uint32 newValue) external;
 
     /// @notice Number of epochs before undelegated funds become claimable.
     function getUndelegatePeriod() external view returns (uint32);

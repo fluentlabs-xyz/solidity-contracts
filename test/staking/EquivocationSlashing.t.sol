@@ -44,6 +44,11 @@ contract EquivocationSlashingTest is Test {
 
     event EquivocationSlashed(address indexed validator, uint64 epoch, address indexed reporter);
     event ValidatorJailed(address indexed validator, uint64 epoch);
+    event EquivocationStakeSeized(
+        address indexed validator, address indexed reporter, uint256 reporterReward, uint256 burned
+    );
+
+    address internal constant BURN = 0x000000000000000000000000000000000000dEaD;
 
     /// @dev Conformance corpus mirror of crates/bls/tests/equivocation_evidence_conformance.rs;
     ///      regenerate both together. COMMITTEE in generation order; OFFENDER = index 0
@@ -429,6 +434,86 @@ contract EquivocationSlashingTest is Test {
         _assertSlashed(_offender());
     }
 
+
+    /// C5 v1: equivocation seizes 100% of the offender's OWN self-stake, split 30% to the
+    /// reporter (msg.sender) / 70% burned. Validators are addValidator'd (owner == self).
+    function test_slashEquivocation_seizesSelfStake_splits30_70() public {
+        address offender = _offender();
+        uint256 selfStake = 100 ether;
+        blend.mint(offender, selfStake);
+        vm.startPrank(offender);
+        blend.approve(address(staking), selfStake);
+        staking.delegate(offender, selfStake);
+        vm.stopPrank();
+
+        (uint256 bonded,) = staking.getValidatorDelegation(offender, offender);
+        assertEq(bonded, selfStake, "offender self-stake bonded");
+
+        uint256 expectReporter = (selfStake * 3000) / 10_000; // 30%
+        uint256 expectBurn = selfStake - expectReporter; // 70%
+        uint256 reporterBefore = blend.balanceOf(address(this)); // reporter == msg.sender
+        uint256 burnBefore = blend.balanceOf(BURN);
+
+        vm.expectEmit(true, true, false, true, address(staking));
+        emit EquivocationStakeSeized(offender, address(this), expectReporter, expectBurn);
+        staking.slashEquivocationNotarize(_cnEvidence(), _pkUnc(), _cnSig1Unc(), _cnSig2Unc());
+
+        _assertSlashed(offender);
+        (uint256 bondedAfter,) = staking.getValidatorDelegation(offender, offender);
+        assertEq(bondedAfter, 0, "self-stake seized to zero (owner cannot reclaim)");
+        assertEq(blend.balanceOf(address(this)) - reporterBefore, expectReporter, "reporter got 30%");
+        assertEq(blend.balanceOf(BURN) - burnBefore, expectBurn, "burn sink got 70%");
+    }
+
+    /// C5 v1: the reporter cut is governance-configurable via ChainConfig
+    /// (address(this) is the governance address in this harness). 50% ⇒ 50/50 split.
+    function test_slashEquivocation_reporterCutIsConfigurable() public {
+        chainConfig.setSlashReporterRewardBps(5000); // 50% (== MAX_SLASH_REPORTER_BPS)
+        address offender = _offender();
+        uint256 selfStake = 100 ether;
+        blend.mint(offender, selfStake);
+        vm.startPrank(offender);
+        blend.approve(address(staking), selfStake);
+        staking.delegate(offender, selfStake);
+        vm.stopPrank();
+
+        uint256 reporterBefore = blend.balanceOf(address(this));
+        uint256 burnBefore = blend.balanceOf(BURN);
+        staking.slashEquivocationNotarize(_cnEvidence(), _pkUnc(), _cnSig1Unc(), _cnSig2Unc());
+
+        assertEq(blend.balanceOf(address(this)) - reporterBefore, selfStake / 2, "reporter got 50%");
+        assertEq(blend.balanceOf(BURN) - burnBefore, selfStake / 2, "burn got 50%");
+    }
+
+    /// C5 v1: seizure targets ONLY the operator's self-stake — third-party delegators are
+    /// left fully intact even when they delegate to the equivocating validator.
+    function test_slashEquivocation_seizesOnlySelfStake_notDelegators() public {
+        address offender = _offender();
+        address delegator = makeAddr("delegator");
+        uint256 selfStake = 100 ether;
+        uint256 delAmount = 50 ether;
+
+        blend.mint(offender, selfStake);
+        vm.startPrank(offender);
+        blend.approve(address(staking), selfStake);
+        staking.delegate(offender, selfStake);
+        vm.stopPrank();
+
+        blend.mint(delegator, delAmount);
+        vm.startPrank(delegator);
+        blend.approve(address(staking), delAmount);
+        staking.delegate(offender, delAmount);
+        vm.stopPrank();
+
+        uint256 delTokensBefore = blend.balanceOf(delegator);
+        staking.slashEquivocationNotarize(_cnEvidence(), _pkUnc(), _cnSig1Unc(), _cnSig2Unc());
+
+        (uint256 selfAfter,) = staking.getValidatorDelegation(offender, offender);
+        assertEq(selfAfter, 0, "self-stake seized");
+        (uint256 delAfter,) = staking.getValidatorDelegation(offender, delegator);
+        assertEq(delAfter, delAmount, "delegator stake untouched");
+        assertEq(blend.balanceOf(delegator), delTokensBefore, "delegator tokens untouched");
+    }
 
     function test_RevertIf_slashEquivocation_replay() public {
         staking.slashEquivocationNotarize(_cnEvidence(), _pkUnc(), _cnSig1Unc(), _cnSig2Unc());

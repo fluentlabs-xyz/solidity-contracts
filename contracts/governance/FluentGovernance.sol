@@ -121,9 +121,14 @@ contract FluentGovernance is
     }
 
     function _validatorVotingPowerAt(address validator, uint256 blockNumber) internal view returns (uint256) {
-        uint64 epoch = uint64(blockNumber / _chainConfigContract.getEpochBlockInterval());
-        (, , uint256 totalDelegated, , , , , , ) = _stakingContract.getValidatorStatusAtEpoch(validator, epoch);
-        return totalDelegated;
+        // Voting power = the validator's effective delegated stake as of `blockNumber`,
+        // read through Staking's canonical rebased-epoch + at-or-before snapshot path.
+        // Deriving the epoch here as `blockNumber / interval` (ABSOLUTE) diverged from
+        // Staking's `dposActivationBlock`-rebased numbering; combined with the
+        // changedAt-leaking at-epoch getter that made every timepoint resolve to the
+        // validator's LATEST stake, bypassing the per-proposal snapshot. Delegate the
+        // whole block→power computation to Staking so the two can never disagree (audit 2b).
+        return _stakingContract.getValidatorDelegatedStakeAt(validator, blockNumber);
     }
 
     function _votingSupply(uint256 blockNumber) internal view returns (uint256 votingSupply) {

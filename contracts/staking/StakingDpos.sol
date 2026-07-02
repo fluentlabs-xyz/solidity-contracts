@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-only
 pragma solidity ^0.8.0;
 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+
 import {IStaking, IStakingEvents} from "./interfaces/IStaking.sol";
 import {IStakingContextErrors} from "./interfaces/IStakingContext.sol";
 import {IChainConfig} from "./interfaces/IChainConfig.sol";
@@ -20,6 +23,8 @@ import {StakingLayout} from "./StakingLayout.sol";
 ///      threaded in as the `cfg` parameter. Errors live in
 ///      `IStakingContextErrors`; events are emitted via `IStakingEvents`.
 library StakingDpos {
+    using SafeERC20 for IERC20;
+
     /// @notice BLS signature DST (MinSig MESSAGE) — distinct from PoP's DST.
     bytes private constant BLS_SIG_DST = "BLS_SIG_BLS12381G1_XMD:SHA-256_SSWU_RO_POP_";
 
@@ -28,6 +33,13 @@ library StakingDpos {
 
     /// @notice Expected length of a compressed BLS12-381 G2 pubkey (MinSig variant).
     uint256 internal constant BLS_PUBKEY_LENGTH = 96;
+
+    /// @notice Burn sink for the non-reporter remainder of an equivocation seizure. A
+    ///         standard ERC20 `transfer` to address(0) reverts, so the canonical dead
+    ///         address is used instead; no key controls it, so the tokens are permanently
+    ///         removed from circulation. (The reporter's cut, in basis points, is a
+    ///         governance-configurable `ChainConfig.getSlashReporterRewardBps()`.)
+    address internal constant EQUIVOCATION_BURN_SINK = 0x000000000000000000000000000000000000dEaD;
 
     /// @notice Safety margin (in epochs) added to the undelegate period when
     ///         retaining frozen committees.
@@ -140,42 +152,46 @@ library StakingDpos {
 
     function slashEquivocationNotarize(
         IChainConfig cfg,
+        IERC20 token,
         bytes calldata evidence,
         bytes calldata pkUncompressed,
         bytes calldata sig1Uncompressed,
         bytes calldata sig2Uncompressed
     ) external {
         _slashEquivocation(
-            cfg, _decoder(cfg).decodeConflictingNotarize(evidence), pkUncompressed, sig1Uncompressed, sig2Uncompressed
+            cfg, token, _decoder(cfg).decodeConflictingNotarize(evidence), pkUncompressed, sig1Uncompressed, sig2Uncompressed
         );
     }
 
     function slashEquivocationFinalize(
         IChainConfig cfg,
+        IERC20 token,
         bytes calldata evidence,
         bytes calldata pkUncompressed,
         bytes calldata sig1Uncompressed,
         bytes calldata sig2Uncompressed
     ) external {
         _slashEquivocation(
-            cfg, _decoder(cfg).decodeConflictingFinalize(evidence), pkUncompressed, sig1Uncompressed, sig2Uncompressed
+            cfg, token, _decoder(cfg).decodeConflictingFinalize(evidence), pkUncompressed, sig1Uncompressed, sig2Uncompressed
         );
     }
 
     function slashEquivocationNullifyFinalize(
         IChainConfig cfg,
+        IERC20 token,
         bytes calldata evidence,
         bytes calldata pkUncompressed,
         bytes calldata sig1Uncompressed,
         bytes calldata sig2Uncompressed
     ) external {
         _slashEquivocation(
-            cfg, _decoder(cfg).decodeNullifyFinalize(evidence), pkUncompressed, sig1Uncompressed, sig2Uncompressed
+            cfg, token, _decoder(cfg).decodeNullifyFinalize(evidence), pkUncompressed, sig1Uncompressed, sig2Uncompressed
         );
     }
 
     function _slashEquivocation(
         IChainConfig cfg,
+        IERC20 token,
         SimplexEvidenceDecoder.Decoded memory ev,
         bytes calldata pkUncompressed,
         bytes calldata sig1Unc,
@@ -217,14 +233,14 @@ library StakingDpos {
 
         // CEI: tombstone before any state-changing penalty.
         $eq.tombstoned[validator] = true;
-        _penalizeEquivocation(cfg, validator);
+        _penalizeEquivocation(cfg, token, validator);
         emit IStakingEvents.EquivocationSlashed(validator, ev.epoch, msg.sender);
     }
 
-    /// @dev Not the misdemeanor/felony liveness counter — equivocation is an
-    ///      immediate permanent jail. Stake-% seizure is intentionally not
-    ///      implemented (deferred).
-    function _penalizeEquivocation(IChainConfig cfg, address validatorAddress) internal {
+    /// @dev Equivocation is an immediate permanent jail (not the misdemeanor/felony
+    ///      liveness counter). V1: additionally seizes 100% of the offender's OWN
+    ///      self-stake — delegators are intentionally left untouched.
+    function _penalizeEquivocation(IChainConfig cfg, IERC20 token, address validatorAddress) internal {
         StakingLayout.StakingStorage storage $ = StakingLayout.stakingStorage();
         IStaking.Validator memory v = $._validatorsMap[validatorAddress];
         if (v.status == IStaking.ValidatorStatus.NotFound) {
@@ -238,7 +254,46 @@ library StakingDpos {
         // `_slashEquivocation` is the single never-release mechanism —
         // unconditional and first in `releaseValidatorFromJail`.
         $._validatorsMap[validatorAddress] = v;
+
+        _seizeSelfStake(cfg, token, validatorAddress, v.ownerAddress);
+
         emit IStakingEvents.ValidatorJailed(validatorAddress, _currentEpoch(cfg));
+    }
+
+    /// @dev Seize 100% of the offender's OWN bonded self-stake (owner→self delegation):
+    ///      30% rewards the reporter (`msg.sender`), 70% is burned. Because only the
+    ///      operator's own stake is taken, a self-reporting offender always nets negative
+    ///      (loses 100%, recovers ≤30%), so no self-report guard is required.
+    ///      DOES NOT touch the validator's `totalDelegated` snapshots or any delegator
+    ///      balance: reducing a past snapshot would retroactively change how
+    ///      already-accrued rewards were split among delegators. The seized principal's
+    ///      tokens already sit in this contract (pulled at delegate time), so moving them
+    ///      out while zeroing the owner's claim keeps balance == liabilities. Any pending
+    ///      owner UNdelegation is left claimable — v1 seizes only currently-bonded self-stake.
+    function _seizeSelfStake(IChainConfig cfg, IERC20 token, address validatorAddress, address ownerAddress)
+        internal
+    {
+        StakingLayout.StakingStorage storage $ = StakingLayout.stakingStorage();
+        IStaking.ValidatorDelegation storage selfDelegation = $._validatorDelegations[validatorAddress][ownerAddress];
+        uint256 qlen = selfDelegation.delegateQueue.length;
+        if (qlen == 0) return; // no self-stake bonded (e.g. governance-added validator)
+        uint112 compact = selfDelegation.delegateQueue[qlen - 1].amount;
+        if (compact == 0) return;
+        uint256 seized = uint256(compact) * StakingLayout.BALANCE_COMPACT_PRECISION;
+
+        // Effects: zero the bonded self-stake so the owner can never reclaim it.
+        delete selfDelegation.delegateQueue;
+        selfDelegation.delegateGap = 0;
+
+        // Interactions (CEI: tombstone + state above already applied): reporter cut (a
+        // governance-set basis-point fraction of the seized amount) to the reporter, the
+        // remainder burned.
+        uint256 reporterReward = (seized * cfg.getSlashReporterRewardBps()) / 10_000;
+        uint256 burned = seized - reporterReward;
+        if (reporterReward > 0) token.safeTransfer(msg.sender, reporterReward);
+        if (burned > 0) token.safeTransfer(EQUIVOCATION_BURN_SINK, burned);
+
+        emit IStakingEvents.EquivocationStakeSeized(validatorAddress, msg.sender, reporterReward, burned);
     }
 
     /// @notice Verify/store/prune half of `commitEpochCommittee`. The `Staking`

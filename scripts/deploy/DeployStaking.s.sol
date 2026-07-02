@@ -66,13 +66,19 @@ contract DeployStaking is DeployBase {
     function _readStakingParams() internal view returns (StakingDeployParams memory p) {
         (, string memory json) = _readActiveConfig();
         p.initialOwner = vm.envOr("INITIAL_OWNER", json.readAddress(".roles.initialOwner"));
-        p.initialValidators = json.readAddressArray(".staking.initialValidators");
-        p.initialStakes = json.readUintArray(".staking.initialStakes");
+        // The initial validator set may be overridden via env (comma-delimited), the same
+        // pattern as INITIAL_OWNER/STAKING_TOKEN, so a devnet (e.g. the production-soak) can
+        // deploy with a narrower initial committee — leaving the remaining validators
+        // UNregistered for a runtime register→activate join — without forking this shared
+        // config file. Absent ⇒ the JSON config (unchanged for the production-path).
+        p.initialValidators = vm.envOr("INITIAL_VALIDATORS", ",", json.readAddressArray(".staking.initialValidators"));
+        p.initialStakes = vm.envOr("INITIAL_STAKES", ",", json.readUintArray(".staking.initialStakes"));
         p.initialCommissionRate = uint16(json.readUint(".staking.initialCommissionRate"));
         p.systemRewardAccounts = json.readAddressArray(".staking.systemReward.accounts");
         p.systemRewardShares = _toUint16Array(json.readUintArray(".staking.systemReward.shares"));
         p.governanceVotingPeriod = uint32(json.readUint(".governance.votingPeriod"));
-        p.activeValidatorsLength = uint32(json.readUint(".staking.activeValidatorsLength"));
+        p.activeValidatorsLength =
+            uint32(vm.envOr("ACTIVE_VALIDATORS_LENGTH", json.readUint(".staking.activeValidatorsLength")));
         p.epochBlockInterval = uint32(json.readUint(".staking.epochBlockInterval"));
         p.misdemeanorThreshold = uint32(json.readUint(".staking.misdemeanorThreshold"));
         p.felonyThreshold = uint32(json.readUint(".staking.felonyThreshold"));

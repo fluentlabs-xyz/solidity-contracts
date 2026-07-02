@@ -179,4 +179,37 @@ contract ChainConfigGuardsTest is Test {
         vm.expectRevert(abi.encodeWithSelector(IChainConfig.ZeroValue.selector, "missThreshold"));
         cc.setMissThreshold(0);
     }
+
+    // --- slashReporterRewardBps (equivocation seizure reporter cut) -------------
+
+    function test_getSlashReporterRewardBps_defaultsTo3000_whenUnset() public {
+        // Never set after init: the sentinel getter returns DEFAULT_SLASH_REPORTER_BPS (30%).
+        ChainConfig cc = _good();
+        assertEq(cc.getSlashReporterRewardBps(), 3000);
+    }
+
+    function test_setSlashReporterRewardBps_updates() public {
+        ChainConfig cc = _good();
+        cc.setSlashReporterRewardBps(1500);
+        assertEq(cc.getSlashReporterRewardBps(), 1500);
+    }
+
+    function test_setSlashReporterRewardBps_rejectsZero() public {
+        ChainConfig cc = _good();
+        vm.expectRevert(abi.encodeWithSelector(IChainConfig.ZeroValue.selector, "slashReporterRewardBps"));
+        cc.setSlashReporterRewardBps(0);
+    }
+
+    function test_setSlashReporterRewardBps_rejectsAboveMax() public {
+        ChainConfig cc = _good();
+        // Cap is MAX_SLASH_REPORTER_BPS = 5000 (50%): above it always leaves a deterrent burn.
+        vm.expectRevert(abi.encodeWithSelector(IChainConfig.SlashReporterRewardBpsTooHigh.selector, 5001, 5000));
+        cc.setSlashReporterRewardBps(5001);
+    }
+
+    function test_setSlashReporterRewardBps_acceptsAtMax() public {
+        ChainConfig cc = _good();
+        cc.setSlashReporterRewardBps(5000);
+        assertEq(cc.getSlashReporterRewardBps(), 5000);
+    }
 }

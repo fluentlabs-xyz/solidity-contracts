@@ -17,11 +17,8 @@ interface IStakingEvents {
     // consensus / equivocation events
     event ConsensusKeysSet(address indexed validator, bytes blsPubkey, bytes32 peerPubkey, uint64 activationEpoch);
     event EpochCommitteeCommitted(uint64 indexed epoch, address[] committee);
-    /// @notice The per-epoch randomness-beacon group public key was committed.
-    ///         `assured` is false when the epoch had no threshold randomness
-    ///         (empty key — the beacon fell back to a deterministic value).
-    event EpochBeaconKeyCommitted(uint64 indexed epoch, bool assured);
     event EquivocationSlashed(address indexed validator, uint64 epoch, address indexed reporter);
+    event EquivocationStakeSeized(address indexed validator, address indexed reporter, uint256 reporterReward, uint256 burned);
 
     // staker events
     event Delegated(address indexed validator, address indexed staker, uint256 amount, uint64 epoch);
@@ -164,6 +161,15 @@ interface IStaking is IValidatorSet, IStakingEvents, IStakingErrors {
             uint96 totalRewards
         );
 
+    /// @notice Returns `validator`'s effective delegated stake (voting power) as of `blockNumber`.
+    /// @dev Uses the REBASED epoch (`dposActivationBlock`-relative, matching
+    ///      {currentEpoch}) and the at-or-before snapshot — the same effective-stake
+    ///      source committee selection ranks by. This is the canonical governance
+    ///      voting-power read; unlike {getValidatorStatusAtEpoch} it does not leak the
+    ///      `changedAt` snapshot for empty epochs, so a past `blockNumber` resolves to
+    ///      the stake actually effective then rather than the validator's latest stake.
+    function getValidatorDelegatedStakeAt(address validator, uint256 blockNumber) external view returns (uint256);
+
     /// @notice Returns the validator address owned by `owner`, or zero when none is registered.
     function getValidatorByOwner(address owner) external view returns (address);
 
@@ -299,27 +305,16 @@ interface IStaking is IValidatorSet, IStakingEvents, IStakingErrors {
     ///      just to read its length (the per-block `processBitmap` hot path).
     function getEpochCommitteeLength(uint64 epoch) external view returns (uint256);
 
-    /// @notice The next epoch whose randomness-beacon key is not yet committed
-    ///         (beacon commit cursor; mirror of {nextEpochToCommit}).
-    function nextEpochForBeaconKey() external view returns (uint64);
-
-    /// @notice Freezes the per-epoch beacon group public key `PK_epoch` one epoch
-    ///         ahead (system call). The executor injects the DKG outcome's group
-    ///         key, already agreed in consensus (embedded in the boundary
-    ///         OrderBlock + validity-checked) and re-derived by the STF — so this
-    ///         stores opaque bytes rather than re-deriving them. An EMPTY
-    ///         `groupPubKey` records a no-assurance epoch (the beacon used the
-    ///         deterministic fallback). Reverts if the target epoch `> currentEpoch + 1`.
-    function commitEpochBeaconKey(bytes calldata groupPubKey) external;
-
-    /// @notice The committed beacon group public key `PK_epoch` for `epoch`
-    ///         (empty if uncommitted or a fallback epoch). Verified against by the
-    ///         consensus seed verifier and the STF.
-    function getEpochBeaconKey(uint64 epoch) external view returns (bytes memory);
-
-    /// @notice Whether `epoch` has threshold randomness (a non-empty `PK_epoch`).
-    ///         False ⇒ `prev_randao` used the deterministic fallback; apps pause.
-    function beaconAssurance(uint64 epoch) external view returns (bool);
+    /// @notice Frozen committee for `epoch` (Simplex order) with each member's keys
+    ///         and frozen effective stake (wei). One atomic per-epoch snapshot read
+    ///         for stake-weighted leader election. Empty arrays if uncommitted.
+    /// @dev `stakes[i]` is full-precision wei (`totalDelegatedToValidatorAt`, the
+    ///      at-or-before-`epoch` snapshot — the same source committee selection
+    ///      ranks by, NOT `getValidatorStatusAtEpoch`'s unclamped `changedAt` read).
+    function getEpochCommitteeWithStakes(uint64 epoch)
+        external
+        view
+        returns (address[] memory addrs, ConsensusKeys[] memory keys, uint256[] memory stakes);
 
     /// @notice Permissionlessly slash a validator for a `ConflictingNotarize`
     ///         equivocation (two conflicting Notarize votes, same round/signer).
