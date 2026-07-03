@@ -259,8 +259,13 @@ contract Staking is IStaking, StakingContext {
         Validator memory validator,
         uint64 epoch
     ) internal view returns (ValidatorSnapshot memory) {
+        uint64 firstEpoch = _effectiveFirstSnapshotEpoch($, validator);
+        if (epoch < firstEpoch) {
+            return ValidatorSnapshot(0, 0, 0, 0);
+        }
+
         uint64 lookupEpoch = epoch < validator.changedAt ? epoch : validator.changedAt;
-        while (lookupEpoch > 0) {
+        while (lookupEpoch >= firstEpoch) {
             ValidatorSnapshot memory snapshot = $._validatorSnapshots[validator.validatorAddress][lookupEpoch];
             if (
                 lookupEpoch == validator.changedAt ||
@@ -271,11 +276,28 @@ contract Staking is IStaking, StakingContext {
             ) {
                 return snapshot;
             }
+            if (lookupEpoch == 0) {
+                break;
+            }
             unchecked {
                 --lookupEpoch;
             }
         }
         return $._validatorSnapshots[validator.validatorAddress][0];
+    }
+
+    function _effectiveFirstSnapshotEpoch(StakingStorage storage $, Validator memory validator) internal view returns (uint64) {
+        if (validator.firstSnapshotEpoch != 0) {
+            return validator.firstSnapshotEpoch;
+        }
+        if (validator.changedAt == 0) {
+            return 0;
+        }
+        ValidatorSnapshot memory snapAtZero = $._validatorSnapshots[validator.validatorAddress][0];
+        if (snapAtZero.totalDelegated == 0 && snapAtZero.totalRewards == 0 && snapAtZero.commissionRate == 0 && snapAtZero.slashesCount == 0) {
+            return validator.changedAt;
+        }
+        return 0;
     }
 
     function delegate(address validatorAddress, uint256 amount) external override {
@@ -676,6 +698,7 @@ contract Staking is IStaking, StakingContext {
         validator.ownerAddress = validatorOwner;
         validator.status = status;
         validator.changedAt = sinceEpoch;
+        validator.firstSnapshotEpoch = sinceEpoch;
         $._validatorsMap[validatorAddress] = validator;
         // save validator owner
         require($._validatorOwners[validatorOwner] == address(0x00), ValidatorOwnerAlreadyInUse(validatorAddress));

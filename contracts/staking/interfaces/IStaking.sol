@@ -186,6 +186,8 @@ interface IStaking is IValidatorSet, IStakingEvents, IStakingErrors {
         uint64 jailedBefore;
         /// @dev Epoch up to which the owner has already claimed accrued commission.
         uint64 claimedAt;
+        /// @dev Epoch of the validator's first snapshot; 0 for genesis validators.
+        uint64 firstSnapshotEpoch;
     }
 
     /**

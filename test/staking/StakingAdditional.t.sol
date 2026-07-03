@@ -54,9 +54,7 @@ contract StakingAdditionalTest is Test {
         _fund(validator1);
         _fund(validator2);
         _fund(validator3);
-        _deploy(
-            10, 50, 150, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
-        );
+        _deploy(10, 50, 150, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000));
     }
 
     function test_canAddAndRemoveValidator() public {
@@ -169,7 +167,7 @@ contract StakingAdditionalTest is Test {
         staking.delegate(validator1, ONE);
         _rollToNextEpoch();
 
-        (,, uint256 historicalDelegated,,,,,,) = staking.getValidatorStatusAtEpoch(validator1, staking.currentEpoch());
+        (, , uint256 historicalDelegated, , , , , , ) = staking.getValidatorStatusAtEpoch(validator1, staking.currentEpoch());
         assertEq(historicalDelegated, ONE);
         assertTrue(staking.isValidatorActive(validator1));
         assertFalse(staking.isValidatorActive(validator2));
@@ -186,9 +184,7 @@ contract StakingAdditionalTest is Test {
         assertTrue(staking.isValidator(address(2)));
         assertTrue(staking.isValidator(address(3)));
 
-        _deploy(
-            10, 50, 150, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
-        );
+        _deploy(10, 50, 150, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000));
         staking.addValidator(address(1));
         staking.addValidator(address(2));
         staking.addValidator(address(3));
@@ -197,9 +193,7 @@ contract StakingAdditionalTest is Test {
         assertTrue(staking.isValidator(address(1)));
         assertTrue(staking.isValidator(address(3)));
 
-        _deploy(
-            10, 50, 150, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
-        );
+        _deploy(10, 50, 150, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000));
         staking.addValidator(address(1));
         staking.addValidator(address(2));
         staking.addValidator(address(3));
@@ -223,7 +217,7 @@ contract StakingAdditionalTest is Test {
         vm.prank(staker1);
         staking.undelegate(validator1, ONE);
 
-        (,, uint256 totalDelegated,,,,,,) = staking.getValidatorStatus(validator1);
+        (, , uint256 totalDelegated, , , , , , ) = staking.getValidatorStatus(validator1);
         assertEq(totalDelegated, 0);
         _rollToNextEpoch();
         _rollToNextEpoch();
@@ -355,9 +349,7 @@ contract StakingAdditionalTest is Test {
     }
 
     function test_noValidatorRewardsForInactivitySlashOnly() public {
-        _deploy(
-            50, 5, 10, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
-        );
+        _deploy(50, 5, 10, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000));
         staking.addValidator(validator1);
         staking.addValidator(validator2);
         for (uint256 i = 0; i < 5; i++) {
@@ -373,9 +365,7 @@ contract StakingAdditionalTest is Test {
     }
 
     function test_incorrectStakingAmounts() public {
-        _deploy(
-            10, 50, 150, 7, 1, 1, 1, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
-        );
+        _deploy(10, 50, 150, 7, 1, 1, 1, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000));
         staking.addValidator(validator1);
 
         vm.prank(staker1);
@@ -392,27 +382,23 @@ contract StakingAdditionalTest is Test {
     }
 
     function test_putValidatorInJailAfterFelonyThreshold() public {
-        _deploy(
-            300, 10, 20, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
-        );
+        _deploy(300, 10, 20, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000));
         staking.addValidator(validator1);
         staking.addValidator(validator2);
 
         for (uint256 i = 0; i < 19; i++) {
             _slash(validator2);
         }
-        (, uint8 statusBefore,,,,,,,) = staking.getValidatorStatus(validator2);
+        (, uint8 statusBefore, , , , , , , ) = staking.getValidatorStatus(validator2);
         assertEq(statusBefore, 1);
 
         _slash(validator2);
-        (, uint8 statusAfter,,,,,,,) = staking.getValidatorStatus(validator2);
+        (, uint8 statusAfter, , , , , , , ) = staking.getValidatorStatus(validator2);
         assertEq(statusAfter, 3);
     }
 
     function test_validatorCanBeReleasedFromJailByOwner() public {
-        _deploy(
-            50, 5, 5, 2, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
-        );
+        _deploy(50, 5, 5, 2, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000));
         staking.addValidator(validator1);
         staking.addValidator(validator2);
 
@@ -424,7 +410,7 @@ contract StakingAdditionalTest is Test {
         for (uint256 i = 0; i < 5; i++) {
             _slash(validator2);
         }
-        (, uint8 jailedStatus,, uint32 slashes,,,,,) = staking.getValidatorStatus(validator2);
+        (, uint8 jailedStatus, , uint32 slashes, , , , , ) = staking.getValidatorStatus(validator2);
         assertEq(slashes, 5);
         assertEq(jailedStatus, 3);
 
@@ -439,7 +425,7 @@ contract StakingAdditionalTest is Test {
         staking.releaseValidatorFromJail(validator2);
         vm.prank(validator2);
         staking.releaseValidatorFromJail(validator2);
-        (, uint8 activeStatus,,,,,,,) = staking.getValidatorStatus(validator2);
+        (, uint8 activeStatus, , , , , , , ) = staking.getValidatorStatus(validator2);
         assertEq(activeStatus, 1);
     }
 
@@ -448,7 +434,7 @@ contract StakingAdditionalTest is Test {
         staking.registerValidator(validator1, 1000, 10 * ONE);
         _rollToNextEpoch();
 
-        (uint256 delegated,) = staking.getValidatorDelegation(validator1, validator1);
+        (uint256 delegated, ) = staking.getValidatorDelegation(validator1, validator1);
         assertEq(delegated, 10 * ONE);
         vm.prank(validator1);
         staking.undelegate(validator1, 10 * ONE);
@@ -456,7 +442,7 @@ contract StakingAdditionalTest is Test {
         _rollToNextEpoch();
 
         assertEq(staking.getDelegatorFee(validator1, validator1), 10 * ONE);
-        (delegated,) = staking.getValidatorDelegation(validator1, validator1);
+        (delegated, ) = staking.getValidatorDelegation(validator1, validator1);
         assertEq(delegated, 0);
     }
 
@@ -571,7 +557,7 @@ contract StakingAdditionalTest is Test {
         assertEq(staking.getPendingValidatorFee(validator1), 0);
 
         staking.disableValidator(validator1);
-        (, uint8 status,,,,,,,) = staking.getValidatorStatus(validator1);
+        (, uint8 status, , , , , , , ) = staking.getValidatorStatus(validator1);
         assertEq(status, 2);
         assertFalse(staking.isValidatorActive(validator1));
 
@@ -607,9 +593,7 @@ contract StakingAdditionalTest is Test {
     }
 
     function test_delegatorCanClaimNewRewardsWithoutNewDelegations() public {
-        _deploy(
-            5, 50, 150, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
-        );
+        _deploy(5, 50, 150, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000));
         staking.addValidator(validator1);
         vm.prank(staker1);
         staking.delegate(validator1, ONE);
@@ -650,19 +634,7 @@ contract StakingAdditionalTest is Test {
     }
 
     function test_userCanRedelegateStakingRewards() public {
-        _deploy(
-            10,
-            50,
-            150,
-            7,
-            1,
-            ONE,
-            ONE,
-            _singleton(validator1),
-            _singletonUint(0),
-            _singleton(treasury),
-            _singleton16(10_000)
-        );
+        _deploy(10, 50, 150, 7, 1, ONE, ONE, _singleton(validator1), _singletonUint(0), _singleton(treasury), _singleton16(10_000));
 
         vm.prank(staker1);
         staking.delegate(validator1, ONE);
@@ -679,7 +651,7 @@ contract StakingAdditionalTest is Test {
         staking.redelegateDelegatorFee(validator1);
         _rollToNextEpoch();
         assertEq(staking.getDelegatorFee(validator1, staker1), 0);
-        (uint256 delegated,) = staking.getValidatorDelegation(validator1, staker1);
+        (uint256 delegated, ) = staking.getValidatorDelegation(validator1, staker1);
         assertEq(delegated, 2 * ONE);
     }
 
@@ -873,9 +845,7 @@ contract StakingAdditionalTest is Test {
         _rollToNextEpoch();
 
         uint256 sharesBeforeUnstake = stakingPool.getShares(validator1, staker1);
-        vm.expectRevert(
-            abi.encodeWithSelector(IStakingContextErrors.NotEnoughShares.selector, sharesBeforeUnstake)
-        );
+        vm.expectRevert(abi.encodeWithSelector(IStakingContextErrors.NotEnoughShares.selector, sharesBeforeUnstake));
         vm.prank(staker1);
         stakingPool.unstake(validator1, 3 * ONE);
 
@@ -1117,21 +1087,36 @@ contract StakingAdditionalTest is Test {
 
         uint64 expectedChangedAt = staking.nextEpoch();
         staking.disableValidator(validator1);
-        (,,,, uint64 changedAt,,,,) = staking.getValidatorStatus(validator1);
+        (, , , , uint64 changedAt, , , , ) = staking.getValidatorStatus(validator1);
         assertEq(changedAt, expectedChangedAt, "disableValidator must persist changedAt");
 
         _rollToNextEpoch();
         expectedChangedAt = staking.nextEpoch();
         staking.activateValidator(validator1);
-        (,,,, changedAt,,,,) = staking.getValidatorStatus(validator1);
+        (, , , , changedAt, , , , ) = staking.getValidatorStatus(validator1);
         assertEq(changedAt, expectedChangedAt, "activateValidator must persist changedAt");
 
         _rollToNextEpoch();
         expectedChangedAt = staking.nextEpoch();
         vm.prank(validator1);
         staking.changeValidatorOwner(validator1, owner);
-        (,,,, changedAt,,,,) = staking.getValidatorStatus(validator1);
+        (, , , , changedAt, , , , ) = staking.getValidatorStatus(validator1);
         assertEq(changedAt, expectedChangedAt, "changeValidatorOwner must persist changedAt");
+    }
+
+    /// @notice Regression: newly registered validators must be queryable before the next epoch.
+    function test_isValidatorActiveWorksBeforeFirstSnapshotEpoch() public {
+        vm.prank(validator3);
+        staking.registerValidator(validator3, 1000, ONE);
+        staking.activateValidator(validator3);
+
+        assertTrue(staking.isValidatorActive(validator3));
+        address[] memory validators = staking.getValidators();
+        bool found;
+        for (uint256 i = 0; i < validators.length; i++) {
+            if (validators[i] == validator3) found = true;
+        }
+        assertTrue(found);
     }
 
     /// @notice M-3: ``registerValidator`` must update internal staking state before pulling
@@ -1142,7 +1127,7 @@ contract StakingAdditionalTest is Test {
         vm.prank(validator1);
         staking.registerValidator(validator1, 1000, ONE);
         assertEq(blend.balanceOf(validator1), balanceBefore - ONE, "tokens pulled");
-        (address ownerAddress, uint8 status,,,,,,,) = staking.getValidatorStatus(validator1);
+        (address ownerAddress, uint8 status, , , , , , , ) = staking.getValidatorStatus(validator1);
         assertEq(ownerAddress, validator1);
         assertEq(uint256(status), uint256(IStaking.ValidatorStatus.Pending));
     }
@@ -1165,7 +1150,7 @@ contract StakingAdditionalTest is Test {
         // owner can still drop down to (not below) the minimum while a delegator is present
         vm.prank(validator1);
         staking.undelegate(validator1, 4 * ONE);
-        (uint256 ownerStake,) = staking.getValidatorDelegation(validator1, validator1);
+        (uint256 ownerStake, ) = staking.getValidatorDelegation(validator1, validator1);
         assertEq(ownerStake, ONE);
     }
 
@@ -1185,7 +1170,7 @@ contract StakingAdditionalTest is Test {
         _rollToNextEpoch();
         vm.prank(validator1);
         staking.undelegate(validator1, 5 * ONE);
-        (,, uint256 totalDelegated,,,,,,) = staking.getValidatorStatus(validator1);
+        (, , uint256 totalDelegated, , , , , , ) = staking.getValidatorStatus(validator1);
         assertEq(totalDelegated, 0);
     }
 
@@ -1273,8 +1258,7 @@ contract StakingAdditionalTest is Test {
     ) internal {
         uint64 nonce = vm.getNonce(address(this));
         IStaking predictedStaking = IStaking(_computeCreateAddress(address(this), nonce + 1));
-        ISlashingIndicator predictedSlashingIndicator =
-            ISlashingIndicator(_computeCreateAddress(address(this), nonce + 3));
+        ISlashingIndicator predictedSlashingIndicator = ISlashingIndicator(_computeCreateAddress(address(this), nonce + 3));
         ISystemReward predictedSystemReward = ISystemReward(_computeCreateAddress(address(this), nonce + 5));
         IStakingPool predictedStakingPool = IStakingPool(_computeCreateAddress(address(this), nonce + 7));
         IChainConfig predictedChainConfig = IChainConfig(_computeCreateAddress(address(this), nonce + 9));
@@ -1296,12 +1280,14 @@ contract StakingAdditionalTest is Test {
             blend
         );
         staking = Staking(
-            payable(address(
+            payable(
+                address(
                     new ERC1967Proxy(
                         address(stakingImpl),
                         abi.encodeCall(Staking.initialize, (address(this), initialValidators, initialStakes, 0))
                     )
-                ))
+                )
+            )
         );
 
         SlashingIndicator slashingIndicatorImpl = new SlashingIndicator(
@@ -1314,11 +1300,7 @@ contract StakingAdditionalTest is Test {
             blend
         );
         slashingIndicator = SlashingIndicator(
-            address(
-                new ERC1967Proxy(
-                    address(slashingIndicatorImpl), abi.encodeCall(SlashingIndicator.initialize, (address(this)))
-                )
-            )
+            address(new ERC1967Proxy(address(slashingIndicatorImpl), abi.encodeCall(SlashingIndicator.initialize, (address(this)))))
         );
 
         SystemReward systemRewardImpl = new SystemReward(
@@ -1331,12 +1313,14 @@ contract StakingAdditionalTest is Test {
             blend
         );
         systemReward = SystemReward(
-            payable(address(
+            payable(
+                address(
                     new ERC1967Proxy(
                         address(systemRewardImpl),
                         abi.encodeCall(SystemReward.initialize, (address(this), rewardAccounts, rewardShares))
                     )
-                ))
+                )
+            )
         );
 
         StakingPool stakingPoolImpl = new StakingPool(
@@ -1349,9 +1333,7 @@ contract StakingAdditionalTest is Test {
             blend
         );
         stakingPool = StakingPool(
-            payable(address(
-                    new ERC1967Proxy(address(stakingPoolImpl), abi.encodeCall(StakingPool.initialize, (address(this))))
-                ))
+            payable(address(new ERC1967Proxy(address(stakingPoolImpl), abi.encodeCall(StakingPool.initialize, (address(this))))))
         );
 
         ChainConfig chainConfigImpl = new ChainConfig(
@@ -1413,7 +1395,7 @@ contract StakingAdditionalTest is Test {
     }
 
     function _sendNativeSystemFee(uint256 amount) internal {
-        (bool success,) = address(systemReward).call{value: amount}("");
+        (bool success, ) = address(systemReward).call{value: amount}("");
         require(success, "native system fee transfer failed");
     }
 
@@ -1445,9 +1427,7 @@ contract StakingAdditionalTest is Test {
 
     function _computeCreateAddress(address deployer, uint64 nonce) internal pure returns (address) {
         require(nonce < 0x80, "nonce too high");
-        return address(
-            uint160(uint256(keccak256(abi.encodePacked(bytes1(0xd6), bytes1(0x94), deployer, bytes1(uint8(nonce))))))
-        );
+        return address(uint160(uint256(keccak256(abi.encodePacked(bytes1(0xd6), bytes1(0x94), deployer, bytes1(uint8(nonce)))))));
     }
 
     function _emptyAddresses() internal pure returns (address[] memory values) {
