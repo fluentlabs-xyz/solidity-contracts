@@ -12,6 +12,7 @@
 /coverage
 lcov.info
 tasks/
+.cursorignore
 
 # Claude Code
 .claude/

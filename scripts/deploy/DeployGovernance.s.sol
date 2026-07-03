@@ -5,7 +5,7 @@ import {stdJson} from "forge-std/StdJson.sol";
 import {console2} from "forge-std/console2.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-import {Governance} from "../../contracts/governance/Governance.sol";
+import {FluentGovernance} from "../../contracts/governance/FluentGovernance.sol";
 import {IChainConfig} from "../../contracts/staking/interfaces/IChainConfig.sol";
 import {IStaking} from "../../contracts/staking/interfaces/IStaking.sol";
 import {DeployBase} from "./DeployBase.s.sol";
@@ -56,10 +56,10 @@ contract DeployGovernance is DeployBase {
     }
 
     function _deployGovernance(GovernanceDeployParams memory p) internal returns (GovernanceDeployment memory r) {
-        Governance governanceImpl = new Governance(p.staking, p.chainConfig);
+        FluentGovernance governanceImpl = new FluentGovernance(p.staking, p.chainConfig);
         r.governance = address(
             new ERC1967Proxy(
-                address(governanceImpl), abi.encodeCall(Governance.initialize, (p.initialOwner, p.votingPeriod))
+                address(governanceImpl), abi.encodeCall(FluentGovernance.initialize, (p.initialOwner, p.votingPeriod))
             )
         );
         r.governanceImpl = address(governanceImpl);

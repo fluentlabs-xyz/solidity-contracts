@@ -27,7 +27,7 @@
         "misdemeanorThreshold": 50,
         "felonyThreshold": 150,
         "validatorJailEpochLength": 7,
-        "undelegatePeriod": 0,
+        "undelegatePeriod": 1,
         "minValidatorStakeAmount": "1000000000000000000",
         "minStakingAmount": "1000000000000000000",
         "token": "0x83Fed707A8dDDC2535aE591CF19fB6C91D542D8E",

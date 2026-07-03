@@ -13,7 +13,7 @@ contract MockSystemReward is SystemReward {
         ISlashingIndicator slashingIndicatorContract,
         ISystemReward systemRewardContract,
         IStakingPool stakingPoolContract,
-        IGovernance governanceContract,
+        IFluentGovernance governanceContract,
         IChainConfig chainConfigContract,
         IERC20 stakingToken
     )

@@ -5,9 +5,9 @@ import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {IGovernor} from "@openzeppelin/contracts/governance/IGovernor.sol";
 
-import {Governance} from "../../contracts/governance/Governance.sol";
+import {FluentGovernance} from "../../contracts/governance/FluentGovernance.sol";
 import {ChainConfig} from "../../contracts/staking/ChainConfig.sol";
-import {IGovernance} from "../../contracts/staking/interfaces/IGovernance.sol";
+import {IFluentGovernance} from "../../contracts/staking/interfaces/IFluentGovernance.sol";
 import {IChainConfig} from "../../contracts/staking/interfaces/IChainConfig.sol";
 import {ISlashingIndicator} from "../../contracts/staking/interfaces/ISlashingIndicator.sol";
 import {IStaking} from "../../contracts/staking/interfaces/IStaking.sol";
@@ -19,12 +19,12 @@ import {StakingPool} from "../../contracts/staking/StakingPool.sol";
 import {SystemReward} from "../../contracts/staking/SystemReward.sol";
 import {MockBlendToken} from "../../contracts/staking/mocks/MockBlendToken.sol";
 
-contract GovernanceTest is Test {
+contract FluentGovernanceTest is Test {
     uint256 internal constant ONE = 1 ether;
 
     Staking internal staking;
     ChainConfig internal chainConfig;
-    Governance internal governance;
+    FluentGovernance internal governance;
     MockBlendToken internal blend;
 
     address internal owner = makeAddr("owner");
@@ -98,12 +98,11 @@ contract GovernanceTest is Test {
     function _deploy(uint32 votingPeriod) internal {
         uint64 nonce = vm.getNonce(address(this));
         IStaking predictedStaking = IStaking(vm.computeCreateAddress(address(this), nonce + 1));
-        ISlashingIndicator predictedSlashingIndicator =
-            ISlashingIndicator(vm.computeCreateAddress(address(this), nonce + 3));
+        ISlashingIndicator predictedSlashingIndicator = ISlashingIndicator(vm.computeCreateAddress(address(this), nonce + 3));
         ISystemReward predictedSystemReward = ISystemReward(vm.computeCreateAddress(address(this), nonce + 5));
         IStakingPool predictedStakingPool = IStakingPool(vm.computeCreateAddress(address(this), nonce + 7));
         IChainConfig predictedChainConfig = IChainConfig(vm.computeCreateAddress(address(this), nonce + 9));
-        IGovernance predictedGovernance = IGovernance(vm.computeCreateAddress(address(this), nonce + 11));
+        IFluentGovernance predictedGovernance = IFluentGovernance(vm.computeCreateAddress(address(this), nonce + 11));
 
         address[] memory validators = new address[](2);
         validators[0] = validator1;
@@ -124,12 +123,11 @@ contract GovernanceTest is Test {
             blend
         );
         staking = Staking(
-            payable(address(
-                    new ERC1967Proxy(
-                        address(stakingImpl),
-                        abi.encodeCall(Staking.initialize, (address(this), validators, initialStakes, 0))
-                    )
-                ))
+            payable(
+                address(
+                    new ERC1967Proxy(address(stakingImpl), abi.encodeCall(Staking.initialize, (address(this), validators, initialStakes, 0)))
+                )
+            )
         );
 
         SlashingIndicator slashingIndicatorImpl = new SlashingIndicator(
@@ -142,11 +140,7 @@ contract GovernanceTest is Test {
             blend
         );
         SlashingIndicator slashingIndicator = SlashingIndicator(
-            address(
-                new ERC1967Proxy(
-                    address(slashingIndicatorImpl), abi.encodeCall(SlashingIndicator.initialize, (address(this)))
-                )
-            )
+            address(new ERC1967Proxy(address(slashingIndicatorImpl), abi.encodeCall(SlashingIndicator.initialize, (address(this)))))
         );
 
         address[] memory rewardAccounts = new address[](1);
@@ -163,12 +157,14 @@ contract GovernanceTest is Test {
             blend
         );
         SystemReward systemReward = SystemReward(
-            payable(address(
+            payable(
+                address(
                     new ERC1967Proxy(
                         address(systemRewardImpl),
                         abi.encodeCall(SystemReward.initialize, (address(this), rewardAccounts, rewardShares))
                     )
-                ))
+                )
+            )
         );
 
         StakingPool stakingPoolImpl = new StakingPool(
@@ -181,9 +177,7 @@ contract GovernanceTest is Test {
             blend
         );
         StakingPool stakingPool = StakingPool(
-            payable(address(
-                    new ERC1967Proxy(address(stakingPoolImpl), abi.encodeCall(StakingPool.initialize, (address(this))))
-                ))
+            payable(address(new ERC1967Proxy(address(stakingPoolImpl), abi.encodeCall(StakingPool.initialize, (address(this))))))
         );
 
         ChainConfig chainConfigImpl = new ChainConfig(
@@ -199,18 +193,16 @@ contract GovernanceTest is Test {
             address(
                 new ERC1967Proxy(
                     address(chainConfigImpl),
-                    abi.encodeCall(ChainConfig.initialize, (address(this), 3, 50, 50, 150, 7, 0, ONE, ONE))
+                    abi.encodeCall(ChainConfig.initialize, (address(this), 3, 50, 50, 150, 7, 1, ONE, ONE))
                 )
             )
         );
 
-        Governance governanceImpl = new Governance(predictedStaking, predictedChainConfig);
-        governance = Governance(
-            payable(address(
-                    new ERC1967Proxy(
-                        address(governanceImpl), abi.encodeCall(Governance.initialize, (address(this), votingPeriod))
-                    )
-                ))
+        FluentGovernance governanceImpl = new FluentGovernance(predictedStaking, predictedChainConfig);
+        governance = FluentGovernance(
+            payable(
+                address(new ERC1967Proxy(address(governanceImpl), abi.encodeCall(FluentGovernance.initialize, (address(this), votingPeriod))))
+            )
         );
 
         assertEq(address(staking), address(predictedStaking));
