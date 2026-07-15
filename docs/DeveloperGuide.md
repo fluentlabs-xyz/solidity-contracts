@@ -108,6 +108,11 @@ cast send $L1_BLOCK_ORACLE "updateL1BlockNumber(uint256)" \
     --rpc-url $L2_RPC --account deployer
 ```
 
+#### 5. NFT gateways (optional, separate flow)
+
+The ERC721/ERC1155 bridge is deployed independently of `deploy.sh` and has its own
+cross-chain nonce-alignment requirements. See [DeployNFT.md](./DeployNFT.md).
+
 ### Deployment order
 
 Deployment scripts use deterministic nonce ordering so that key proxy contracts land at the **same address** on both L1 and L2 (same deployer + same nonce = same `CREATE` address). The deployer nonce **must be zero** when deployment starts.
