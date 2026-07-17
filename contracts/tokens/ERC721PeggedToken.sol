@@ -15,7 +15,7 @@ import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/Pau
 contract ERC721PeggedToken is Initializable, ERC721URIStorageUpgradeable, Ownable2StepUpgradeable, PausableUpgradeable {
     /// @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.ERC721PeggedTokenStorage")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant ERC721_PEGGED_TOKEN_STORAGE_LOCATION =
-        0xdd0f6a05cae13b36125d10f5bd93484aa683cd0592f4f10c6ee1b4f5ff5d9100;
+        0x2884239c88dc873f64daf8ca68746cb91de29a3dbd00d1e0e683fcfdc5cb8a00;
 
     /// @custom:storage-location erc7201:fluent.storage.ERC721PeggedTokenStorage
     struct ERC721PeggedTokenStorage {

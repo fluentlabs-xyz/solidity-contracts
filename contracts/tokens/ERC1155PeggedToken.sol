@@ -20,7 +20,7 @@ contract ERC1155PeggedToken is
 {
     /// @dev keccak256(abi.encode(uint256(keccak256("fluent.storage.ERC1155PeggedTokenStorage")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant ERC1155_PEGGED_TOKEN_STORAGE_LOCATION =
-        0xf0b9ba6482283b69a5441a93ca0dd99fec54bdf74c376962dcb287739595b100;
+        0x49de27c08259ed6ec910f3dd825f83e7c2a4d922574d7d9ab766bf95d64d7e00;
 
     /// @custom:storage-location erc7201:fluent.storage.ERC1155PeggedTokenStorage
     struct ERC1155PeggedTokenStorage {

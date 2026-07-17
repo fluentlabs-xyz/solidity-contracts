@@ -19,7 +19,7 @@ import {GatewayBase} from "./GatewayBase.sol";
 contract ERC1155Gateway is GatewayBase, ERC1155Holder, IERC1155Gateway {
     /// @dev keccak256(abi.encode(uint256(keccak256("Fluent.storage.ERC1155GatewayStorage")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant ERC1155_GATEWAY_STORAGE_LOCATION =
-        0xed1397fe0b9948d22bd54994c7ec90279149edc7f1f8d197548412e354426e00;
+        0x118b832c3dc1043ad23906974feeafe0bef08a3dd30aeaeb87c9706218d21300;
 
     /// @custom:storage-location erc7201:Fluent.storage.ERC1155GatewayStorage
     struct ERC1155GatewayStorage {
