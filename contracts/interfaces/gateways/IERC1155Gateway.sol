@@ -32,7 +32,7 @@ interface IERC1155Gateway is IERC1155GatewayErrors {
         address to,
         uint256 id,
         uint256 amount,
-        bytes calldata tokenMetadata
+        string calldata uri
     ) external;
 
     function receivePeggedBatchTokens(
@@ -42,7 +42,7 @@ interface IERC1155Gateway is IERC1155GatewayErrors {
         address to,
         uint256[] calldata ids,
         uint256[] calldata amounts,
-        bytes calldata tokenMetadata
+        string[] calldata uris
     ) external;
 
     function computeOtherSidePeggedTokenAddress(address gateway, address originToken) external view returns (address);

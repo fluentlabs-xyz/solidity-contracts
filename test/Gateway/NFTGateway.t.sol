@@ -3,7 +3,7 @@ pragma solidity 0.8.30;
 
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
-import {IFluentBridge} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
+import {IFluentBridge, IFluentBridgeWrite} from "../../contracts/interfaces/bridge/IFluentBridge.sol";
 import {IERC721GatewayErrors} from "../../contracts/interfaces/gateways/IERC721Gateway.sol";
 import {IERC1155GatewayErrors} from "../../contracts/interfaces/gateways/IERC1155Gateway.sol";
 import {ERC721Gateway} from "../../contracts/gateways/ERC721Gateway.sol";
@@ -14,6 +14,7 @@ import {ERC721PeggedToken} from "../../contracts/tokens/ERC721PeggedToken.sol";
 import {ERC1155PeggedToken} from "../../contracts/tokens/ERC1155PeggedToken.sol";
 import {MockERC721} from "../mocks/MockERC721.sol";
 import {MockERC1155} from "../mocks/MockERC1155.sol";
+import {MockERC1155URIStorage} from "../../contracts/mocks/MockERC1155URIStorage.sol";
 import {MockNFTReceiver} from "../mocks/MockNFTReceiver.sol";
 import {GatewayBase} from "./Base.t.sol";
 
@@ -77,10 +78,9 @@ contract ERC721GatewayTest is GatewayBase {
     function test_receiveOriginToken_viaBridge_releasesEscrowedOrigin() public {
         uint256 tokenId = 17;
         originNft.mint(address(nftGateway), tokenId, "ipfs://origin-17");
-        bytes memory message =
-            abi.encodeCall(ERC721Gateway.receiveOriginToken, (address(originNft), user, recipient, tokenId));
+        bytes memory message = abi.encodeCall(ERC721Gateway.receiveOriginToken, (address(originNft), user, recipient, tokenId));
 
-        (bytes32 messageHash,,) = _relayMessage(remoteGateway, address(nftGateway), 0, message);
+        (bytes32 messageHash, , ) = _relayMessage(remoteGateway, address(nftGateway), 0, message);
 
         assertEq(originNft.ownerOf(tokenId), recipient);
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Success));
@@ -93,7 +93,7 @@ contract ERC721GatewayTest is GatewayBase {
             (address(originNft), _predictedERC721Pegged(), user, recipient, 19, tokenMetadata, "ipfs://token-19")
         );
 
-        (bytes32 messageHash,,) = _relayMessage(makeAddr("wrong-remote-gateway"), address(nftGateway), 0, message);
+        (bytes32 messageHash, , ) = _relayMessage(makeAddr("wrong-remote-gateway"), address(nftGateway), 0, message);
 
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
     }
@@ -105,7 +105,7 @@ contract ERC721GatewayTest is GatewayBase {
             (address(originNft), makeAddr("wrong-pegged"), user, recipient, 23, tokenMetadata, "ipfs://token-23")
         );
 
-        (bytes32 messageHash,,) = _relayMessage(remoteGateway, address(nftGateway), 0, message);
+        (bytes32 messageHash, , ) = _relayMessage(remoteGateway, address(nftGateway), 0, message);
 
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
     }
@@ -147,9 +147,7 @@ contract ERC721GatewayTest is GatewayBase {
 
         address beacon = nftFactory.beacon();
         vm.prank(admin);
-        nftGateway.setOtherSide(
-            remoteGateway, sourceChainId, address(nftPeggedImplementation), address(nftFactory), beacon
-        );
+        nftGateway.setOtherSide(remoteGateway, sourceChainId, address(nftPeggedImplementation), address(nftFactory), beacon);
 
         _registerGateway(address(nftGateway));
         _registerGateway(remoteGateway);
@@ -177,16 +175,106 @@ contract ERC1155GatewayTest is GatewayBase {
 
     function test_receivePeggedTokens_viaBridge_deploysAndMints() public {
         address predicted = _predictedERC1155Pegged();
-        bytes memory tokenMetadata = abi.encode("ipfs://collection/{id}.json");
         bytes memory message = abi.encodeCall(
-            ERC1155Gateway.receivePeggedTokens, (address(originMulti), predicted, user, recipient, 1, 5, tokenMetadata)
+            ERC1155Gateway.receivePeggedTokens,
+            (address(originMulti), predicted, user, recipient, 1, 5, "ipfs://token-1")
         );
 
         _relayMessage(remoteGateway, address(multiGateway), 0, message);
 
         assertEq(multiGateway.getTokenMapping(predicted), address(originMulti));
         assertEq(ERC1155PeggedToken(predicted).balanceOf(recipient, 1), 5);
-        assertEq(ERC1155PeggedToken(predicted).uri(1), "ipfs://collection/{id}.json");
+        assertEq(ERC1155PeggedToken(predicted).uri(1), "ipfs://token-1");
+    }
+
+    function test_receivePeggedBatchTokens_storesDistinctPerIdUris() public {
+        address predicted = _predictedERC1155Pegged();
+        uint256[] memory ids = _pair(5, 10);
+        uint256[] memory amounts = _pair(3, 4);
+        string[] memory uris = new string[](2);
+        uris[0] = "ipfs://apes/5";
+        uris[1] = "ipfs://apes/10";
+        bytes memory message = abi.encodeCall(
+            ERC1155Gateway.receivePeggedBatchTokens,
+            (address(originMulti), predicted, user, recipient, ids, amounts, uris)
+        );
+
+        _relayMessage(remoteGateway, address(multiGateway), 0, message);
+
+        assertEq(ERC1155PeggedToken(predicted).uri(5), "ipfs://apes/5");
+        assertEq(ERC1155PeggedToken(predicted).uri(10), "ipfs://apes/10");
+    }
+
+    function test_receivePeggedTokens_emptyUri_leavesUriUnset() public {
+        address predicted = _predictedERC1155Pegged();
+        bytes memory message = abi.encodeCall(ERC1155Gateway.receivePeggedTokens, (address(originMulti), predicted, user, recipient, 2, 1, ""));
+
+        _relayMessage(remoteGateway, address(multiGateway), 0, message);
+
+        assertEq(ERC1155PeggedToken(predicted).uri(2), "");
+    }
+
+    function test_receivePeggedTokens_reBridgeRefreshesUri() public {
+        address predicted = _predictedERC1155Pegged();
+
+        // First bridge deploys the pegged token and stores the initial URI.
+        _relayMessage(
+            remoteGateway,
+            address(multiGateway),
+            0,
+            abi.encodeCall(ERC1155Gateway.receivePeggedTokens, (address(originMulti), predicted, user, recipient, 1, 5, "ipfs://old-1"))
+        );
+        assertEq(ERC1155PeggedToken(predicted).uri(1), "ipfs://old-1");
+
+        // Re-bridge the same id with a new URI (already-deployed else-branch) -> URI refreshed.
+        _relayMessage(
+            remoteGateway,
+            address(multiGateway),
+            0,
+            abi.encodeCall(ERC1155Gateway.receivePeggedTokens, (address(originMulti), predicted, user, recipient, 1, 2, "ipfs://new-1"))
+        );
+
+        assertEq(ERC1155PeggedToken(predicted).uri(1), "ipfs://new-1");
+        assertEq(ERC1155PeggedToken(predicted).balanceOf(recipient, 1), 7);
+    }
+
+    function test_sendBatchTokens_carriesPerIdUrisInMessage() public {
+        MockERC1155URIStorage perIdOrigin = new MockERC1155URIStorage();
+        perIdOrigin.mint(user, 5, 3, "ipfs://apes/5");
+        perIdOrigin.mint(user, 10, 4, "ipfs://apes/10");
+        vm.prank(user);
+        perIdOrigin.setApprovalForAll(address(multiGateway), true);
+
+        uint256[] memory ids = _pair(5, 10);
+        uint256[] memory amounts = _pair(3, 4);
+        string[] memory uris = new string[](2);
+        uris[0] = "ipfs://apes/5";
+        uris[1] = "ipfs://apes/10";
+
+        address pegged = multiGateway.computeOtherSidePeggedTokenAddress(remoteGateway, address(perIdOrigin));
+        bytes memory expected = abi.encodeCall(
+            ERC1155Gateway.receivePeggedBatchTokens,
+            (address(perIdOrigin), pegged, user, recipient, ids, amounts, uris)
+        );
+        vm.expectCall(address(bridge), abi.encodeCall(IFluentBridgeWrite.sendMessage, (remoteGateway, expected)));
+
+        vm.prank(user);
+        multiGateway.sendBatchTokens(address(perIdOrigin), recipient, ids, amounts);
+    }
+
+    function test_receivePeggedBatchTokens_uriLengthMismatch_marksFailed() public {
+        uint256[] memory ids = _pair(5, 10);
+        uint256[] memory amounts = _pair(3, 4);
+        string[] memory uris = new string[](1); // fewer URIs than ids → ArrayLengthMismatch
+        uris[0] = "ipfs://apes/5";
+        bytes memory message = abi.encodeCall(
+            ERC1155Gateway.receivePeggedBatchTokens,
+            (address(originMulti), _predictedERC1155Pegged(), user, recipient, ids, amounts, uris)
+        );
+
+        (bytes32 messageHash, , ) = _relayMessage(remoteGateway, address(multiGateway), 0, message);
+
+        assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
     }
 
     function test_sendToken_originPath_escrowsOnGateway() public {
@@ -217,9 +305,9 @@ contract ERC1155GatewayTest is GatewayBase {
 
     function test_sendToken_peggedPath_burnsSupply() public {
         address predicted = _predictedERC1155Pegged();
-        bytes memory tokenMetadata = abi.encode("ipfs://collection/{id}.json");
         bytes memory message = abi.encodeCall(
-            ERC1155Gateway.receivePeggedTokens, (address(originMulti), predicted, user, user, 5, 9, tokenMetadata)
+            ERC1155Gateway.receivePeggedTokens,
+            (address(originMulti), predicted, user, user, 5, 9, "ipfs://token-5")
         );
         _relayMessage(remoteGateway, address(multiGateway), 0, message);
 
@@ -233,11 +321,9 @@ contract ERC1155GatewayTest is GatewayBase {
         uint256[] memory ids = _pair(6, 7);
         uint256[] memory amounts = _pair(2, 3);
         originMulti.mintBatch(address(multiGateway), ids, amounts);
-        bytes memory message = abi.encodeCall(
-            ERC1155Gateway.receiveOriginBatchTokens, (address(originMulti), user, recipient, ids, amounts)
-        );
+        bytes memory message = abi.encodeCall(ERC1155Gateway.receiveOriginBatchTokens, (address(originMulti), user, recipient, ids, amounts));
 
-        (bytes32 messageHash,,) = _relayMessage(remoteGateway, address(multiGateway), 0, message);
+        (bytes32 messageHash, , ) = _relayMessage(remoteGateway, address(multiGateway), 0, message);
 
         assertEq(originMulti.balanceOf(recipient, 6), 2);
         assertEq(originMulti.balanceOf(recipient, 7), 3);
@@ -245,13 +331,15 @@ contract ERC1155GatewayTest is GatewayBase {
     }
 
     function test_receivePeggedBatchTokens_wrongGatewaySender_marksFailed() public {
-        bytes memory tokenMetadata = abi.encode("ipfs://collection/{id}.json");
+        string[] memory uris = new string[](2);
+        uris[0] = "ipfs://apes/8";
+        uris[1] = "ipfs://apes/9";
         bytes memory message = abi.encodeCall(
             ERC1155Gateway.receivePeggedBatchTokens,
-            (address(originMulti), _predictedERC1155Pegged(), user, recipient, _pair(8, 9), _pair(1, 2), tokenMetadata)
+            (address(originMulti), _predictedERC1155Pegged(), user, recipient, _pair(8, 9), _pair(1, 2), uris)
         );
 
-        (bytes32 messageHash,,) = _relayMessage(makeAddr("wrong-remote-gateway"), address(multiGateway), 0, message);
+        (bytes32 messageHash, , ) = _relayMessage(makeAddr("wrong-remote-gateway"), address(multiGateway), 0, message);
 
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
     }
@@ -288,9 +376,7 @@ contract ERC1155GatewayTest is GatewayBase {
 
         address beacon = multiFactory.beacon();
         vm.prank(admin);
-        multiGateway.setOtherSide(
-            remoteGateway, sourceChainId, address(multiPeggedImplementation), address(multiFactory), beacon
-        );
+        multiGateway.setOtherSide(remoteGateway, sourceChainId, address(multiPeggedImplementation), address(multiFactory), beacon);
 
         _registerGateway(address(multiGateway));
         _registerGateway(remoteGateway);

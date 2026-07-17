@@ -19,7 +19,7 @@ import {GatewayBase} from "./GatewayBase.sol";
 contract ERC1155Gateway is GatewayBase, ERC1155Holder, IERC1155Gateway {
     /// @dev keccak256(abi.encode(uint256(keccak256("Fluent.storage.ERC1155GatewayStorage")) - 1)) & ~bytes32(uint256(0xff))
     bytes32 private constant ERC1155_GATEWAY_STORAGE_LOCATION =
-        0xed1397fe0b9948d22bd54994c7ec90279149edc7f1f8d197548412e354426e00;
+        0x118b832c3dc1043ad23906974feeafe0bef08a3dd30aeaeb87c9706218d21300;
 
     /// @custom:storage-location erc7201:Fluent.storage.ERC1155GatewayStorage
     struct ERC1155GatewayStorage {
@@ -97,7 +97,6 @@ contract ERC1155Gateway is GatewayBase, ERC1155Holder, IERC1155Gateway {
         if (batch) IERC1155(token).safeBatchTransferFrom(sender, address(this), ids, amounts, "");
         else IERC1155(token).safeTransferFrom(sender, address(this), ids[0], amounts[0], "");
 
-        bytes memory tokenMetadata = abi.encode(_readURI(token, ids[0]));
         ERC1155GatewayStorage storage $ = _getERC1155GatewayStorage();
         address peggedTokenOnOtherSide = $._otherSidePeggedForOrigin[token];
         if (peggedTokenOnOtherSide == address(0)) {
@@ -106,14 +105,18 @@ contract ERC1155Gateway is GatewayBase, ERC1155Holder, IERC1155Gateway {
         }
 
         if (batch) {
+            string[] memory uris = new string[](ids.length);
+            for (uint256 i = 0; i < ids.length; i++) {
+                uris[i] = _readURI(token, ids[i]);
+            }
             return abi.encodeCall(
                 IERC1155Gateway.receivePeggedBatchTokens,
-                (token, peggedTokenOnOtherSide, sender, to, ids, amounts, tokenMetadata)
+                (token, peggedTokenOnOtherSide, sender, to, ids, amounts, uris)
             );
         }
         return abi.encodeCall(
             IERC1155Gateway.receivePeggedTokens,
-            (token, peggedTokenOnOtherSide, sender, to, ids[0], amounts[0], tokenMetadata)
+            (token, peggedTokenOnOtherSide, sender, to, ids[0], amounts[0], _readURI(token, ids[0]))
         );
     }
 
@@ -143,10 +146,12 @@ contract ERC1155Gateway is GatewayBase, ERC1155Holder, IERC1155Gateway {
         address to,
         uint256 id,
         uint256 amount,
-        bytes calldata tokenMetadata
+        string calldata uri
     ) external onlyFluentBridge nonReentrant {
         require(amount > 0, ZeroValueNotAllowed("amount"));
-        _receivePegged(originToken, peggedToken, from, to, _single(id), _single(amount), tokenMetadata, false);
+        string[] memory uris = new string[](1);
+        uris[0] = uri;
+        _receivePegged(originToken, peggedToken, from, to, _single(id), _single(amount), uris, false);
     }
 
     /// @inheritdoc IERC1155Gateway
@@ -157,11 +162,11 @@ contract ERC1155Gateway is GatewayBase, ERC1155Holder, IERC1155Gateway {
         address to,
         uint256[] calldata ids,
         uint256[] calldata amounts,
-        bytes calldata tokenMetadata
+        string[] calldata uris
     ) external onlyFluentBridge nonReentrant {
-        require(ids.length == amounts.length, ArrayLengthMismatch());
+        require(ids.length == amounts.length && ids.length == uris.length, ArrayLengthMismatch());
         require(ids.length > 0, ZeroValueNotAllowed("ids"));
-        _receivePegged(originToken, peggedToken, from, to, ids, amounts, tokenMetadata, true);
+        _receivePegged(originToken, peggedToken, from, to, ids, amounts, uris, true);
     }
 
     function _receivePegged(
@@ -171,7 +176,7 @@ contract ERC1155Gateway is GatewayBase, ERC1155Holder, IERC1155Gateway {
         address to,
         uint256[] memory ids,
         uint256[] memory amounts,
-        bytes calldata tokenMetadata,
+        string[] memory uris,
         bool batch
     ) internal {
         require(FluentBridge(msg.sender).getNativeSender() == getOtherSideGateway(), MessageFromWrongGateway());
@@ -179,7 +184,7 @@ contract ERC1155Gateway is GatewayBase, ERC1155Holder, IERC1155Gateway {
         require(to != address(0), InvalidRecipient());
 
         if (peggedToken.code.length == 0) {
-            address newPeggedToken = _deployPeggedToken(tokenMetadata, originToken);
+            address newPeggedToken = _deployPeggedToken(originToken);
             require(newPeggedToken == peggedToken, WrongPeggedToken());
             _getERC1155GatewayStorage()._tokenMapping[peggedToken] = originToken;
         } else {
@@ -187,10 +192,10 @@ contract ERC1155Gateway is GatewayBase, ERC1155Holder, IERC1155Gateway {
         }
 
         if (batch) {
-            ERC1155PeggedToken(peggedToken).mintBatch(to, ids, amounts, "");
+            ERC1155PeggedToken(peggedToken).mintBatch(to, ids, amounts, uris);
             emit ReceivedTokens(from, to, ids.length);
         } else {
-            ERC1155PeggedToken(peggedToken).mint(to, ids[0], amounts[0], "");
+            ERC1155PeggedToken(peggedToken).mint(to, ids[0], amounts[0], uris[0]);
             emit ReceivedTokens(from, to, amounts[0]);
         }
     }
@@ -238,10 +243,9 @@ contract ERC1155Gateway is GatewayBase, ERC1155Holder, IERC1155Gateway {
         }
     }
 
-    function _deployPeggedToken(bytes memory tokenMetadata, address originToken) internal returns (address) {
-        (string memory uri_) = abi.decode(tokenMetadata, (string));
+    function _deployPeggedToken(address originToken) internal returns (address) {
         address peggedToken = IGenericTokenFactory(getTokenFactory()).deployToken(address(this), originToken, "");
-        ERC1155PeggedToken(peggedToken).initialize(uri_, originToken);
+        ERC1155PeggedToken(peggedToken).initialize(originToken);
         return peggedToken;
     }
 
