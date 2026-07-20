@@ -13,6 +13,7 @@ import {ERC1155TokenFactory} from "../../contracts/factories/ERC1155TokenFactory
 import {ERC721PeggedToken} from "../../contracts/tokens/ERC721PeggedToken.sol";
 import {ERC1155PeggedToken} from "../../contracts/tokens/ERC1155PeggedToken.sol";
 import {MockERC721} from "../mocks/MockERC721.sol";
+import {MockERC721NoMetadata} from "../mocks/MockERC721NoMetadata.sol";
 import {MockERC1155} from "../mocks/MockERC1155.sol";
 import {MockERC1155URIStorage} from "../../contracts/mocks/MockERC1155URIStorage.sol";
 import {MockNFTReceiver} from "../mocks/MockNFTReceiver.sol";
@@ -123,6 +124,26 @@ contract ERC721GatewayTest is GatewayBase {
         vm.prank(user);
         vm.expectRevert(IERC721GatewayErrors.NotTokenOwner.selector);
         nftGateway.sendToken(predicted, recipient, tokenId);
+    }
+
+    function test_sendToken_originWithoutMetadata_bridgesWithEmptyNameSymbol() public {
+        MockERC721NoMetadata bareNft = new MockERC721NoMetadata();
+        uint256 tokenId = 31;
+        bareNft.mint(user, tokenId, "ipfs://bare-31");
+        vm.prank(user);
+        bareNft.approve(address(nftGateway), tokenId);
+
+        address pegged = nftGateway.computeOtherSidePeggedTokenAddress(remoteGateway, address(bareNft));
+        bytes memory expected = abi.encodeCall(
+            ERC721Gateway.receivePeggedToken,
+            (address(bareNft), pegged, user, recipient, tokenId, abi.encode("", ""), "ipfs://bare-31")
+        );
+        vm.expectCall(address(bridge), abi.encodeCall(IFluentBridgeWrite.sendMessage, (remoteGateway, expected)));
+
+        vm.prank(user);
+        nftGateway.sendToken(address(bareNft), recipient, tokenId);
+
+        assertEq(bareNft.ownerOf(tokenId), address(nftGateway));
     }
 
     function _deployERC721GatewayStack() internal {
