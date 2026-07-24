@@ -6,7 +6,8 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {ChainConfig} from "../../contracts/staking/ChainConfig.sol";
-import {IChainConfig} from "../../contracts/staking/interfaces/IChainConfig.sol";
+import {IChainConfig, IChainConfigEvents} from "../../contracts/staking/interfaces/IChainConfig.sol";
+import {IStakingContextErrors} from "../../contracts/staking/interfaces/IStakingContext.sol";
 import {IStaking} from "../../contracts/staking/interfaces/IStaking.sol";
 import {ISystemReward} from "../../contracts/staking/interfaces/ISystemReward.sol";
 import {IStakingPool} from "../../contracts/staking/interfaces/IStakingPool.sol";
@@ -45,13 +46,14 @@ contract ChainConfigGuardsTest is Test {
                 address(this),
                 activeLen,
                 INTERVAL,
-                uint32(50),
                 uint32(150),
                 uint32(7),
                 undelegatePeriod,
                 uint256(1e18),
                 uint256(1e18),
-                activation
+                activation,
+                address(0),
+                address(0)
             )
         );
     }
@@ -160,26 +162,6 @@ contract ChainConfigGuardsTest is Test {
         cc.setEpochBlockInterval(300);
     }
 
-    // --- missThreshold (config-driven liveness granularity) --------------------
-
-    function test_getMissThreshold_defaultsTo50_whenUnset() public {
-        // Never set after init: the sentinel getter returns DEFAULT_MISS_THRESHOLD.
-        ChainConfig cc = _good();
-        assertEq(cc.getMissThreshold(), 50);
-    }
-
-    function test_setMissThreshold_updates() public {
-        ChainConfig cc = _good();
-        cc.setMissThreshold(7);
-        assertEq(cc.getMissThreshold(), 7);
-    }
-
-    function test_setMissThreshold_rejectsZero() public {
-        ChainConfig cc = _good();
-        vm.expectRevert(abi.encodeWithSelector(IChainConfig.ZeroValue.selector, "missThreshold"));
-        cc.setMissThreshold(0);
-    }
-
     // --- slashReporterRewardBps (equivocation seizure reporter cut) -------------
 
     function test_getSlashReporterRewardBps_defaultsTo3000_whenUnset() public {
@@ -211,5 +193,57 @@ contract ChainConfigGuardsTest is Test {
         ChainConfig cc = _good();
         cc.setSlashReporterRewardBps(5000);
         assertEq(cc.getSlashReporterRewardBps(), 5000);
+    }
+
+    // --- slashFundAddress (equivocation seizure damage-coverage fund) ------------
+
+    function test_getSlashFundAddress_defaultsToZero_whenUnset() public {
+        // Never set after init: RAW getter returns address(0) ⇒ the seizure remainder is burned.
+        ChainConfig cc = _good();
+        assertEq(cc.getSlashFundAddress(), address(0));
+    }
+
+    function test_setSlashFundAddress_updates() public {
+        ChainConfig cc = _good();
+        address fund = address(0xF00D);
+        cc.setSlashFundAddress(fund);
+        assertEq(cc.getSlashFundAddress(), fund);
+    }
+
+    function test_setSlashFundAddress_rejectsZero() public {
+        // address(0) is the burn-fallback default, not a settable target: governance rotates
+        // between funds, never back to burn.
+        ChainConfig cc = _good();
+        vm.expectRevert(abi.encodeWithSelector(IChainConfig.ZeroValue.selector, "slashFundAddress"));
+        cc.setSlashFundAddress(address(0));
+    }
+
+    // --- participationJailDisabled (governance kill switch) ----------------------
+
+    function test_getParticipationJailDisabled_defaultsToFalse_whenUnset() public {
+        // Fresh slot: the jail is ENABLED (today's behavior).
+        ChainConfig cc = _good();
+        assertEq(cc.getParticipationJailDisabled(), false);
+    }
+
+    function test_setParticipationJailDisabled_updates_andEmits() public {
+        ChainConfig cc = _good();
+        vm.expectEmit(true, true, true, true, address(cc));
+        emit IChainConfigEvents.ParticipationJailDisabledChanged(false, true);
+        cc.setParticipationJailDisabled(true);
+        assertEq(cc.getParticipationJailDisabled(), true);
+
+        // Round-trip back to enabled, event carries (prev=true, next=false).
+        vm.expectEmit(true, true, true, true, address(cc));
+        emit IChainConfigEvents.ParticipationJailDisabledChanged(true, false);
+        cc.setParticipationJailDisabled(false);
+        assertEq(cc.getParticipationJailDisabled(), false);
+    }
+
+    function test_setParticipationJailDisabled_onlyGovernance() public {
+        ChainConfig cc = _good();
+        vm.prank(makeAddr("rando"));
+        vm.expectRevert(IStakingContextErrors.OnlyGovernance.selector);
+        cc.setParticipationJailDisabled(true);
     }
 }

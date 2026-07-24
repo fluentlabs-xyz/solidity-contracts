@@ -69,6 +69,7 @@ contract ReplaceStakingWithMocks is Script {
             IFluentGovernance(a.governance),
             IChainConfig(a.chainConfig),
             stakingToken,
+            address(0),
             address(0)
         );
         _upgradeToAndCall(a.staking, address(mockStaking));

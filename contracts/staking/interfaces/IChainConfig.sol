@@ -4,11 +4,13 @@ pragma solidity ^0.8.0;
 interface IChainConfigEvents {
     event ActiveValidatorsLengthChanged(uint32 prevValue, uint32 newValue);
     event EpochBlockIntervalChanged(uint32 prevValue, uint32 newValue);
-    event MisdemeanorThresholdChanged(uint32 prevValue, uint32 newValue);
     event FelonyThresholdChanged(uint32 prevValue, uint32 newValue);
     event ValidatorJailEpochLengthChanged(uint32 prevValue, uint32 newValue);
-    event MissThresholdChanged(uint32 prevValue, uint32 newValue);
     event SlashReporterRewardBpsChanged(uint32 prevValue, uint32 newValue);
+    event SlashFundAddressChanged(address prevValue, address newValue);
+    event ParticipationFloorBpsChanged(uint32 prevValue, uint32 newValue);
+    event ParticipationJailDisabledChanged(bool prevValue, bool newValue);
+    event BlendStipendPerEpochChanged(uint256 prevValue, uint256 newValue);
     event UndelegatePeriodChanged(uint32 prevValue, uint32 newValue);
     event MinValidatorStakeAmountChanged(uint256 prevValue, uint256 newValue);
     event MinStakingAmountChanged(uint256 prevValue, uint256 newValue);
@@ -25,15 +27,6 @@ interface IChainConfig {
      * @param field Name of the rejected configuration field, included for off-chain diagnostics.
      */
     error ZeroValue(string field);
-
-    /**
-     * @notice Slash threshold ordering invariant was violated.
-     * @dev Misdemeanor threshold must be `<=` felony threshold (and felony must be `>=`
-     *      misdemeanor) so escalation always progresses; raised by either setter when the new
-     *      value would invert the ordering, and by initialization when the bootstrap parameters
-     *      are inconsistent.
-     */
-    error MisdemeanorThresholdNotMet();
 
     /// @notice DPoS activation block must be a multiple of `epochBlockInterval`
     ///         so absolute and relative epoch boundaries coincide.
@@ -65,6 +58,14 @@ interface IChainConfig {
     ///         Capped strictly below 100% so a seizure always burns a deterrent remainder.
     error SlashReporterRewardBpsTooHigh(uint32 requested, uint32 max);
 
+    /// @notice The participation floor (basis points) exceeds `MAX_PARTICIPATION_FLOOR_BPS`.
+    ///         Capped well below the structural mean cert-inclusion so the honest latency-distant
+    ///         tail can never be jailed en masse into a chain halt.
+    error ParticipationFloorBpsTooHigh(uint32 requested, uint32 max);
+
+    /// @notice The per-epoch BLEND stipend exceeds `MAX_BLEND_STIPEND_PER_EPOCH`.
+    error BlendStipendPerEpochTooHigh(uint256 requested, uint256 max);
+
     /// @notice Maximum number of validators returned in the active validator set.
     function getActiveValidatorsLength() external view returns (uint32);
 
@@ -83,12 +84,6 @@ interface IChainConfig {
     /// @notice Sets the DPoS activation block (aligned, not in the past). Callable by governance.
     function setDposActivationBlock(uint64 newValue) external;
 
-    /// @notice Number of slash events treated as a misdemeanor threshold.
-    function getMisdemeanorThreshold() external view returns (uint32);
-
-    /// @notice Updates the misdemeanor slash threshold. Callable by governance.
-    function setMisdemeanorThreshold(uint32 newValue) external;
-
     /// @notice Number of slash events after which a validator is jailed.
     function getFelonyThreshold() external view returns (uint32);
 
@@ -101,20 +96,43 @@ interface IChainConfig {
     /// @notice Updates validator jail duration in epochs. Callable by governance.
     function setValidatorJailEpochLength(uint32 newValue) external;
 
-    /// @notice Consecutive missed blocks that dispatch one liveness slash.
-    ///         Defaults to 50 when unset (sentinel) so an un-migrated config
-    ///         never reads 0 (which would slash on the first absence).
-    function getMissThreshold() external view returns (uint32);
-
-    /// @notice Updates the consecutive-miss liveness threshold. Callable by governance.
-    function setMissThreshold(uint32 newValue) external;
-
     /// @notice Reporter's cut (basis points) of an equivocation stake seizure; the
     ///         remainder is burned. Defaults to 3000 (30%) when unset (sentinel).
     function getSlashReporterRewardBps() external view returns (uint32);
 
     /// @notice Updates the equivocation reporter reward (basis points). Callable by governance.
     function setSlashReporterRewardBps(uint32 newValue) external;
+
+    /// @notice Destination for the non-reporter remainder of an equivocation stake seizure
+    ///         (the damage-coverage fund). `address(0)` ⇒ the remainder is burned to the dead
+    ///         address (genesis default), so this is a RAW value, NOT a sentinel.
+    function getSlashFundAddress() external view returns (address);
+
+    /// @notice Sets the equivocation slash-fund address (non-zero). Callable by governance.
+    function setSlashFundAddress(address newValue) external;
+
+    /// @notice Minimum windowed participation (bps of certs seen) below which a committee
+    ///         member is eligible for the participation-floor jail. Defaults to 1500 (15%)
+    ///         when unset (sentinel).
+    function getParticipationFloorBps() external view returns (uint32);
+
+    /// @notice Updates the participation-floor jail threshold (basis points). Callable by governance.
+    function setParticipationFloorBps(uint32 newValue) external;
+
+    /// @notice Governance kill switch for the participation-floor jail. false (default) == the jail
+    ///         is enabled (windows judged, below-floor members jailed); true == the jail is disabled
+    ///         (windows still finalized and counters still accumulated, but no member is jailed).
+    function getParticipationJailDisabled() external view returns (bool);
+
+    /// @notice Enables/disables the participation-floor jail. Windows finalized while disabled are
+    ///         never retro-judged. Callable by governance.
+    function setParticipationJailDisabled(bool newValue) external;
+
+    /// @notice Per-epoch BLEND stipend. RAW: 0 == the stipend is OFF (kill-switch).
+    function getBlendStipendPerEpoch() external view returns (uint256);
+
+    /// @notice Updates the per-epoch BLEND stipend (0 allowed = off). Callable by governance.
+    function setBlendStipendPerEpoch(uint256 newValue) external;
 
     /// @notice Number of epochs before undelegated funds become claimable.
     function getUndelegatePeriod() external view returns (uint32);

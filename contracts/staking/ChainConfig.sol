@@ -30,12 +30,6 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
     ///         the Rust consensus side in the same release.
     uint32 public constant MAX_ACTIVE_VALIDATORS = 51;
 
-    /// @notice Default consecutive-miss liveness threshold, used when the
-    ///         `_missThreshold` storage slot is unset (0) — i.e. a config
-    ///         initialized before this field was appended. MUST stay byte-equal
-    ///         to the Rust/Solidity liveness wire expectation.
-    uint32 public constant DEFAULT_MISS_THRESHOLD = 50;
-
     /// @notice Default reporter cut (basis points) of an equivocation stake seizure, used
     ///         when the `_slashReporterRewardBps` slot is unset (0). 3000 = 30% reporter,
     ///         70% burned.
@@ -46,6 +40,22 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
     ///         the economic deterrent). A 100% reporter cut would let a colluding
     ///         self-reporter recover the entire seized self-stake, neutering the penalty.
     uint32 public constant MAX_SLASH_REPORTER_BPS = 5000; // 50%
+
+    /// @notice Default minimum windowed participation (bps of certs seen) below which a
+    ///         committee member is eligible for the participation-floor jail; used when the
+    ///         `_participationFloorBps` slot is unset (0). 1500 = 15% of certs in the window —
+    ///         an extreme-tail floor for Simplex stop-at-quorum (structural mean cert-inclusion
+    ///         ~68.6%), so only near-zero non-voters trip it, never a merely-slow honest node.
+    uint32 public constant DEFAULT_PARTICIPATION_FLOOR_BPS = 1500;
+
+    /// @notice Hard cap on `participationFloorBps` (20%). Tightened well below the ~68.6%
+    ///         structural mean so a governance actor can never set the floor high enough to jail
+    ///         the honest latency-distant tail and halt the chain.
+    uint32 public constant MAX_PARTICIPATION_FLOOR_BPS = 2000;
+
+    // --- BLEND stipend (PLACEHOLDER — user will tune) ---
+    /// @notice Sanity cap on the per-epoch BLEND stipend.
+    uint256 public constant MAX_BLEND_STIPEND_PER_EPOCH = 1_000_000 ether;
 
     // F1 exit-before-slash floor: the undelegation window
     // (undelegatePeriod * epochBlockInterval, in blocks) must be >= this.
@@ -65,10 +75,6 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
          * @dev Number of blocks in one staking epoch.
          */
         uint32 _epochBlockInterval;
-        /**
-         * @dev Number of slash events treated as a misdemeanor threshold.
-         */
-        uint32 _misdemeanorThreshold;
         /**
          * @dev Number of slash events after which a validator is jailed.
          */
@@ -96,13 +102,25 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
         // to zero — `_currentEpoch = (block.number - this) / interval`. Zero ⇒
         // absolute numbering (pre-migration / non-DPoS default).
         uint64 _dposActivationBlock;
-        // Appended (ERC-7201 safe): consecutive missed blocks per liveness slash
-        // dispatch. Zero ⇒ DEFAULT_MISS_THRESHOLD (sentinel; see getMissThreshold).
-        uint32 _missThreshold;
         // Appended (ERC-7201 safe): reporter's cut (basis points) of an equivocation
         // stake seizure; the remainder is burned. Zero ⇒ DEFAULT_SLASH_REPORTER_BPS
         // (sentinel; see getSlashReporterRewardBps).
         uint32 _slashReporterRewardBps;
+        // Appended (ERC-7201 safe): minimum windowed participation (bps of certs seen) below
+        // which a committee member is eligible for the participation-floor jail. Zero ⇒
+        // DEFAULT_PARTICIPATION_FLOOR_BPS (sentinel; see getParticipationFloorBps).
+        uint32 _participationFloorBps;
+        // Appended (ERC-7201 safe): per-epoch BLEND stipend. Zero == OFF (RAW value, NOT a sentinel).
+        uint256 _blendStipendPerEpoch;
+        // Appended (ERC-7201 safe): destination for the non-reporter remainder of an equivocation
+        // stake seizure (damage-coverage fund). address(0) == burn the remainder to the dead
+        // address (RAW value, NOT a sentinel; see StakingDpos._seizeSelfStake).
+        address _slashFundAddress;
+        // Appended (ERC-7201 safe): governance kill switch for the participation-floor jail. When
+        // true, LivenessSlashing._finalizeWindow still finalizes windows and accumulates counters
+        // but skips the belowFloor scan / jail dispatch entirely. false (fresh slot) == jail
+        // enabled == today's behavior (RAW bool, NOT a sentinel; see getParticipationJailDisabled).
+        bool _participationJailDisabled;
     }
 
     function _getChainConfigStorage() private pure returns (ChainConfigStorage storage $) {
@@ -136,25 +154,27 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
         address initialOwner,
         uint32 activeValidatorsLength,
         uint32 epochBlockInterval,
-        uint32 misdemeanorThreshold,
         uint32 felonyThreshold,
         uint32 validatorJailEpochLength,
         uint32 undelegatePeriod,
         uint256 minValidatorStakeAmount,
         uint256 minStakingAmount,
-        uint64 dposActivationBlock
+        uint64 dposActivationBlock,
+        address blsVerifier,
+        address evidenceDecoder
     ) external initializer {
         __StakingContext_init(initialOwner);
         __ChainConfig_init(
             activeValidatorsLength,
             epochBlockInterval,
-            misdemeanorThreshold,
             felonyThreshold,
             validatorJailEpochLength,
             undelegatePeriod,
             minValidatorStakeAmount,
             minStakingAmount,
-            dposActivationBlock
+            dposActivationBlock,
+            blsVerifier,
+            evidenceDecoder
         );
     }
 
@@ -217,18 +237,6 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
         $._dposActivationBlock = newValue;
     }
 
-    function getMisdemeanorThreshold() external view override returns (uint32) {
-        return _getChainConfigStorage()._misdemeanorThreshold;
-    }
-
-    function setMisdemeanorThreshold(uint32 newValue) external override onlyFromGovernance {
-        require(newValue > 0, ZeroValue("misdemeanorThreshold"));
-        ChainConfigStorage storage $ = _getChainConfigStorage();
-        require(newValue <= $._felonyThreshold, MisdemeanorThresholdNotMet());
-        emit MisdemeanorThresholdChanged($._misdemeanorThreshold, newValue);
-        $._misdemeanorThreshold = newValue;
-    }
-
     function getFelonyThreshold() external view override returns (uint32) {
         return _getChainConfigStorage()._felonyThreshold;
     }
@@ -236,7 +244,6 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
     function setFelonyThreshold(uint32 newValue) external override onlyFromGovernance {
         require(newValue > 0, ZeroValue("felonyThreshold"));
         ChainConfigStorage storage $ = _getChainConfigStorage();
-        require(newValue >= $._misdemeanorThreshold, MisdemeanorThresholdNotMet());
         emit FelonyThresholdChanged($._felonyThreshold, newValue);
         $._felonyThreshold = newValue;
     }
@@ -252,18 +259,6 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
         $._validatorJailEpochLength = newValue;
     }
 
-    function getMissThreshold() external view override returns (uint32) {
-        uint32 stored = _getChainConfigStorage()._missThreshold;
-        return stored == 0 ? DEFAULT_MISS_THRESHOLD : stored;
-    }
-
-    function setMissThreshold(uint32 newValue) external override onlyFromGovernance {
-        require(newValue > 0, ZeroValue("missThreshold"));
-        ChainConfigStorage storage $ = _getChainConfigStorage();
-        emit MissThresholdChanged($._missThreshold, newValue);
-        $._missThreshold = newValue;
-    }
-
     function getSlashReporterRewardBps() external view override returns (uint32) {
         uint32 stored = _getChainConfigStorage()._slashReporterRewardBps;
         return stored == 0 ? DEFAULT_SLASH_REPORTER_BPS : stored;
@@ -275,6 +270,70 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
         ChainConfigStorage storage $ = _getChainConfigStorage();
         emit SlashReporterRewardBpsChanged($._slashReporterRewardBps, newValue);
         $._slashReporterRewardBps = newValue;
+    }
+
+    /// @dev RAW getter: address(0) == fund unset ⇒ the seizure remainder is burned. NOT a sentinel.
+    function getSlashFundAddress() external view override returns (address) {
+        return _getChainConfigStorage()._slashFundAddress;
+    }
+
+    /// @dev Non-zero only: once a damage-coverage fund is wired, governance rotates it to another
+    ///      fund rather than back to burn (the dead-address burn is the genesis default, reachable
+    ///      only while the slot is still unset). Mirrors the setBlsVerifier / setEvidenceDecoder idiom.
+    function setSlashFundAddress(address newValue) external override onlyFromGovernance {
+        require(newValue != address(0), ZeroValue("slashFundAddress"));
+        ChainConfigStorage storage $ = _getChainConfigStorage();
+        emit SlashFundAddressChanged($._slashFundAddress, newValue);
+        $._slashFundAddress = newValue;
+    }
+
+    function getParticipationFloorBps() external view override returns (uint32) {
+        uint32 stored = _getChainConfigStorage()._participationFloorBps;
+        return stored == 0 ? DEFAULT_PARTICIPATION_FLOOR_BPS : stored;
+    }
+
+    function setParticipationFloorBps(uint32 newValue) external override onlyFromGovernance {
+        require(newValue > 0, ZeroValue("participationFloorBps"));
+        require(
+            newValue <= MAX_PARTICIPATION_FLOOR_BPS,
+            ParticipationFloorBpsTooHigh(newValue, MAX_PARTICIPATION_FLOOR_BPS)
+        );
+        ChainConfigStorage storage $ = _getChainConfigStorage();
+        emit ParticipationFloorBpsChanged($._participationFloorBps, newValue);
+        $._participationFloorBps = newValue;
+    }
+
+    /// @dev RAW getter: false (fresh slot) == the participation-floor jail is ENABLED (today's
+    ///      behavior). true == the jail is disabled: LivenessSlashing keeps finalizing windows and
+    ///      accumulating seen/certs counters, but never jails a below-floor member. NOT a sentinel.
+    function getParticipationJailDisabled() external view override returns (bool) {
+        return _getChainConfigStorage()._participationJailDisabled;
+    }
+
+    /// @dev Governance kill switch for the participation-floor jail. Windows finalized while
+    ///      disabled are permanently unjudged (the finalize cursor still advances past them), so
+    ///      re-enabling does NOT retro-judge the skipped windows — this is the intended interim
+    ///      behavior. Counters stay readable via LivenessSlashing.participation() throughout.
+    function setParticipationJailDisabled(bool newValue) external override onlyFromGovernance {
+        ChainConfigStorage storage $ = _getChainConfigStorage();
+        emit ParticipationJailDisabledChanged($._participationJailDisabled, newValue);
+        $._participationJailDisabled = newValue;
+    }
+
+    /// @dev RAW getter: 0 == the BLEND stipend is OFF (kill-switch). NOT a sentinel default.
+    function getBlendStipendPerEpoch() external view override returns (uint256) {
+        return _getChainConfigStorage()._blendStipendPerEpoch;
+    }
+
+    /// @dev Deviation from the sentinel idiom: 0 is a valid (off) value, so `require(>0)` is
+    ///      dropped; the MAX cap + event stay.
+    function setBlendStipendPerEpoch(uint256 newValue) external override onlyFromGovernance {
+        require(
+            newValue <= MAX_BLEND_STIPEND_PER_EPOCH, BlendStipendPerEpochTooHigh(newValue, MAX_BLEND_STIPEND_PER_EPOCH)
+        );
+        ChainConfigStorage storage $ = _getChainConfigStorage();
+        emit BlendStipendPerEpochChanged($._blendStipendPerEpoch, newValue);
+        $._blendStipendPerEpoch = newValue;
     }
 
     function getUndelegatePeriod() external view override returns (uint32) {
@@ -325,13 +384,14 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
     function __ChainConfig_init(
         uint32 activeValidatorsLength,
         uint32 epochBlockInterval,
-        uint32 misdemeanorThreshold,
         uint32 felonyThreshold,
         uint32 validatorJailEpochLength,
         uint32 undelegatePeriod,
         uint256 minValidatorStakeAmount,
         uint256 minStakingAmount,
-        uint64 dposActivationBlock
+        uint64 dposActivationBlock,
+        address blsVerifier,
+        address evidenceDecoder
     ) internal onlyInitializing {
         ChainConfigStorage storage $ = _getChainConfigStorage();
         require(activeValidatorsLength > 0, ZeroValue("activeValidatorsLength"));
@@ -346,12 +406,7 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
         $._epochBlockInterval = epochBlockInterval;
         emit EpochBlockIntervalChanged(0, epochBlockInterval);
 
-        require(misdemeanorThreshold > 0, ZeroValue("misdemeanorThreshold"));
-        $._misdemeanorThreshold = misdemeanorThreshold;
-        emit MisdemeanorThresholdChanged(0, misdemeanorThreshold);
-
         require(felonyThreshold > 0, ZeroValue("felonyThreshold"));
-        require(felonyThreshold >= misdemeanorThreshold, MisdemeanorThresholdNotMet());
         $._felonyThreshold = felonyThreshold;
         emit FelonyThresholdChanged(0, felonyThreshold);
 
@@ -376,6 +431,21 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
         require(dposActivationBlock % epochBlockInterval == 0, UnalignedActivationBlock());
         $._dposActivationBlock = dposActivationBlock;
         emit DposActivationBlockChanged(0, dposActivationBlock);
+
+        // Seed the equivocation-slashing crypto units at genesis so slashing is live on a
+        // fresh deploy. They are otherwise only settable post-deploy via `setBlsVerifier` /
+        // `setEvidenceDecoder`, which are `onlyFromGovernance` and so cannot run inside a
+        // deploy broadcast. address(0) ⇒ left unset (slashing stays disabled — the
+        // NotConfigured guards in StakingDpos revert — until governance wires it); governance
+        // can still rotate either unit later.
+        if (blsVerifier != address(0)) {
+            $._blsVerifier = blsVerifier;
+            emit BlsVerifierChanged(address(0), blsVerifier);
+        }
+        if (evidenceDecoder != address(0)) {
+            $._evidenceDecoder = evidenceDecoder;
+            emit EvidenceDecoderChanged(address(0), evidenceDecoder);
+        }
     }
 
     function getBlsVerifier() external view override returns (address) {

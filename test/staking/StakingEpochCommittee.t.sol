@@ -98,6 +98,7 @@ contract StakingEpochCommitteeTest is Test {
             governance,
             predictedChainConfig,
             blend,
+            address(0),
             address(0)
         );
         staking = Staking(
@@ -163,13 +164,14 @@ contract StakingEpochCommitteeTest is Test {
                             address(this),
                             ACTIVE_LEN,
                             EPOCH_INTERVAL,
-                            uint32(50),
                             uint32(150),
                             uint32(7),
                             uint32(7), // undelegatePeriod
                             uint256(ONE),
                             uint256(ONE),
-                            uint64(0)
+                            uint64(0),
+                            address(0),
+                            address(0)
                         )
                     )
                 )
@@ -189,15 +191,20 @@ contract StakingEpochCommitteeTest is Test {
     }
 
 
+    // NOTE: validators registered (+ keyed) at epoch 0 are selection-eligible only
+    // from selectionEpoch 1 (stamp `sinceEpoch`/`activationEpoch` = nextEpoch = 1 —
+    // the committee warmup mirroring the stake warmup). Under the 2-epoch warm-up
+    // committee[N] is selected from EffBal(N-2), so the FIRST committee that can
+    // contain them is committee[3] (selectionEpoch = 3-2 = 1).
     function test_commitEpochCommittee_acceptsCanonicalOrder() public {
         address a = _validator("A", bytes32(uint256(0x30)));
         address b = _validator("B", bytes32(uint256(0x10)));
         address c = _validator("C", bytes32(uint256(0x20)));
 
-        _rollToEpoch(1);
+        _rollToEpoch(3);
         _commit();
 
-        address[] memory got = staking.getEpochCommittee(1);
+        address[] memory got = staking.getEpochCommittee(3);
         assertEq(got.length, 3);
         assertEq(got[0], b); // 0x10
         assertEq(got[1], c); // 0x20
@@ -209,10 +216,10 @@ contract StakingEpochCommitteeTest is Test {
         staking.addValidator(makeAddr("keyless")); // no consensus keys
         address c = _validator("C", bytes32(uint256(0x20)));
 
-        _rollToEpoch(1);
+        _rollToEpoch(3);
         _commit();
 
-        address[] memory got = staking.getEpochCommittee(1);
+        address[] memory got = staking.getEpochCommittee(3);
         assertEq(got.length, 2);
         assertEq(got[0], a);
         assertEq(got[1], c);
@@ -224,19 +231,19 @@ contract StakingEpochCommitteeTest is Test {
         _validator("B", bytes32(uint256(0x20)));
         _validator("C", bytes32(uint256(0x30)));
 
-        _rollToEpoch(1);
+        _rollToEpoch(3);
         _commit();
 
-        assertEq(staking.getEpochCommittee(1).length, 2);
+        assertEq(staking.getEpochCommittee(3).length, 2);
     }
 
     function test_commitEpochCommittee_idempotentSecondCallSameEpoch() public {
         address a = _validator("A", bytes32(uint256(0x10)));
-        _rollToEpoch(1);
+        _rollToEpoch(3);
         _commit();
         _commit(); // no-op
 
-        address[] memory got = staking.getEpochCommittee(1);
+        address[] memory got = staking.getEpochCommittee(3);
         assertEq(got.length, 1);
         assertEq(got[0], a);
     }
@@ -259,7 +266,7 @@ contract StakingEpochCommitteeTest is Test {
         // Catch up committees 0,1,2 so the next commit targets epoch 3.
         while (staking.nextEpochToCommit() < 3) {
             uint64 t = staking.nextEpochToCommit();
-            address[] memory cc = _canonicalAt(t == 0 ? 0 : t - 1);
+            address[] memory cc = _canonicalAt(t < 2 ? 0 : t - 2);
             vm.prank(SYSTEM_CALLER);
             staking.commitEpochCommittee(cc);
         }
@@ -277,27 +284,27 @@ contract StakingEpochCommitteeTest is Test {
         _validator("A", bytes32(uint256(0x10)));
         uint64 window = UNDELEGATE_PERIOD + RETENTION_MARGIN;
 
-        _rollToEpoch(1);
+        _rollToEpoch(3);
         _commit();
-        assertEq(staking.getEpochCommittee(1).length, 1);
+        assertEq(staking.getEpochCommittee(3).length, 1);
 
-        uint64 far = 1 + window + 1;
+        uint64 far = 3 + window + 1;
         _rollToEpoch(far);
         _commit();
 
-        assertEq(staking.getEpochCommittee(1).length, 0, "stale epoch must be pruned");
+        assertEq(staking.getEpochCommittee(3).length, 0, "stale epoch must be pruned");
         assertEq(staking.getEpochCommittee(far).length, 1, "current epoch retained");
     }
 
     function test_commitEpochCommittee_pruneCursorDoesNotLeakAcrossSkippedCommits() public {
         _validator("A", bytes32(uint256(0x10)));
-        // commit epoch 1, then jump far ahead skipping every epoch in between;
-        // the cursor must still reclaim epoch 1's storage.
-        _rollToEpoch(1);
+        // commit epoch 3 (first non-empty committee), then jump far ahead skipping every
+        // epoch in between; the cursor must still reclaim epoch 3's storage.
+        _rollToEpoch(3);
         _commit();
-        _rollToEpoch(1 + UNDELEGATE_PERIOD + RETENTION_MARGIN + 5);
+        _rollToEpoch(3 + UNDELEGATE_PERIOD + RETENTION_MARGIN + 5);
         _commit();
-        assertEq(staking.getEpochCommittee(1).length, 0, "skipped-commit window must not leak");
+        assertEq(staking.getEpochCommittee(3).length, 0, "skipped-commit window must not leak");
     }
 
     function test_commitEpochCommittee_doesNotRewritePastEpoch() public {
@@ -324,7 +331,7 @@ contract StakingEpochCommitteeTest is Test {
         _validator("A", bytes32(uint256(0x10)));
         _rollToEpoch(1);
         uint64 t = staking.nextEpochToCommit();
-        address[] memory c = _canonicalAt(t == 0 ? 0 : t - 1);
+        address[] memory c = _canonicalAt(t < 2 ? 0 : t - 2);
         vm.prank(makeAddr("notSystem"));
         vm.expectRevert(abi.encodeWithSignature("OnlySystemCall()"));
         staking.commitEpochCommittee(c);
@@ -333,7 +340,8 @@ contract StakingEpochCommitteeTest is Test {
     function test_RevertIf_commitEpochCommittee_wrongOrder() public {
         address a = _validator("A", bytes32(uint256(0x10)));
         address b = _validator("B", bytes32(uint256(0x20)));
-        _rollToEpoch(1);
+        _rollToEpoch(3);
+        _catchUpUntil(3); // target the first epoch (3) the validators are selection-eligible
 
         address[] memory bad = new address[](2);
         bad[0] = b; // 0x20 first — not strictly ascending
@@ -346,7 +354,8 @@ contract StakingEpochCommitteeTest is Test {
     function test_RevertIf_commitEpochCommittee_lengthMismatch() public {
         address a = _validator("A", bytes32(uint256(0x10)));
         _validator("B", bytes32(uint256(0x20)));
-        _rollToEpoch(1);
+        _rollToEpoch(3);
+        _catchUpUntil(3);
 
         address[] memory bad = new address[](1);
         bad[0] = a; // only 1 of 2 keyed members
@@ -360,7 +369,8 @@ contract StakingEpochCommitteeTest is Test {
         address b = _validator("B", bytes32(uint256(0x20)));
         address keyless = makeAddr("keyless");
         staking.addValidator(keyless);
-        _rollToEpoch(1);
+        _rollToEpoch(3);
+        _catchUpUntil(3);
 
         // length == m (=2) but swaps a real keyed member for the keyless one.
         address[] memory bad = new address[](2);
@@ -380,7 +390,8 @@ contract StakingEpochCommitteeTest is Test {
         vm.prank(outsider);
         staking.setConsensusKeys(outsider, PK_UNC, SIG_UNC_VALID, bytes32(uint256(0x05)));
         chainConfig.setActiveValidatorsLength(2); // top-k excludes the 3rd by stake-equal cutoff
-        _rollToEpoch(1);
+        _rollToEpoch(3);
+        _catchUpUntil(3);
 
         // length matches m(=2) but swaps a real member for the outsider
         address[] memory bad = new address[](2);
@@ -397,12 +408,12 @@ contract StakingEpochCommitteeTest is Test {
         address a = _validator("A", bytes32(uint256(0x30)));
         address b = _validator("B", bytes32(uint256(0x10)));
         address c = _validator("C", bytes32(uint256(0x20)));
-        _rollToEpoch(2);
+        _rollToEpoch(3);
         _commit();
 
-        assertEq(staking.resolveSigner(2, 0), b);
-        assertEq(staking.resolveSigner(2, 1), c);
-        assertEq(staking.resolveSigner(2, 2), a);
+        assertEq(staking.resolveSigner(3, 0), b);
+        assertEq(staking.resolveSigner(3, 1), c);
+        assertEq(staking.resolveSigner(3, 2), a);
     }
 
     function test_resolveSigner_matchesSimplexConformanceVectors() public {
@@ -438,7 +449,10 @@ contract StakingEpochCommitteeTest is Test {
         for (uint256 i = 0; i < 10; i++) {
             seedOrder[i] = _validator(string.concat("seed", vm.toString(i)), corpus[i]);
         }
-        _rollToEpoch(1);
+        // committee[3] (selEpoch 1) is the first with all 10 validators keyed-for-selection,
+        // so the ordering check (not a length mismatch) fires on the unsorted submission.
+        _rollToEpoch(3);
+        _catchUpUntil(3);
         vm.prank(SYSTEM_CALLER);
         vm.expectRevert(); // CommitteeNotStrictlyAscending at the first descending pair
         staking.commitEpochCommittee(seedOrder);
@@ -448,53 +462,54 @@ contract StakingEpochCommitteeTest is Test {
         address a = _validator("A", bytes32(uint256(0x30)));
         address b = _validator("B", bytes32(uint256(0x10)));
         address c = _validator("C", bytes32(uint256(0x20)));
-        _rollToEpoch(2);
-        _commit();
-        address[] memory snapshot = staking.getEpochCommittee(2);
-
-        _validator("D", bytes32(uint256(0x05)));
-        _validator("E", bytes32(uint256(0x40)));
         _rollToEpoch(3);
         _commit();
+        address[] memory snapshot = staking.getEpochCommittee(3);
 
-        address[] memory still = staking.getEpochCommittee(2);
+        _validator("D", bytes32(uint256(0x05))); // added epoch 3 → eligible selEpoch 4 → committee[6]
+        _validator("E", bytes32(uint256(0x40)));
+        _rollToEpoch(6);
+        _commit();
+
+        address[] memory still = staking.getEpochCommittee(3);
         assertEq(still.length, snapshot.length);
         for (uint256 i = 0; i < snapshot.length; i++) {
             assertEq(still[i], snapshot[i]);
         }
-        assertEq(staking.resolveSigner(2, 0), b);
-        assertEq(staking.resolveSigner(2, 1), c);
-        assertEq(staking.resolveSigner(2, 2), a);
-        assertEq(staking.getEpochCommittee(3).length, 5);
+        assertEq(staking.resolveSigner(3, 0), b);
+        assertEq(staking.resolveSigner(3, 1), c);
+        assertEq(staking.resolveSigner(3, 2), a);
+        // committee[6] (selEpoch 4) is the first to see D,E → all 5.
+        assertEq(staking.getEpochCommittee(6).length, 5);
     }
 
     function test_resolveSigner_pastEpochUnaffectedByLaterKChange() public {
         address a = _validator("A", bytes32(uint256(0x30)));
         address b = _validator("B", bytes32(uint256(0x10)));
         address c = _validator("C", bytes32(uint256(0x20)));
-        _rollToEpoch(2);
-        _commit();
-        assertEq(staking.getEpochCommittee(2).length, 3);
-
-        chainConfig.setActiveValidatorsLength(1);
         _rollToEpoch(3);
         _commit();
+        assertEq(staking.getEpochCommittee(3).length, 3);
 
-        assertEq(staking.resolveSigner(2, 0), b);
-        assertEq(staking.resolveSigner(2, 1), c);
-        assertEq(staking.resolveSigner(2, 2), a);
-        assertEq(staking.getEpochCommittee(2).length, 3);
-        assertEq(staking.getEpochCommittee(3).length, 1);
+        chainConfig.setActiveValidatorsLength(1);
+        _rollToEpoch(4);
+        _commit();
+
+        assertEq(staking.resolveSigner(3, 0), b);
+        assertEq(staking.resolveSigner(3, 1), c);
+        assertEq(staking.resolveSigner(3, 2), a);
+        assertEq(staking.getEpochCommittee(3).length, 3);
+        assertEq(staking.getEpochCommittee(4).length, 1);
     }
 
     function test_RevertIf_resolveSigner_indexOutOfRange() public {
         _validator("A", bytes32(uint256(0x10)));
-        _rollToEpoch(1);
+        _rollToEpoch(3); // committee[3] is the first with a selection-eligible A
         _commit();
         vm.expectRevert(
-            abi.encodeWithSignature("SignerIndexOutOfRange(uint64,uint32,uint256)", uint64(1), uint32(5), uint256(1))
+            abi.encodeWithSignature("SignerIndexOutOfRange(uint64,uint32,uint256)", uint64(3), uint32(5), uint256(1))
         );
-        staking.resolveSigner(1, 5);
+        staking.resolveSigner(3, 5);
     }
 
     function test_RevertIf_resolveSigner_epochNotCommitted() public {
@@ -515,13 +530,13 @@ contract StakingEpochCommitteeTest is Test {
         _delegate(a, stakeA);
         _delegate(b, stakeB);
 
-        _rollToEpoch(2);
+        _rollToEpoch(3);
         _commit();
 
         (address[] memory addrs, IStaking.ConsensusKeys[] memory keys, uint256[] memory stakes) =
-            staking.getEpochCommitteeWithStakes(2);
+            staking.getEpochCommitteeWithStakes(3);
 
-        address[] memory committee = staking.getEpochCommittee(2);
+        address[] memory committee = staking.getEpochCommittee(3);
         assertEq(addrs.length, committee.length, "addrs length mismatch");
         assertEq(keys.length, addrs.length, "keys length mismatch");
         assertEq(stakes.length, addrs.length, "stakes length mismatch");
@@ -545,9 +560,9 @@ contract StakingEpochCommitteeTest is Test {
 
     /// Regression for D3: the getter reports the at-or-before-`epoch` snapshot
     /// (`totalDelegatedToValidatorAt` → `validatorSnapshotAtOrBefore`), NOT the
-    /// `changedAt`-leaking value `getValidatorStatusAtEpoch` returns when a
-    /// validator's stake last changed AFTER `epoch` (`changedAt > epoch`). A
-    /// future-leaking weight would split leader election across nodes.
+    /// validator's latest `changedAt` snapshot when its stake last changed AFTER
+    /// `epoch` (`changedAt > epoch`). A future-leaking weight would split leader
+    /// election across nodes.
     function test_getEpochCommitteeWithStakes_usesAtOrBeforeEpochStake() public {
         address v = _validator("V", bytes32(uint256(0x10)));
         uint256 first = 2 * ONE; // delegated at epoch 0 ⇒ slot[2], changedAt==2
@@ -557,29 +572,23 @@ contract StakingEpochCommitteeTest is Test {
         _delegate(v, second);
 
         _rollToEpoch(4);
-        _commit(); // committee[4] is selected from EffBal(3) == `first`; V is in it.
+        _commit(); // committee[4] is selected from EffBal(2); V is in it (visible from selEpoch 1).
 
         (,, uint256[] memory stakes) = staking.getEpochCommitteeWithStakes(4);
         assertEq(stakes.length, 1, "committee size");
         // epoch 4 sits between slot[2] and slot[5]: the at-or-before value is `first`.
         assertEq(stakes[0], first, "getter must report at-or-before-epoch stake");
-
-        // The divergent getter leaks the future (slot[changedAt=5]) value — proving
-        // the regression is real and that this getter does NOT use that path.
-        (,, uint256 leaked,,,,,,) = staking.getValidatorStatusAtEpoch(v, 4);
-        assertEq(leaked, first + second, "getValidatorStatusAtEpoch leaks slot[changedAt]");
-        assertTrue(leaked != stakes[0], "the two stake sources must diverge here");
     }
 
 
     function test_commitEpochCommittee_storageIsolatedFromOtherNamespaces() public {
         address a = _validator("A", bytes32(uint256(0x10)));
-        (address ownerBefore, uint8 statusBefore,,,,,,,) = staking.getValidatorStatus(a);
+        (address ownerBefore, uint8 statusBefore,,,,,,) = staking.getValidatorStatus(a);
 
         _rollToEpoch(1);
         _commit();
 
-        (address ownerAfter, uint8 statusAfter,,,,,,,) = staking.getValidatorStatus(a);
+        (address ownerAfter, uint8 statusAfter,,,,,,) = staking.getValidatorStatus(a);
         assertEq(ownerBefore, ownerAfter);
         assertEq(statusBefore, statusAfter);
         assertEq(staking.getConsensusKeys(a).peerPubkey, bytes32(uint256(0x10)));
@@ -593,10 +602,10 @@ contract StakingEpochCommitteeTest is Test {
             if (peer == bytes32(0)) peer = bytes32(uint256(1));
             _validator(string.concat("fz", vm.toString(i)), peer);
         }
-        _rollToEpoch(1);
+        _rollToEpoch(3);
         _commit();
 
-        address[] memory got = staking.getEpochCommittee(1);
+        address[] memory got = staking.getEpochCommittee(3);
         assertEq(got.length, n);
         for (uint256 i = 1; i < got.length; i++) {
             assertTrue(
@@ -610,10 +619,10 @@ contract StakingEpochCommitteeTest is Test {
         for (uint256 i = 0; i < 51; i++) {
             _validator(string.concat("s", vm.toString(i)), keccak256(abi.encode("scale", i)));
         }
-        _rollToEpoch(1);
+        _rollToEpoch(3);
         _commit();
 
-        address[] memory got = staking.getEpochCommittee(1);
+        address[] memory got = staking.getEpochCommittee(3);
         assertEq(got.length, 51);
         for (uint256 i = 1; i < got.length; i++) {
             assertTrue(
@@ -623,6 +632,335 @@ contract StakingEpochCommitteeTest is Test {
         }
     }
 
+
+    // --- Committee MINT semantics (no incumbent-carry; deterministic dkgQual bit) ---
+    //
+    // The v40 deferred qualify-before-commit / incumbent-carry branch is DELETED:
+    // commitEpochCommittee now ALWAYS verifies+stores the submitted candidate against
+    // the fresh getValidatorsAt(selectionEpoch) set, and sets dkgQual[target]
+    // deterministically = (committee[target] != committee[target-1]). The former
+    // permissionless recordDkgQual marker is gone. Tests below assert those semantics.
+    //
+    // DELETED (tested removed behavior, not just re-costumed):
+    //  - test_recordDkgQual_setsAndReadsBack / _idempotentRepeat / _permissionlessCaller:
+    //    the permissionless recordDkgQual marker no longer exists.
+    //  - test_recordDkgQual_frozenAfterCommit: the "late marker is a silent no-op" freeze
+    //    tested the marker's write path, which is deleted.
+    //  - test_commitEpochCommittee_qualifiedChangeCommitsCandidate: the qualified-vs-
+    //    unqualified branch is gone; a change ALWAYS commits the candidate, which is now
+    //    covered by test_commitEpochCommittee_changeCommitsCandidateNoCarry below.
+
+    /// A genuine membership CHANGE commits the submitted candidate directly — there is
+    /// no incumbent-carry fallback anymore — and deterministically mints the dkgQual bit.
+    /// A (epoch 0) is selection-eligible from selEpoch 1 → first appears in committee[3];
+    /// B (epoch 1) from selEpoch 2 → the CHANGE first appears in committee[4]'s candidate.
+    /// (Rewritten from the deleted test_commitEpochCommittee_unqualifiedChangeCarriesIncumbent.)
+    function test_commitEpochCommittee_changeCommitsCandidateNoCarry() public {
+        address a = _validator("A", bytes32(uint256(0x10)));
+        _rollToEpoch(1);
+        address b = _validator("B", bytes32(uint256(0x20)));
+        _rollToEpoch(4);
+        _catchUpUntil(4); // commits 0..3; committee[3] (selEpoch 1) = {a}
+        assertEq(staking.getEpochCommittee(3).length, 1);
+        assertEq(staking.getEpochCommittee(3)[0], a);
+
+        // committee[4]: candidate (selEpoch 2) = {a,b} — a genuine change vs committee[3]={a}.
+        address[] memory candidate = _canonicalAt(2); // {a, b}
+        assertEq(candidate.length, 2, "candidate grew to 2");
+        vm.prank(SYSTEM_CALLER);
+        staking.commitEpochCommittee(candidate);
+
+        address[] memory got = staking.getEpochCommittee(4);
+        assertEq(got.length, 2, "change commits the candidate (no incumbent carry)");
+        assertEq(got[0], a);
+        assertEq(got[1], b);
+        assertTrue(staking.getDkgQual(4), "membership change mints the dkgQual bit");
+        assertEq(staking.nextEpochToCommit(), 5, "cursor advances");
+    }
+
+    /// A no-change epoch commits the (identical) candidate and leaves the mint bit false.
+    /// (Rewritten from the deleted test_commitEpochCommittee_noChangeUnqualifiedCarriesIdenticalSet:
+    /// the "carry" wording is gone — it commits the identical candidate directly.)
+    function test_commitEpochCommittee_noChangeLeavesBitFalse() public {
+        address a = _validator("A", bytes32(uint256(0x10)));
+        _rollToEpoch(4);
+        _catchUpUntil(4); // commits 0..3; committee[3] (selEpoch 1) = {a}
+        assertEq(staking.getEpochCommittee(3).length, 1);
+
+        // committee[4] (selEpoch 2) = {a} — identical to committee[3]={a}.
+        address[] memory candidate = _canonicalAt(2); // {a}
+        assertEq(candidate.length, 1);
+        vm.prank(SYSTEM_CALLER);
+        staking.commitEpochCommittee(candidate);
+
+        address[] memory got = staking.getEpochCommittee(4);
+        assertEq(got.length, 1, "no-change commits the identical candidate");
+        assertEq(got[0], a);
+        assertFalse(staking.getDkgQual(4), "identical set leaves the mint bit false");
+    }
+
+    // --- Added regression/semantics tests for the committee-commit change ---
+
+    /// Bug-B regression (the exact bug this whole change fixes): a committed committee is
+    /// a STORED immutable array; a LATER cap raise must NOT resize it. Commit committee[A]
+    /// (A>=2) at cap=k selecting from EffBal(A-2); raise the cap; the stored committee is
+    /// still exactly the original k members.
+    function test_commitEpochCommittee_committedCommitteeImmutableToLaterCapRaise() public {
+        uint32 k = 2;
+        chainConfig.setActiveValidatorsLength(k);
+        _validator("A", bytes32(uint256(0x10)));
+        _validator("B", bytes32(uint256(0x20)));
+        _validator("C", bytes32(uint256(0x30))); // 3 keyed validators, cap=k ⇒ committee holds k
+
+        _rollToEpoch(3); // committee[3] (selEpoch 1) is the first eligible one
+        _commit();
+        address[] memory orig = staking.getEpochCommittee(3);
+        assertEq(orig.length, k, "committed committee capped at k");
+
+        // Raise the cap AFTER the commit — the stored array must not grow.
+        chainConfig.setActiveValidatorsLength(k + 1);
+        (address[] memory addrs,,) = staking.getEpochCommitteeWithStakes(3);
+        assertEq(addrs.length, k, "stored committee immutable: a later cap raise cannot resize it");
+        for (uint256 i = 0; i < k; i++) {
+            assertEq(addrs[i], orig[i], "stored committee membership unchanged");
+        }
+    }
+
+    /// The dkgQual mint bit is set DETERMINISTICALLY at commit time: TRUE for a CHANGE
+    /// epoch (committed set != committee[target-1]), FALSE for a NO-CHANGE epoch.
+    function test_commitEpochCommittee_mintBitIsDeterministic() public {
+        _validator("A", bytes32(uint256(0x10)));
+        _rollToEpoch(1);
+        _validator("B", bytes32(uint256(0x20)));
+        _rollToEpoch(5);
+        _catchUpUntil(4); // commits 0..3; committee[3] (selEpoch 1) = {a}
+
+        // CHANGE: committee[4] (selEpoch 2) = {a,b} != committee[3]={a}.
+        address[] memory chg = _canonicalAt(2);
+        assertEq(chg.length, 2);
+        vm.prank(SYSTEM_CALLER);
+        staking.commitEpochCommittee(chg);
+        assertTrue(staking.getDkgQual(4), "change epoch mints the bit");
+
+        // NO-CHANGE: committee[5] (selEpoch 3) = {a,b} == committee[4].
+        address[] memory same = _canonicalAt(3);
+        assertEq(same.length, 2);
+        vm.prank(SYSTEM_CALLER);
+        staking.commitEpochCommittee(same);
+        assertFalse(staking.getDkgQual(5), "no-change epoch leaves the bit false");
+    }
+
+    /// The commit gate is `target <= currentEpoch + 2`: a target exactly at cur+2 commits,
+    /// a target beyond cur+2 reverts EpochNotYetCommittable.
+    function test_commitEpochCommittee_plus2GateBoundary() public {
+        _validator("A", bytes32(uint256(0x10)));
+        _rollToEpoch(10);
+        _catchUpUntil(5); // commit committees 0..4 ⇒ nextEpochToCommit() == 5
+        assertEq(staking.nextEpochToCommit(), 5);
+
+        address[] memory cand = _canonicalAt(3); // selectionEpoch for target 5 (= 5-2)
+
+        // target(5) > cur(2)+2 ⇒ reverts.
+        _rollToEpoch(2);
+        vm.prank(SYSTEM_CALLER);
+        vm.expectRevert(abi.encodeWithSignature("EpochNotYetCommittable(uint64,uint64)", uint64(5), uint64(2)));
+        staking.commitEpochCommittee(cand);
+
+        // target(5) == cur(3)+2 ⇒ succeeds.
+        _rollToEpoch(3);
+        vm.prank(SYSTEM_CALLER);
+        staking.commitEpochCommittee(cand);
+        assertEq(staking.nextEpochToCommit(), 6, "boundary commit succeeded");
+        assertEq(staking.getEpochCommittee(5).length, 1);
+    }
+
+    // --- Selection-view determinism pins (frozen-input committee eligibility) ---
+
+    /// @dev Count keyed-for-`epoch` members in the selection view (peerPubkey != 0 after
+    ///      the activationEpoch key gate zeroes not-yet-active keys).
+    function _keyedCountAt(uint64 epoch) internal view returns (uint256 n) {
+        (, IStaking.ConsensusKeys[] memory keys) = staking.getValidatorsWithKeysAt(epoch);
+        for (uint256 i = 0; i < keys.length; i++) {
+            if (keys[i].peerPubkey != bytes32(0)) n++;
+        }
+    }
+
+    /// @dev Member count of the selection view at `epoch` (the addrs half of the tuple).
+    function _selCountAt(uint64 epoch) internal view returns (uint256) {
+        (address[] memory addrs,) = staking.getValidatorsWithKeysAt(epoch);
+        return addrs.length;
+    }
+
+    /// A status EXIT mid-epoch T must NOT change the selection view for any epoch <= T
+    /// (the in-flight committee derivation stays frozen); it takes effect exactly at T+1.
+    /// disableValidator exercises the same `setSelectionVisible(false, +1)` path as both
+    /// jail types, so this pins the whole exit family.
+    function test_selectionView_frozenAgainstMidEpochExit() public {
+        address a = _validator("A", bytes32(uint256(0x10)));
+        _validator("B", bytes32(uint256(0x20)));
+        _validator("C", bytes32(uint256(0x30)));
+        _rollToEpoch(3);
+
+        (address[] memory before,) = staking.getValidatorsWithKeysAt(2); // frozen since epoch_start(2)
+        assertEq(before.length, 3, "selEpoch 2 has all three");
+
+        // Exit A mid-epoch 3.
+        staking.disableValidator(a);
+
+        (address[] memory afterExit,) = staking.getValidatorsWithKeysAt(2);
+        assertEq(afterExit.length, before.length, "selEpoch 2 view UNCHANGED by an epoch-3 exit");
+        for (uint256 i = 0; i < before.length; i++) {
+            assertEq(afterExit[i], before[i], "selEpoch 2 order/content frozen");
+        }
+        // The current selEpoch 3 is also unaffected (exit effect is +1).
+        assertEq(_selCountAt(3), 3, "selEpoch 3 still sees A");
+        // The exit lands exactly at selEpoch 4.
+        (address[] memory at4,) = staking.getValidatorsWithKeysAt(4);
+        assertEq(at4.length, 2, "selEpoch 4 excludes the exited A");
+        assertTrue(at4[0] != a && at4[1] != a, "A gone from selEpoch 4");
+    }
+
+    /// A consensus key registered mid-epoch T (activationEpoch = T+1) is NOT keyed-for-
+    /// selection for any committee minted from EffBal(<=T); it becomes keyed at exactly
+    /// activationEpoch — the membership analogue of the stake warmup.
+    function test_selectionView_keyWarmup_visibleFromActivationEpoch() public {
+        _validator("A", bytes32(uint256(0x10))); // baseline: member + key active from selEpoch 1
+        // B is an active MEMBER from epoch 0 but registers its key later.
+        address b = makeAddr("B");
+        staking.addValidator(b);
+        _rollToEpoch(3);
+        vm.prank(b);
+        staking.setConsensusKeys(b, PK_UNC, SIG_UNC_VALID, bytes32(uint256(0x20))); // activationEpoch = 4
+
+        // B is a member at selEpoch 1..3 but KEYLESS-for-selection until activationEpoch 4.
+        assertEq(_keyedCountAt(1), 1, "selEpoch 1: only A keyed");
+        assertEq(_keyedCountAt(3), 1, "selEpoch 3: B's key not yet active");
+        assertEq(_keyedCountAt(4), 2, "selEpoch 4: B key active at activationEpoch");
+    }
+
+    /// GENESIS BOOTSTRAP pin (v45/v46 regression). REPRODUCES THE REAL SOAK TIMING:
+    /// the bare->DPoS migration waits for the sequencer to finalize PAST the activation
+    /// block (lib.sh:401) and only THEN cast-calls setConsensusKeys — i.e. keys are
+    /// registered POST-activation (`block.number >= dposActivationBlock`). A block-based
+    /// genesis discriminator therefore warms genesis keys to +1 and empties committee[0]
+    /// (the boot halt). The membership-based discriminator (validator seeded via
+    /// `initialize` with `sinceEpoch=0`, visible from epoch 0) is block-independent and
+    /// keeps genesis keys active from selection epoch 0.
+    function test_genesisBootstrap_keysActiveFromEpoch0_committee0Commits() public {
+        address g1 = makeAddr("g1");
+        address g2 = makeAddr("g2");
+        address[] memory gvals = new address[](2);
+        gvals[0] = g1;
+        gvals[1] = g2;
+        uint64 activation = 5 * EPOCH_INTERVAL;
+        Staking gs = _deployGenesisStaking(gvals, activation);
+
+        // *** Register keys POST-ACTIVATION *** (the real migration timing that broke v46).
+        vm.roll(uint256(activation) + 2 * EPOCH_INTERVAL); // well past activation (epoch 2)
+        vm.prank(g1);
+        gs.setConsensusKeys(g1, PK_UNC, SIG_UNC_VALID, bytes32(uint256(0x10)));
+        vm.prank(g2);
+        gs.setConsensusKeys(g2, PK_UNC, SIG_UNC_VALID, bytes32(uint256(0x20)));
+
+        // Genesis keys activate from selection epoch 0 despite being registered post-activation.
+        assertEq(gs.getConsensusKeys(g1).activationEpoch, 0, "genesis key active from epoch 0 (block-independent)");
+        assertEq(gs.getConsensusKeys(g2).activationEpoch, 0);
+
+        // selEpoch 0 selection view is populated WITH non-zeroed keys.
+        (address[] memory addrs, IStaking.ConsensusKeys[] memory keys) = gs.getValidatorsWithKeysAt(0);
+        assertEq(addrs.length, 2, "genesis members visible at selEpoch 0");
+        assertTrue(keys[0].peerPubkey != bytes32(0) && keys[1].peerPubkey != bytes32(0), "genesis keys not gated out");
+
+        // committee[0] commits the genesis set (ascending peerPubkey: g1(0x10), g2(0x20)).
+        address[] memory committee = new address[](2);
+        committee[0] = g1;
+        committee[1] = g2;
+        vm.prank(SYSTEM_CALLER);
+        gs.commitEpochCommittee(committee);
+        assertEq(gs.getEpochCommittee(0).length, 2, "committee[0] populated from genesis bootstrap");
+
+        // Contrast: a genuine RUNTIME validator (registered post-genesis, membership
+        // visible only from >= 1) still warms its key up +1.
+        address r = makeAddr("runtime");
+        gs.addValidator(r); // sinceEpoch = nextEpoch (epoch 3) ⇒ membership NOT visible at epoch 0
+        vm.prank(r);
+        gs.setConsensusKeys(r, PK_UNC, SIG_UNC_VALID, bytes32(uint256(0x30)));
+        assertEq(gs.getConsensusKeys(r).activationEpoch, 3, "runtime key warms up to nextEpoch (+1)");
+    }
+
+    /// @dev Deploy a fresh Staking (+ its ChainConfig/SystemReward/StakingPool) seeded
+    ///      with genesis validators via `initialize` (sinceEpoch=0) and a FUTURE
+    ///      activation block, mirroring the genesis-bootstrap flow. 0-stake genesis
+    ///      validators (no token transfer). Verifier wired; chainid already 20994.
+    function _deployGenesisStaking(address[] memory gvals, uint64 activationBlock) internal returns (Staking gs) {
+        uint256[] memory gstakes = new uint256[](gvals.length);
+        uint64 nonce = vm.getNonce(address(this));
+        IStaking pStaking = IStaking(vm.computeCreateAddress(address(this), nonce + 1));
+        ISystemReward pReward = ISystemReward(vm.computeCreateAddress(address(this), nonce + 3));
+        IStakingPool pPool = IStakingPool(vm.computeCreateAddress(address(this), nonce + 5));
+        IChainConfig pCfg = IChainConfig(vm.computeCreateAddress(address(this), nonce + 7));
+        IFluentGovernance gov = IFluentGovernance(address(this));
+
+        Staking impl = new Staking(pStaking, pReward, pPool, gov, pCfg, blend, address(0), address(0));
+        gs = Staking(
+            payable(
+                address(
+                    new ERC1967Proxy(
+                        address(impl), abi.encodeCall(Staking.initialize, (address(this), gvals, gstakes, uint16(0)))
+                    )
+                )
+            )
+        );
+        SystemReward rImpl = new SystemReward(pStaking, pReward, pPool, gov, pCfg, blend);
+        new ERC1967Proxy(
+            address(rImpl),
+            abi.encodeCall(SystemReward.initialize, (address(this), _singleton(address(this)), _singleton16(10_000)))
+        );
+        StakingPool pImpl = new StakingPool(pStaking, pReward, pPool, gov, pCfg, blend);
+        new ERC1967Proxy(address(pImpl), abi.encodeCall(StakingPool.initialize, (address(this))));
+        ChainConfig cImpl = new ChainConfig(pStaking, pReward, pPool, gov, pCfg, blend, 0);
+        ChainConfig gcfg = ChainConfig(
+            address(
+                new ERC1967Proxy(
+                    address(cImpl),
+                    abi.encodeCall(
+                        ChainConfig.initialize,
+                        (
+                            address(this),
+                            ACTIVE_LEN,
+                            EPOCH_INTERVAL,
+                            uint32(150),
+                            uint32(7),
+                            uint32(7),
+                            uint256(ONE),
+                            uint256(ONE),
+                            activationBlock,
+                            address(0),
+                            address(0)
+                        )
+                    )
+                )
+            )
+        );
+        assertEq(address(gs), address(pStaking));
+        assertEq(address(gcfg), address(pCfg));
+        gcfg.setBlsVerifier(address(new BLS12381Verifier()));
+    }
+
+    /// Governance re-activation (Pending -> Active) enters the selection view at T+1
+    /// (mirrors reinstate-from-jail; both use `setSelectionVisible(true, +1)`).
+    function test_selectionView_governanceEntryAtPlus1() public {
+        _validator("A", bytes32(uint256(0x10)));
+        address b = _validator("B", bytes32(uint256(0x20)));
+        _rollToEpoch(3);
+        staking.disableValidator(b); // exit: B invisible from selEpoch 4
+        assertEq(_selCountAt(4), 1, "selEpoch 4: B out");
+
+        _rollToEpoch(5);
+        staking.activateValidator(b); // entry: B visible again from selEpoch 6
+        assertEq(_selCountAt(5), 1, "selEpoch 5: entry not yet effective");
+        assertEq(_selCountAt(6), 2, "selEpoch 6: B re-enters at exactly +1");
+    }
 
     function _validator(string memory label, bytes32 peerPubkey) internal returns (address v) {
         v = makeAddr(label);
@@ -692,8 +1030,22 @@ contract StakingEpochCommitteeTest is Test {
         uint64 cur = staking.currentEpoch();
         while (staking.nextEpochToCommit() <= cur) {
             uint64 t = staking.nextEpochToCommit();
-            // committee[t] is selected from EffBal(t-1) (spec §4.4); genesis t=0 → snapshot[0].
-            address[] memory c = _canonicalAt(t == 0 ? 0 : t - 1);
+            // 2-epoch warm-up: committee[t] is selected from EffBal(t-2) (spec §4.4,
+            // WARMUP_DELAY=2); genesis t<2 clamps to EffBal(0). The candidate is always
+            // committed+verified now (no qualify-before-commit deferral anymore).
+            address[] memory c = _canonicalAt(t < 2 ? 0 : t - 2);
+            vm.prank(SYSTEM_CALLER);
+            staking.commitEpochCommittee(c);
+        }
+    }
+
+    /// @dev Commit the canonical committee for every uncommitted target strictly below
+    ///      `target`, so the NEXT commit lands exactly on `target`. Used by the revert
+    ///      tests to reach the first selection-eligible epoch.
+    function _catchUpUntil(uint64 target) internal {
+        while (staking.nextEpochToCommit() < target) {
+            uint64 t = staking.nextEpochToCommit();
+            address[] memory c = _canonicalAt(t < 2 ? 0 : t - 2);
             vm.prank(SYSTEM_CALLER);
             staking.commitEpochCommittee(c);
         }
@@ -707,13 +1059,6 @@ contract StakingEpochCommitteeTest is Test {
     function _singleton16(uint16 value) internal pure returns (uint16[] memory values) {
         values = new uint16[](1);
         values[0] = value;
-    }
-
-    function _padBytes(uint256 len, uint8 b) internal pure returns (bytes memory out) {
-        out = new bytes(len);
-        for (uint256 i = 0; i < len; i++) {
-            out[i] = bytes1(b);
-        }
     }
 
     // --- dposActivationBlock / relative epoch numbering ---
@@ -787,13 +1132,14 @@ contract StakingEpochCommitteeTest is Test {
                     address(this),
                     ACTIVE_LEN,
                     EPOCH_INTERVAL,
-                    uint32(50),
                     uint32(150),
                     uint32(7),
                     uint32(7),
                     uint256(ONE),
                     uint256(ONE),
-                    uint64(EPOCH_INTERVAL + 1) // unaligned
+                    uint64(EPOCH_INTERVAL + 1), // unaligned
+                    address(0),
+                    address(0)
                 )
             )
         );

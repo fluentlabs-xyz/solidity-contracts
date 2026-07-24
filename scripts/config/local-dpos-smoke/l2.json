@@ -9,7 +9,6 @@
     "staking": {
         "activeValidatorsLength": 5,
         "epochBlockInterval": 64,
-        "misdemeanorThreshold": 1,
         "felonyThreshold": 1,
         "validatorJailEpochLength": 4,
         "undelegatePeriod": 4,

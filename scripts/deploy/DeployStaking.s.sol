@@ -8,7 +8,10 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 import {FluentGovernance} from "../../contracts/governance/FluentGovernance.sol";
 import {ChainConfig} from "../../contracts/staking/ChainConfig.sol";
+import {BLS12381Verifier} from "../../contracts/libraries/BLS12381Verifier.sol";
+import {SimplexEvidenceDecoder} from "../../contracts/libraries/SimplexEvidenceDecoder.sol";
 import {LivenessSlashing} from "../../contracts/staking/LivenessSlashing.sol";
+import {BlendReserve} from "../../contracts/staking/BlendReserve.sol";
 import {Staking} from "../../contracts/staking/Staking.sol";
 import {StakingPool} from "../../contracts/staking/StakingPool.sol";
 import {SystemReward} from "../../contracts/staking/SystemReward.sol";
@@ -40,6 +43,10 @@ contract DeployStaking is DeployBase {
         address governanceImpl;
         address livenessSlashing;
         address livenessSlashingImpl;
+        address blendReserve;
+        address blendReserveImpl;
+        address blsVerifier;
+        address evidenceDecoder;
     }
 
     struct StakingDeployParams {
@@ -52,7 +59,6 @@ contract DeployStaking is DeployBase {
         uint32 governanceVotingPeriod;
         uint32 activeValidatorsLength;
         uint32 epochBlockInterval;
-        uint32 misdemeanorThreshold;
         uint32 felonyThreshold;
         uint32 validatorJailEpochLength;
         uint32 undelegatePeriod;
@@ -80,16 +86,17 @@ contract DeployStaking is DeployBase {
         p.activeValidatorsLength =
             uint32(vm.envOr("ACTIVE_VALIDATORS_LENGTH", json.readUint(".staking.activeValidatorsLength")));
         p.epochBlockInterval = uint32(json.readUint(".staking.epochBlockInterval"));
-        p.misdemeanorThreshold = uint32(json.readUint(".staking.misdemeanorThreshold"));
         p.felonyThreshold = uint32(json.readUint(".staking.felonyThreshold"));
         p.validatorJailEpochLength = uint32(json.readUint(".staking.validatorJailEpochLength"));
         p.undelegatePeriod = uint32(json.readUint(".staking.undelegatePeriod"));
         p.minValidatorStakeAmount = json.readUint(".staking.minValidatorStakeAmount");
         p.minStakingAmount = json.readUint(".staking.minStakingAmount");
         // Optional: absent ⇒ 0 ⇒ absolute epoch numbering (set later via governance at migration).
-        p.minUndelegateBlocks = vm.keyExistsJson(json, ".staking.minUndelegateBlocks")
-            ? json.readUint(".staking.minUndelegateBlocks")
-            : 0;
+        p.minUndelegateBlocks =
+            vm.keyExistsJson(json, ".staking.minUndelegateBlocks") ? json.readUint(".staking.minUndelegateBlocks") : 0;
+        // A non-zero activation block MUST be a multiple of epochBlockInterval (86400 on mainnet/testnet)
+        // so absolute and relative epoch boundaries coincide; ChainConfig.initialize asserts this. Absent
+        // ⇒ 0 (trivially aligned; absolute numbering until governance sets it at migration).
         p.dposActivationBlock = vm.keyExistsJson(json, ".staking.dposActivationBlock")
             ? uint64(json.readUint(".staking.dposActivationBlock"))
             : 0;
@@ -98,20 +105,13 @@ contract DeployStaking is DeployBase {
         require(p.initialValidators.length == p.initialStakes.length, "staking initial validators/stakes mismatch");
         require(p.systemRewardAccounts.length == p.systemRewardShares.length, "system reward accounts/shares mismatch");
 
-        // Liveness reachability (audit P2): one slash dispatch costs MISS_THRESHOLD
-        // (50, ChainConfig.DEFAULT_MISS_THRESHOLD) consecutive misses, so at most
-        // `interval / 50` dispatches can accrue per epoch. A felony/misdemeanor
-        // threshold above that ceiling makes the consequence UNREACHABLE — a
-        // silently dead liveness mechanism. Fail at deploy, not in production.
-        uint32 maxDispatchesPerEpoch = p.epochBlockInterval / 50;
-        require(
-            p.felonyThreshold <= maxDispatchesPerEpoch,
-            "felony threshold unreachable: lower felonyThreshold or raise epochBlockInterval (need felony <= interval/50)"
-        );
-        require(
-            p.misdemeanorThreshold <= maxDispatchesPerEpoch,
-            "misdemeanor threshold unreachable: lower misdemeanorThreshold or raise epochBlockInterval (need misdemeanor <= interval/50)"
-        );
+        // Windowed participation model: the participation-floor jail fires on the FIRST
+        // below-floor epoch (no grace). `slashesCount` is per-epoch (max 1 strike) and never
+        // carried forward, so `felonyThreshold > 1` is UNREACHABLE — only 1 is meaningful. The
+        // old `felony <= interval/50` arithmetic assumed 50 CONSECUTIVE misses per dispatch and
+        // is meaningless under the windowed model.
+        require(p.felonyThreshold == 1, "felony threshold must be 1 (per-epoch participation strike; >1 unreachable)");
+        require(p.validatorJailEpochLength >= 1, "jail epoch length must be >= 1");
     }
 
     function _toUint16Array(uint256[] memory values) internal pure returns (uint16[] memory out) {
@@ -138,6 +138,23 @@ contract DeployStaking is DeployBase {
         // (0x4e59...), NOT a CREATE from `tx.origin`, so it consumes no slot in
         // this sequence — these offsets are unchanged by the link. Do not bump
         // them for the library.
+        //
+        // F4 (GENESIS REQUIREMENT — no on-chain probe by decision): a DELEGATECALL to a code-less
+        // address SUCCEEDS with empty returndata, so an absent linked library makes settleEpochStipend /
+        // slashEquivocation* a SILENT no-op. Forge links them here, but the fluentbase `bootstrap.rs`
+        // genesis MUST predeploy the linked libraries — StakingDpos, StakingRewards, StakingEconomics —
+        // at the addresses Staking/StakingRewards are linked against. This is a documented handoff
+        // invariant, verified by the fluentbase genesis integration test (see the handoff report).
+        //
+        // Equivocation-slashing crypto units: both are stateless with no constructor args.
+        // Deployed BEFORE the nonce snapshot below so the proxy-address predictions
+        // (nonce+2..+12) are unaffected, and wired into ChainConfig's initializer so
+        // equivocation slashing is live at genesis. The `setBlsVerifier`/`setEvidenceDecoder`
+        // setters are `onlyFromGovernance` and cannot run inside this broadcast, so genesis
+        // seeding via `initialize` is the only deploy-time wiring path.
+        r.blsVerifier = address(new BLS12381Verifier());
+        r.evidenceDecoder = address(new SimplexEvidenceDecoder());
+
         uint64 nonce = vm.getNonce(tx.origin);
         IStaking predictedStaking = IStaking(vm.computeCreateAddress(tx.origin, nonce + 2));
         ISystemReward predictedSystemReward = ISystemReward(vm.computeCreateAddress(tx.origin, nonce + 4));
@@ -145,6 +162,11 @@ contract DeployStaking is DeployBase {
         IChainConfig predictedChainConfig = IChainConfig(vm.computeCreateAddress(tx.origin, nonce + 8));
         IFluentGovernance governance = IFluentGovernance(vm.computeCreateAddress(tx.origin, nonce + 10));
         address predictedLivenessSlashing = vm.computeCreateAddress(tx.origin, nonce + 12);
+        // BlendReserve (nonce+14) predeploy — deployed + wired below. Settlement is folded into
+        // Staking (no RewardRouter predeploy): Staking draws the stipend from BlendReserve, and
+        // BlendReserve gates `disburse` to the Staking proxy — a mutual address dependency both
+        // sides resolve via the pre-computed nonce predictions.
+        address predictedBlendReserve = vm.computeCreateAddress(tx.origin, nonce + 14);
 
         uint256 totalInitialStakes = _sum(p.initialStakes);
         if (totalInitialStakes > 0) {
@@ -158,7 +180,8 @@ contract DeployStaking is DeployBase {
             governance,
             predictedChainConfig,
             p.stakingToken,
-            predictedLivenessSlashing
+            predictedLivenessSlashing,
+            predictedBlendReserve
         );
         r.staking = address(
             new ERC1967Proxy(
@@ -217,23 +240,42 @@ contract DeployStaking is DeployBase {
                         p.initialOwner,
                         p.activeValidatorsLength,
                         p.epochBlockInterval,
-                        p.misdemeanorThreshold,
                         p.felonyThreshold,
                         p.validatorJailEpochLength,
                         p.undelegatePeriod,
                         p.minValidatorStakeAmount,
                         p.minStakingAmount,
-                        p.dposActivationBlock
+                        p.dposActivationBlock,
+                        r.blsVerifier,
+                        r.evidenceDecoder
                     )
                 )
             )
         );
         r.chainConfigImpl = address(chainConfigImpl);
 
+        // Loud fail if equivocation slashing would be dead on this deploy: the
+        // NotConfigured guards in StakingDpos revert every slash while these are unset.
+        require(
+            IChainConfig(r.chainConfig).getBlsVerifier() == r.blsVerifier, "bls verifier not wired into chain config"
+        );
+        require(
+            IChainConfig(r.chainConfig).getEvidenceDecoder() == r.evidenceDecoder,
+            "evidence decoder not wired into chain config"
+        );
+
         require(r.staking == address(predictedStaking), "staking proxy prediction mismatch");
         require(r.systemReward == address(predictedSystemReward), "system reward proxy prediction mismatch");
         require(r.stakingPool == address(predictedStakingPool), "staking pool proxy prediction mismatch");
         require(r.chainConfig == address(predictedChainConfig), "chain config proxy prediction mismatch");
+
+        // F10: the per-epoch stipend share and the `totalBlendRewards` accumulator are both uint96, so the
+        // MAX stipend cap MUST fit uint96 or a share cast could truncate. Couple the bound to the type — this
+        // fails the deploy if ChainConfig's cap is ever raised past uint96.
+        require(
+            ChainConfig(r.chainConfig).MAX_BLEND_STIPEND_PER_EPOCH() <= type(uint96).max,
+            "MAX_BLEND_STIPEND_PER_EPOCH exceeds uint96 (stipend cast would truncate)"
+        );
 
         FluentGovernance governanceImpl = new FluentGovernance(predictedStaking, predictedChainConfig);
         r.governance = address(
@@ -260,6 +302,67 @@ contract DeployStaking is DeployBase {
         );
         r.livenessSlashingImpl = address(livenessSlashingImpl);
         require(r.livenessSlashing == predictedLivenessSlashing, "liveness slashing proxy prediction mismatch");
+
+        // Fixed-supply-BLEND deploy-assert (G9): reject a staking token that exposes a callable open
+        // mint (e.g. MockBlendToken). Reward emission MUST be reallocation from a finite pool.
+        _assertFixedSupplyToken(address(p.stakingToken));
+
+        // BlendReserve predeploy (nonce+13 impl, nonce+14 proxy). Its `disburse` caller gate is the
+        // Staking proxy (settlement is folded into Staking).
+        BlendReserve blendReserveImpl = new BlendReserve(
+            predictedStaking,
+            predictedSystemReward,
+            predictedStakingPool,
+            governance,
+            predictedChainConfig,
+            p.stakingToken,
+            address(predictedStaking)
+        );
+        r.blendReserve = address(
+            new ERC1967Proxy(address(blendReserveImpl), abi.encodeCall(BlendReserve.initialize, (p.initialOwner)))
+        );
+        r.blendReserveImpl = address(blendReserveImpl);
+        require(r.blendReserve == predictedBlendReserve, "blend reserve proxy prediction mismatch");
+
+        // Wiring read-back: Staking draws the stipend from the reserve; the reserve gates disburse on
+        // the Staking proxy. (Immutables aren't externally readable, so the prediction asserts above are
+        // the byte-for-byte guarantee; in production `bootstrap.rs` must mirror these addrs.)
+        require(BlendReserve(r.blendReserve).getStakingToken() == p.stakingToken, "reserve token mismatch");
+
+        // Optional genesis-fund: transfer B_total to the reserve if the deployer holds BLEND and a
+        // non-zero amount is configured. In production this is a seeded genesis balance (bootstrap.rs).
+        uint256 reserveGenesis = vm.envOr("BLEND_RESERVE_GENESIS", uint256(0));
+        if (reserveGenesis > 0) {
+            p.stakingToken.transfer(r.blendReserve, reserveGenesis);
+            require(
+                BlendReserve(r.blendReserve).reserveBalance() == reserveGenesis, "reserve genesis-fund read-back failed"
+            );
+        }
+    }
+
+    /// @dev G9 hard gate (F5): the staking token MUST be the canonical fixed-supply BLEND, pinned by
+    ///      ADDRESS (a positive identity proof, not the old `mint()`-revert inference which is a
+    ///      false-negative sieve — access-gated / differently-signatured mints passed it while remaining
+    ///      inflatable). Production BLEND is an immutable, keys-thrown-away predeploy, so an address pin is
+    ///      sufficient (no codehash / supply-invariance / mint-probe). `EXPECTED_BLEND` comes from
+    ///      per-network config (`.staking.expectedBlend`) or env, and MUST be byte-parity with fluentbase
+    ///      `bootstrap.rs`. Enforced ONLY when set (production); unset/zero on local/devnet ⇒ skipped (the
+    ///      intentionally-mintable mock BLEND is fine, and the fluentbase soak needs no fixed-supply mock).
+    function _assertFixedSupplyToken(address token) internal view {
+        address expectedBlend = _expectedBlend();
+        if (expectedBlend == address(0)) return; // local/devnet: no canonical BLEND pinned → skip
+        require(token == expectedBlend, "STAKING_TOKEN is not the canonical fixed-supply BLEND (EXPECTED_BLEND)");
+    }
+
+    /// @dev The canonical BLEND identity for the active network: env `EXPECTED_BLEND` (highest precedence,
+    ///      for CI/soak parity with `bootstrap.rs`) else the config's `.staking.expectedBlend`. Absent on
+    ///      local/devnet ⇒ address(0) ⇒ the G9 gate is skipped.
+    function _expectedBlend() internal view returns (address expected) {
+        (, string memory json) = _readActiveConfig();
+        if (vm.keyExistsJson(json, ".staking.expectedBlend")) {
+            expected = json.readAddress(".staking.expectedBlend");
+        }
+        expected = vm.envOr("EXPECTED_BLEND", expected);
     }
 
     function run() external {
@@ -299,6 +402,10 @@ contract DeployStaking is DeployBase {
         console2.log("  impl:", r.governanceImpl);
         console2.log("LivenessSlashing deployed:", r.livenessSlashing);
         console2.log("  impl:", r.livenessSlashingImpl);
+        console2.log("BlendReserve deployed:", r.blendReserve);
+        console2.log("  impl:", r.blendReserveImpl);
+        console2.log("BLS12381Verifier deployed:", r.blsVerifier);
+        console2.log("SimplexEvidenceDecoder deployed:", r.evidenceDecoder);
     }
 
     function _writeDeployment(StakingDeployment memory r, string memory outputPath) internal {
@@ -314,6 +421,10 @@ contract DeployStaking is DeployBase {
         out = vm.serializeAddress("deployment", "governance_impl", r.governanceImpl);
         out = vm.serializeAddress("deployment", "liveness_slashing", r.livenessSlashing);
         out = vm.serializeAddress("deployment", "liveness_slashing_impl", r.livenessSlashingImpl);
+        out = vm.serializeAddress("deployment", "blend_reserve", r.blendReserve);
+        out = vm.serializeAddress("deployment", "blend_reserve_impl", r.blendReserveImpl);
+        out = vm.serializeAddress("deployment", "bls_verifier", r.blsVerifier);
+        out = vm.serializeAddress("deployment", "evidence_decoder", r.evidenceDecoder);
         vm.writeJson(out, outputPath);
     }
 }

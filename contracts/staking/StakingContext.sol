@@ -53,11 +53,6 @@ abstract contract StakingContext is Initializable, UUPSUpgradeable, Ownable2Step
         __UUPSUpgradeable_init();
     }
 
-    modifier onlyFromCoinbase() {
-        require(msg.sender == block.coinbase, OnlyCoinbase());
-        _;
-    }
-
     /// @dev System-call entry-point guard. Only callable when `msg.sender`
     ///      is the canonical EIP-4788 sentinel.
     modifier onlySystemCall() {
@@ -67,11 +62,6 @@ abstract contract StakingContext is Initializable, UUPSUpgradeable, Ownable2Step
 
     modifier onlyFromGovernance() {
         require(IFluentGovernance(msg.sender) == _governanceContract, OnlyGovernance());
-        _;
-    }
-
-    modifier onlyZeroGasPrice() {
-        require(tx.gasprice == 0, OnlyZeroGasPrice());
         _;
     }
 

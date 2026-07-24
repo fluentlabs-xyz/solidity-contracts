@@ -10,15 +10,41 @@ interface IStakingEvents {
     event ValidatorRemoved(address indexed validator);
     event ValidatorReleased(address indexed validator, uint64 epoch);
     event ValidatorJailed(address indexed validator, uint64 epoch);
-    event ValidatorDeposited(address indexed validator, uint256 amount, uint64 epoch);
     event ValidatorSlashed(address indexed validator, uint32 slashes, uint64 epoch);
+    /// @notice A participation-floor jail was NOT applied because it would drop the healthy active set
+    ///         below the running committee's Simplex quorum `q(n)=n-f`, `n = min(activeSetSize, cap)`. A
+    ///         laggy validator is kept in-committee in preference to a chain halt.
+    event LivenessJailSkippedHaltGuard(
+        address indexed validator, uint64 epoch, uint256 activeSetSize, uint256 quorumFloor
+    );
     event ValidatorOwnerClaimed(address indexed validator, uint256 amount, uint64 epoch);
+
+    // reward crediting events (per-epoch BLEND settlement)
+    event EpochBlendRewardsCommitted(uint64 indexed epoch, uint256 blendAmount);
+    /// @notice A finalized epoch was settled but credited zero stipend (empty / below-floor / partitioned
+    ///         window) while the stipend was enabled — a genuinely forfeited window, surfaced for ops.
+    ///         No carry-forward: the unpaid pot simply stays in the reserve.
+    event StipendSkipped(uint64 indexed epoch);
 
     // consensus / equivocation events
     event ConsensusKeysSet(address indexed validator, bytes blsPubkey, bytes32 peerPubkey, uint64 activationEpoch);
     event EpochCommitteeCommitted(uint64 indexed epoch, address[] committee);
+    /// @notice A DKG qualification was recorded for `epoch`'s committee (first write
+    ///         only; idempotent re-submits do not re-emit). Gates the deferred
+    ///         CHANGE-epoch committee commit: present ⇒ commit candidate, absent ⇒
+    ///         carry incumbent.
+    event DkgQualRecorded(uint64 indexed epoch);
     event EquivocationSlashed(address indexed validator, uint64 epoch, address indexed reporter);
-    event EquivocationStakeSeized(address indexed validator, address indexed reporter, uint256 reporterReward, uint256 burned);
+    /// @param recipient Where the non-reporter `remainder` was sent: the governance-set
+    ///        damage-coverage fund (`ChainConfig.getSlashFundAddress()`) when configured, else the
+    ///        burn sink (`0x…dEaD`).
+    event EquivocationStakeSeized(
+        address indexed validator,
+        address indexed reporter,
+        uint256 reporterReward,
+        uint256 remainder,
+        address recipient
+    );
 
     // staker events
     event Delegated(address indexed validator, address indexed staker, uint256 amount, uint64 epoch);
@@ -69,10 +95,12 @@ interface IStaking is IValidatorSet, IStakingEvents, IStakingErrors {
 
     /// @notice Per-epoch validator accounting snapshot.
     struct ValidatorSnapshot {
-        uint96 totalRewards;
         uint112 totalDelegated;
         uint32 slashesCount;
         uint16 commissionRate;
+        // Per-epoch BLEND reward ledger (the flat-by-stake stipend). Never copied forward by
+        // touchValidatorSnapshot, so per-epoch credit is double-count-safe.
+        uint96 totalBlendRewards;
     }
 
     /// @notice Mutable validator metadata independent from per-epoch accounting snapshots.
@@ -141,33 +169,16 @@ interface IStaking is IValidatorSet, IStakingEvents, IStakingErrors {
             uint64 changedAt,
             uint64 jailedBefore,
             uint64 claimedAt,
-            uint16 commissionRate,
-            uint96 totalRewards
-        );
-
-    /// @notice Returns validator metadata with accounting materialized at `epoch`.
-    function getValidatorStatusAtEpoch(address validator, uint64 epoch)
-        external
-        view
-        returns (
-            address ownerAddress,
-            uint8 status,
-            uint256 totalDelegated,
-            uint32 slashesCount,
-            uint64 changedAt,
-            uint64 jailedBefore,
-            uint64 claimedAt,
-            uint16 commissionRate,
-            uint96 totalRewards
+            uint16 commissionRate
         );
 
     /// @notice Returns `validator`'s effective delegated stake (voting power) as of `blockNumber`.
     /// @dev Uses the REBASED epoch (`dposActivationBlock`-relative, matching
     ///      {currentEpoch}) and the at-or-before snapshot — the same effective-stake
     ///      source committee selection ranks by. This is the canonical governance
-    ///      voting-power read; unlike {getValidatorStatusAtEpoch} it does not leak the
-    ///      `changedAt` snapshot for empty epochs, so a past `blockNumber` resolves to
-    ///      the stake actually effective then rather than the validator's latest stake.
+    ///      voting-power read; it does not leak the validator's latest `changedAt`
+    ///      snapshot for empty epochs, so a past `blockNumber` resolves to the stake
+    ///      actually effective then rather than the validator's latest stake.
     function getValidatorDelegatedStakeAt(address validator, uint256 blockNumber) external view returns (uint256);
 
     /// @notice Returns the validator address owned by `owner`, or zero when none is registered.
@@ -190,6 +201,12 @@ interface IStaking is IValidatorSet, IStakingEvents, IStakingErrors {
 
     /// @notice Releases a jailed validator once its jail epoch has elapsed.
     function releaseValidatorFromJail(address validator) external;
+
+    /// @notice Auto-reinstates every validator whose LIVENESS jail has expired
+    ///         (`currentEpoch >= jailedBefore`), re-adding it to the active set with no owner
+    ///         action. Tombstoned (equivocation) validators are popped, never readmitted.
+    ///         Callable only by the `LivenessSlashing` predeploy; driven at the epoch boundary.
+    function readmitExpiredJails(uint64 currentEpoch) external;
 
     /// @notice Updates validator commission rate.
     function changeValidatorCommissionRate(address validator, uint16 commissionRate) external;
@@ -247,6 +264,15 @@ interface IStaking is IValidatorSet, IStakingEvents, IStakingErrors {
     ///         the standard jail/felony pipeline.
     function slash(address validator) external;
 
+    /// @notice Settle the per-epoch BLEND stipend (flat-by-stake among the live/active committee,
+    ///         drawn from the `BlendReserve` and credited to the ledger). System call, injected at the
+    ///         epoch boundary; idempotent per epoch.
+    function settleEpochStipend(uint64 epoch) external;
+
+    /// @notice Total BLEND reward credited across `epoch`'s committee, summed for an off-chain APR
+    ///         basis. Read-only.
+    function getEpochRewards(uint64 epoch) external view returns (uint256 blendTotal);
+
     /// @notice Sets consensus keys for `validator` with on-chain
     ///         Proof-of-Possession (one-shot, no rotation in v1). The
     ///         compressed pubkey is derived on-chain from
@@ -289,10 +315,18 @@ interface IStaking is IValidatorSet, IStakingEvents, IStakingErrors {
 
     /// @notice Freezes the canonical consensus committee one epoch ahead (system
     ///         call): commits the next-uncommitted epoch `N = nextEpochToCommit()`,
-    ///         selecting it from `EffBal(N-1)` (spec §4.4). `committee` must be the
+    ///         selecting it from `EffBal(N-2)` (2-epoch warm-up). `committee` must be the
     ///         keyed top-k set in strict ascending `peerPubkey` order; the contract
-    ///         verifies it. Reverts if `N > currentEpoch + 1`.
+    ///         verifies it. Reverts if `N > currentEpoch + 2`.
     function commitEpochCommittee(address[] calldata committee) external;
+
+    /// @notice Whether a committee MINT (a genuine membership change vs the incumbent, so
+    ///         a fresh beacon key is dealt) was recorded for `epoch`. Set DETERMINISTICALLY
+    ///         at commit time by `commitEpochCommittee` (`committee[epoch] !=
+    ///         committee[epoch-1]`); the consensus beacon-key carry arbiter reads it to
+    ///         find the newest key epoch. (Replaces the former permissionless
+    ///         `recordDkgQual` marker.)
+    function getDkgQual(uint64 epoch) external view returns (bool);
 
     /// @notice Resolves a Simplex signer index (for `epoch`) to a validator address.
     function resolveSigner(uint64 epoch, uint32 signerIdx) external view returns (address);
@@ -310,7 +344,7 @@ interface IStaking is IValidatorSet, IStakingEvents, IStakingErrors {
     ///         for stake-weighted leader election. Empty arrays if uncommitted.
     /// @dev `stakes[i]` is full-precision wei (`totalDelegatedToValidatorAt`, the
     ///      at-or-before-`epoch` snapshot — the same source committee selection
-    ///      ranks by, NOT `getValidatorStatusAtEpoch`'s unclamped `changedAt` read).
+    ///      ranks by, never the validator's unclamped latest `changedAt` read).
     function getEpochCommitteeWithStakes(uint64 epoch)
         external
         view

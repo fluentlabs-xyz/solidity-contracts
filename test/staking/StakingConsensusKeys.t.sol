@@ -75,6 +75,7 @@ contract StakingConsensusKeysTest is Test {
             governance,
             predictedChainConfig,
             blend,
+            address(0),
             address(0)
         );
         staking = Staking(
@@ -140,13 +141,14 @@ contract StakingConsensusKeysTest is Test {
                             address(this),
                             uint32(51),
                             uint32(10),
-                            uint32(50),
                             uint32(150),
                             uint32(7),
                             uint32(7),
                             uint256(ONE),
                             uint256(ONE),
-                            uint64(0)
+                            uint64(0),
+                            address(0),
+                            address(0)
                         )
                     )
                 )
@@ -357,11 +359,11 @@ contract StakingConsensusKeysTest is Test {
     }
 
     function test_consensusKeysStorage_doesNotInterfereWithStakingStorage() public {
-        (address ownerBefore, uint8 statusBefore,,,,,,,) = staking.getValidatorStatus(validator1);
+        (address ownerBefore, uint8 statusBefore,,,,,,) = staking.getValidatorStatus(validator1);
 
         _okKeys(validator1, validPeerPk);
 
-        (address ownerAfter, uint8 statusAfter,,,,,,,) = staking.getValidatorStatus(validator1);
+        (address ownerAfter, uint8 statusAfter,,,,,,) = staking.getValidatorStatus(validator1);
 
         assertEq(ownerBefore, ownerAfter);
         assertEq(statusBefore, statusAfter);

@@ -34,7 +34,8 @@ library StakingDpos {
     /// @notice Expected length of a compressed BLS12-381 G2 pubkey (MinSig variant).
     uint256 internal constant BLS_PUBKEY_LENGTH = 96;
 
-    /// @notice Burn sink for the non-reporter remainder of an equivocation seizure. A
+    /// @notice Fallback sink for the non-reporter remainder of an equivocation seizure, used when
+    ///         no damage-coverage fund is configured (`ChainConfig.getSlashFundAddress()` unset). A
     ///         standard ERC20 `transfer` to address(0) reverts, so the canonical dead
     ///         address is used instead; no key controls it, so the tokens are permanently
     ///         removed from circulation. (The reporter's cut, in basis points, is a
@@ -120,7 +121,19 @@ library StakingDpos {
             revert IStakingContextErrors.InvalidProofOfPossession(validatorAddress);
         }
 
-        uint64 activationEpoch = _nextEpoch(cfg);
+        // A GENESIS validator's key activates from selection epoch 0 so
+        // getValidatorsWithKeysAt(0) is populated for the bootstrap committee[0]. The
+        // genesis marker is the validator's OWN already-committed membership — seeded
+        // `sinceEpoch=0` (visible from epoch 0) via `initialize` — NOT `block.number`
+        // vs `dposActivationBlock`: the bare->DPoS migration calls setConsensusKeys at
+        // RUNTIME after finalizing PAST the activation block (block.number >=
+        // activation), so a block-based discriminator wrongly warms genesis keys to +1
+        // and starves committee[0] (v45/v46 boot halt). Reading the membership stamp
+        // makes this a pure function of committed state, independent of the
+        // setConsensusKeys call site/block. A genuine RUNTIME validator (registered
+        // post-genesis, membership visible only from >= 1) keeps the +1 key warmup.
+        uint64 activationEpoch =
+            StakingLayout.selectionVisibleAt(StakingLayout.stakingStorage(), validatorAddress, 0) ? 0 : _nextEpoch(cfg);
         $ck.consensusKeys[validatorAddress] =
             IStaking.ConsensusKeys({blsPubkey: blsPubkey, peerPubkey: peerPubkey, activationEpoch: activationEpoch});
         $ck.peerPubkeyOwner[peerPubkey] = validatorAddress;
@@ -231,7 +244,10 @@ library StakingDpos {
         bool ok2 = verifier.verify(_nsForKind(ev.kind2), ev.msg2, BLS_SIG_DST, sig2Unc, pkUncompressed);
         if (!ok1 || !ok2) revert IStakingContextErrors.EquivocationSignatureInvalid();
 
-        // CEI: tombstone before any state-changing penalty.
+        // Tombstone before any state-changing penalty. This ordering is CEI (reentrancy)
+        // hygiene only; the tombstone's DURABILITY against a same-tx revert is guaranteed
+        // separately by `_seizeSelfStake` never reverting on the reporter payment — CEI
+        // ordering alone would NOT stop a failed reporter transfer from rolling it back.
         $eq.tombstoned[validator] = true;
         _penalizeEquivocation(cfg, token, validator);
         emit IStakingEvents.EquivocationSlashed(validator, ev.epoch, msg.sender);
@@ -254,16 +270,25 @@ library StakingDpos {
         // `_slashEquivocation` is the single never-release mechanism —
         // unconditional and first in `releaseValidatorFromJail`.
         $._validatorsMap[validatorAddress] = v;
+        // Selection exit follows the UNIFORM +1 rule (no immediate-exclusion exception,
+        // no live tombstone check in the keyed filter — that would reintroduce mid-epoch
+        // selection nondeterminism). CONSEQUENCE (accepted, ≤f model): a caught
+        // equivocator may still be seated in the ONE committee whose selection was already
+        // in flight (selectionEpoch == this epoch); it is slashed + tombstoned + never
+        // returns, and we deliberately build no >f defense.
+        StakingLayout.setSelectionVisible($, validatorAddress, false, _currentEpoch(cfg));
 
         _seizeSelfStake(cfg, token, validatorAddress, v.ownerAddress);
 
         emit IStakingEvents.ValidatorJailed(validatorAddress, _currentEpoch(cfg));
     }
 
-    /// @dev Seize 100% of the offender's OWN bonded self-stake (owner→self delegation):
-    ///      30% rewards the reporter (`msg.sender`), 70% is burned. Because only the
-    ///      operator's own stake is taken, a self-reporting offender always nets negative
-    ///      (loses 100%, recovers ≤30%), so no self-report guard is required.
+    /// @dev Seize 100% of the offender's OWN bonded self-stake (owner→self delegation): the
+    ///      reporter (`msg.sender`) gets `getSlashReporterRewardBps()` (default 30%); the remainder
+    ///      goes to the governance-set damage-coverage fund (`getSlashFundAddress()`), or is burned
+    ///      when that fund is unset (genesis default). Because only the operator's own stake is
+    ///      taken, a self-reporting offender always nets negative (loses 100%, recovers ≤ the
+    ///      reporter cut), so no self-report guard is required.
     ///      DOES NOT touch the validator's `totalDelegated` snapshots or any delegator
     ///      balance: reducing a past snapshot would retroactively change how
     ///      already-accrued rewards were split among delegators. The seized principal's
@@ -285,15 +310,58 @@ library StakingDpos {
         delete selfDelegation.delegateQueue;
         selfDelegation.delegateGap = 0;
 
-        // Interactions (CEI: tombstone + state above already applied): reporter cut (a
-        // governance-set basis-point fraction of the seized amount) to the reporter, the
-        // remainder burned.
+        // Interactions: split the seized amount into a governance-set reporter cut and a
+        // remainder. The reporter leg is made NON-REVERTING so a bad reporter address
+        // can never roll back the tombstone/jail/active-list removal applied above (the whole
+        // slash is one atomic tx). For the current plain-ERC20 token the only revert vector is
+        // `msg.sender == address(0)` (OZ `ERC20InvalidReceiver`), so an address(0) guard
+        // suffices: an invalid reporter simply forfeits its cut into the remainder.
+        // NOTE: under the planned native-token migration this reporter leg becomes a native
+        // `call{value:}` that can ALSO revert for a contract reporter — it must THEN switch to
+        // a failure-tolerant low-level call (success-check → fold the cut into the remainder on
+        // failure), not just this address(0) guard.
         uint256 reporterReward = (seized * cfg.getSlashReporterRewardBps()) / 10_000;
-        uint256 burned = seized - reporterReward;
-        if (reporterReward > 0) token.safeTransfer(msg.sender, reporterReward);
-        if (burned > 0) token.safeTransfer(EQUIVOCATION_BURN_SINK, burned);
+        uint256 remainder = seized - reporterReward;
+        if (reporterReward > 0 && msg.sender != address(0)) {
+            token.safeTransfer(msg.sender, reporterReward);
+        } else {
+            remainder += reporterReward; // no valid reporter → its cut joins the remainder, never revert the slash
+            reporterReward = 0;
+        }
+        // The non-reporter remainder funds the governance-set damage-coverage account when one is
+        // configured; otherwise it is burned to the dead address (genesis default). Like the
+        // reporter leg this is a plain-address `safeTransfer`, so for the current plain-ERC20 token
+        // it cannot revert the atomic slash — governance is trusted not to point the fund at a
+        // token-reverting address. (Under the native-token migration this leg gains the same
+        // failure-tolerant `call{value:}` consideration noted for the reporter leg above.)
+        address fund = cfg.getSlashFundAddress();
+        address recipient = fund == address(0) ? EQUIVOCATION_BURN_SINK : fund;
+        if (remainder > 0) token.safeTransfer(recipient, remainder);
 
-        emit IStakingEvents.EquivocationStakeSeized(validatorAddress, msg.sender, reporterReward, burned);
+        emit IStakingEvents.EquivocationStakeSeized(validatorAddress, msg.sender, reporterReward, remainder, recipient);
+    }
+
+    /// @dev True iff the just-stored `committee[target]` differs from the incumbent
+    ///      `committee[target-1]`. Both are stored canonically ascending by `peerPubkey`,
+    ///      so a set difference always shows as a length or positional mismatch. `target`
+    ///      < 1 has no incumbent ⇒ false (genesis is handled consensus-side as a bootstrap
+    ///      mint). Drives the deterministic `dkgQual` mint bit set in commitEpochCommittee
+    ///      — set ⇔ a genuine membership change re-minted a fresh beacon key at `target`,
+    ///      which is what the node-side beacon-key carry-forward arbitration reads.
+    function _committeeChangedFromIncumbent(StakingLayout.EpochCommitteeStorage storage $ec, uint64 target)
+        private
+        view
+        returns (bool)
+    {
+        if (target < 1) return false;
+        address[] storage curCommittee = $ec.committee[target];
+        address[] storage inc = $ec.committee[target - 1];
+        uint256 n = curCommittee.length;
+        if (n != inc.length) return true;
+        for (uint256 i = 0; i < n; i++) {
+            if (curCommittee[i] != inc[i]) return true;
+        }
+        return false;
     }
 
     /// @notice Verify/store/prune half of `commitEpochCommittee`. The `Staking`
@@ -316,12 +384,29 @@ library StakingDpos {
         StakingLayout.EpochCommitteeStorage storage $ec = StakingLayout.epochCommitteeStorage();
         StakingLayout.ConsensusKeysStorage storage $ck = StakingLayout.consensusKeysStorage();
 
-        // Mark the keyed subset of the top-k set AS OF `selectionEpoch` into a
-        // transient set; count it.
+        // 2-epoch warm-up: the committee is committed a full epoch before its DKG runs
+        // (in target-1), so there is no qualify-before-commit deferral — the candidate is
+        // always verified+stored unconditionally here. The former v40 incumbent-carry
+        // fallback (re-commit committee[target-1] when unqualified) is removed under the
+        // <f operating model, in which a frozen committee always completes its DKG; the
+        // >=f-breach recovery is a separate, deliberately-deferred concern.
+
+        // Verify the submitted `committee` against the FRESH keyed top-k set AS OF
+        // `selectionEpoch`, strictly ascending by peerPubkey. This is now DETERMINISTIC
+        // (no stash needed): the selection view (getValidatorsAt) is a pure function of
+        // `selectionEpoch` — status transitions take effect at T+1 and keys gate on
+        // activationEpoch — so the on-chain re-derivation cannot drift from the
+        // off-chain candidate within the commit window.
         address[] memory top = StakingLayout.getValidatorsAt(cfg, selectionEpoch);
         uint256 m = 0;
         for (uint256 i = 0; i < top.length; i++) {
-            if ($ck.consensusKeys[top[i]].peerPubkey != bytes32(0)) {
+            // A key counts for `selectionEpoch` only once ACTIVE (activationEpoch <=
+            // selectionEpoch). A key registered mid-epoch E stamps activationEpoch = E+1
+            // (setConsensusKeys, one-shot), so it is invisible to selection for any
+            // committee minted from EffBal(E) — the membership analogue of the stake
+            // warmup, keeping off-chain derivation and on-chain verify deterministic.
+            IStaking.ConsensusKeys storage ck = $ck.consensusKeys[top[i]];
+            if (ck.peerPubkey != bytes32(0) && ck.activationEpoch <= selectionEpoch) {
                 _tMark(top[i]);
                 m++;
             }
@@ -332,14 +417,28 @@ library StakingDpos {
         bytes32 prev = bytes32(0);
         for (uint256 i = 0; i < committee.length; i++) {
             address v = committee[i];
-            bytes32 peer = $ck.consensusKeys[v].peerPubkey;
-            if (peer == bytes32(0)) revert IStakingContextErrors.CommitteeMemberKeyless(v);
+            IStaking.ConsensusKeys storage ckv = $ck.consensusKeys[v];
+            bytes32 peer = ckv.peerPubkey;
+            // Keyless OR not-yet-active-for-`selectionEpoch` ⇒ ineligible (same gate as the mark loop).
+            if (peer == bytes32(0) || ckv.activationEpoch > selectionEpoch) {
+                revert IStakingContextErrors.CommitteeMemberKeyless(v);
+            }
             if (!_tMarked(v)) revert IStakingContextErrors.CommitteeMemberNotInActiveSet(v);
             if (peer <= prev) revert IStakingContextErrors.CommitteeNotStrictlyAscending(v);
             _tUnmark(v); // consume → a duplicate address fails _tMarked next time
             prev = peer;
             stored.push(v);
         }
+
+        // Deterministic committee-MINT bit (replaces the permissionless recordDkgQual
+        // marker): set iff this committee differs from the incumbent committee[target-1]
+        // — a genuine membership change that re-mints a fresh beacon key in target-1's
+        // DKG. A no-change epoch leaves it false, so the consensus beacon::carry arbiter
+        // carries the previous key. Under the <f model "committee changed" == "DKG will
+        // qualify". Genesis (target < 1, no incumbent) leaves it false; the consensus
+        // side special-cases the bootstrap mint epoch.
+        $ec.dkgQual[target] = _committeeChangedFromIncumbent($ec, target);
+
         $ec.lastCommittedEpochP1 = target + 1;
 
         // Prune relative to the CURRENT epoch (the real retention horizon), not the

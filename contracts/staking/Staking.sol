@@ -11,8 +11,10 @@ import {IFluentGovernance} from "./interfaces/IFluentGovernance.sol";
 import {IChainConfig} from "./interfaces/IChainConfig.sol";
 import {StakingContext} from "./StakingContext.sol";
 import {StakingLayout} from "./StakingLayout.sol";
+import {ParticipationMath} from "./ParticipationMath.sol";
 import {StakingDpos} from "./StakingDpos.sol";
 import {StakingEconomics} from "./StakingEconomics.sol";
+import {StakingRewards} from "./StakingRewards.sol";
 
 /**
  * @title Validator staking
@@ -40,6 +42,10 @@ contract Staking is IStaking, StakingContext {
     ///         constructor cascade is isolated to `Staking.sol`.
     address private immutable _livenessSlashingAddr;
 
+    /// @notice BlendReserve predeploy address — the stipend source `settleEpochStipend` draws from.
+    ///         Private immutable here (not a ChainConfig field) to avoid a cross-repo ABI break.
+    address private immutable _blendReserveAddr;
+
     constructor(
         IStaking stakingContract,
         ISystemReward systemRewardContract,
@@ -47,7 +53,8 @@ contract Staking is IStaking, StakingContext {
         IFluentGovernance governanceContract,
         IChainConfig chainConfigContract,
         IERC20 stakingToken,
-        address livenessSlashingAddr
+        address livenessSlashingAddr,
+        address blendReserveAddr
     )
         StakingContext(
             stakingContract,
@@ -59,6 +66,7 @@ contract Staking is IStaking, StakingContext {
         )
     {
         _livenessSlashingAddr = livenessSlashingAddr;
+        _blendReserveAddr = blendReserveAddr;
     }
 
     /// @dev Gates the
@@ -129,8 +137,7 @@ contract Staking is IStaking, StakingContext {
             uint64 changedAt,
             uint64 jailedBefore,
             uint64 claimedAt,
-            uint16 commissionRate,
-            uint96 totalRewards
+            uint16 commissionRate
         )
     {
         StakingLayout.StakingStorage storage $ = StakingLayout.stakingStorage();
@@ -144,40 +151,7 @@ contract Staking is IStaking, StakingContext {
             changedAt = validator.changedAt,
             jailedBefore = validator.jailedBefore,
             claimedAt = validator.claimedAt,
-            commissionRate = snapshot.commissionRate,
-            totalRewards = snapshot.totalRewards
-        );
-    }
-
-    /// @inheritdoc IStaking
-    function getValidatorStatusAtEpoch(address validatorAddress, uint64 epoch)
-        external
-        view
-        returns (
-            address ownerAddress,
-            uint8 status,
-            uint256 totalDelegated,
-            uint32 slashesCount,
-            uint64 changedAt,
-            uint64 jailedBefore,
-            uint64 claimedAt,
-            uint16 commissionRate,
-            uint96 totalRewards
-        )
-    {
-        StakingLayout.StakingStorage storage $ = StakingLayout.stakingStorage();
-        Validator memory validator = $._validatorsMap[validatorAddress];
-        ValidatorSnapshot memory snapshot = StakingLayout.touchValidatorSnapshotImmutable($, validator, epoch);
-        return (
-            ownerAddress = validator.ownerAddress,
-            status = uint8(validator.status),
-            totalDelegated = uint256(snapshot.totalDelegated) * StakingLayout.BALANCE_COMPACT_PRECISION,
-            slashesCount = snapshot.slashesCount,
-            changedAt = validator.changedAt,
-            jailedBefore = validator.jailedBefore,
-            claimedAt = validator.claimedAt,
-            commissionRate = snapshot.commissionRate,
-            totalRewards = snapshot.totalRewards
+            commissionRate = snapshot.commissionRate
         );
     }
 
@@ -194,8 +168,8 @@ contract Staking is IStaking, StakingContext {
             return 0;
         }
         // Rebased epoch + at-or-before snapshot — identical to committee selection's
-        // effective-stake source, and NOT getValidatorStatusAtEpoch's changedAt-leaking
-        // read, so a historical `blockNumber` resolves to the stake effective then.
+        // effective-stake source (never the validator's latest `changedAt` snapshot),
+        // so a historical `blockNumber` resolves to the stake effective then.
         return StakingLayout.totalDelegatedToValidatorAt(validator, _epochAtBlock(blockNumber));
     }
 
@@ -216,12 +190,55 @@ contract Staking is IStaking, StakingContext {
         // only validator owner
         require(msg.sender == validator.ownerAddress, OnlyValidatorOwner(validator.ownerAddress));
         require(_currentEpoch() >= validator.jailedBefore, StillInJail(validatorAddress));
-        // update validator status
+        // Route the re-add through the shared helper so it ALSO swap-pops _jailedValidators
+        // (else the automatic epoch-boundary sweep would double-process this validator).
+        _readmitFromJail($, validatorAddress);
+    }
+
+    /// @dev The ONE place a validator leaves a liveness jail: restore Active, re-add to the
+    ///      active list, and drop it from the jailed set (swap-pop). Shared by the manual owner
+    ///      release and the automatic sweep. Reuses the exact re-add sequence.
+    function _readmitFromJail(StakingLayout.StakingStorage storage $, address validatorAddress) internal {
+        Validator memory validator = $._validatorsMap[validatorAddress];
         validator.status = ValidatorStatus.Active;
         $._validatorsMap[validatorAddress] = validator;
         $._activeValidatorsList.push(validatorAddress);
-        // emit event
+        _removeFromJailedSet($, validatorAddress);
+        // Selection re-entry takes effect next epoch (+1), so an in-flight selection is unchanged.
+        StakingLayout.setSelectionVisible($, validatorAddress, true, _currentEpoch());
         emit ValidatorReleased(validatorAddress, _currentEpoch());
+    }
+
+    /// @dev Swap-and-pop removal from the jailed set; no-op if absent. Same swap-pop as the active set
+    ///      (shared via StakingLayout.swapPop — F12 dedup).
+    function _removeFromJailedSet(StakingLayout.StakingStorage storage $, address validatorAddress) internal {
+        StakingLayout.swapPop($._jailedValidators, validatorAddress);
+    }
+
+    /// @notice Auto-reinstate sweep — called by LivenessSlashing at the epoch boundary (inside
+    ///         processBitmap). Gated by onlyFromLivenessSlashing (an INTERNAL contract call, not
+    ///         an executor syscall, so no fluentbase ABI/bootstrap handoff). Idempotent + cheap;
+    ///         retried every block, so a transient processBitmap skip is harmless.
+    function readmitExpiredJails(uint64 currentEpoch_) external override onlyFromLivenessSlashing {
+        StakingLayout.StakingStorage storage $ = StakingLayout.stakingStorage();
+        StakingLayout.EquivocationStorage storage $eq = StakingLayout.equivocationStorage();
+        // Swap-pop re-admits/drops slide a new element into index i, so do NOT advance i on those
+        // branches — mirrors removeFromActiveList's index handling. The set stays bounded below
+        // the live jailed count.
+        uint256 i = 0;
+        while (i < $._jailedValidators.length) {
+            address v = $._jailedValidators[i];
+            Validator memory val = $._validatorsMap[v];
+            if ($eq.tombstoned[v]) {
+                // Tombstoned-while-jailed → pop-and-drop (never auto-readmit) so these entries
+                // can't accumulate forever.
+                _removeFromJailedSet($, v);
+            } else if (val.status == ValidatorStatus.Jail && currentEpoch_ >= val.jailedBefore) {
+                _readmitFromJail($, v);
+            } else {
+                i++;
+            }
+        }
     }
 
     function _totalDelegatedToValidator(Validator memory validator) internal view returns (uint256) {
@@ -328,9 +345,17 @@ contract Staking is IStaking, StakingContext {
         if (status == ValidatorStatus.Active) {
             $._activeValidatorsList.push(validatorAddress);
         }
+        // Seed the selection visibility stamp: genesis (sinceEpoch==0) is
+        // selection-visible from epoch 0; a runtime creation from `sinceEpoch`
+        // (== nextEpoch) — mirroring the stake-snapshot warmup. A Pending creation
+        // starts selection-invisible until governance activation flips it (+1).
+        // Only an Active-at-creation validator is pushed onto the roster here; a
+        // Pending registrant is admitted lazily by ensureRostered on first activation
+        // (keeping never-activated Pending registrants out of the getValidatorsAt scan).
+        StakingLayout.seedSelectionMembership($, validatorAddress, status == ValidatorStatus.Active, sinceEpoch);
         // push initial validator snapshot at zero epoch with default params
         $._validatorSnapshots[validatorAddress][sinceEpoch] =
-            ValidatorSnapshot(0, uint112(initialStake / StakingLayout.BALANCE_COMPACT_PRECISION), 0, commissionRate);
+            ValidatorSnapshot(uint112(initialStake / StakingLayout.BALANCE_COMPACT_PRECISION), 0, commissionRate, 0);
         // delegate initial stake to validator owner
         ValidatorDelegation storage delegation = $._validatorDelegations[validatorAddress][validatorOwner];
         require(delegation.delegateQueue.length == 0, DelegationQueueNotEmpty(delegation.delegateQueue.length));
@@ -357,6 +382,8 @@ contract Staking is IStaking, StakingContext {
         require(_totalDelegatedToValidator(validator) == 0, ValidatorHasActiveDelegations(validatorAddress));
         // remove validator from active list if exists
         _removeValidatorFromActiveList(validatorAddress);
+        // drop from the selection roster + stamp (the ONE place the roster shrinks)
+        StakingLayout.removeFromSelectionRoster($, validatorAddress);
         // remove from validators map
         delete $._validatorOwners[validator.ownerAddress];
         delete $._validatorsMap[validatorAddress];
@@ -374,6 +401,12 @@ contract Staking is IStaking, StakingContext {
         require(validator.status == ValidatorStatus.Pending, NotPendingValidator(validatorAddress));
         $._activeValidatorsList.push(validatorAddress);
         validator.status = ValidatorStatus.Active;
+        // First activation of a Pending registrant: NOW admit it to the selection roster (creation
+        // deliberately kept never-activated Pending validators out to bound the getValidatorsAt
+        // scan). No-op if already rostered (re-enable of a disabled validator that kept membership).
+        StakingLayout.ensureRostered($, validatorAddress);
+        // Governance activation takes SELECTION effect next epoch (+1).
+        StakingLayout.setSelectionVisible($, validatorAddress, true, _currentEpoch());
         // Persist after touching the snapshot because the call may advance `validator.changedAt`.
         ValidatorSnapshot storage snapshot = StakingLayout.touchValidatorSnapshot($, validator, _nextEpoch());
         $._validatorsMap[validatorAddress] = validator;
@@ -394,6 +427,9 @@ contract Staking is IStaking, StakingContext {
         require(validator.status == ValidatorStatus.Active, NotActiveValidator());
         _removeValidatorFromActiveList(validatorAddress);
         validator.status = ValidatorStatus.Pending;
+        // Governance disable takes SELECTION effect next epoch (+1): still selectable
+        // through this epoch (frozen in-flight selection), invisible from currentEpoch+1.
+        StakingLayout.setSelectionVisible($, validatorAddress, false, _currentEpoch());
         // Persist after touching the snapshot because the call may advance `validator.changedAt`.
         ValidatorSnapshot storage snapshot = StakingLayout.touchValidatorSnapshot($, validator, _nextEpoch());
         $._validatorsMap[validatorAddress] = validator;
@@ -463,37 +499,14 @@ contract Staking is IStaking, StakingContext {
     }
 
     function _getValidators() internal view returns (address[] memory) {
-        return StakingLayout.getValidatorsAt(_chainConfigContract, _currentEpoch());
+        // LIVE current top-k (immediate membership) — NOT the epoch-frozen selection
+        // view. `getValidators`/`isValidatorActive` reflect who is active right now;
+        // committee derivation uses the deterministic `getValidatorsAt` instead.
+        return StakingLayout.getLiveValidators(_chainConfigContract, _currentEpoch());
     }
 
     function getValidators() external view override returns (address[] memory) {
         return _getValidators();
-    }
-
-    function deposit(address validatorAddress, uint256 amount)
-        external
-        virtual
-        override
-        onlyFromCoinbase
-        onlyZeroGasPrice
-    {
-        _depositFee(validatorAddress, amount);
-    }
-
-    function _depositFee(address validatorAddress, uint256 amount) internal {
-        StakingLayout.StakingStorage storage $ = StakingLayout.stakingStorage();
-        require(amount > 0, DepositIsZero());
-        // make sure validator is active
-        Validator memory validator = $._validatorsMap[validatorAddress];
-        require(validator.status != ValidatorStatus.NotFound, ValidatorNotFound(validatorAddress));
-        uint64 epoch = _currentEpoch();
-        // increase total pending rewards for validator for current epoch
-        ValidatorSnapshot storage currentSnapshot = StakingLayout.touchValidatorSnapshot($, validator, epoch);
-        currentSnapshot.totalRewards += uint96(amount);
-        // Pull tokens after reward accounting is updated.
-        _stakingToken.safeTransferFrom(msg.sender, address(this), amount);
-
-        emit ValidatorDeposited(validatorAddress, amount, epoch);
     }
 
     /// @custom:oz-upgrades-unsafe-allow delegatecall
@@ -569,6 +582,19 @@ contract Staking is IStaking, StakingContext {
         _slashValidator(validatorAddress);
     }
 
+    /// @notice Settle the per-epoch BLEND stipend (flat-by-stake among the live/active committee, drawn
+    ///         from the `BlendReserve`). System call, injected by the executor at the epoch boundary.
+    /// @custom:oz-upgrades-unsafe-allow delegatecall
+    function settleEpochStipend(uint64 epoch) external override onlySystemCall {
+        StakingRewards.settleEpochStipend(epoch, _blendReserveAddr, _livenessSlashingAddr, _chainConfigContract);
+    }
+
+    /// @inheritdoc IStaking
+    /// @custom:oz-upgrades-unsafe-allow delegatecall
+    function getEpochRewards(uint64 epoch) external view override returns (uint256 blendTotal) {
+        return StakingRewards.getEpochRewards(epoch);
+    }
+
     /// @notice Register consensus keys for `validator` with on-chain
     ///         Proof-of-Possession. One-shot — no rotation in v1.
     /// @param blsPubkeyUncompressed 256 B EIP-2537 G2 — compressed on-chain
@@ -636,7 +662,16 @@ contract Staking is IStaking, StakingContext {
         keys = new IStaking.ConsensusKeys[](addrs.length);
         StakingLayout.ConsensusKeysStorage storage $ck = StakingLayout.consensusKeysStorage();
         for (uint256 i = 0; i < addrs.length; i++) {
-            keys[i] = $ck.consensusKeys[addrs[i]];
+            IStaking.ConsensusKeys memory ck = $ck.consensusKeys[addrs[i]];
+            // A key is visible to selection for `epoch` only once ACTIVE
+            // (activationEpoch <= epoch). Return a ZEROED key otherwise so the
+            // off-chain deriver's keyless filter (peerPubkey != 0) excludes it —
+            // byte-identical to the on-chain commitEpochCommittee key gate. Mirrors
+            // the stake warmup: a key registered mid-epoch E (activationEpoch = E+1)
+            // is not selectable for any committee minted from EffBal(E).
+            if (ck.activationEpoch <= epoch) {
+                keys[i] = ck;
+            }
         }
     }
 
@@ -648,12 +683,15 @@ contract Staking is IStaking, StakingContext {
     }
 
     /// @notice The epoch whose EffBal selects the next committee to commit:
-    ///         `nextEpochToCommit() - 1` (0 at genesis). The executor passes this
-    ///         to getValidatorsWithKeysAt so the derived committee matches the
-    ///         contract's `_getValidatorsAt(selectionEpoch)` verification.
+    ///         `nextEpochToCommit() - 2` (clamped to 0 at genesis). The executor
+    ///         passes this to getValidatorsWithKeysAt so the derived committee
+    ///         matches the contract's `_getValidatorsAt(selectionEpoch)` verify.
+    ///         2-epoch warm-up: committee[target] is selected from EffBal(target-2)
+    ///         and committed a full epoch before its DKG (which runs in target-1),
+    ///         so the DKG deals over an already-frozen roster.
     function committeeSelectionEpoch() external view override returns (uint64) {
         uint64 target = StakingLayout.epochCommitteeStorage().lastCommittedEpochP1;
-        return target == 0 ? 0 : target - 1;
+        return target < 2 ? 0 : target - 2;
     }
 
     function _slashValidator(address validatorAddress) internal {
@@ -662,8 +700,11 @@ contract Staking is IStaking, StakingContext {
         Validator memory validator = $._validatorsMap[validatorAddress];
         require(validator.status != ValidatorStatus.NotFound, ValidatorNotFound(validatorAddress));
         uint64 epoch = _currentEpoch();
-        // increase slashes for current epoch
-        ValidatorSnapshot storage currentSnapshot = StakingLayout.touchValidatorSnapshot($, validator, epoch);
+        // increase slashes for current epoch. At-or-before base (not `changedAt`): a slash at `current`
+        // while a pending delegate/undelegate already advanced the frontier to current+1/current+2 must
+        // not forward-copy that future stake into snapshot[current] — settlement later credits this same
+        // snapshot at E=current, so a forward-leaked denominator would drain/strand (second F1 site).
+        ValidatorSnapshot storage currentSnapshot = StakingLayout.touchSnapshotAtOrBefore($, validator, epoch);
         uint32 slashesCount = currentSnapshot.slashesCount + 1;
         currentSnapshot.slashesCount = slashesCount;
         // validator state might change, lets update it
@@ -672,11 +713,35 @@ contract Staking is IStaking, StakingContext {
         // `>=` not `==`: a governance felonyThreshold cut below an already-higher
         // in-flight count would make `==` skip the jail forever (audit P1).
         if (slashesCount >= _chainConfigContract.getFelonyThreshold()) {
-            validator.jailedBefore = _currentEpoch() + _chainConfigContract.getValidatorJailEpochLength();
-            validator.status = ValidatorStatus.Jail;
-            _removeValidatorFromActiveList(validatorAddress);
-            $._validatorsMap[validatorAddress] = validator;
-            emit ValidatorJailed(validatorAddress, epoch);
+            // Halt-guard: never let a liveness jail drop the healthy active set below the RUNNING
+            // committee's Simplex quorum q(n)=n-f, n = min(activeLen, cap). Keyed off the ACTUAL active
+            // size (not the config cap) so an under-cap network still jails; q(n) (not the old ceil(2n/3),
+            // which sat ONE below quorum) so a single jail can never drop a full committee below quorum →
+            // halt. Prefer a laggy validator in-committee to a halt. (Equivocation jails via the separate
+            // StakingDpos path and is NOT halt-guarded — a safety fault must always evict.)
+            uint256 activeLen = $._activeValidatorsList.length;
+            uint256 cap = _chainConfigContract.getActiveValidatorsLength();
+            uint256 n = activeLen < cap ? activeLen : cap; // committee size actually in force
+            uint256 quorumFloor = ParticipationMath.quorum(n);
+            if (activeLen == 0 || activeLen - 1 < quorumFloor) {
+                emit LivenessJailSkippedHaltGuard(validatorAddress, epoch, activeLen, quorumFloor);
+            } else {
+                // Only enter/push on a FRESH jail; if already jailed just extend jailedBefore.
+                if (validator.status != ValidatorStatus.Jail) {
+                    validator.jailedBefore = _currentEpoch() + _chainConfigContract.getValidatorJailEpochLength();
+                    validator.status = ValidatorStatus.Jail;
+                    _removeValidatorFromActiveList(validatorAddress);
+                    $._jailedValidators.push(validatorAddress); // for auto-reinstate
+                    // Liveness jail takes SELECTION effect next epoch (+1): the "@E+2"
+                    // detection window is separate; the uniform rule keeps in-flight
+                    // selection deterministic (still visible through this epoch).
+                    StakingLayout.setSelectionVisible($, validatorAddress, false, _currentEpoch());
+                } else {
+                    validator.jailedBefore = _currentEpoch() + _chainConfigContract.getValidatorJailEpochLength();
+                }
+                $._validatorsMap[validatorAddress] = validator;
+                emit ValidatorJailed(validatorAddress, epoch);
+            }
         }
 
         emit ValidatorSlashed(validatorAddress, slashesCount, epoch);
@@ -703,16 +768,26 @@ contract Staking is IStaking, StakingContext {
         // doubles as "next epoch to commit" (epochs 0..lastCommittedEpochP1-1 are
         // already committed; the genesis sentinel 0 ⇒ commit epoch 0).
         //
-        // The gate `target <= cur + 1` is the snapshot-finality guarantee:
-        // committee[target] reads snapshot[target-1], whose contributing delegations
-        // come from epoch (target-1)-WARMUP_DELAY = target-3; with WARMUP_DELAY=2
-        // those are final once cur >= target-1, i.e. target <= cur+1. Fail-loud
-        // (revert): the executor's catch-up loop only calls within range, so an
-        // out-of-range call is a bug.
+        // The gate `target <= cur + 2` is the snapshot-finality guarantee for the
+        // 2-epoch warm-up: committee[target] reads snapshot[target-2], whose
+        // contributing delegations come from epoch (target-2)-WARMUP_DELAY = target-4;
+        // with WARMUP_DELAY=2 those are final once cur >= target-2, i.e. target <= cur+2.
+        // Fail-loud (revert): the executor's catch-up loop only calls within range, so
+        // an out-of-range call is a bug.
         uint64 target = StakingLayout.epochCommitteeStorage().lastCommittedEpochP1;
-        if (target > cur + 1) revert EpochNotYetCommittable(target, cur);
-        uint64 selectionEpoch = target == 0 ? 0 : target - 1; // EffBal(target-1); cf. committeeSelectionEpoch()
+        if (target > cur + 2) revert EpochNotYetCommittable(target, cur);
+        uint64 selectionEpoch = target < 2 ? 0 : target - 2; // EffBal(target-2); cf. committeeSelectionEpoch()
         StakingDpos.commitEpochCommittee(_chainConfigContract, committee, target, cur, selectionEpoch);
+    }
+
+    /// @notice Whether a committee MINT (a genuine membership change vs the incumbent,
+    ///         so a fresh beacon key is dealt in the DKG) was recorded for `epoch`.
+    ///         Set DETERMINISTICALLY at commit time by {StakingDpos.commitEpochCommittee}
+    ///         (`committee[epoch] != committee[epoch-1]`) — the consensus beacon-key
+    ///         carry arbiter reads it to find the newest key epoch. Replaces the former
+    ///         permissionless `recordDkgQual` marker.
+    function getDkgQual(uint64 epoch) external view override returns (bool) {
+        return StakingLayout.epochCommitteeStorage().dkgQual[epoch];
     }
 
     /// @notice Resolves a Simplex signer index for a past epoch to the

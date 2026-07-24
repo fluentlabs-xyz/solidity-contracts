@@ -111,6 +111,7 @@ library StakingEconomics {
         view
         returns (uint256)
     {
+        // Total claimable BLEND reward + matured principal (single asset).
         return _calcDelegatorRewardsAndPendingUndelegates(cfg, validatorAddress, delegatorAddress, _currentEpoch(cfg));
     }
 
@@ -152,9 +153,10 @@ library StakingEconomics {
         view
         returns (uint256 amountToStake, uint256 rewardsDust)
     {
-        uint256 claimableRewards =
+        // BLEND reward + matured principal is the single restakeable leg (BLEND is the stake asset).
+        uint256 blendClaimable =
             _calcDelegatorRewardsAndPendingUndelegates(cfg, validator, delegator, _currentEpoch(cfg));
-        return _calcAvailableForRedelegateAmount(cfg, claimableRewards);
+        return _calcAvailableForRedelegateAmount(cfg, blendClaimable);
     }
 
     // ---- internal (inlined here; bodies relocated VERBATIM from Staking, with
@@ -334,7 +336,7 @@ library StakingEconomics {
         IStaking.ValidatorDelegation storage delegation = $._validatorDelegations[validator][delegator];
         // Bound the number of processed epochs; callers can repeat claims to drain longer ranges.
         beforeEpochExclude = _cappedDelegatorClaimEpoch(delegation, beforeEpochExclude);
-        uint256 availableFunds = 0;
+        uint256 blendFunds = 0; // BLEND reward + matured undelegation principal (one asset)
         // process delegate queue to calculate staking rewards
         uint64 delegateGap = delegation.delegateGap;
         for (uint256 queueLength = delegation.delegateQueue.length; delegateGap < queueLength;) {
@@ -356,13 +358,19 @@ library StakingEconomics {
                 if (validatorSnapshot.totalDelegated == 0) {
                     continue;
                 }
-                (
-                    uint256 delegatorFee,, /*uint256 ownerFee*/ /*uint256 systemFee*/
-                ) = _calcValidatorSnapshotEpochPayout(cfg, validatorSnapshot);
-                availableFunds += (delegatorFee * delegateOp.amount) / validatorSnapshot.totalDelegated;
+                (uint256 delegatorBlend,) = _calcValidatorSnapshotEpochPayout(validatorSnapshot);
+                blendFunds += (delegatorBlend * delegateOp.amount) / validatorSnapshot.totalDelegated;
             }
             // if we have reached end of the delegation list then lets stay on the last item, but with updated latest processed epoch
             if (delegateGap >= queueLength - 1) {
+                delegation.delegateQueue[delegateGap] = delegateOp;
+                break;
+            }
+            // If the inner loop stopped at the claim bound B (before the next op's epoch E2),
+            // preserve this op with its epoch advanced to B so epochs [B, E2) are not dropped on
+            // the next claim. Mirrors the last-op preserve branch above. Only when it stopped at
+            // E2 (delegateOp.epoch >= voteChangedAtEpoch) is this op fully consumed → delete+advance.
+            if (delegateOp.epoch < voteChangedAtEpoch) {
                 delegation.delegateQueue[delegateGap] = delegateOp;
                 break;
             }
@@ -370,35 +378,32 @@ library StakingEconomics {
             ++delegateGap;
         }
         delegation.delegateGap = delegateGap;
-        // process all items from undelegate queue
+        // process all items from undelegate queue (matured principal is BLEND, re-merged below)
         uint64 undelegateGap = delegation.undelegateGap;
         for (uint256 queueLength = delegation.undelegateQueue.length; undelegateGap < queueLength;) {
             IStaking.DelegationOpUndelegate memory undelegateOp = delegation.undelegateQueue[undelegateGap];
             if (undelegateOp.epoch > beforeEpochExclude) {
                 break;
             }
-            availableFunds += uint256(undelegateOp.amount) * StakingLayout.BALANCE_COMPACT_PRECISION;
+            blendFunds += uint256(undelegateOp.amount) * StakingLayout.BALANCE_COMPACT_PRECISION;
             delete delegation.undelegateQueue[undelegateGap];
             ++undelegateGap;
         }
         delegation.undelegateGap = undelegateGap;
-        // send available for claim funds to delegator
+        // ONE BLEND leg (reward + matured principal).
         if (claimMode == IStaking.ClaimMode.Transfer) {
-            // for transfer claim mode just all rewards to the user
-            _safeTransfer(token, delegator, availableFunds);
-            // emit event
-            emit IStakingEvents.Claimed(validator, delegator, availableFunds, beforeEpochExclude);
+            _safeTransfer(token, delegator, blendFunds);
+            emit IStakingEvents.Claimed(validator, delegator, blendFunds, beforeEpochExclude);
         } else if (claimMode == IStaking.ClaimMode.Redelegate) {
-            (uint256 amountToStake, uint256 rewardsDust) = _calcAvailableForRedelegateAmount(cfg, availableFunds);
-            // if we have something to re-stake then delegate it to the validator
+            // Redelegate RE-OPENS the BLEND leg (reward IS the stake asset): restake
+            // (BLEND reward + matured principal).
+            (uint256 amountToStake, uint256 rewardsDust) = _calcAvailableForRedelegateAmount(cfg, blendFunds);
             if (amountToStake > 0) {
                 _delegateTo(cfg, token, delegator, validator, amountToStake, false);
             }
-            // if we have dust from staking then send it to user
             if (rewardsDust > 0) {
                 _safeTransfer(token, delegator, rewardsDust);
             }
-            // emit event
             emit IStakingEvents.Redelegated(validator, delegator, amountToStake, rewardsDust, beforeEpochExclude);
         } else {
             // this case is not possible, no error for less bytecode
@@ -407,14 +412,13 @@ library StakingEconomics {
     }
 
     function _calcDelegatorRewardsAndPendingUndelegates(
-        IChainConfig cfg,
+        IChainConfig, /*cfg — no longer read; the payout split is denomination math only*/
         address validator,
         address delegator,
         uint64 beforeEpoch
-    ) internal view returns (uint256) {
+    ) internal view returns (uint256 blendClaimable) {
         StakingLayout.StakingStorage storage $ = StakingLayout.stakingStorage();
         IStaking.ValidatorDelegation memory delegation = $._validatorDelegations[validator][delegator];
-        uint256 availableFunds = 0;
         // process delegate queue to calculate staking rewards
         while (delegation.delegateGap < delegation.delegateQueue.length) {
             IStaking.DelegationOpDelegate memory delegateOp = delegation.delegateQueue[delegation.delegateGap];
@@ -434,30 +438,26 @@ library StakingEconomics {
                 if (validatorSnapshot.totalDelegated == 0) {
                     continue;
                 }
-                (
-                    uint256 delegatorFee,, /*uint256 ownerFee*/ /*uint256 systemFee*/
-                ) = _calcValidatorSnapshotEpochPayout(cfg, validatorSnapshot);
-                availableFunds += (delegatorFee * delegateOp.amount) / validatorSnapshot.totalDelegated;
+                (uint256 delegatorBlend,) = _calcValidatorSnapshotEpochPayout(validatorSnapshot);
+                blendClaimable += (delegatorBlend * delegateOp.amount) / validatorSnapshot.totalDelegated;
             }
             ++delegation.delegateGap;
         }
-        // process all items from undelegate queue
+        // process all items from undelegate queue (matured principal is BLEND)
         while (delegation.undelegateGap < delegation.undelegateQueue.length) {
             IStaking.DelegationOpUndelegate memory undelegateOp = delegation.undelegateQueue[delegation.undelegateGap];
             if (undelegateOp.epoch > beforeEpoch) {
                 break;
             }
-            availableFunds += uint256(undelegateOp.amount) * StakingLayout.BALANCE_COMPACT_PRECISION;
+            blendClaimable += uint256(undelegateOp.amount) * StakingLayout.BALANCE_COMPACT_PRECISION;
             ++delegation.undelegateGap;
         }
-        // return available for claim funds
-        return availableFunds;
     }
 
     function _claimValidatorOwnerRewards(
-        IChainConfig cfg,
+        IChainConfig, /*cfg*/
         IERC20 token,
-        ISystemReward sysReward,
+        ISystemReward, /*sysReward — unused; the misdemeanor cliff / system-fee leg was removed*/
         IStaking.Validator storage validator,
         uint64 beforeEpoch
     ) internal {
@@ -467,28 +467,21 @@ library StakingEconomics {
         if (cappedTo < beforeEpoch) {
             beforeEpoch = cappedTo;
         }
-        uint256 availableFunds = 0;
-        uint256 systemFee = 0;
+        uint256 ownerBlendSum = 0;
         uint64 claimAt = validator.claimedAt;
         for (; claimAt < beforeEpoch; claimAt++) {
             IStaking.ValidatorSnapshot memory validatorSnapshot =
                 $._validatorSnapshots[validator.validatorAddress][claimAt];
-            (/*uint256 delegatorFee*/, uint256 ownerFee, uint256 slashingFee) =
-                _calcValidatorSnapshotEpochPayout(cfg, validatorSnapshot);
-            availableFunds += ownerFee;
-            systemFee += slashingFee;
+            (, uint256 ownerBlend) = _calcValidatorSnapshotEpochPayout(validatorSnapshot);
+            ownerBlendSum += ownerBlend;
         }
         validator.claimedAt = claimAt;
-        _safeTransfer(token, validator.ownerAddress, availableFunds);
-        // if we have system fee then pay it to treasury account
-        if (systemFee > 0) {
-            token.forceApprove(address(sysReward), systemFee);
-            sysReward.deposit(systemFee);
-        }
-        emit IStakingEvents.ValidatorOwnerClaimed(validator.validatorAddress, availableFunds, beforeEpoch);
+        // ONE BLEND leg.
+        _safeTransfer(token, validator.ownerAddress, ownerBlendSum);
+        emit IStakingEvents.ValidatorOwnerClaimed(validator.validatorAddress, ownerBlendSum, beforeEpoch);
     }
 
-    function _calcValidatorOwnerRewards(IChainConfig cfg, IStaking.Validator memory validator, uint64 beforeEpoch)
+    function _calcValidatorOwnerRewards(IChainConfig, IStaking.Validator memory validator, uint64 beforeEpoch)
         internal
         view
         returns (uint256)
@@ -498,37 +491,38 @@ library StakingEconomics {
         for (; validator.claimedAt < beforeEpoch; validator.claimedAt++) {
             IStaking.ValidatorSnapshot memory validatorSnapshot =
                 $._validatorSnapshots[validator.validatorAddress][validator.claimedAt];
-            (
-                /*uint256 delegatorFee*/,
-                uint256 ownerFee, /*uint256 systemFee*/
-            ) = _calcValidatorSnapshotEpochPayout(cfg, validatorSnapshot);
-            availableFunds += ownerFee;
+            (, uint256 ownerBlend) = _calcValidatorSnapshotEpochPayout(validatorSnapshot);
+            availableFunds += ownerBlend;
         }
         return availableFunds;
     }
 
-    function _calcValidatorSnapshotEpochPayout(IChainConfig cfg, IStaking.ValidatorSnapshot memory validatorSnapshot)
+    /// @dev Per-epoch BLEND reward split (commission math). Returns the delegator/owner legs of
+    ///      `totalBlendRewards`.
+    function _calcValidatorSnapshotEpochPayout(IStaking.ValidatorSnapshot memory s)
         internal
-        view
-        returns (uint256 delegatorFee, uint256 ownerFee, uint256 systemFee)
+        pure
+        returns (uint256 delegatorBlend, uint256 ownerBlend)
     {
-        // Reward cliff at misdemeanor (NOT felony): once `slashesCount`
-        // crosses `misdemeanorThreshold` (default 50), BOTH delegator and
-        // owner rewards are zeroed and everything routes to the system
-        // treasury — even though felony/jailing only kicks in at
-        // `felonyThreshold` (default 150). This is an intentional asymmetry:
-        // punishment ramps up well before jailing.
-        if (validatorSnapshot.slashesCount >= cfg.getMisdemeanorThreshold()) {
-            return (delegatorFee = 0, ownerFee = 0, systemFee = validatorSnapshot.totalRewards);
-        } else if (validatorSnapshot.totalDelegated == 0) {
-            return (delegatorFee = 0, ownerFee = validatorSnapshot.totalRewards, systemFee = 0);
+        (delegatorBlend, ownerBlend) = _splitReward(s.totalBlendRewards, s.totalDelegated, s.commissionRate);
+    }
+
+    /// @dev Commission split of the BLEND reward. No delegators ⇒ the whole reward is the owner's.
+    ///      Liveness downtime no longer confiscates rewards (the misdemeanor cliff is removed) —
+    ///      that role is the pay-only-if-live stipend + the participation-floor jail.
+    function _splitReward(uint96 total, uint112 totalDelegated, uint16 commissionRate)
+        private
+        pure
+        returns (uint256 delegatorFee, uint256 ownerFee)
+    {
+        if (total == 0) {
+            return (0, 0);
         }
-        // ownerFee_(18+4-4=18) = totalRewards_18 * commissionRate_4 / 1e4
-        ownerFee = (uint256(validatorSnapshot.totalRewards) * validatorSnapshot.commissionRate) / 1e4;
-        // delegatorRewards = totalRewards - ownerFee
-        delegatorFee = validatorSnapshot.totalRewards - ownerFee;
-        // default system fee is zero for epoch
-        systemFee = 0;
+        if (totalDelegated == 0) {
+            return (0, uint256(total));
+        }
+        ownerFee = (uint256(total) * commissionRate) / 1e4;
+        delegatorFee = uint256(total) - ownerFee;
     }
 
     function _calcAvailableForRedelegateAmount(IChainConfig cfg, uint256 claimableRewards)

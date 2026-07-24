@@ -83,10 +83,6 @@ interface IStakingContextErrors {
      */
     error NothingToUnstake();
     /**
-     * @notice Thrown when the sender is not the coinbase.
-     */
-    error OnlyCoinbase();
-    /**
      * @notice Thrown when the sender is not the governance.
      */
     error OnlyGovernance();
@@ -102,7 +98,8 @@ interface IStakingContextErrors {
      */
     error OnlyLivenessSlashing();
     /**
-     * @notice Thrown when the sender is not the staking contract.
+     * @notice Thrown when the sender is not the staking contract. Also gates
+     *         `BlendReserve.disburse` to the `Staking` predeploy.
      */
     error OnlyStakingContract();
     /**
@@ -110,10 +107,6 @@ interface IStakingContextErrors {
      * @param validator The validator that is not the owner.
      */
     error OnlyValidatorOwner(address validator);
-    /**
-     * @notice Thrown when the sender is not the zero gas price.
-     */
-    error OnlyZeroGasPrice();
     /**
      * @notice Thrown when the pending undelegate is not found.
      */

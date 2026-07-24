@@ -51,6 +51,12 @@ contract MockStakingForLiveness {
     function slashedLength() external view returns (uint256) {
         return slashed.length;
     }
+
+    uint256 public readmitCalls;
+
+    function readmitExpiredJails(uint64) external {
+        readmitCalls += 1;
+    }
 }
 
 /// @notice Mock ChainConfig exposing just the two getters `LivenessSlashing`
@@ -58,7 +64,8 @@ contract MockStakingForLiveness {
 contract MockChainConfigForLiveness {
     uint64 public dposActivationBlock;
     uint32 public epochBlockInterval;
-    uint32 public missThreshold = 50;
+    uint32 public participationFloorBps = 1500;
+    bool public participationJailDisabled;
 
     constructor(uint64 activation, uint32 interval) {
         dposActivationBlock = activation;
@@ -73,31 +80,34 @@ contract MockChainConfigForLiveness {
         return epochBlockInterval;
     }
 
-    function getMissThreshold() external view returns (uint32) {
-        return missThreshold;
+    function getParticipationFloorBps() external view returns (uint32) {
+        return participationFloorBps;
     }
 
-    function setMissThreshold(uint32 v) external {
-        missThreshold = v;
+    function setParticipationFloorBps(uint32 v) external {
+        participationFloorBps = v;
+    }
+
+    function getParticipationJailDisabled() external view returns (bool) {
+        return participationJailDisabled;
+    }
+
+    function setParticipationJailDisabled(bool v) external {
+        participationJailDisabled = v;
     }
 }
 
-/// @notice Unit tests for `LivenessSlashing.processBitmap`.
+/// @notice Unit tests for `LivenessSlashing.processBitmap` (windowed participation model).
 contract LivenessSlashingTest is Test {
     LivenessSlashing internal liveness;
     MockStakingForLiveness internal mockStaking;
     MockChainConfigForLiveness internal mockChainConfig;
 
-    /// Mirror of the mock ChainConfig's default `missThreshold` (50, =
-    /// `ChainConfig.DEFAULT_MISS_THRESHOLD`). `LivenessSlashing` now reads the
-    /// threshold from ChainConfig per block; the threshold tests run at this
-    /// default. `test_missThreshold_is_config_driven` exercises a non-default.
-    uint32 internal constant MISS_THRESHOLD = 50;
-
-    /// Epoch length used by the mock ChainConfig. Large enough that every test's
-    /// per-epoch block offsets (≤ MISS_THRESHOLD) stay inside one epoch, so the
-    /// P2-5 window check (`epoch == currentEpoch`) holds for `_block(epoch, off)`.
+    /// Epoch length used by the mock ChainConfig. Large enough that each test's intra-epoch block
+    /// offsets stay inside one epoch, so `_epochAt(block) == epoch` for `_block(epoch, offset)`.
     uint64 internal constant INTERVAL = 1000;
+    /// Default participation floor exposed by the mock ChainConfig (15%).
+    uint32 internal constant FLOOR_BPS = 1500;
 
     function setUp() public {
         mockStaking = new MockStakingForLiveness();
@@ -113,21 +123,12 @@ contract LivenessSlashingTest is Test {
             IERC20(address(0xdead))
         );
         liveness = LivenessSlashing(
-            address(
-                new ERC1967Proxy(
-                    address(impl),
-                    abi.encodeCall(LivenessSlashing.initialize, (address(this)))
-                )
-            )
+            address(new ERC1967Proxy(address(impl), abi.encodeCall(LivenessSlashing.initialize, (address(this)))))
         );
     }
 
     /// @notice Build a bitmap of `committeeSize` bits with one given index unset.
-    function _allPresentExcept(uint8 committeeSize, uint8 absentIdx)
-        internal
-        pure
-        returns (bytes memory)
-    {
+    function _allPresentExcept(uint8 committeeSize, uint8 absentIdx) internal pure returns (bytes memory) {
         uint256 len = (uint256(committeeSize) + 7) / 8;
         bytes memory b = new bytes(len);
         for (uint8 i = 0; i < committeeSize; i++) {
@@ -147,180 +148,265 @@ contract LivenessSlashingTest is Test {
         return b;
     }
 
-    /// Block number inside `epoch` at the given intra-epoch `offset`, so
-    /// `_currentEpochAt(block) == epoch` and the P2-5 window check passes.
+    /// Bitmap with every index present EXCEPT those in `absent`.
+    function _absentSet(uint8 committeeSize, uint8[] memory absent) internal pure returns (bytes memory b) {
+        uint256 len = (uint256(committeeSize) + 7) / 8;
+        b = new bytes(len);
+        for (uint8 i = 0; i < committeeSize; i++) {
+            bool isAbsent = false;
+            for (uint256 j = 0; j < absent.length; j++) {
+                if (absent[j] == i) {
+                    isAbsent = true;
+                    break;
+                }
+            }
+            if (!isAbsent) b[i >> 3] |= bytes1(uint8(1 << (i & 7)));
+        }
+    }
+
+    /// Block number inside `epoch` at the given intra-epoch `offset`, so `_epochAt(block) == epoch`.
     function _block(uint64 epoch, uint64 offset) internal pure returns (uint64) {
         return epoch * INTERVAL + offset;
     }
 
-    /// Drive `processBitmap` for `epoch` at intra-epoch block `offset`. Keeps the
-    /// mock's committed committee length in sync with `committeeSize` so the P2-5
-    /// size cross-check passes (the on-chain committee always matches the cert).
-    function _process(
-        uint64 epoch,
-        uint64 offset,
-        uint8 committeeSize,
-        bytes memory bitmap
-    ) internal {
+    /// Drive `processBitmap` for `epoch` at intra-epoch block `offset`, keeping the mock's committed
+    /// committee length in sync so the size cross-check passes.
+    function _process(uint64 epoch, uint64 offset, uint8 committeeSize, bytes memory bitmap) internal {
         mockStaking.setCommitteeSize(epoch, committeeSize);
         vm.prank(SYSTEM_CALLER);
         liveness.processBitmap(epoch, _block(epoch, offset), committeeSize, bitmap);
     }
 
-    /// One absent validator → counter increments by 1.
-    function test_absent_signer_increments_counter() public {
-        bytes memory b = _allPresentExcept(8, 3);
-        _process(7, 1, 8, b);
-        assertEq(liveness.missCount(7, 3), 1);
-        assertEq(liveness.missCount(7, 0), 0);
-        assertEq(liveness.missCount(7, 7), 0);
+    /// Advance the block clock into `atEpoch` with one trivial all-present cert so the finalize
+    /// catch-up loop runs for every window <= atEpoch - 2. `atEpoch`'s own accumulation is harmless.
+    function _advanceToEpoch(uint64 atEpoch) internal {
+        _process(atEpoch, 1, 8, _allPresent(8));
     }
 
-    /// `MISS_THRESHOLD` consecutive misses → `slash` invoked
-    /// + counter reset to 0.
-    function test_threshold_reached_slashes_and_resets() public {
+    /// A below-floor member (seen == 0) is jailed only once its window is finalized at E+2.
+    function test_belowFloorMemberJailedAtFinalize() public {
         address victim = makeAddr("victim");
-        mockStaking.setSigner(9, 2, victim);
-
-        bytes memory missBitmap = _allPresentExcept(8, 2);
-        for (uint32 i = 1; i < MISS_THRESHOLD; i++) {
-            _process(9, i, 8, missBitmap);
-            assertEq(liveness.missCount(9, 2), i);
-            assertEq(mockStaking.slashedLength(), 0);
+        mockStaking.setSigner(5, 2, victim);
+        bytes memory miss = _allPresentExcept(8, 2);
+        for (uint64 k = 1; k <= 10; k++) {
+            _process(5, k, 8, miss);
         }
-        // Final miss → slash + counter reset.
-        _process(9, MISS_THRESHOLD, 8, missBitmap);
-        assertEq(liveness.missCount(9, 2), 0);
+        (uint32 seen, uint32 certs) = liveness.participation(5, 2);
+        assertEq(seen, 0);
+        assertEq(certs, 10);
+        // Window 5 is not yet closed at block-epoch 5, so nothing is slashed.
+        assertEq(mockStaking.slashedLength(), 0);
+
+        _advanceToEpoch(7); // block-epoch 7 => window 5 (7-2) finalizes
         assertEq(mockStaking.slashedLength(), 1);
         assertEq(mockStaking.slashed(0), victim);
     }
 
-    /// The miss threshold is read from ChainConfig, not a contract constant:
-    /// a governance-set value of 3 must dispatch the slash after 3 consecutive
-    /// misses, not 50.
-    function test_missThreshold_is_config_driven() public {
-        mockChainConfig.setMissThreshold(3);
+    /// A member at/above the floor is never slashed.
+    function test_aboveFloorMemberNotSlashed() public {
+        bytes memory all = _allPresent(8);
+        for (uint64 k = 1; k <= 5; k++) {
+            _process(5, k, 8, all);
+        }
+        _advanceToEpoch(7);
+        assertEq(mockStaking.slashedLength(), 0);
+    }
+
+    /// Correlation guard: > f simultaneous below-floor members ⇒ the whole window is skipped.
+    function test_correlationGuardSkipsMassFailure() public {
+        // committeeSize 8 ⇒ f = (8-1)/3 = 2; three below-floor members exceeds f.
+        uint8[] memory absent = new uint8[](3);
+        absent[0] = 0;
+        absent[1] = 1;
+        absent[2] = 2;
+        bytes memory b = _absentSet(8, absent);
+        for (uint64 k = 1; k <= 10; k++) {
+            _process(5, k, 8, b);
+        }
+        _advanceToEpoch(7);
+        assertEq(mockStaking.slashedLength(), 0, "mass failure must be treated as a network event");
+    }
+
+    /// An empty window (no certs processed) is judged as nothing.
+    function test_emptyWindowNoSlash() public {
+        _advanceToEpoch(7); // finalizes windows 0..5, all empty
+        assertEq(mockStaking.slashedLength(), 0);
+    }
+
+    /// F9: a cert stamped with an epoch outside {current, current-1} is skipped (not accumulated).
+    function test_staleEpochTagSkipped() public {
+        mockStaking.setCommitteeSize(2, 8);
+        bytes memory miss = _allPresentExcept(8, 3);
+        vm.prank(SYSTEM_CALLER);
+        liveness.processBitmap(2, _block(9, 1), 8, miss);
+        (, uint32 certs) = liveness.participation(2, 3);
+        assertEq(certs, 0, "stale-epoch accounting must be skipped");
+    }
+
+    /// The prev-epoch boundary (epoch == current-1) IS in-window and still accumulates.
+    function test_prevEpochBoundaryInWindow() public {
+        mockStaking.setCommitteeSize(8, 8);
+        bytes memory miss = _allPresentExcept(8, 3);
+        vm.prank(SYSTEM_CALLER);
+        liveness.processBitmap(8, _block(9, 0), 8, miss);
+        (uint32 seen, uint32 certs) = liveness.participation(8, 3);
+        assertEq(certs, 1, "current-1 epoch must still be accounted");
+        assertEq(seen, 0);
+    }
+
+    /// F9: a late cert for epoch E arriving at block-epoch E+1 is still counted before E finalizes.
+    function test_lateCurrentMinus1CertCountedBeforeFinalize() public {
         address victim = makeAddr("victim");
-        mockStaking.setSigner(9, 2, victim);
+        mockStaking.setSigner(5, 2, victim);
+        bytes memory miss = _allPresentExcept(8, 2);
+        for (uint64 k = 1; k <= 5; k++) {
+            _process(5, k, 8, miss); // certs at block-epoch 5
+        }
+        // Late cert for epoch 5 at a block in epoch 6 (the current-1 boundary) — still counted.
+        mockStaking.setCommitteeSize(5, 8);
+        vm.prank(SYSTEM_CALLER);
+        liveness.processBitmap(5, _block(6, 1), 8, miss);
+        (, uint32 certs) = liveness.participation(5, 2);
+        assertEq(certs, 6, "late current-1 cert must be counted");
+        // Window 5 is not finalized at block-epoch 6 (target = 4).
+        assertEq(mockStaking.slashedLength(), 0);
 
-        bytes memory missBitmap = _allPresentExcept(8, 2);
-        _process(9, 1, 8, missBitmap);
-        _process(9, 2, 8, missBitmap);
-        assertEq(mockStaking.slashedLength(), 0, "no slash before threshold");
-        // Third consecutive miss → slash + reset.
-        _process(9, 3, 8, missBitmap);
-        assertEq(liveness.missCount(9, 2), 0);
+        _advanceToEpoch(7);
         assertEq(mockStaking.slashedLength(), 1);
         assertEq(mockStaking.slashed(0), victim);
     }
 
-    /// Counter at epoch N is independent from epoch N+1.
-    function test_multi_epoch_keys_are_independent() public {
-        bytes memory missBitmap = _allPresentExcept(8, 1);
-        _process(10, 1, 8, missBitmap);
-        _process(11, 2, 8, missBitmap);
-        assertEq(liveness.missCount(10, 1), 1);
-        assertEq(liveness.missCount(11, 1), 1);
-        assertEq(liveness.missCount(10, 0), 0);
+    /// Finalize catches up across skipped epochs: a below-floor window is still judged after a jump.
+    function test_finalizeCatchUpOverSkippedEpochs() public {
+        address victim = makeAddr("victim");
+        mockStaking.setSigner(5, 2, victim);
+        bytes memory miss = _allPresentExcept(8, 2);
+        for (uint64 k = 1; k <= 10; k++) {
+            _process(5, k, 8, miss);
+        }
+        _advanceToEpoch(10); // jump; catch-up finalizes 0..8, window 5 judged
+        assertEq(mockStaking.slashedLength(), 1);
+        assertEq(mockStaking.slashed(0), victim);
     }
 
-    /// Same `blockNumber` called twice → second call is a no-op.
-    function test_idempotency_same_block_no_op() public {
-        bytes memory missBitmap = _allPresentExcept(8, 4);
-        _process(7, 5, 8, missBitmap);
-        assertEq(liveness.missCount(7, 4), 1);
-        // Same blockNumber → guard returns early; counter does not advance.
-        _process(7, 5, 8, missBitmap);
-        assertEq(liveness.missCount(7, 4), 1);
-        assertEq(liveness.lastProcessedBlock(), _block(7, 5));
+    /// The participation floor is read from ChainConfig, not a constant: a 50% floor jails a member
+    /// that a 15% floor would leave alone.
+    function test_participationFloorIsConfigDriven() public {
+        mockChainConfig.setParticipationFloorBps(5000); // 50%
+        address victim = makeAddr("victim");
+        mockStaking.setSigner(5, 2, victim);
+        // signer 2 present in 4 of 10 certs (40%) — below a 50% floor, above a 15% one.
+        for (uint64 k = 1; k <= 10; k++) {
+            bytes memory b = k <= 4 ? _allPresent(8) : _allPresentExcept(8, 2);
+            _process(5, k, 8, b);
+        }
+        _advanceToEpoch(7);
+        assertEq(mockStaking.slashedLength(), 1);
+        assertEq(mockStaking.slashed(0), victim);
     }
 
-    /// `signersBitmap.length != ceil(committeeSize/8)` → revert with
-    /// `InvalidBitmapLength`.
-    function test_invalid_bitmap_length_reverts() public {
-        // committeeSize=8 expects 1 byte; pass 2 bytes. Set up the epoch/committee
-        // so the call reaches the bitmap-length check (past the P2-5 guards).
+    /// Kill switch OFF: a below-floor member's window still finalizes (cursor advances) and its
+    /// counters still accumulate, but no jail is dispatched.
+    function test_jailDisabledSkipsJailButKeepsCounters() public {
+        mockChainConfig.setParticipationJailDisabled(true);
+        address victim = makeAddr("victim");
+        mockStaking.setSigner(5, 2, victim);
+        bytes memory miss = _allPresentExcept(8, 2);
+        for (uint64 k = 1; k <= 10; k++) {
+            _process(5, k, 8, miss);
+        }
+        _advanceToEpoch(7); // block-epoch 7 => window 5 finalizes
+        // Counters accumulated exactly as when enabled...
+        (uint32 seen, uint32 certs) = liveness.participation(5, 2);
+        assertEq(seen, 0);
+        assertEq(certs, 10);
+        // ...but the window is judged as nothing — no jail dispatched.
+        assertEq(mockStaking.slashedLength(), 0, "jail must not fire while disabled");
+        // The finalize cursor still advanced past the window.
+        assertEq(liveness.lastFinalizedEpoch(), 5);
+    }
+
+    /// Re-enabling judges SUBSEQUENT windows again, but never retro-judges windows finalized
+    /// while the switch was off (the cursor already moved past them).
+    function test_reEnableDoesNotRetroJudgeSkippedWindows() public {
+        // Window 5: below-floor victim, judged while DISABLED → never jailed, cursor past 5.
+        mockChainConfig.setParticipationJailDisabled(true);
+        address victim5 = makeAddr("victim5");
+        mockStaking.setSigner(5, 2, victim5);
+        bytes memory miss5 = _allPresentExcept(8, 2);
+        for (uint64 k = 1; k <= 10; k++) {
+            _process(5, k, 8, miss5);
+        }
+        _advanceToEpoch(7); // finalizes windows <=5 while disabled
+        assertEq(mockStaking.slashedLength(), 0);
+        assertEq(liveness.lastFinalizedEpoch(), 5);
+
+        // Re-enable and drive a fresh below-floor window 7 → judged again.
+        mockChainConfig.setParticipationJailDisabled(false);
+        address victim7 = makeAddr("victim7");
+        mockStaking.setSigner(7, 3, victim7);
+        bytes memory miss7 = _allPresentExcept(8, 3);
+        for (uint64 k = 1; k <= 10; k++) {
+            _process(7, k, 8, miss7);
+        }
+        _advanceToEpoch(9); // finalizes windows 6..7 with the jail re-armed
+        // Only the post-re-enable window is jailed; window 5 stays permanently unjudged.
+        assertEq(mockStaking.slashedLength(), 1, "only the re-enabled window is judged");
+        assertEq(mockStaking.slashed(0), victim7);
+    }
+
+    /// Same `blockNumber` called twice → second call is a no-op (no double accumulation).
+    function test_idempotencySameBlockNoOp() public {
+        bytes memory all = _allPresent(8);
+        _process(5, 5, 8, all);
+        (, uint32 certs1) = liveness.participation(5, 0);
+        _process(5, 5, 8, all); // same blockNumber → guard returns early
+        (, uint32 certs2) = liveness.participation(5, 0);
+        assertEq(certs1, 1);
+        assertEq(certs2, 1);
+        assertEq(liveness.lastProcessedBlock(), _block(5, 5));
+    }
+
+    /// `readmitExpiredJails` is invoked on every fresh block (auto-reinstate sweep).
+    function test_readmitSweepRunsEachBlock() public {
+        bytes memory all = _allPresent(8);
+        _process(5, 1, 8, all);
+        _process(5, 2, 8, all);
+        assertEq(mockStaking.readmitCalls(), 2);
+    }
+
+    /// `signersBitmap.length != ceil(committeeSize/8)` → revert with `InvalidBitmapLength`.
+    function test_invalidBitmapLengthReverts() public {
         mockStaking.setCommitteeSize(7, 8);
-        bytes memory bad = new bytes(2);
+        bytes memory bad = new bytes(2); // committeeSize=8 expects 1 byte
         vm.prank(SYSTEM_CALLER);
         vm.expectRevert(LivenessSlashing.InvalidBitmapLength.selector);
         liveness.processBitmap(7, _block(7, 1), 8, bad);
     }
 
-    /// P2-5: a cert stamped with an epoch outside {current, current-1} is skipped
-    /// (no counter accumulation) — blocks the stale-epoch slash-an-honest attack.
-    function test_stale_epoch_is_skipped() public {
-        // Process at block in epoch 9 but stamp a far-past epoch 2.
-        mockStaking.setCommitteeSize(2, 8);
-        bytes memory missBitmap = _allPresentExcept(8, 3);
-        vm.prank(SYSTEM_CALLER);
-        liveness.processBitmap(2, _block(9, 1), 8, missBitmap);
-        assertEq(liveness.missCount(2, 3), 0, "stale-epoch accounting must be skipped");
-    }
-
-    /// P2-5: a cert whose committeeSize disagrees with the committed committee
-    /// length is skipped (blocks phantom-index inflation).
-    function test_committee_size_mismatch_is_skipped() public {
-        // Committed committee for epoch 7 has length 8, but the cert claims 16.
+    /// A cert whose committeeSize disagrees with the committed committee length is skipped.
+    function test_committeeSizeMismatchSkipped() public {
         mockStaking.setCommitteeSize(7, 8);
         bytes memory bitmap = new bytes(2); // ceil(16/8) = 2 bytes
         vm.prank(SYSTEM_CALLER);
         liveness.processBitmap(7, _block(7, 1), 16, bitmap);
-        assertEq(liveness.missCount(7, 10), 0, "size-mismatch accounting must be skipped");
+        (, uint32 certs) = liveness.participation(7, 0);
+        assertEq(certs, 0, "size-mismatch accounting must be skipped");
     }
 
-    /// P2-5: the prev-epoch boundary lag (epoch == current-1) IS in-window.
-    function test_prev_epoch_boundary_in_window() public {
-        // Block in epoch 9, cert for epoch 8 (the boundary-lag case).
-        mockStaking.setCommitteeSize(8, 8);
-        bytes memory missBitmap = _allPresentExcept(8, 3);
-        vm.prank(SYSTEM_CALLER);
-        liveness.processBitmap(8, _block(9, 0), 8, missBitmap);
-        assertEq(liveness.missCount(8, 3), 1, "current-1 epoch must still be accounted");
-    }
-
-    /// `committeeSize == 0` → early return (cold-start / no-prev-cert).
-    function test_committee_size_zero_early_returns() public {
-        // Idempotency guard NOT armed for committee_size == 0, so
-        // `lastProcessedBlock` should stay at 0.
+    /// `committeeSize == 0` → early return (cold-start / no-prev-cert); idempotency guard not armed.
+    function test_committeeSizeZeroEarlyReturns() public {
         bytes memory empty;
-        _process(7, 42, 0, empty);
+        vm.prank(SYSTEM_CALLER);
+        liveness.processBitmap(7, _block(7, 42), 0, empty);
         assertEq(liveness.lastProcessedBlock(), 0);
     }
 
-    /// Participation resets a prior miss streak.
-    function test_present_validator_resets_counter() public {
-        bytes memory missBitmap = _allPresentExcept(8, 5);
-        _process(7, 1, 8, missBitmap);
-        _process(7, 2, 8, missBitmap);
-        assertEq(liveness.missCount(7, 5), 2);
-        // Now everyone participates → counter resets.
-        _process(7, 3, 8, _allPresent(8));
-        assertEq(liveness.missCount(7, 5), 0);
-    }
-
     /// `onlySystemCall` rejects callers other than the EIP-4788 sentinel.
-    function test_onlySystemCall_rejects_eoa() public {
+    function test_onlySystemCallRejectsEoa() public {
         bytes memory b = _allPresent(8);
         vm.expectRevert(IStakingContextErrors.OnlySystemCall.selector);
         liveness.processBitmap(7, 1, 8, b);
-    }
-
-    /// Bitmap byte order is LSB-first within each byte (consistent with the
-    /// Rust encoder pinned in `crates/consensus/src/extra_data.rs`).
-    function test_lsb_first_bitmap_layout() public {
-        // committeeSize = 9 → 2 bytes. Mark signers 0 and 8 present (LSB of
-        // byte 0, LSB of byte 1); all others absent.
-        bytes memory b = new bytes(2);
-        b[0] = bytes1(uint8(0x01));
-        b[1] = bytes1(uint8(0x01));
-        _process(7, 1, 9, b);
-        // signers 0 and 8 → present (counter 0); signers 1..7 → absent (1).
-        assertEq(liveness.missCount(7, 0), 0);
-        assertEq(liveness.missCount(7, 8), 0);
-        for (uint32 i = 1; i < 8; i++) {
-            assertEq(liveness.missCount(7, i), 1);
-        }
     }
 }
 
@@ -347,10 +433,7 @@ contract StakingSlashFromLivenessAclTest is Test {
         // NB: full deploy here would duplicate ~150 LOC of test setup; the
         // critical assertion is the revert on rogue caller, which only
         // needs the constructor to wire `_livenessSlashingAddr`.
-        bytes memory deploy = abi.encodePacked(
-            type(_StakingMinDeploy).creationCode,
-            abi.encode(livenessAddr)
-        );
+        bytes memory deploy = abi.encodePacked(type(_StakingMinDeploy).creationCode, abi.encode(livenessAddr));
         address stakingImpl;
         assembly {
             stakingImpl := create(0, add(deploy, 0x20), mload(deploy))

@@ -95,7 +95,7 @@ contract FluentGovernanceTest is Test {
 
     /// Audit 2b: with a non-zero DPoS activation, governance voting power must be read at
     /// the REBASED epoch and via the at-or-before snapshot — not the absolute epoch that
-    /// leaked `getValidatorStatusAtEpoch`'s `changedAt` (future/latest) stake.
+    /// would leak the validator's latest `changedAt` (future/latest) stake.
     function test_votingPowerUsesRebasedEpoch_notAbsolute() public {
         _deploy(1000, 100); // interval=50 ⇒ activation aligned; K = activation/interval = 2
         vm.roll(200); // rebased epoch = (200-100)/50 = 2
@@ -116,14 +116,6 @@ contract FluentGovernanceTest is Test {
             staking.getValidatorDelegatedStakeAt(validator1, snapBlock),
             ONE,
             "historical power must exclude post-snapshot / warmup stake"
-        );
-
-        // Prove the divergence is real: the old absolute-epoch getter (blockNumber/interval
-        // = 200/50 = 4) hits the future warmup slot and leaks the inflated 2*ONE.
-        (,, uint256 leaked,,,,,,) = staking.getValidatorStatusAtEpoch(validator1, uint64(snapBlock / 50));
-        assertEq(leaked, 2 * ONE, "sanity: absolute-epoch getter leaks the future stake");
-        assertTrue(
-            leaked != staking.getValidatorDelegatedStakeAt(validator1, snapBlock), "fix diverges from leaky path"
         );
     }
 
@@ -185,6 +177,7 @@ contract FluentGovernanceTest is Test {
             predictedGovernance,
             predictedChainConfig,
             blend,
+            address(0),
             address(0)
         );
         staking = Staking(
@@ -243,7 +236,7 @@ contract FluentGovernanceTest is Test {
             address(
                 new ERC1967Proxy(
                     address(chainConfigImpl),
-                    abi.encodeCall(ChainConfig.initialize, (address(this), 3, 50, 50, 150, 7, 1, ONE, ONE, dposActivationBlock))
+                    abi.encodeCall(ChainConfig.initialize, (address(this), 3, 50, 150, 7, 1, ONE, ONE, dposActivationBlock, address(0), address(0)))
                 )
             )
         );

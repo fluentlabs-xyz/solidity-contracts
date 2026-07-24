@@ -12,6 +12,7 @@ import {IStaking, IStakingErrors} from "../../contracts/staking/interfaces/IStak
 import {IStakingPool} from "../../contracts/staking/interfaces/IStakingPool.sol";
 import {ISystemReward} from "../../contracts/staking/interfaces/ISystemReward.sol";
 import {Staking} from "../../contracts/staking/Staking.sol";
+import {MockStakingRewardInjector} from "../../contracts/staking/mocks/MockStakingRewardInjector.sol";
 import {StakingPool} from "../../contracts/staking/StakingPool.sol";
 import {SystemReward} from "../../contracts/staking/SystemReward.sol";
 import {MockBlendToken} from "../../contracts/staking/mocks/MockBlendToken.sol";
@@ -27,7 +28,7 @@ contract GasHeavyReceiver {
 contract StakingAdditionalTest is Test {
     uint256 internal constant ONE = 1 ether;
 
-    Staking internal staking;
+    MockStakingRewardInjector internal staking;
     StakingPool internal stakingPool;
     ChainConfig internal chainConfig;
     SystemReward internal systemReward;
@@ -40,6 +41,7 @@ contract StakingAdditionalTest is Test {
     address internal validator1 = makeAddr("validator1");
     address internal validator2 = makeAddr("validator2");
     address internal validator3 = makeAddr("validator3");
+    address internal validator4 = makeAddr("validator4");
 
     function setUp() public {
         blend = new MockBlendToken();
@@ -52,7 +54,7 @@ contract StakingAdditionalTest is Test {
         _fund(validator2);
         _fund(validator3);
         _deploy(
-            10, 50, 150, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
+            10, 150, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
         );
     }
 
@@ -81,7 +83,7 @@ contract StakingAdditionalTest is Test {
         assertEq(chainConfig.owner(), address(this));
 
         uint64 nonce = vm.getNonce(address(this));
-        Staking predictedProxy = Staking(_computeCreateAddress(address(this), nonce + 1));
+        Staking predictedProxy = Staking(payable(_computeCreateAddress(address(this), nonce + 1)));
         Staking implementation = new Staking(
             predictedProxy,
             ISystemReward(address(predictedProxy)),
@@ -89,15 +91,18 @@ contract StakingAdditionalTest is Test {
             IFluentGovernance(address(this)),
             IChainConfig(address(predictedProxy)),
             blend,
+            address(0),
             address(0)
         );
         Staking proxy = Staking(
-            address(
-                new ERC1967Proxy(
-                    address(implementation),
-                    abi.encodeCall(Staking.initialize, (address(this), _emptyAddresses(), _emptyUint256s(), uint16(0)))
-                )
-            )
+            payable(address(
+                    new ERC1967Proxy(
+                        address(implementation),
+                        abi.encodeCall(
+                            Staking.initialize, (address(this), _emptyAddresses(), _emptyUint256s(), uint16(0))
+                        )
+                    )
+                ))
         );
         Staking upgradedImplementation = new Staking(
             proxy,
@@ -106,6 +111,7 @@ contract StakingAdditionalTest is Test {
             IFluentGovernance(address(this)),
             IChainConfig(address(proxy)),
             blend,
+            address(0),
             address(0)
         );
 
@@ -123,7 +129,6 @@ contract StakingAdditionalTest is Test {
     function test_chainConfigGovernanceSetters() public {
         chainConfig.setActiveValidatorsLength(5);
         chainConfig.setEpochBlockInterval(11);
-        chainConfig.setMisdemeanorThreshold(51);
         chainConfig.setFelonyThreshold(151);
         chainConfig.setValidatorJailEpochLength(8);
         chainConfig.setUndelegatePeriod(2);
@@ -132,7 +137,6 @@ contract StakingAdditionalTest is Test {
 
         assertEq(chainConfig.getActiveValidatorsLength(), 5);
         assertEq(chainConfig.getEpochBlockInterval(), 11);
-        assertEq(chainConfig.getMisdemeanorThreshold(), 51);
         assertEq(chainConfig.getFelonyThreshold(), 151);
         assertEq(chainConfig.getValidatorJailEpochLength(), 8);
         assertEq(chainConfig.getUndelegatePeriod(), 2);
@@ -144,15 +148,44 @@ contract StakingAdditionalTest is Test {
         chainConfig.setActiveValidatorsLength(6);
     }
 
-    function test_chainConfigRejectsInconsistentSlashThresholds() public {
-        uint32 currentFelonyThreshold = chainConfig.getFelonyThreshold();
-        vm.expectRevert(IChainConfig.MisdemeanorThresholdNotMet.selector);
-        chainConfig.setMisdemeanorThreshold(currentFelonyThreshold + 1);
+    function test_chainConfigRewardParams() public {
+        // Sentinel default when unset.
+        assertEq(chainConfig.getParticipationFloorBps(), 1500);
+        // RAW-0 (off) — NOT sentinel-defaulted.
+        assertEq(chainConfig.getBlendStipendPerEpoch(), 0);
 
-        uint32 currentMisdemeanorThreshold = chainConfig.getMisdemeanorThreshold();
-        vm.expectRevert(IChainConfig.MisdemeanorThresholdNotMet.selector);
-        chainConfig.setFelonyThreshold(currentMisdemeanorThreshold - 1);
+        // Governance can set them within caps.
+        chainConfig.setBlendStipendPerEpoch(1000 ether);
+        chainConfig.setParticipationFloorBps(2000);
+        assertEq(chainConfig.getBlendStipendPerEpoch(), 1000 ether);
+        assertEq(chainConfig.getParticipationFloorBps(), 2000);
+
+        // 0 is a valid (off) value for the RAW stipend param.
+        chainConfig.setBlendStipendPerEpoch(0);
+        assertEq(chainConfig.getBlendStipendPerEpoch(), 0);
+
+        // Caps are enforced.
+        vm.expectRevert(abi.encodeWithSelector(IChainConfig.ParticipationFloorBpsTooHigh.selector, 2001, 2000));
+        chainConfig.setParticipationFloorBps(2001);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IChainConfig.BlendStipendPerEpochTooHigh.selector, uint256(1_000_001 ether), uint256(1_000_000 ether)
+            )
+        );
+        chainConfig.setBlendStipendPerEpoch(1_000_001 ether);
+
+        // Setters are governance-gated.
+        vm.expectRevert(IStakingContextErrors.OnlyGovernance.selector);
+        vm.prank(staker1);
+        chainConfig.setBlendStipendPerEpoch(1);
     }
+
+    function test_settleEpochStipendOnlySystemCall() public {
+        // The folded settlement entry is gated to the EIP-4788 system caller.
+        vm.expectRevert(IStakingContextErrors.OnlySystemCall.selector);
+        staking.settleEpochStipend(0);
+    }
+
 
     function test_statusAndDelegationViewsForEmptyAndHistoricalEpochs() public {
         (uint256 delegated, uint64 atEpoch) = staking.getValidatorDelegation(validator1, staker1);
@@ -164,8 +197,8 @@ contract StakingAdditionalTest is Test {
         staking.delegate(validator1, ONE);
         _rollToNextEpoch();
 
-        (,, uint256 historicalDelegated,,,,,,) = staking.getValidatorStatusAtEpoch(validator1, staking.currentEpoch());
-        assertEq(historicalDelegated, ONE);
+        (,, uint256 currentDelegated,,,,,) = staking.getValidatorStatus(validator1);
+        assertEq(currentDelegated, ONE);
         assertTrue(staking.isValidatorActive(validator1));
         assertFalse(staking.isValidatorActive(validator2));
         assertEq(staking.getPendingValidatorFee(validator2), 0);
@@ -182,7 +215,7 @@ contract StakingAdditionalTest is Test {
         assertTrue(staking.isValidator(address(3)));
 
         _deploy(
-            10, 50, 150, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
+            10, 150, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
         );
         staking.addValidator(address(1));
         staking.addValidator(address(2));
@@ -193,7 +226,7 @@ contract StakingAdditionalTest is Test {
         assertTrue(staking.isValidator(address(3)));
 
         _deploy(
-            10, 50, 150, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
+            10, 150, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
         );
         staking.addValidator(address(1));
         staking.addValidator(address(2));
@@ -218,7 +251,7 @@ contract StakingAdditionalTest is Test {
         vm.prank(staker1);
         staking.undelegate(validator1, ONE);
 
-        (,, uint256 totalDelegated,,,,,,) = staking.getValidatorStatus(validator1);
+        (,, uint256 totalDelegated,,,,,) = staking.getValidatorStatus(validator1);
         assertEq(totalDelegated, 0);
         _rollToNextEpoch();
         _rollToNextEpoch();
@@ -351,9 +384,9 @@ contract StakingAdditionalTest is Test {
         assertEq(staking.getValidatorFee(validator1), 3_333_300_000_000_000);
     }
 
-    function test_noValidatorRewardsForInactivitySlashOnly() public {
+    function test_slashBelowFelonyDoesNotConfiscateRewards() public {
         _deploy(
-            50, 5, 10, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
+            50, 10, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
         );
         staking.addValidator(validator1);
         staking.addValidator(validator2);
@@ -362,16 +395,19 @@ contract StakingAdditionalTest is Test {
         }
         _depositReward(validator2, ONE);
         _rollToNextEpoch();
+        // The misdemeanor reward cliff was removed: slashing below the felony threshold no
+        // longer confiscates a validator's rewards to the treasury. The owner still earns them.
+        assertEq(staking.getValidatorFee(validator2), ONE);
         assertEq(staking.getValidatorFee(validator1), 0);
 
         vm.prank(staker1);
         staking.claimValidatorFee(validator2);
-        assertEq(systemReward.getSystemFee(), ONE);
+        assertEq(systemReward.getSystemFee(), 0);
     }
 
     function test_incorrectStakingAmounts() public {
         _deploy(
-            10, 50, 150, 7, 1, 1, 1, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
+            10, 150, 7, 1, 1, 1, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
         );
         staking.addValidator(validator1);
 
@@ -390,19 +426,23 @@ contract StakingAdditionalTest is Test {
 
     function test_putValidatorInJailAfterFelonyThreshold() public {
         _deploy(
-            300, 10, 20, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
+            300, 20, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
         );
         staking.addValidator(validator1);
         staking.addValidator(validator2);
+        // Halt-guard floor is now the Simplex quorum q(n)=n-f, n=min(activeLen, cap=3) ⇒ q(3)=3, so
+        // jailing one requires activeLen >= 4 (else the remainder drops below quorum). Four active.
+        staking.addValidator(validator3);
+        staking.addValidator(validator4);
 
         for (uint256 i = 0; i < 19; i++) {
             _slash(validator2);
         }
-        (, uint8 statusBefore,,,,,,,) = staking.getValidatorStatus(validator2);
+        (, uint8 statusBefore,,,,,,) = staking.getValidatorStatus(validator2);
         assertEq(statusBefore, 1);
 
         _slash(validator2);
-        (, uint8 statusAfter,,,,,,,) = staking.getValidatorStatus(validator2);
+        (, uint8 statusAfter,,,,,,) = staking.getValidatorStatus(validator2);
         assertEq(statusAfter, 3);
     }
 
@@ -412,16 +452,19 @@ contract StakingAdditionalTest is Test {
     /// jail is skipped forever).
     function test_jailFiresWhenFelonyLoweredBelowAccumulatedCount() public {
         _deploy(
-            300, 2, 20, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
+            300, 20, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
         );
         staking.addValidator(validator1);
         staking.addValidator(validator2);
+        // Halt-guard floor is q(min(activeLen, cap=3))=q(3)=3, so jailing one needs activeLen >= 4.
+        staking.addValidator(validator3);
+        staking.addValidator(validator4);
 
         // Accumulate 18 slashes in one epoch — below felony=20, not jailed.
         for (uint256 i = 0; i < 18; i++) {
             _slash(validator2);
         }
-        (, uint8 statusBefore,,,,,,,) = staking.getValidatorStatus(validator2);
+        (, uint8 statusBefore,,,,,,) = staking.getValidatorStatus(validator2);
         assertTrue(statusBefore != 3, "must not be jailed below felony");
 
         // Governance lowers felony to 10 — now strictly below the count (18).
@@ -429,16 +472,19 @@ contract StakingAdditionalTest is Test {
 
         // Next slash (count 19 >= 10) jails via `>=`. `==` would skip (19 != 10).
         _slash(validator2);
-        (, uint8 statusAfter,,,,,,,) = staking.getValidatorStatus(validator2);
+        (, uint8 statusAfter,,,,,,) = staking.getValidatorStatus(validator2);
         assertEq(statusAfter, 3, "jailed via >= after felony lowered below count");
     }
 
     function test_validatorCanBeReleasedFromJailByOwner() public {
         _deploy(
-            50, 5, 5, 2, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
+            50, 5, 2, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
         );
         staking.addValidator(validator1);
         staking.addValidator(validator2);
+        // Halt-guard floor is q(min(activeLen, cap=3))=q(3)=3, so jailing one needs activeLen >= 4.
+        staking.addValidator(validator3);
+        staking.addValidator(validator4);
 
         vm.expectRevert(abi.encodeWithSelector(IStakingContextErrors.ValidatorNotInJail.selector, validator2));
         vm.prank(validator1);
@@ -448,7 +494,7 @@ contract StakingAdditionalTest is Test {
         for (uint256 i = 0; i < 5; i++) {
             _slash(validator2);
         }
-        (, uint8 jailedStatus,, uint32 slashes,,,,,) = staking.getValidatorStatus(validator2);
+        (, uint8 jailedStatus,, uint32 slashes,,,,) = staking.getValidatorStatus(validator2);
         assertEq(slashes, 5);
         assertEq(jailedStatus, 3);
 
@@ -463,7 +509,7 @@ contract StakingAdditionalTest is Test {
         staking.releaseValidatorFromJail(validator2);
         vm.prank(validator2);
         staking.releaseValidatorFromJail(validator2);
-        (, uint8 activeStatus,,,,,,,) = staking.getValidatorStatus(validator2);
+        (, uint8 activeStatus,,,,,,) = staking.getValidatorStatus(validator2);
         assertEq(activeStatus, 1);
     }
 
@@ -586,7 +632,7 @@ contract StakingAdditionalTest is Test {
         assertEq(staking.getPendingValidatorFee(validator1), 0);
 
         staking.disableValidator(validator1);
-        (, uint8 status,,,,,,,) = staking.getValidatorStatus(validator1);
+        (, uint8 status,,,,,,) = staking.getValidatorStatus(validator1);
         assertEq(status, 2);
         assertFalse(staking.isValidatorActive(validator1));
 
@@ -623,7 +669,7 @@ contract StakingAdditionalTest is Test {
 
     function test_delegatorCanClaimNewRewardsWithoutNewDelegations() public {
         _deploy(
-            5, 50, 150, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
+            5, 150, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
         );
         staking.addValidator(validator1);
         vm.prank(staker1);
@@ -648,27 +694,33 @@ contract StakingAdditionalTest is Test {
         validators[0] = validator1;
         validators[1] = validator2;
         uint256[] memory stakes = new uint256[](2);
-        _deploy(50, 5, 10, 1, 1, ONE, ONE, validators, stakes, _singleton(treasury), _singleton16(10_000));
+        _deploy(50, 10, 1, 1, ONE, ONE, validators, stakes, _singleton(treasury), _singleton16(10_000));
+        // Halt-guard floor is q(min(activeLen, cap))=n-f. Raise cap to 5 and run 4 active so jailing one
+        // (activeLen 4 → 3) stays at/above q(4)=3; below 4 active the quorum floor forbids the jail.
+        chainConfig.setActiveValidatorsLength(5);
+        staking.addValidator(validator3);
+        staking.addValidator(validator4);
 
-        assertEq(staking.getValidators().length, 2);
+        assertEq(staking.getValidators().length, 4);
         for (uint256 i = 0; i < 10; i++) {
             _slash(validator1);
         }
         address[] memory active = staking.getValidators();
-        assertEq(active.length, 1);
-        assertEq(active[0], validator2);
+        assertEq(active.length, 3);
+        for (uint256 i = 0; i < active.length; i++) {
+            assertTrue(active[i] != validator1, "jailed validator must leave the active set");
+        }
 
         _rollToNextEpoch();
         _rollToNextEpoch();
         vm.prank(validator1);
         staking.releaseValidatorFromJail(validator1);
-        assertEq(staking.getValidators().length, 2);
+        assertEq(staking.getValidators().length, 4);
     }
 
     function test_userCanRedelegateStakingRewards() public {
         _deploy(
             10,
-            50,
             150,
             7,
             1,
@@ -966,20 +1018,20 @@ contract StakingAdditionalTest is Test {
 
         uint64 expectedChangedAt = staking.nextEpoch();
         staking.disableValidator(validator1);
-        (,,,, uint64 changedAt,,,,) = staking.getValidatorStatus(validator1);
+        (,,,, uint64 changedAt,,,) = staking.getValidatorStatus(validator1);
         assertEq(changedAt, expectedChangedAt, "disableValidator must persist changedAt");
 
         _rollToNextEpoch();
         expectedChangedAt = staking.nextEpoch();
         staking.activateValidator(validator1);
-        (,,,, changedAt,,,,) = staking.getValidatorStatus(validator1);
+        (,,,, changedAt,,,) = staking.getValidatorStatus(validator1);
         assertEq(changedAt, expectedChangedAt, "activateValidator must persist changedAt");
 
         _rollToNextEpoch();
         expectedChangedAt = staking.nextEpoch();
         vm.prank(validator1);
         staking.changeValidatorOwner(validator1, owner);
-        (,,,, changedAt,,,,) = staking.getValidatorStatus(validator1);
+        (,,,, changedAt,,,) = staking.getValidatorStatus(validator1);
         assertEq(changedAt, expectedChangedAt, "changeValidatorOwner must persist changedAt");
     }
 
@@ -991,7 +1043,7 @@ contract StakingAdditionalTest is Test {
         vm.prank(validator1);
         staking.registerValidator(validator1, 1000, ONE);
         assertEq(blend.balanceOf(validator1), balanceBefore - ONE, "tokens pulled");
-        (address ownerAddress, uint8 status,,,,,,,) = staking.getValidatorStatus(validator1);
+        (address ownerAddress, uint8 status,,,,,,) = staking.getValidatorStatus(validator1);
         assertEq(ownerAddress, validator1);
         assertEq(uint256(status), uint256(IStaking.ValidatorStatus.Pending));
     }
@@ -1034,14 +1086,16 @@ contract StakingAdditionalTest is Test {
         _rollToNextEpoch();
         vm.prank(validator1);
         staking.undelegate(validator1, 5 * ONE);
-        (,, uint256 totalDelegated,,,,,,) = staking.getValidatorStatus(validator1);
+        (,, uint256 totalDelegated,,,,,) = staking.getValidatorStatus(validator1);
         assertEq(totalDelegated, 0);
     }
 
     /// @notice H-2: a delegator who never claims for thousands of epochs can still drain rewards
     ///         using repeated claim calls — a single call is capped at ``MAX_EPOCHS_PER_CLAIM``.
     function test_delegatorClaimCapsAtMaxEpochsPerClaim() public {
-        _deploy(1, 50, 150, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000));
+        _deploy(
+            1, 150, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
+        );
         staking.addValidator(validator1);
         vm.prank(validator1);
         staking.changeValidatorCommissionRate(validator1, 0);
@@ -1071,7 +1125,9 @@ contract StakingAdditionalTest is Test {
 
     /// @notice H-2: validator owner's claim is also capped per call.
     function test_validatorOwnerClaimCapsAtMaxEpochsPerClaim() public {
-        _deploy(1, 50, 150, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000));
+        _deploy(
+            1, 150, 7, 1, ONE, ONE, _emptyAddresses(), _emptyUint256s(), _singleton(treasury), _singleton16(10_000)
+        );
         staking.addValidator(validator1);
         vm.prank(validator1);
         staking.changeValidatorCommissionRate(validator1, 3000);
@@ -1109,7 +1165,6 @@ contract StakingAdditionalTest is Test {
 
     function _deploy(
         uint32 epochBlockInterval,
-        uint32 misdemeanorThreshold,
         uint32 felonyThreshold,
         uint32 validatorJailEpochLength,
         uint32 undelegatePeriod,
@@ -1133,16 +1188,17 @@ contract StakingAdditionalTest is Test {
             blend.approve(address(predictedStaking), totalInitialStakes);
         }
 
-        Staking stakingImpl = new Staking(
+        MockStakingRewardInjector stakingImpl = new MockStakingRewardInjector(
             predictedStaking,
             predictedSystemReward,
             predictedStakingPool,
             governance,
             predictedChainConfig,
             blend,
+            address(0),
             address(0)
         );
-        staking = Staking(
+        staking = MockStakingRewardInjector(
             payable(address(
                     new ERC1967Proxy(
                         address(stakingImpl),
@@ -1152,12 +1208,7 @@ contract StakingAdditionalTest is Test {
         );
 
         SystemReward systemRewardImpl = new SystemReward(
-            predictedStaking,
-            predictedSystemReward,
-            predictedStakingPool,
-            governance,
-            predictedChainConfig,
-            blend
+            predictedStaking, predictedSystemReward, predictedStakingPool, governance, predictedChainConfig, blend
         );
         systemReward = SystemReward(
             payable(address(
@@ -1169,12 +1220,7 @@ contract StakingAdditionalTest is Test {
         );
 
         StakingPool stakingPoolImpl = new StakingPool(
-            predictedStaking,
-            predictedSystemReward,
-            predictedStakingPool,
-            governance,
-            predictedChainConfig,
-            blend
+            predictedStaking, predictedSystemReward, predictedStakingPool, governance, predictedChainConfig, blend
         );
         stakingPool = StakingPool(
             payable(address(
@@ -1201,13 +1247,14 @@ contract StakingAdditionalTest is Test {
                             address(this),
                             uint32(3),
                             epochBlockInterval,
-                            misdemeanorThreshold,
                             felonyThreshold,
                             validatorJailEpochLength,
                             undelegatePeriod,
                             minValidatorStakeAmount,
                             minStakingAmount,
-                            uint64(0)
+                            uint64(0),
+                            address(0),
+                            address(0)
                         )
                     )
                 )
@@ -1246,9 +1293,8 @@ contract StakingAdditionalTest is Test {
     }
 
     function _depositReward(address validator, uint256 amount) internal {
-        vm.coinbase(validator);
         vm.prank(validator);
-        staking.deposit(validator, amount);
+        staking.injectReward(validator, amount);
     }
 
     function _slash(address validator) internal {

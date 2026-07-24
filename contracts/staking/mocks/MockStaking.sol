@@ -6,7 +6,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "../Staking.sol";
 
 /// @title Test staking implementation
-/// @notice Exposes governance/coinbase/slashing-restricted hooks for tests by bypassing production access checks.
+/// @notice Exposes governance/slashing-restricted hooks for tests by bypassing production access checks.
 contract MockStaking is Staking {
     constructor(
         IStaking stakingContract,
@@ -15,7 +15,8 @@ contract MockStaking is Staking {
         IFluentGovernance governanceContract,
         IChainConfig chainConfigContract,
         IERC20 stakingToken,
-        address livenessSlashingAddr
+        address livenessSlashingAddr,
+        address blendReserveAddr
     )
         Staking(
             stakingContract,
@@ -24,7 +25,8 @@ contract MockStaking is Staking {
             governanceContract,
             chainConfigContract,
             stakingToken,
-            livenessSlashingAddr
+            livenessSlashingAddr,
+            blendReserveAddr
         )
     {}
 
@@ -42,9 +44,5 @@ contract MockStaking is Staking {
 
     function disableValidator(address validator) external override {
         _disableValidator(validator);
-    }
-
-    function deposit(address validatorAddress, uint256 amount) external override {
-        _depositFee(validatorAddress, amount);
     }
 }

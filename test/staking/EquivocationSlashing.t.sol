@@ -45,7 +45,11 @@ contract EquivocationSlashingTest is Test {
     event EquivocationSlashed(address indexed validator, uint64 epoch, address indexed reporter);
     event ValidatorJailed(address indexed validator, uint64 epoch);
     event EquivocationStakeSeized(
-        address indexed validator, address indexed reporter, uint256 reporterReward, uint256 burned
+        address indexed validator,
+        address indexed reporter,
+        uint256 reporterReward,
+        uint256 remainder,
+        address recipient
     );
 
     address internal constant BURN = 0x000000000000000000000000000000000000dEaD;
@@ -221,6 +225,7 @@ contract EquivocationSlashingTest is Test {
             governance,
             predictedChainConfig,
             blend,
+            address(0),
             address(0)
         );
         staking = Staking(
@@ -286,13 +291,14 @@ contract EquivocationSlashingTest is Test {
                             address(this),
                             ACTIVE_LEN,
                             EPOCH_INTERVAL,
-                            uint32(50),
                             uint32(150),
                             uint32(7),
                             uint32(7), // undelegatePeriod
                             uint256(ONE),
                             uint256(ONE),
-                            uint64(0)
+                            uint64(0),
+                            address(0),
+                            address(0)
                         )
                     )
                 )
@@ -403,7 +409,7 @@ contract EquivocationSlashingTest is Test {
 
 
     function _assertSlashed(address v) internal view {
-        (, uint8 status,,,,,,,) = staking.getValidatorStatus(v);
+        (, uint8 status,,,,,,) = staking.getValidatorStatus(v);
         assertEq(uint256(status), uint256(3), "must be Jail"); // ValidatorStatus.Jail
         // Permanence is enforced by the `tombstoned` flag and asserted in
         // test_RevertIf_releaseValidatorFromJail_tombstoned.
@@ -455,14 +461,42 @@ contract EquivocationSlashingTest is Test {
         uint256 burnBefore = blend.balanceOf(BURN);
 
         vm.expectEmit(true, true, false, true, address(staking));
-        emit EquivocationStakeSeized(offender, address(this), expectReporter, expectBurn);
+        emit EquivocationStakeSeized(offender, address(this), expectReporter, expectBurn, BURN);
         staking.slashEquivocationNotarize(_cnEvidence(), _pkUnc(), _cnSig1Unc(), _cnSig2Unc());
 
         _assertSlashed(offender);
         (uint256 bondedAfter,) = staking.getValidatorDelegation(offender, offender);
         assertEq(bondedAfter, 0, "self-stake seized to zero (owner cannot reclaim)");
         assertEq(blend.balanceOf(address(this)) - reporterBefore, expectReporter, "reporter got 30%");
-        assertEq(blend.balanceOf(BURN) - burnBefore, expectBurn, "burn sink got 70%");
+        assertEq(blend.balanceOf(BURN) - burnBefore, expectBurn, "burn sink got 70% (no fund configured)");
+    }
+
+    /// Regression (reporter-leg revert): a zero-address reporter (msg.sender == address(0))
+    /// would make the reporter `safeTransfer` revert (OZ ERC20InvalidReceiver) and — since the
+    /// whole slash is atomic — roll back the tombstone / jail / active-set removal, leaving a
+    /// byzantine validator in the committee. The reporter leg is now failure-tolerant: the cut
+    /// is BURNED instead, the slash SUCCEEDS, and the offender is still tombstoned + removed.
+    function test_slashEquivocation_zeroReporter_burnsCut_doesNotRevert() public {
+        address offender = _offender();
+        uint256 selfStake = 100 ether;
+        blend.mint(offender, selfStake);
+        vm.startPrank(offender);
+        blend.approve(address(staking), selfStake);
+        staking.delegate(offender, selfStake);
+        vm.stopPrank();
+
+        uint256 burnBefore = blend.balanceOf(BURN);
+
+        // reporterReward == 0, remainder == the whole seizure (the 30% cut is burned too).
+        vm.expectEmit(true, true, false, true, address(staking));
+        emit EquivocationStakeSeized(offender, address(0), 0, selfStake, BURN);
+        vm.prank(address(0));
+        staking.slashEquivocationNotarize(_cnEvidence(), _pkUnc(), _cnSig1Unc(), _cnSig2Unc());
+
+        _assertSlashed(offender); // tombstoned + removed from the active set — NOT rolled back
+        (uint256 bondedAfter,) = staking.getValidatorDelegation(offender, offender);
+        assertEq(bondedAfter, 0, "self-stake seized to zero");
+        assertEq(blend.balanceOf(BURN) - burnBefore, selfStake, "entire seizure burned (reporter cut included)");
     }
 
     /// C5 v1: the reporter cut is governance-configurable via ChainConfig
@@ -483,6 +517,66 @@ contract EquivocationSlashingTest is Test {
 
         assertEq(blend.balanceOf(address(this)) - reporterBefore, selfStake / 2, "reporter got 50%");
         assertEq(blend.balanceOf(BURN) - burnBefore, selfStake / 2, "burn got 50%");
+    }
+
+    /// Damage-coverage fund: once governance sets `slashFundAddress`, the non-reporter remainder
+    /// (default 70%) is transferred to that fund instead of being burned. The reporter cut and the
+    /// event's `recipient` field both reflect the redirect; the burn sink is untouched.
+    function test_slashEquivocation_remainderToFund() public {
+        address fund = makeAddr("damageFund");
+        chainConfig.setSlashFundAddress(fund); // address(this) is governance in this harness
+
+        address offender = _offender();
+        uint256 selfStake = 100 ether;
+        blend.mint(offender, selfStake);
+        vm.startPrank(offender);
+        blend.approve(address(staking), selfStake);
+        staking.delegate(offender, selfStake);
+        vm.stopPrank();
+
+        uint256 expectReporter = (selfStake * 3000) / 10_000; // 30%
+        uint256 expectRemainder = selfStake - expectReporter; // 70% → fund (not burned)
+        uint256 reporterBefore = blend.balanceOf(address(this));
+        uint256 fundBefore = blend.balanceOf(fund);
+        uint256 burnBefore = blend.balanceOf(BURN);
+
+        vm.expectEmit(true, true, false, true, address(staking));
+        emit EquivocationStakeSeized(offender, address(this), expectReporter, expectRemainder, fund);
+        staking.slashEquivocationNotarize(_cnEvidence(), _pkUnc(), _cnSig1Unc(), _cnSig2Unc());
+
+        _assertSlashed(offender);
+        (uint256 bondedAfter,) = staking.getValidatorDelegation(offender, offender);
+        assertEq(bondedAfter, 0, "self-stake seized to zero");
+        assertEq(blend.balanceOf(address(this)) - reporterBefore, expectReporter, "reporter still got 30%");
+        assertEq(blend.balanceOf(fund) - fundBefore, expectRemainder, "fund got the 70% remainder");
+        assertEq(blend.balanceOf(BURN) - burnBefore, 0, "nothing burned when fund configured");
+    }
+
+    /// Damage-coverage fund + zero reporter: the whole seizure (reporter cut folded into the
+    /// remainder) goes to the configured fund, and the slash still succeeds (non-reverting).
+    function test_slashEquivocation_zeroReporter_remainderToFund() public {
+        address fund = makeAddr("damageFund");
+        chainConfig.setSlashFundAddress(fund);
+
+        address offender = _offender();
+        uint256 selfStake = 100 ether;
+        blend.mint(offender, selfStake);
+        vm.startPrank(offender);
+        blend.approve(address(staking), selfStake);
+        staking.delegate(offender, selfStake);
+        vm.stopPrank();
+
+        uint256 fundBefore = blend.balanceOf(fund);
+        uint256 burnBefore = blend.balanceOf(BURN);
+
+        vm.expectEmit(true, true, false, true, address(staking));
+        emit EquivocationStakeSeized(offender, address(0), 0, selfStake, fund);
+        vm.prank(address(0));
+        staking.slashEquivocationNotarize(_cnEvidence(), _pkUnc(), _cnSig1Unc(), _cnSig2Unc());
+
+        _assertSlashed(offender);
+        assertEq(blend.balanceOf(fund) - fundBefore, selfStake, "entire seizure to fund (reporter cut folded in)");
+        assertEq(blend.balanceOf(BURN) - burnBefore, 0, "nothing burned when fund configured");
     }
 
     /// C5 v1: seizure targets ONLY the operator's self-stake — third-party delegators are
@@ -602,7 +696,7 @@ contract EquivocationSlashingTest is Test {
         (bytes32[4] memory peer,) = _committee();
         staking.slashEquivocationNotarize(_cnEvidence(), _pkUnc(), _cnSig1Unc(), _cnSig2Unc());
         for (uint256 i = 1; i < 4; i++) {
-            (, uint8 status,,,,,,,) = staking.getValidatorStatus(validators[i]);
+            (, uint8 status,,,,,,) = staking.getValidatorStatus(validators[i]);
             assertEq(uint256(status), uint256(1), "untouched validator must stay Active");
             assertEq(staking.getConsensusKeys(validators[i]).peerPubkey, peer[i]);
         }
@@ -646,14 +740,15 @@ contract EquivocationSlashingTest is Test {
 
     /// @dev Ahead-commit model: drive commitEpochCommittee to catch up every
     ///      uncommitted epoch through the current one (it commits the
-    ///      next-uncommitted epoch, gated target<=currentEpoch+1), so the
+    ///      next-uncommitted epoch, gated target<=currentEpoch+2), so the
     ///      evidence epoch's committee is committed.
     function _commit() internal {
         uint64 cur = staking.currentEpoch();
         while (staking.nextEpochToCommit() <= cur) {
             uint64 t = staking.nextEpochToCommit();
-            // committee[t] selected from EffBal(t-1) (spec §4.4); genesis t=0 → snapshot[0].
-            address[] memory c = _canonicalAt(t == 0 ? 0 : t - 1);
+            // 2-epoch warm-up: committee[t] is selected from EffBal(t-2) (spec §4.4,
+            // WARMUP_DELAY=2); genesis t<2 clamps to EffBal(0).
+            address[] memory c = _canonicalAt(t < 2 ? 0 : t - 2);
             vm.prank(SYSTEM_CALLER);
             staking.commitEpochCommittee(c);
         }
