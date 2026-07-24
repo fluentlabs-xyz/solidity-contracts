@@ -15,7 +15,7 @@ import {IFluentGovernance} from "../../contracts/staking/interfaces/IFluentGover
 
 /// @notice Unit tests for the audit-added ChainConfig guards: the
 ///         `MAX_ACTIVE_VALIDATORS` cap (P2-6), the F1 undelegation-window floor
-///         (immutable `minUndelegateBlocks`), and the epoch-numbering
+///         (`minUndelegateBlocks`), and the epoch-numbering
 ///         pending-locks on `setDposActivationBlock` / `setEpochBlockInterval`
 ///         (P2-14 / P2-15). The test contract IS the governance address, so it
 ///         calls the `onlyFromGovernance` setters directly.
@@ -30,8 +30,7 @@ contract ChainConfigGuardsTest is Test {
             IStakingPool(payable(address(this))),
             IFluentGovernance(address(this)),
             IChainConfig(address(this)),
-            IERC20(address(this)),
-            FLOOR
+            IERC20(address(this))
         );
     }
 
@@ -53,7 +52,8 @@ contract ChainConfigGuardsTest is Test {
                 uint256(1e18),
                 activation,
                 address(0),
-                address(0)
+                address(0),
+                FLOOR
             )
         );
     }
@@ -243,7 +243,7 @@ contract ChainConfigGuardsTest is Test {
     function test_setParticipationJailDisabled_onlyGovernance() public {
         ChainConfig cc = _good();
         vm.prank(makeAddr("rando"));
-        vm.expectRevert(IStakingContextErrors.OnlyGovernance.selector);
+        vm.expectRevert(IStakingContextErrors.OnlyGovernanceContract.selector);
         cc.setParticipationJailDisabled(true);
     }
 }

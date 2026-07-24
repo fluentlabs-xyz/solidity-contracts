@@ -32,7 +32,8 @@ contract StakingPool is StakingContext, IStakingPool {
     uint256 internal constant VIRTUAL_SHARES = 1e3;
 
     /// @dev keccak256(abi.encode(uint256(keccak256("Fluent.storage.StakingPoolStorage")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant STAKING_POOL_STORAGE_LOCATION = 0x3ec11625092490bee5ebf7f2a26d6921811c497aeda967af2d28f1c0388b4a00;
+    bytes32 private constant STAKING_POOL_STORAGE_LOCATION =
+        0x3ec11625092490bee5ebf7f2a26d6921811c497aeda967af2d28f1c0388b4a00;
 
     // ============ Storage ============
 
@@ -120,7 +121,11 @@ contract StakingPool is StakingContext, IStakingPool {
         return validatorPool;
     }
 
-    function _calcUnclaimedDelegatorFee(ValidatorPool memory validatorPool) internal view returns (uint256 stakedAmount, uint256 dustRewards) {
+    function _calcUnclaimedDelegatorFee(ValidatorPool memory validatorPool)
+        internal
+        view
+        returns (uint256 stakedAmount, uint256 dustRewards)
+    {
         if (validatorPool.pendingUnstake > 0) {
             return (0, validatorPool.dustRewards);
         }
@@ -128,10 +133,11 @@ contract StakingPool is StakingContext, IStakingPool {
         return _calcCompoundableDelegatorFee(validatorPool, unclaimedRewards);
     }
 
-    function _calcCompoundableDelegatorFee(
-        ValidatorPool memory validatorPool,
-        uint256 claimedOrClaimableAmount
-    ) internal view returns (uint256 stakedAmount, uint256 dustRewards) {
+    function _calcCompoundableDelegatorFee(ValidatorPool memory validatorPool, uint256 claimedOrClaimableAmount)
+        internal
+        view
+        returns (uint256 stakedAmount, uint256 dustRewards)
+    {
         uint256 unclaimedRewards = claimedOrClaimableAmount + validatorPool.dustRewards;
         // Pending user claims fully reserve what we just claimed: nothing to compound this
         // cycle. Keep dust rolling forward so it can combine with future rewards instead of
@@ -180,9 +186,7 @@ contract StakingPool is StakingContext, IStakingPool {
         // save new undelegate
         IChainConfig chainConfig = _chainConfigContract;
         $.pendingUnstakes[validator][msg.sender] = PendingUnstake({
-            amount: amount,
-            shares: shares,
-            epoch: _stakingContract.nextEpoch() + chainConfig.getUndelegatePeriod()
+            amount: amount, shares: shares, epoch: _stakingContract.nextEpoch() + chainConfig.getUndelegatePeriod()
         });
         validatorPool.pendingUnstake += amount;
         $.validatorPools[validator] = validatorPool;
@@ -242,19 +246,34 @@ contract StakingPool is StakingContext, IStakingPool {
     }
 
     function _calcRatio(ValidatorPool memory validatorPool) internal view returns (uint256) {
-        return (validatorPool.sharesSupply + VIRTUAL_SHARES).mulDiv(1e18, _totalAssets(validatorPool) + VIRTUAL_ASSETS, Math.Rounding.Ceil);
+        return (validatorPool.sharesSupply + VIRTUAL_SHARES)
+        .mulDiv(1e18, _totalAssets(validatorPool) + VIRTUAL_ASSETS, Math.Rounding.Ceil);
     }
 
     function _totalAssets(ValidatorPool memory validatorPool) internal view returns (uint256) {
-        (uint256 stakedAmount,  /*uint256 dustRewards*/) = _calcUnclaimedDelegatorFee(validatorPool);
+        (
+            uint256 stakedAmount, /*uint256 dustRewards*/
+        ) = _calcUnclaimedDelegatorFee(validatorPool);
         return validatorPool.totalStakedAmount + stakedAmount;
     }
 
-    function _convertToShares(uint256 assets, ValidatorPool memory validatorPool, Math.Rounding rounding) internal view returns (uint256) {
-        return assets.mulDiv(validatorPool.sharesSupply + VIRTUAL_SHARES, _totalAssets(validatorPool) + VIRTUAL_ASSETS, rounding);
+    function _convertToShares(uint256 assets, ValidatorPool memory validatorPool, Math.Rounding rounding)
+        internal
+        view
+        returns (uint256)
+    {
+        return assets.mulDiv(
+            validatorPool.sharesSupply + VIRTUAL_SHARES, _totalAssets(validatorPool) + VIRTUAL_ASSETS, rounding
+        );
     }
 
-    function _convertToAssets(uint256 shares, ValidatorPool memory validatorPool, Math.Rounding rounding) internal view returns (uint256) {
-        return shares.mulDiv(_totalAssets(validatorPool) + VIRTUAL_ASSETS, validatorPool.sharesSupply + VIRTUAL_SHARES, rounding);
+    function _convertToAssets(uint256 shares, ValidatorPool memory validatorPool, Math.Rounding rounding)
+        internal
+        view
+        returns (uint256)
+    {
+        return shares.mulDiv(
+            _totalAssets(validatorPool) + VIRTUAL_ASSETS, validatorPool.sharesSupply + VIRTUAL_SHARES, rounding
+        );
     }
 }

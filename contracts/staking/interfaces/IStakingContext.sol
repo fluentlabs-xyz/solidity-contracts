@@ -85,7 +85,7 @@ interface IStakingContextErrors {
     /**
      * @notice Thrown when the sender is not the governance.
      */
-    error OnlyGovernance();
+    error OnlyGovernanceContract();
     /**
      * @notice Thrown when the sender is not the EIP-4788 system-caller
      *         sentinel. Used by `onlySystemCall`.

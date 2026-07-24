@@ -61,7 +61,12 @@ abstract contract StakingContext is Initializable, UUPSUpgradeable, Ownable2Step
     }
 
     modifier onlyFromGovernance() {
-        require(IFluentGovernance(msg.sender) == _governanceContract, OnlyGovernance());
+        require(IFluentGovernance(msg.sender) == _governanceContract, OnlyGovernanceContract());
+        _;
+    }
+
+    modifier onlyFromStaking() {
+        require(IStaking(msg.sender) == _stakingContract, OnlyStakingContract());
         _;
     }
 

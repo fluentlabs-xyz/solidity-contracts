@@ -110,7 +110,7 @@ contract AuditFindingBTest is Test {
         new ERC1967Proxy(address(stakingPoolImpl), abi.encodeCall(StakingPool.initialize, (address(this))));
 
         ChainConfig chainConfigImpl = new ChainConfig(
-            predictedStaking, predictedSystemReward, predictedStakingPool, governance, predictedChainConfig, blend, 0
+            predictedStaking, predictedSystemReward, predictedStakingPool, governance, predictedChainConfig, blend
         );
         chainConfig = ChainConfig(
             address(
@@ -129,7 +129,8 @@ contract AuditFindingBTest is Test {
                             uint256(ONE),
                             activationBlock,
                             address(0),
-                            address(0)
+                            address(0),
+                            uint256(0)
                         )
                     )
                 )

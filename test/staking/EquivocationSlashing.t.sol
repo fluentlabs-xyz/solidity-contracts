@@ -278,8 +278,7 @@ contract EquivocationSlashingTest is Test {
             predictedStakingPool,
             governance,
             predictedChainConfig,
-            blend,
-            0 // minUndelegateBlocks: F1 floor off in tests
+            blend
         );
         chainConfig = ChainConfig(
             address(
@@ -298,7 +297,8 @@ contract EquivocationSlashingTest is Test {
                             uint256(ONE),
                             uint64(0),
                             address(0),
-                            address(0)
+                            address(0),
+                            uint256(0)
                         )
                     )
                 )

@@ -366,10 +366,7 @@ library StakingLayout {
             $._selectionRoster.push(v);
         }
         $._selectionMembership[v] = SelectionMembership({
-            visible: visibleInit,
-            prevVisible: false,
-            effectiveFrom: sinceEpoch,
-            rostered: visibleInit
+            visible: visibleInit, prevVisible: false, effectiveFrom: sinceEpoch, rostered: visibleInit
         });
     }
 

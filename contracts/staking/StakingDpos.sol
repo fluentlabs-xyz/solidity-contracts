@@ -172,7 +172,12 @@ library StakingDpos {
         bytes calldata sig2Uncompressed
     ) external {
         _slashEquivocation(
-            cfg, token, _decoder(cfg).decodeConflictingNotarize(evidence), pkUncompressed, sig1Uncompressed, sig2Uncompressed
+            cfg,
+            token,
+            _decoder(cfg).decodeConflictingNotarize(evidence),
+            pkUncompressed,
+            sig1Uncompressed,
+            sig2Uncompressed
         );
     }
 
@@ -185,7 +190,12 @@ library StakingDpos {
         bytes calldata sig2Uncompressed
     ) external {
         _slashEquivocation(
-            cfg, token, _decoder(cfg).decodeConflictingFinalize(evidence), pkUncompressed, sig1Uncompressed, sig2Uncompressed
+            cfg,
+            token,
+            _decoder(cfg).decodeConflictingFinalize(evidence),
+            pkUncompressed,
+            sig1Uncompressed,
+            sig2Uncompressed
         );
     }
 
@@ -198,7 +208,12 @@ library StakingDpos {
         bytes calldata sig2Uncompressed
     ) external {
         _slashEquivocation(
-            cfg, token, _decoder(cfg).decodeNullifyFinalize(evidence), pkUncompressed, sig1Uncompressed, sig2Uncompressed
+            cfg,
+            token,
+            _decoder(cfg).decodeNullifyFinalize(evidence),
+            pkUncompressed,
+            sig1Uncompressed,
+            sig2Uncompressed
         );
     }
 
@@ -295,9 +310,7 @@ library StakingDpos {
     ///      tokens already sit in this contract (pulled at delegate time), so moving them
     ///      out while zeroing the owner's claim keeps balance == liabilities. Any pending
     ///      owner UNdelegation is left claimable — v1 seizes only currently-bonded self-stake.
-    function _seizeSelfStake(IChainConfig cfg, IERC20 token, address validatorAddress, address ownerAddress)
-        internal
-    {
+    function _seizeSelfStake(IChainConfig cfg, IERC20 token, address validatorAddress, address ownerAddress) internal {
         StakingLayout.StakingStorage storage $ = StakingLayout.stakingStorage();
         IStaking.ValidatorDelegation storage selfDelegation = $._validatorDelegations[validatorAddress][ownerAddress];
         uint256 qlen = selfDelegation.delegateQueue.length;

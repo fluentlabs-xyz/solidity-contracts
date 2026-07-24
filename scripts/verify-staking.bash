@@ -104,6 +104,8 @@ verify() {
 
 STAKING_ARGS=$(cast abi-encode "f(address,address,address,address,address,address,address)" \
     "$STAKING" "$SLASHING_INDICATOR" "$SYSTEM_REWARD" "$STAKING_POOL" "$GOVERNANCE" "$CHAIN_CONFIG" "$STAKING_TOKEN")
+CHAIN_CONFIG_ARGS=$(cast abi-encode "f(address,address,address,address,address,address)" \
+    "$STAKING" "$SYSTEM_REWARD" "$STAKING_POOL" "$GOVERNANCE" "$CHAIN_CONFIG" "$STAKING_TOKEN")
 GOVERNANCE_ARGS=$(cast abi-encode "f(address,address)" "$STAKING" "$CHAIN_CONFIG")
 
 if [[ "${VERIFY_MOCK_IMPLS:-false}" == "true" || "${VERIFY_MOCK_IMPLS:-0}" == "1" ]]; then
@@ -148,7 +150,7 @@ verify "StakingPool proxy" "$STAKING_POOL" \
 
 verify "ChainConfig impl" "$CHAIN_CONFIG_IMPL" \
     contracts/staking/ChainConfig.sol:ChainConfig \
-    --constructor-args "$STAKING_ARGS"
+    --constructor-args "$CHAIN_CONFIG_ARGS"
 verify "ChainConfig proxy" "$CHAIN_CONFIG" \
     lib/openzeppelin-contracts/contracts/proxy/ERC1967/ERC1967Proxy.sol:ERC1967Proxy \
     --guess-constructor-args

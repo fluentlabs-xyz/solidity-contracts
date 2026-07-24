@@ -151,8 +151,7 @@ contract StakingEpochCommitteeTest is Test {
             predictedStakingPool,
             governance,
             predictedChainConfig,
-            blend,
-            0 // minUndelegateBlocks: F1 floor off in tests
+            blend
         );
         chainConfig = ChainConfig(
             address(
@@ -171,7 +170,8 @@ contract StakingEpochCommitteeTest is Test {
                             uint256(ONE),
                             uint64(0),
                             address(0),
-                            address(0)
+                            address(0),
+                            uint256(0)
                         )
                     )
                 )
@@ -918,7 +918,7 @@ contract StakingEpochCommitteeTest is Test {
         );
         StakingPool pImpl = new StakingPool(pStaking, pReward, pPool, gov, pCfg, blend);
         new ERC1967Proxy(address(pImpl), abi.encodeCall(StakingPool.initialize, (address(this))));
-        ChainConfig cImpl = new ChainConfig(pStaking, pReward, pPool, gov, pCfg, blend, 0);
+        ChainConfig cImpl = new ChainConfig(pStaking, pReward, pPool, gov, pCfg, blend);
         ChainConfig gcfg = ChainConfig(
             address(
                 new ERC1967Proxy(
@@ -936,7 +936,8 @@ contract StakingEpochCommitteeTest is Test {
                             uint256(ONE),
                             activationBlock,
                             address(0),
-                            address(0)
+                            address(0),
+                            uint256(0)
                         )
                     )
                 )
@@ -1120,8 +1121,7 @@ contract StakingEpochCommitteeTest is Test {
             IStakingPool(address(stakingPool)),
             IFluentGovernance(address(this)),
             IChainConfig(address(chainConfig)),
-            blend,
-            0 // minUndelegateBlocks: F1 floor off in tests
+            blend
         );
         vm.expectRevert(abi.encodeWithSignature("UnalignedActivationBlock()"));
         new ERC1967Proxy(
@@ -1139,7 +1139,8 @@ contract StakingEpochCommitteeTest is Test {
                     uint256(ONE),
                     uint64(EPOCH_INTERVAL + 1), // unaligned
                     address(0),
-                    address(0)
+                    address(0),
+                    uint256(0)
                 )
             )
         );

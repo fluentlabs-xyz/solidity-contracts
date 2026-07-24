@@ -11,12 +11,10 @@ import {IStakingPool} from "./interfaces/IStakingPool.sol";
 import {ISystemReward} from "./interfaces/ISystemReward.sol";
 import {IChainConfig, IChainConfigEvents} from "./interfaces/IChainConfig.sol";
 
-/**
- * @title Staking chain configuration
- * @author Fluent Labs
- * @notice Stores consensus and staking parameters controlled by governance.
- * @dev Values are consumed by `Staking` and `StakingPool` for epoch, jail, undelegation, and minimum stake logic.
- */
+/// @title Staking chain configuration
+/// @author Fluent Labs
+/// @notice Stores consensus and staking parameters controlled by governance.
+/// @dev Values are consumed by `Staking` and `StakingPool` for epoch, jail, undelegation, and minimum stake logic.
 contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
     // ERC-7201 storage namespace:
     // keccak256(abi.encode(uint256(keccak256("Fluent.storage.ChainConfigStorage")) - 1)) & ~bytes32(uint256(0xff))
@@ -57,43 +55,21 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
     /// @notice Sanity cap on the per-epoch BLEND stipend.
     uint256 public constant MAX_BLEND_STIPEND_PER_EPOCH = 1_000_000 ether;
 
-    // F1 exit-before-slash floor: the undelegation window
-    // (undelegatePeriod * epochBlockInterval, in blocks) must be >= this.
-    // Immutable (set at implementation deploy) so it cannot be lowered by the
-    // governance actor it defends against — only a UUPS upgrade (already the
-    // root of trust) can change it. Prod deploy: 345_600 (two times 48h at 1s
-    // slots, still >=48h even at 600ms slots); devnet: 0 (guard off).
-    uint256 internal immutable _minUndelegateBlocks;
-
     /// @custom:storage-location erc7201:Fluent.storage.ChainConfigStorage
     struct ChainConfigStorage {
-        /**
-         * @dev Maximum number of validators returned in the active validator set.
-         */
+        /// Maximum number of validators returned in the active validator set.
         uint32 _activeValidatorsLength;
-        /**
-         * @dev Number of blocks in one staking epoch.
-         */
+        /// Number of blocks in one staking epoch.
         uint32 _epochBlockInterval;
-        /**
-         * @dev Number of slash events after which a validator is jailed.
-         */
+        /// Number of slash events after which a validator is jailed.
         uint32 _felonyThreshold;
-        /**
-         * @dev Number of epochs a jailed validator must wait before release.
-         */
+        /// Number of epochs a jailed validator must wait before release.
         uint32 _validatorJailEpochLength;
-        /**
-         * @dev Number of epochs before undelegated funds become claimable.
-         */
+        /// Number of epochs before undelegated funds become claimable.
         uint32 _undelegatePeriod;
-        /**
-         * @dev Minimum self-stake required to register a validator.
-         */
+        /// Minimum self-stake required to register a validator.
         uint256 _minValidatorStakeAmount;
-        /**
-         * @dev Minimum staking amount required to delegate to a validator.
-         */
+        /// Minimum staking amount required to delegate to a validator.
         uint256 _minStakingAmount;
         // Appended (ERC-7201 safe): equivocation-slashing crypto units.
         address _blsVerifier;
@@ -121,6 +97,11 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
         // but skips the belowFloor scan / jail dispatch entirely. false (fresh slot) == jail
         // enabled == today's behavior (RAW bool, NOT a sentinel; see getParticipationJailDisabled).
         bool _participationJailDisabled;
+        // Appended (ERC-7201 safe): F1 exit-before-slash floor. The undelegation
+        // window (undelegatePeriod * epochBlockInterval, in blocks) must be >= this.
+        // Prod deploy: 345_600 (two times 48h at 1s slots, still >=48h even at
+        // 600ms slots); devnet: 0 (guard off).
+        uint256 _minUndelegateBlocks;
     }
 
     function _getChainConfigStorage() private pure returns (ChainConfigStorage storage $) {
@@ -135,8 +116,7 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
         IStakingPool stakingPoolContract,
         IFluentGovernance governanceContract,
         IChainConfig chainConfigContract,
-        IERC20 stakingToken,
-        uint256 minUndelegateBlocks
+        IERC20 stakingToken
     )
         StakingContext(
             stakingContract,
@@ -146,9 +126,7 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
             chainConfigContract,
             stakingToken
         )
-    {
-        _minUndelegateBlocks = minUndelegateBlocks;
-    }
+    {}
 
     function initialize(
         address initialOwner,
@@ -161,7 +139,8 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
         uint256 minStakingAmount,
         uint64 dposActivationBlock,
         address blsVerifier,
-        address evidenceDecoder
+        address evidenceDecoder,
+        uint256 minUndelegateBlocks
     ) external initializer {
         __StakingContext_init(initialOwner);
         __ChainConfig_init(
@@ -174,8 +153,79 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
             minStakingAmount,
             dposActivationBlock,
             blsVerifier,
-            evidenceDecoder
+            evidenceDecoder,
+            minUndelegateBlocks
         );
+    }
+
+    function __ChainConfig_init(
+        uint32 activeValidatorsLength,
+        uint32 epochBlockInterval,
+        uint32 felonyThreshold,
+        uint32 validatorJailEpochLength,
+        uint32 undelegatePeriod,
+        uint256 minValidatorStakeAmount,
+        uint256 minStakingAmount,
+        uint64 dposActivationBlock,
+        address blsVerifier,
+        address evidenceDecoder,
+        uint256 minUndelegateBlocks
+    ) internal onlyInitializing {
+        ChainConfigStorage storage $ = _getChainConfigStorage();
+        $._minUndelegateBlocks = minUndelegateBlocks;
+
+        require(activeValidatorsLength > 0, ZeroValue("activeValidatorsLength"));
+        require(
+            activeValidatorsLength <= MAX_ACTIVE_VALIDATORS,
+            MaxActiveValidatorsExceeded(activeValidatorsLength, MAX_ACTIVE_VALIDATORS)
+        );
+        $._activeValidatorsLength = activeValidatorsLength;
+        emit ActiveValidatorsLengthChanged(0, activeValidatorsLength);
+
+        require(epochBlockInterval > 0, ZeroValue("epochBlockInterval"));
+        $._epochBlockInterval = epochBlockInterval;
+        emit EpochBlockIntervalChanged(0, epochBlockInterval);
+
+        require(felonyThreshold > 0, ZeroValue("felonyThreshold"));
+        $._felonyThreshold = felonyThreshold;
+        emit FelonyThresholdChanged(0, felonyThreshold);
+
+        require(validatorJailEpochLength > 0, ZeroValue("validatorJailEpochLength"));
+        $._validatorJailEpochLength = validatorJailEpochLength;
+        emit ValidatorJailEpochLengthChanged(0, validatorJailEpochLength);
+
+        require(undelegatePeriod > 0, ZeroValue("undelegatePeriod"));
+        // F1: window (period × interval) must clear the stored floor at init.
+        _requireUndelegateWindow(undelegatePeriod, epochBlockInterval);
+        $._undelegatePeriod = undelegatePeriod;
+        emit UndelegatePeriodChanged(0, undelegatePeriod);
+
+        require(minValidatorStakeAmount > 0, ZeroValue("minValidatorStakeAmount"));
+        $._minValidatorStakeAmount = minValidatorStakeAmount;
+        emit MinValidatorStakeAmountChanged(0, minValidatorStakeAmount);
+
+        require(minStakingAmount > 0, ZeroValue("minStakingAmount"));
+        $._minStakingAmount = minStakingAmount;
+        emit MinStakingAmountChanged(0, minStakingAmount);
+
+        require(dposActivationBlock % epochBlockInterval == 0, UnalignedActivationBlock());
+        $._dposActivationBlock = dposActivationBlock;
+        emit DposActivationBlockChanged(0, dposActivationBlock);
+
+        // Seed the equivocation-slashing crypto units at genesis so slashing is live on a
+        // fresh deploy. They are otherwise only settable post-deploy via `setBlsVerifier` /
+        // `setEvidenceDecoder`, which are `onlyFromGovernance` and so cannot run inside a
+        // deploy broadcast. address(0) ⇒ left unset (slashing stays disabled — the
+        // NotConfigured guards in StakingDpos revert — until governance wires it); governance
+        // can still rotate either unit later.
+        if (blsVerifier != address(0)) {
+            $._blsVerifier = blsVerifier;
+            emit BlsVerifierChanged(address(0), blsVerifier);
+        }
+        if (evidenceDecoder != address(0)) {
+            $._evidenceDecoder = evidenceDecoder;
+            emit EvidenceDecoderChanged(address(0), evidenceDecoder);
+        }
     }
 
     function getActiveValidatorsLength() external view override returns (uint32) {
@@ -356,7 +406,8 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
     ///      uint32 and revert with a spurious overflow on a large-but-valid config).
     function _requireUndelegateWindow(uint32 period, uint32 interval) private view {
         uint256 windowBlocks = uint256(period) * interval;
-        require(windowBlocks >= _minUndelegateBlocks, UndelegateWindowTooShort(windowBlocks, _minUndelegateBlocks));
+        uint256 minUndelegateBlocks = _getChainConfigStorage()._minUndelegateBlocks;
+        require(windowBlocks >= minUndelegateBlocks, UndelegateWindowTooShort(windowBlocks, minUndelegateBlocks));
     }
 
     function getMinValidatorStakeAmount() external view returns (uint256) {
@@ -379,73 +430,6 @@ contract ChainConfig is StakingContext, IChainConfig, IChainConfigEvents {
         ChainConfigStorage storage $ = _getChainConfigStorage();
         emit MinStakingAmountChanged($._minStakingAmount, newValue);
         $._minStakingAmount = newValue;
-    }
-
-    function __ChainConfig_init(
-        uint32 activeValidatorsLength,
-        uint32 epochBlockInterval,
-        uint32 felonyThreshold,
-        uint32 validatorJailEpochLength,
-        uint32 undelegatePeriod,
-        uint256 minValidatorStakeAmount,
-        uint256 minStakingAmount,
-        uint64 dposActivationBlock,
-        address blsVerifier,
-        address evidenceDecoder
-    ) internal onlyInitializing {
-        ChainConfigStorage storage $ = _getChainConfigStorage();
-        require(activeValidatorsLength > 0, ZeroValue("activeValidatorsLength"));
-        require(
-            activeValidatorsLength <= MAX_ACTIVE_VALIDATORS,
-            MaxActiveValidatorsExceeded(activeValidatorsLength, MAX_ACTIVE_VALIDATORS)
-        );
-        $._activeValidatorsLength = activeValidatorsLength;
-        emit ActiveValidatorsLengthChanged(0, activeValidatorsLength);
-
-        require(epochBlockInterval > 0, ZeroValue("epochBlockInterval"));
-        $._epochBlockInterval = epochBlockInterval;
-        emit EpochBlockIntervalChanged(0, epochBlockInterval);
-
-        require(felonyThreshold > 0, ZeroValue("felonyThreshold"));
-        $._felonyThreshold = felonyThreshold;
-        emit FelonyThresholdChanged(0, felonyThreshold);
-
-        require(validatorJailEpochLength > 0, ZeroValue("validatorJailEpochLength"));
-        $._validatorJailEpochLength = validatorJailEpochLength;
-        emit ValidatorJailEpochLengthChanged(0, validatorJailEpochLength);
-
-        require(undelegatePeriod > 0, ZeroValue("undelegatePeriod"));
-        // F1: window (period × interval) must clear the immutable floor at init.
-        _requireUndelegateWindow(undelegatePeriod, epochBlockInterval);
-        $._undelegatePeriod = undelegatePeriod;
-        emit UndelegatePeriodChanged(0, undelegatePeriod);
-
-        require(minValidatorStakeAmount > 0, ZeroValue("minValidatorStakeAmount"));
-        $._minValidatorStakeAmount = minValidatorStakeAmount;
-        emit MinValidatorStakeAmountChanged(0, minValidatorStakeAmount);
-
-        require(minStakingAmount > 0, ZeroValue("minStakingAmount"));
-        $._minStakingAmount = minStakingAmount;
-        emit MinStakingAmountChanged(0, minStakingAmount);
-
-        require(dposActivationBlock % epochBlockInterval == 0, UnalignedActivationBlock());
-        $._dposActivationBlock = dposActivationBlock;
-        emit DposActivationBlockChanged(0, dposActivationBlock);
-
-        // Seed the equivocation-slashing crypto units at genesis so slashing is live on a
-        // fresh deploy. They are otherwise only settable post-deploy via `setBlsVerifier` /
-        // `setEvidenceDecoder`, which are `onlyFromGovernance` and so cannot run inside a
-        // deploy broadcast. address(0) ⇒ left unset (slashing stays disabled — the
-        // NotConfigured guards in StakingDpos revert — until governance wires it); governance
-        // can still rotate either unit later.
-        if (blsVerifier != address(0)) {
-            $._blsVerifier = blsVerifier;
-            emit BlsVerifierChanged(address(0), blsVerifier);
-        }
-        if (evidenceDecoder != address(0)) {
-            $._evidenceDecoder = evidenceDecoder;
-            emit EvidenceDecoderChanged(address(0), evidenceDecoder);
-        }
     }
 
     function getBlsVerifier() external view override returns (address) {

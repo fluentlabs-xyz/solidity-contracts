@@ -143,7 +143,7 @@ contract StakingAdditionalTest is Test {
         assertEq(chainConfig.getMinValidatorStakeAmount(), 2 * ONE);
         assertEq(chainConfig.getMinStakingAmount(), 3 * ONE);
 
-        vm.expectRevert(IStakingContextErrors.OnlyGovernance.selector);
+        vm.expectRevert(IStakingContextErrors.OnlyGovernanceContract.selector);
         vm.prank(staker1);
         chainConfig.setActiveValidatorsLength(6);
     }
@@ -175,7 +175,7 @@ contract StakingAdditionalTest is Test {
         chainConfig.setBlendStipendPerEpoch(1_000_001 ether);
 
         // Setters are governance-gated.
-        vm.expectRevert(IStakingContextErrors.OnlyGovernance.selector);
+        vm.expectRevert(IStakingContextErrors.OnlyGovernanceContract.selector);
         vm.prank(staker1);
         chainConfig.setBlendStipendPerEpoch(1);
     }
@@ -572,7 +572,7 @@ contract StakingAdditionalTest is Test {
     }
 
     function test_validatorLifecycleRejectsInvalidCallersAndStatuses() public {
-        vm.expectRevert(IStakingContextErrors.OnlyGovernance.selector);
+        vm.expectRevert(IStakingContextErrors.OnlyGovernanceContract.selector);
         vm.prank(staker1);
         staking.addValidator(validator1);
 
@@ -581,11 +581,11 @@ contract StakingAdditionalTest is Test {
         vm.expectRevert(abi.encodeWithSelector(IStakingContextErrors.NotPendingValidator.selector, validator1));
         staking.activateValidator(validator1);
 
-        vm.expectRevert(IStakingContextErrors.OnlyGovernance.selector);
+        vm.expectRevert(IStakingContextErrors.OnlyGovernanceContract.selector);
         vm.prank(staker1);
         staking.disableValidator(validator1);
 
-        vm.expectRevert(IStakingContextErrors.OnlyGovernance.selector);
+        vm.expectRevert(IStakingContextErrors.OnlyGovernanceContract.selector);
         vm.prank(staker1);
         staking.removeValidator(validator1);
     }
@@ -1234,8 +1234,7 @@ contract StakingAdditionalTest is Test {
             predictedStakingPool,
             governance,
             predictedChainConfig,
-            blend,
-            0 // minUndelegateBlocks: F1 floor off in tests
+            blend
         );
         chainConfig = ChainConfig(
             address(
@@ -1254,7 +1253,8 @@ contract StakingAdditionalTest is Test {
                             minStakingAmount,
                             uint64(0),
                             address(0),
-                            address(0)
+                            address(0),
+                            uint256(0)
                         )
                     )
                 )

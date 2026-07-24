@@ -63,8 +63,7 @@ contract StakingRewardUpgradeTest is Test {
             IStakingPool(payable(address(0xdead))),
             IFluentGovernance(address(this)),
             IChainConfig(predictedChainConfig),
-            blend,
-            0
+            blend
         );
         chainConfig = ChainConfig(
             address(
@@ -83,7 +82,8 @@ contract StakingRewardUpgradeTest is Test {
                             uint256(ONE),
                             uint64(0),
                             address(0),
-                            address(0)
+                            address(0),
+                            uint256(0)
                         )
                     )
                 )

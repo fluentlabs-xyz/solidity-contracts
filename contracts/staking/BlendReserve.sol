@@ -21,9 +21,6 @@ import {IChainConfig} from "./interfaces/IChainConfig.sol";
 contract BlendReserve is StakingContext, IBlendReserve {
     using SafeERC20 for IERC20;
 
-    /// @notice Staking predeploy — the sole caller of `disburse` (settlement is folded into Staking).
-    address private immutable _stakingAddr;
-
     /// @custom:storage-location erc7201:Fluent.storage.BlendReserveStorage
     struct BlendReserveStorage {
         // Governance kill-switch: when paused, `disburse` sends nothing (returns 0).
@@ -36,11 +33,6 @@ contract BlendReserve is StakingContext, IBlendReserve {
 
     event ReserveDisbursed(address indexed to, uint256 sent, uint256 remaining);
     event ReservePausedChanged(bool paused);
-
-    modifier onlyFromStaking() {
-        require(msg.sender == _stakingAddr, OnlyStakingContract());
-        _;
-    }
 
     constructor(
         IStaking stakingContract,
@@ -59,9 +51,7 @@ contract BlendReserve is StakingContext, IBlendReserve {
             chainConfigContract,
             stakingToken
         )
-    {
-        _stakingAddr = stakingAddr;
-    }
+    {}
 
     function initialize(address initialOwner) external initializer {
         __StakingContext_init(initialOwner);

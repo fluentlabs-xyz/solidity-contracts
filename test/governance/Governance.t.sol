@@ -229,14 +229,16 @@ contract FluentGovernanceTest is Test {
             predictedStakingPool,
             predictedGovernance,
             predictedChainConfig,
-            blend,
-            0 // minUndelegateBlocks: F1 floor off in tests
+            blend
         );
         chainConfig = ChainConfig(
             address(
                 new ERC1967Proxy(
                     address(chainConfigImpl),
-                    abi.encodeCall(ChainConfig.initialize, (address(this), 3, 50, 150, 7, 1, ONE, ONE, dposActivationBlock, address(0), address(0)))
+                    abi.encodeCall(
+                        ChainConfig.initialize,
+                        (address(this), 3, 50, 150, 7, 1, ONE, ONE, dposActivationBlock, address(0), address(0), 0)
+                    )
                 )
             )
         );

@@ -75,7 +75,7 @@ contract BlendReserveTest is Test {
 
     function test_onlyGovernanceCanPause() public {
         vm.prank(makeAddr("rogue"));
-        vm.expectRevert(IStakingContextErrors.OnlyGovernance.selector);
+        vm.expectRevert(IStakingContextErrors.OnlyGovernanceContract.selector);
         reserve.setPaused(true);
     }
 

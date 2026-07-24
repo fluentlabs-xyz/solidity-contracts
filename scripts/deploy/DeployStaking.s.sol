@@ -228,8 +228,7 @@ contract DeployStaking is DeployBase {
             predictedStakingPool,
             governance,
             predictedChainConfig,
-            p.stakingToken,
-            p.minUndelegateBlocks
+            p.stakingToken
         );
         r.chainConfig = address(
             new ERC1967Proxy(
@@ -247,7 +246,8 @@ contract DeployStaking is DeployBase {
                         p.minStakingAmount,
                         p.dposActivationBlock,
                         r.blsVerifier,
-                        r.evidenceDecoder
+                        r.evidenceDecoder,
+                        p.minUndelegateBlocks
                     )
                 )
             )
