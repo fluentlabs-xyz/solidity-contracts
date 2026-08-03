@@ -74,7 +74,7 @@ contract ERC721Gateway is GatewayBase, ERC721Holder, IERC721Gateway {
         require(getOtherSideBeacon() != address(0), ZeroAddressNotAllowed("getOtherSideBeacon"));
 
         IERC721(token).safeTransferFrom(sender, address(this), tokenId);
-        bytes memory tokenMetadata = abi.encode(IERC721Metadata(token).name(), IERC721Metadata(token).symbol());
+        bytes memory tokenMetadata = abi.encode(_readName(token), _readSymbol(token));
         string memory uri = _readTokenURI(token, tokenId);
 
         ERC721GatewayStorage storage $ = _getERC721GatewayStorage();
@@ -244,6 +244,22 @@ contract ERC721Gateway is GatewayBase, ERC721Holder, IERC721Gateway {
     function _readTokenURI(address token, uint256 tokenId) internal view returns (string memory) {
         try IERC721Metadata(token).tokenURI(tokenId) returns (string memory uri) {
             return uri;
+        } catch {
+            return "";
+        }
+    }
+
+    function _readName(address token) internal view returns (string memory) {
+        try IERC721Metadata(token).name() returns (string memory name) {
+            return name;
+        } catch {
+            return "";
+        }
+    }
+
+    function _readSymbol(address token) internal view returns (string memory) {
+        try IERC721Metadata(token).symbol() returns (string memory symbol) {
+            return symbol;
         } catch {
             return "";
         }
