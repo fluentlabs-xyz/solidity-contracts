@@ -1,0 +1,68 @@
+{
+  "version": "1.0",
+  "chainId": "1",
+  "createdAt": 0,
+  "meta": {
+    "name": "NFT gateway wiring - mainnet l1",
+    "description": "erc721Factory.setPaymentGateway, erc1155Factory.setPaymentGateway, erc721Gateway.setOtherSide, erc1155Gateway.setOtherSide, erc721Gateway.setBlacklistRegistry, erc1155Gateway.setBlacklistRegistry, bridge.registerGateway(erc721), bridge.registerGateway(erc1155)",
+    "createdFromSafeAddress": "0x33C0B99F3210a9578d81d5B13dEC03160F58ff11"
+  },
+  "transactions": [
+    {
+      "to": "0x2e745d7A86D9568C9808191BF443BF6144A083C0",
+      "value": "0",
+      "data": "0xfd01a7ee000000000000000000000000dd330c639fc810dcbc51dca2d6bcf5d20df31026",
+      "contractMethod": null,
+      "contractInputsValues": null
+    },
+    {
+      "to": "0x70b2F3736CA2516f55643b6ebF9c5DCefF6503A2",
+      "value": "0",
+      "data": "0xfd01a7ee000000000000000000000000474c5190eccdd42fc177b4da88b74e1a112f29f1",
+      "contractMethod": null,
+      "contractInputsValues": null
+    },
+    {
+      "to": "0xdD330C639fC810dcBC51DcA2d6bCF5d20DF31026",
+      "value": "0",
+      "data": "0x5f7ed2ed000000000000000000000000dd330c639fc810dcbc51dca2d6bcf5d20df3102600000000000000000000000000000000000000000000000000000000000063130000000000000000000000007959f46188170b2fd1b4616ab100f2386c57876e0000000000000000000000002e745d7a86d9568c9808191bf443bf6144a083c00000000000000000000000009cd3acf88c86d547312953c23ac490f99b09074a",
+      "contractMethod": null,
+      "contractInputsValues": null
+    },
+    {
+      "to": "0x474c5190eCcDD42fC177b4dA88B74E1A112f29f1",
+      "value": "0",
+      "data": "0x5f7ed2ed000000000000000000000000474c5190eccdd42fc177b4da88b74e1a112f29f100000000000000000000000000000000000000000000000000000000000063130000000000000000000000006f04ad96cafe7a09eec9b64432aa78918e1abb5500000000000000000000000070b2f3736ca2516f55643b6ebf9c5dceff6503a2000000000000000000000000fc4740c4d6c17321f28ef0b2685241a46ca1008d",
+      "contractMethod": null,
+      "contractInputsValues": null
+    },
+    {
+      "to": "0xdD330C639fC810dcBC51DcA2d6bCF5d20DF31026",
+      "value": "0",
+      "data": "0x7946742600000000000000000000000005c5d46a5e6f92fb9cda9a8b03e4440a175d1484",
+      "contractMethod": null,
+      "contractInputsValues": null
+    },
+    {
+      "to": "0x474c5190eCcDD42fC177b4dA88B74E1A112f29f1",
+      "value": "0",
+      "data": "0x7946742600000000000000000000000005c5d46a5e6f92fb9cda9a8b03e4440a175d1484",
+      "contractMethod": null,
+      "contractInputsValues": null
+    },
+    {
+      "to": "0x9CAcf613fC29015893728563f423fD26dCdB8Ddc",
+      "value": "0",
+      "data": "0xa197d002000000000000000000000000dd330c639fc810dcbc51dca2d6bcf5d20df31026",
+      "contractMethod": null,
+      "contractInputsValues": null
+    },
+    {
+      "to": "0x9CAcf613fC29015893728563f423fD26dCdB8Ddc",
+      "value": "0",
+      "data": "0xa197d002000000000000000000000000474c5190eccdd42fc177b4da88b74e1a112f29f1",
+      "contractMethod": null,
+      "contractInputsValues": null
+    }
+  ]
+}
