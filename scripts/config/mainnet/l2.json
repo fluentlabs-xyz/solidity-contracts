@@ -1,14 +1,14 @@
 {
     "chainId": 25363,
     "roles": {
-        "initialOwner": "0x9ec3f0d76A6d3847d86374c791C6E170CAd9518D",
+        "initialOwner": "0x33C0B99F3210a9578d81d5B13dEC03160F58ff11",
         "admin": "0x9ec3f0d76A6d3847d86374c791C6E170CAd9518D",
         "pauser": "0x9ec3f0d76A6d3847d86374c791C6E170CAd9518D",
         "relayer": "0x9ec3f0d76A6d3847d86374c791C6E170CAd9518D"
     },
     "bridge": {
         "otherBridge": "0x0000000000000000000000000000000000000001",
-        "executeGasLimit": 1000000,
+        "executeGasLimit": 500000,
         "feeTreasury": "0x9ec3f0d76A6d3847d86374c791C6E170CAd9518D",
         "gasPriceConfig": {
             "overheadGasPrice": 0,
