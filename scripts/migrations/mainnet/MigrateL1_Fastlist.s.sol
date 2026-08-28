@@ -63,9 +63,8 @@ struct FastWithdrawalTokenConfig {
 ///            with its hourly/daily cap from {_fastWithdrawalTokenConfigs},
 ///            and aliases WETH onto the native-ETH bucket so ETH and WETH share
 ///            a single combined rate cap across both gateways.
-///
-///      The script does **not** flip `setWhitelistEnabled(true)`. Enabling the policy
-///      is a separate operational step.
+///        9.  Enables whitelist enforcement on both value-bearing L1 gateways so
+///            Preconfirmed withdrawals cannot bypass the configured caps.
 ///
 /// @dev Environment:
 ///        ENV (default: testnet) — manifest dir under deployments/<ENV>/
@@ -142,43 +141,37 @@ contract MigrateL1_Fastlist is DeployBase {
         // for operators and the drift vs. the $20 k / $100 k target stays
         // well under normal intra-day price volatility.
         configs[0] = FastWithdrawalTokenConfig({
-            token: NATIVE_LIMIT_KEY,
-            symbol: "ETH",
-            hourlyLimit: 9e18,
-            dailyLimit: 44e18,
-            aliasOf: address(0)
+            token: NATIVE_LIMIT_KEY, symbol: "ETH", hourlyLimit: 9e18, dailyLimit: 44e18, aliasOf: address(0)
         });
 
         // WETH shares the native bucket. `hourlyLimit` / `dailyLimit` MUST be
         // zero for alias rows — the target bucket's caps are what apply.
-        configs[1] = FastWithdrawalTokenConfig({token: WETH, symbol: "WETH", hourlyLimit: 0, dailyLimit: 0, aliasOf: NATIVE_LIMIT_KEY});
+        configs[1] = FastWithdrawalTokenConfig({
+            token: WETH, symbol: "WETH", hourlyLimit: 0, dailyLimit: 0, aliasOf: NATIVE_LIMIT_KEY
+        });
 
         // 18-decimal token with its own bucket.
         // USD → BLEND conversion at spot price BLEND ≈ $0.10:
         //   $20,000  / $0.10 =   200,000 BLEND  (hourly)
         //   $100,000 / $0.10 = 1,000,000 BLEND  (daily)
         configs[2] = FastWithdrawalTokenConfig({
-            token: BLEND,
-            symbol: "BLEND",
-            hourlyLimit: 200_000e18,
-            dailyLimit: 1_000_000e18,
-            aliasOf: address(0)
+            token: BLEND, symbol: "BLEND", hourlyLimit: 200_000e18, dailyLimit: 1_000_000e18, aliasOf: address(0)
         });
 
         // 8-decimal token.
         // USD → WBTC conversion at spot price BTC ≈ $74,467 (Apr 20, 2026):
         //   $20,000  / $74,467 ≈ 0.2686 WBTC → rounded up to 0.27 WBTC (≈ $20,106)
         //   $100,000 / $74,467 ≈ 1.3429 WBTC → rounded up to 1.35 WBTC (≈ $100,530)
-        configs[3] = FastWithdrawalTokenConfig({token: WBTC, symbol: "WBTC", hourlyLimit: 0.27e8, dailyLimit: 1.35e8, aliasOf: address(0)});
+        configs[3] = FastWithdrawalTokenConfig({
+            token: WBTC, symbol: "WBTC", hourlyLimit: 0.27e8, dailyLimit: 1.35e8, aliasOf: address(0)
+        });
 
         // 6-decimal tokens.
-        configs[4] = FastWithdrawalTokenConfig({token: USDC, symbol: "USDC", hourlyLimit: 20_000e6, dailyLimit: 100_000e6, aliasOf: address(0)});
+        configs[4] = FastWithdrawalTokenConfig({
+            token: USDC, symbol: "USDC", hourlyLimit: 20_000e6, dailyLimit: 100_000e6, aliasOf: address(0)
+        });
         configs[5] = FastWithdrawalTokenConfig({
-            token: USDnr,
-            symbol: "USDnr",
-            hourlyLimit: 20_000e6,
-            dailyLimit: 100_000e6,
-            aliasOf: address(0)
+            token: USDnr, symbol: "USDnr", hourlyLimit: 20_000e6, dailyLimit: 100_000e6, aliasOf: address(0)
         });
     }
 
@@ -193,8 +186,7 @@ contract MigrateL1_Fastlist is DeployBase {
         // 1. Deploy FastWithdrawalList behind a UUPS proxy.
         FastWithdrawalList listImpl = new FastWithdrawalList();
         ERC1967Proxy listProxy = new ERC1967Proxy(
-            address(listImpl),
-            abi.encodeCall(FastWithdrawalList.initialize, (addrs.fastWithdrawalListOwner))
+            address(listImpl), abi.encodeCall(FastWithdrawalList.initialize, (addrs.fastWithdrawalListOwner))
         );
         FastWithdrawalList list = FastWithdrawalList(address(listProxy));
         console2.log("FastWithdrawalList proxy:", address(list));
@@ -249,12 +241,16 @@ contract MigrateL1_Fastlist is DeployBase {
         // 8. Register each fast-withdrawable token with its hourly/daily cap.
         _registerFastWithdrawalTokens(list);
 
+        // 9. Enable enforcement before the migration completes. Preconfirmed
+        //    withdrawals must either consume an allowlisted cap or wait for finalization.
+        ERC20Gateway(addrs.erc20Gateway).setWhitelistEnabled(true);
+        NativeGateway(addrs.nativeGateway).setWhitelistEnabled(true);
+        console2.log("setWhitelistEnabled(true): erc20Gateway, nativeGateway");
+
         vm.stopBroadcast();
 
         console2.log("");
-        console2.log("== Migration complete. Whitelist policy is NOT yet enabled. ==");
-        console2.log("Next step (separate broadcast):");
-        console2.log("  erc20Gateway.setWhitelistEnabled(true) and nativeGateway.setWhitelistEnabled(true)");
+        console2.log("== Migration complete. Fast-withdrawal whitelist policy is enabled. ==");
     }
 
     /// @dev Applies the token configuration from {_fastWithdrawalTokenConfigs} to
@@ -281,7 +277,10 @@ contract MigrateL1_Fastlist is DeployBase {
                 // Alias rows must not carry own limits: the target bucket's caps
                 // apply, so non-zero values here would mislead a reader about
                 // what is actually enforced on-chain.
-                require(cfg.hourlyLimit == 0 && cfg.dailyLimit == 0, string.concat("alias row must not carry limits: ", cfg.symbol));
+                require(
+                    cfg.hourlyLimit == 0 && cfg.dailyLimit == 0,
+                    string.concat("alias row must not carry limits: ", cfg.symbol)
+                );
                 list.setAlias(cfg.token, cfg.aliasOf);
                 console2.log("setAlias:", cfg.symbol, cfg.token);
                 console2.log("  -> bucket:", cfg.aliasOf);
