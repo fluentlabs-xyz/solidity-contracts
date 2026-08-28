@@ -224,11 +224,11 @@ abstract contract GatewayBase is Initializable, UUPSUpgradeable, Ownable2StepUpg
 
     // ============ Shared safety helpers ============
 
-    /// @dev Reverts with {AddressBlacklisted} if `account` is listed when a registry is configured.
+    /// @dev Reverts with {AccountBlacklisted} if `account` is listed when a registry is configured.
     function _requireAccountNotBlacklisted(address account) internal view {
         address registry = _getGatewayBaseStorage()._blacklistRegistry;
         if (registry == address(0)) return;
-        require(!IBlacklist(registry).isBlacklisted(account), AddressBlacklisted(account));
+        require(!IBlacklist(registry).isBlacklisted(account), AccountBlacklisted(bytes32(uint256(uint160(account)))));
     }
 
     /**

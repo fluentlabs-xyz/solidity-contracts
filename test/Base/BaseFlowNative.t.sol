@@ -432,7 +432,9 @@ contract BaseFlowNativeTest is BaseDeployNative {
         });
         L2BlockHeader[] memory headers = new L2BlockHeader[](1);
         headers[0] = header;
-        bytes32 batchRoot = keccak256(abi.encodePacked(keccak256(abi.encodePacked(header.previousBlockHash, header.blockHash, header.withdrawalRoot, header.depositRoot))));
+        bytes32 batchRoot = keccak256(
+            abi.encodePacked(keccak256(abi.encodePacked(header.previousBlockHash, header.blockHash, header.withdrawalRoot, header.depositRoot)))
+        );
         BlockDeposit[] memory emptyDeposits = new BlockDeposit[](0);
         vm.prank(relayer);
         l1Rollup.commitBatch(batchRoot, header.blockHash, header.blockHash, 1, emptyDeposits, 1);
@@ -462,8 +464,8 @@ contract BaseFlowNativeTest is BaseDeployNative {
         MerkleTree.MerkleProof blockProof;
     }
 
-    function _receiveMessageWithProofNative(L1FluentBridge l1Bridge_, address relayer_, ReceiveMessageWithProofArgs memory args) internal {
-        vm.prank(relayer_);
+    function _receiveMessageWithProofNative(L1FluentBridge l1Bridge_, address proofCaller_, ReceiveMessageWithProofArgs memory args) internal {
+        vm.prank(proofCaller_);
         l1Bridge_.receiveMessageWithProof(
             args.batchIndex,
             args.header,
