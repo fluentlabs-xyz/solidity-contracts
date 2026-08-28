@@ -26,7 +26,10 @@ import {L2BlockHeader, L2BlockHeaderV1, BatchStatus, BatchRecord, ChallengeRecor
  * - {RollupStorage-submitBlobsWindow}: deadline for the sequencer to submit blob hashes.
  * - {RollupStorage-preconfirmWindow}: deadline for the preconfirmation service to confirm.
  * - {RollupStorage-challengeWindow}: deadline by which open challenges must be resolved.
- * - {RollupStorage-finalizationDelay}: minimum wait before a batch can be finalized.
+ * - {RollupStorage-finalizationDelay}: upper bound enforced against {challengeWindow}
+ *   via `challengeWindow + MIN_CHALLENGE_RESOLUTION_WINDOW <= finalizationDelay`.
+ *   A batch becomes eligible for permissionless {finalizeBatches} once the challenge
+ *   window has elapsed without an open dispute.
  *
  * If any deadline is exceeded, {isRollupCorrupted} returns true and all state-changing
  * functions revert with {RollupCorrupted} until the corrupted batch is cleared via
@@ -736,11 +739,17 @@ contract Rollup is RollupStorageLayout, IRollupWrite, IRollupEmergency {
         if (batch.status != BatchStatus.Preconfirmed) return false;
         // Batches must finalize in order — gap means a predecessor is not ready yet
         if (batchIndex != uint256($._lastFinalizedBatchIndex) + 1) return false;
-        // Delay not elapsed — batch needs to age before finalization is allowed.
-        // This gives challengers time to dispute before the batch becomes irreversible.
-        // Delay is read from the snapshot captured at acceptance time so admin updates
-        // do not retroactively make already-accepted batches finalizable earlier.
-        if (block.number - uint256(batch.acceptedAtBlock) <= uint256(batch.finalizationDelaySnapshot)) return false;
+        // Eligible once the challenge window has elapsed. The Preconfirmed status guard
+        // above already witnesses that no dispute is open: challengeBlock and
+        // challengeBatchRoot flip status to Challenged, and the status returns to
+        // Preconfirmed only after every challenge is resolved. After
+        // acceptedAtBlock + challengeWindow no new challenge can be opened
+        // (challengeBlock / challengeBatchRoot enforce `block.number < deadline`).
+        // The setter invariant `challengeWindow + MIN_CHALLENGE_RESOLUTION_WINDOW
+        // <= finalizationDelay` keeps this strictly safer than the previous
+        // full-delay gate; the snapshot is captured at acceptance time so admin
+        // updates cannot retroactively change in-flight batch timing.
+        if (block.number - uint256(batch.acceptedAtBlock) <= uint256(batch.challengeWindowSnapshot)) return false;
 
         // State transition: Preconfirmed → Finalized (irreversible)
         batch.status = BatchStatus.Finalized;

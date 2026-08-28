@@ -280,4 +280,135 @@ contract FinalizeBatchesTest is RollupAssertions {
         vm.expectRevert(abi.encodeWithSelector(IRollupErrors.BlockNotProven.selector, commitment));
         rollup.finalizeWithProofs(batchIndex, _toV1(headers));
     }
+
+    // ============ finalizeBatches — challenge-window fast-path ============
+
+    function test_finalizeBatches_finalizesAfterChallengeWindowWithoutChallenges() public {
+        uint256 batch1 = _acceptBatch(GENESIS_HASH, 0);
+        _submitBlobs(batch1, 0);
+        _preconfirmBatch(batch1);
+
+        // Past challenge window, well before finalization delay.
+        vm.roll(block.number + CHALLENGE_WINDOW + 1);
+
+        uint256 finalized = rollup.finalizeBatches(batch1);
+        assertEq(finalized, 1, "should finalize on fast-path");
+        assertTrue(rollup.isBatchFinalized(batch1));
+    }
+
+    function test_finalizeBatches_finalizesAfterChallengeWindowWithAllChallengesResolved() public {
+        bytes32 lastHash = GENESIS_HASH;
+        L2BlockHeader[] memory headers = _makeBatch(lastHash);
+        uint256 batchIndex = rollup.nextBatchIndex();
+        vm.prank(sequencer);
+        rollup.commitBatch(
+            _computeBatchRoot(headers),
+            lastHash,
+            headers[headers.length - 1].blockHash,
+            uint24(headers.length),
+            new BlockDeposit[](0),
+            1
+        );
+        _submitBlobs(batchIndex, 0);
+        _preconfirmBatch(batchIndex);
+
+        // Challenge each block sequentially and resolve before opening the next, so the
+        // status returns to Preconfirmed (matches test_finalizeWithProofs_allBlocksProven).
+        for (uint256 i = 0; i < headers.length; ++i) {
+            MerkleTree.MerkleProof memory proof = _buildMerkleProof(headers, i);
+            vm.deal(challenger, CHALLENGE_DEPOSIT);
+            vm.prank(challenger);
+            rollup.challengeBlock{value: CHALLENGE_DEPOSIT}(batchIndex, headers[i], proof);
+            vm.prank(prover);
+            rollup.resolveBlockChallenge(batchIndex, headers[i], proof, "");
+        }
+        assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Preconfirmed));
+
+        vm.roll(block.number + CHALLENGE_WINDOW + 1);
+
+        uint256 finalized = rollup.finalizeBatches(batchIndex);
+        assertEq(finalized, 1, "should finalize on fast-path with all challenges resolved");
+        assertTrue(rollup.isBatchFinalized(batchIndex));
+    }
+
+    function test_finalizeBatches_doesNotFinalizeAtChallengeWindowBoundary() public {
+        uint256 batch1 = _acceptBatch(GENESIS_HASH, 0);
+        _submitBlobs(batch1, 0);
+        _preconfirmBatch(batch1);
+
+        // Exactly at acceptedAtBlock + CHALLENGE_WINDOW — strict-greater-than gate must reject.
+        uint256 acceptedAtBlock = rollup.getBatch(batch1).acceptedAtBlock;
+        vm.roll(acceptedAtBlock + CHALLENGE_WINDOW);
+
+        uint256 finalized = rollup.finalizeBatches(batch1);
+        assertEq(finalized, 0, "must not finalize at exact boundary");
+        assertFalse(rollup.isBatchFinalized(batch1));
+    }
+
+    function test_finalizeBatches_finalizesAfterChallengeWindowWithBatchRootResolved() public {
+        bytes32 lastHash = GENESIS_HASH;
+        L2BlockHeader[] memory headers = _makeBatch(lastHash);
+        uint256 batchIndex = rollup.nextBatchIndex();
+        vm.prank(sequencer);
+        rollup.commitBatch(
+            _computeBatchRoot(headers),
+            lastHash,
+            headers[headers.length - 1].blockHash,
+            uint24(headers.length),
+            new BlockDeposit[](0),
+            1
+        );
+        _submitBlobs(batchIndex, 0);
+        _preconfirmBatch(batchIndex);
+
+        // Open a batch-root challenge — status flips Preconfirmed → Challenged.
+        vm.deal(challenger, CHALLENGE_DEPOSIT);
+        vm.prank(challenger);
+        rollup.challengeBatchRoot{value: CHALLENGE_DEPOSIT}(batchIndex);
+        assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Challenged));
+
+        // Resolve — status restored unconditionally to previousStatus (= Preconfirmed).
+        // Different code path from resolveBlockChallenge, which restores only after every
+        // block challenge in the batch is proven.
+        vm.prank(prover);
+        rollup.resolveBatchRootChallenge(batchIndex, _toV1(headers));
+        assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Preconfirmed));
+
+        vm.roll(block.number + CHALLENGE_WINDOW + 1);
+
+        uint256 finalized = rollup.finalizeBatches(batchIndex);
+        assertEq(finalized, 1, "should finalize on fast-path with batch-root resolved");
+        assertTrue(rollup.isBatchFinalized(batchIndex));
+    }
+
+    function test_finalizeBatches_doesNotFinalizeWhileBatchChallenged() public {
+        bytes32 lastHash = GENESIS_HASH;
+        L2BlockHeader[] memory headers = _makeBatch(lastHash);
+        uint256 batchIndex = rollup.nextBatchIndex();
+        vm.prank(sequencer);
+        rollup.commitBatch(
+            _computeBatchRoot(headers),
+            lastHash,
+            headers[headers.length - 1].blockHash,
+            uint24(headers.length),
+            new BlockDeposit[](0),
+            1
+        );
+        _submitBlobs(batchIndex, 0);
+        _preconfirmBatch(batchIndex);
+
+        // Open a challenge but do not resolve — status stays Challenged.
+        MerkleTree.MerkleProof memory proof = _buildMerkleProof(headers, 0);
+        vm.deal(challenger, CHALLENGE_DEPOSIT);
+        vm.prank(challenger);
+        rollup.challengeBlock{value: CHALLENGE_DEPOSIT}(batchIndex, headers[0], proof);
+        assertEq(uint8(rollup.getBatch(batchIndex).status), uint8(BatchStatus.Challenged));
+
+        // Past challenge window — but the batch is corrupted (Challenged + window expired).
+        // _tryFinalizeBatch must reject on the status guard, not finalize.
+        vm.roll(block.number + CHALLENGE_WINDOW + 1);
+        uint256 finalized = rollup.finalizeBatches(batchIndex);
+        assertEq(finalized, 0, "Challenged batch must not finalize via fast-path");
+        assertFalse(rollup.isBatchFinalized(batchIndex));
+    }
 }
