@@ -38,4 +38,14 @@ contract DrandOracleVerifyRoundTest is Test {
         assertLt(v.round, oracle.oldestRetainedRound(), "round must be outside the window");
         assertEq(oracle.verifyRound(v.round, v.uncompressed), v.randomness, "age must not matter");
     }
+
+    /// R1/R17: the stateless path verifies rather than merely deriving — a genuine
+    /// beacon presented for another round is refused, not hashed into an answer.
+    function test_RevertIf_verifyRound_signatureBelongsToAnotherRound() public {
+        DrandQuicknetVectors.Vector memory target = DrandQuicknetVectors.round1();
+        DrandQuicknetVectors.Vector memory other = DrandQuicknetVectors.round8193();
+
+        vm.expectRevert(abi.encodeWithSelector(IDrandOracle.InvalidSignature.selector, target.round));
+        oracle.verifyRound(target.round, other.uncompressed);
+    }
 }

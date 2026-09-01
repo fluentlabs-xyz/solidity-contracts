@@ -134,24 +134,35 @@ contract DrandConsumerExample {
     /// @dev Separates this lottery's view of a round from every other consumer's
     bytes32 internal constant DOMAIN = "lottery";
 
+    /// @notice Entry is closed once `open()` has bound the draw to a round
+    error EntryClosed();
+    /// @notice The winner of this draw has already been drawn
+    error AlreadyDrawn();
+    /// @notice A draw needs at least one entrant
+    error NoEntrants();
+
     IDrandOracle public immutable ORACLE;
 
     address[] public entrants;
     uint64 public round;
     address public winner;
+    bool public drawn;
 
     constructor(address oracle) {
         ORACLE = IDrandOracle(oracle);
     }
 
-    /// @notice Joins the current draw
+    /// @notice Joins the draw; reverts once `open()` has closed entry
     function enter() external {
+        if (round != 0) revert EntryClosed();
         entrants.push(msg.sender);
     }
 
     /// @notice Closes entry and binds the draw to a round drand has not reached yet
     /// @return The committed round
     function open() external returns (uint64) {
+        if (round != 0) revert EntryClosed();
+        if (entrants.length == 0) revert NoEntrants();
         round = ORACLE.commit();
         return round;
     }
@@ -159,7 +170,9 @@ contract DrandConsumerExample {
     /// @notice Draws the winner from the committed round's randomness
     /// @return The winning entrant
     function draw() external returns (address) {
+        if (drawn) revert AlreadyDrawn();
         bytes32 value = ORACLE.randomnessFor(round, DOMAIN);
+        drawn = true;
         winner = entrants[uint256(value) % entrants.length];
         return winner;
     }
@@ -170,6 +183,14 @@ Note what `draw()` does *not* do: it does not wrap the read in `try`/`catch` and
 default. If the round is not published yet, `draw()` reverts and the caller tries again later. A
 catch branch that substitutes a zero, a block hash or a timestamp is the classic way to turn a
 randomness oracle back into a predictable one.
+
+Note also what `open()` does: it **closes entry**. The set the winner is drawn from must be fixed
+before the round's beacon exists, which is the whole point of committing ahead. A lottery that let
+`enter()` run after the round was published would hand any caller a free win — publish the beacon,
+compute `uint256(randomness) % (entrants.length + 1)` off chain, and keep entering until the index
+lands on you. `enter()` therefore reverts with `EntryClosed` once `round` is set, and `draw()` is
+guarded with `AlreadyDrawn` so the winner cannot be re-rolled. Whatever your consumer's payout
+looks like, the same rule applies: nothing that changes the draw may move after the commit.
 
 ---
 
