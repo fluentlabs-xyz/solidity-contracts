@@ -11,7 +11,7 @@ use alloy::providers::{DynProvider, PendingTransactionBuilder, Provider, Provide
 use alloy::rpc::types::{TransactionReceipt, TransactionRequest};
 use alloy::sol_types::SolInterface;
 use alloy::transports::TransportError;
-use drand_beacon::{submittable_payload, Beacon, BeaconError, BeaconSource, Fetched, RelayFailure};
+use drand_beacon::{submittable_payload, BeaconSource, Fetched, RelayFailure};
 use tokio::time;
 use tracing::{debug, error, info, warn};
 
@@ -22,6 +22,10 @@ use crate::oracle::DrandOracle::{DrandOracleErrors, DrandOracleInstance};
 /// A link failure that outlasts this cap is an interruption rather than a hiccup, and the
 /// counter is re-derived from the chain on the way out of it instead of resumed.
 const BACKOFF_CAP: Duration = Duration::from_secs(60);
+
+/// What a source that does not distinguish relays is called in the log that charges one
+/// for a body: it served the body, it just has no name to be charged under.
+const UNNAMED_SOURCE: &str = "an unnamed source";
 
 /// The one outstanding transaction, kept whole so a resubmission can reuse its calldata
 /// and a late receipt can still be attributed to its round.
@@ -67,15 +71,13 @@ pub struct Publisher<S> {
     backoff: Duration,
     genesis_timestamp: u64,
     period_seconds: u64,
-    relay_count: usize,
-    unverified: usize,
     next: u64,
     halted: Option<Halt>,
     resync_due: bool,
     counters: Counters,
 }
 
-impl<S: BeaconSource> Publisher<S> {
+impl<S: BeaconSource + Sync> Publisher<S> {
     /// Connect to the chain and derive the counter from the oracle's own `currentRound()`,
     /// which is also what an interrupted service resumes from.
     pub async fn new(config: Config, source: S) -> Result<Self, PublisherError> {
@@ -83,7 +85,7 @@ impl<S: BeaconSource> Publisher<S> {
             signer,
             rpc_url,
             oracle: address,
-            relays,
+            relays: _,
             poll_interval,
             pending_timeout,
         } = config;
@@ -135,8 +137,6 @@ impl<S: BeaconSource> Publisher<S> {
             backoff: poll_interval,
             genesis_timestamp,
             period_seconds: period_seconds.max(1),
-            relay_count: relays.len().max(1),
-            unverified: 0,
             next,
             halted: None,
             resync_due: false,
@@ -168,39 +168,69 @@ impl<S: BeaconSource> Publisher<S> {
         }
 
         let round = self.next;
-        match self.source.fetch(round).await {
-            Fetched::Beacon(beacon) => self.attempt(beacon).await,
-            Fetched::NotReady => {
-                debug!(round, "drand has not published this round yet");
-                self.wait().await;
-                Ok(())
-            }
-            Fetched::SourceError { relay, reason } => {
-                warn!(round, relay, reason, "a relay failed for this round");
-                self.wait().await;
-                Ok(())
-            }
-            Fetched::Exhausted { failures } => {
-                self.counters.exhausted += 1;
-                warn!(
-                    round,
-                    relays = %describe(&failures),
-                    exhausted = self.counters.exhausted,
-                    "every relay failed for this round; holding the counter"
-                );
-                self.wait().await;
-                Ok(())
+        let mut skip = 0;
+        let mut refused = false;
+        loop {
+            let (fetched, served_by) = self.source.fetch_from(round, skip).await;
+            match fetched {
+                Fetched::Beacon(beacon) => match submittable_payload(&beacon) {
+                    Ok(payload) => {
+                        return self
+                            .attempt(beacon.round, Bytes::copy_from_slice(&payload))
+                            .await
+                    }
+                    Err(error) => {
+                        error!(
+                            round,
+                            %error,
+                            relay = served_by.as_deref().unwrap_or(UNNAMED_SOURCE),
+                            "a relay served a body that does not verify; asking the next relay"
+                        );
+                        refused = true;
+                        match served_by {
+                            Some(_) => skip += 1,
+                            None => {
+                                self.unserviceable(round);
+                                self.wait().await;
+                                return Ok(());
+                            }
+                        }
+                    }
+                },
+                Fetched::NotReady => {
+                    debug!(round, "drand has not published this round yet");
+                    self.wait().await;
+                    return Ok(());
+                }
+                Fetched::SourceError { relay, reason } => {
+                    warn!(round, relay, reason, "a relay failed for this round");
+                    self.wait().await;
+                    return Ok(());
+                }
+                // No failure to report means no relay from `skip` on failed to answer, so
+                // every relay in the list served a body for this round, and `refused`
+                // says none of those bodies verified.
+                Fetched::Exhausted { failures } if refused && failures.is_empty() => {
+                    self.unserviceable(round);
+                    self.wait().await;
+                    return Ok(());
+                }
+                Fetched::Exhausted { failures } => {
+                    self.counters.exhausted += 1;
+                    warn!(
+                        round,
+                        relays = %describe(&failures),
+                        exhausted = self.counters.exhausted,
+                        "every relay failed for this round; holding the counter"
+                    );
+                    self.wait().await;
+                    return Ok(());
+                }
             }
         }
     }
 
-    async fn attempt(&mut self, beacon: Beacon) -> Result<(), PublisherError> {
-        let round = beacon.round;
-        let payload = match submittable_payload(&beacon) {
-            Ok(payload) => Bytes::copy_from_slice(&payload),
-            Err(error) => return self.unverifiable(round, &error).await,
-        };
-
+    async fn attempt(&mut self, round: u64, payload: Bytes) -> Result<(), PublisherError> {
         let request = self
             .oracle
             .publish(round, payload.clone())
@@ -544,48 +574,25 @@ impl<S: BeaconSource> Publisher<S> {
             resyncs = self.counters.resyncs,
             "the counter resumes from the chain's current round; the rounds between are not back-filled"
         );
-        self.set_next(next_after(self.next, Disposition::Resync, current));
+        self.next = next_after(self.next, Disposition::Resync, current);
         Ok(())
     }
 
-    /// A body the relay chose, so the relay is charged for it first: the round is retried
-    /// while another relay could still serve it, and only declared unserviceable once the
-    /// list has had as many attempts as it has relays.
-    async fn unverifiable(
-        &mut self,
-        round: u64,
-        error: &BeaconError,
-    ) -> Result<(), PublisherError> {
-        self.unverified += 1;
-        error!(
+    /// The round is left behind only once the relay list has been walked and no relay in
+    /// it served a body for the round that verifies: holding it any longer would stall
+    /// every round behind it on one relay's garbage.
+    fn unserviceable(&mut self, round: u64) {
+        self.counters.unserviceable += 1;
+        warn!(
             round,
-            %error,
-            attempt = self.unverified,
-            relays = self.relay_count,
-            "a relay served a body that does not verify"
+            unserviceable = self.counters.unserviceable,
+            "no relay served a body for this round that verifies; leaving it behind"
         );
-        if self.unverified >= self.relay_count {
-            self.counters.unserviceable += 1;
-            warn!(
-                round,
-                unserviceable = self.counters.unserviceable,
-                "no relay served a body for this round that verifies; leaving it behind"
-            );
-            self.advance();
-        }
-        self.wait().await;
-        Ok(())
+        self.advance();
     }
 
     fn advance(&mut self) {
-        self.set_next(next_after(self.next, Disposition::Advance, self.next));
-    }
-
-    fn set_next(&mut self, next: u64) {
-        if next != self.next {
-            self.next = next;
-            self.unverified = 0;
-        }
+        self.next = next_after(self.next, Disposition::Advance, self.next);
     }
 
     async fn wait(&self) {

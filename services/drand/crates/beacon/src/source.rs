@@ -35,6 +35,25 @@ pub struct RelayFailure {
 /// The relay list behind a trait, so a test can serve rounds without a network.
 pub trait BeaconSource {
     fn fetch(&self, round: u64) -> impl Future<Output = Fetched> + Send;
+
+    /// The same fetch with the first `skip` relays passed over, naming the relay that
+    /// answered: a caller that refuses the body it was served can then charge that relay
+    /// for it and ask the next one for the same round. The default is for a source with
+    /// no list to rotate through — it names no relay and passes nothing over, so a caller
+    /// learns from the missing name that this round has nowhere left to go.
+    ///
+    /// `Self: Sync` is what the `Send` bound on this defaulted body requires; it
+    /// propagates to every caller that reaches this method through a generic parameter.
+    fn fetch_from(
+        &self,
+        round: u64,
+        _skip: usize,
+    ) -> impl Future<Output = (Fetched, Option<String>)> + Send
+    where
+        Self: Sync,
+    {
+        async move { (self.fetch(round).await, None) }
+    }
 }
 
 /// Map one relay's answer to an outcome, without reference to how it was obtained.
@@ -89,15 +108,19 @@ impl HttpRelays {
 
 impl BeaconSource for HttpRelays {
     async fn fetch(&self, round: u64) -> Fetched {
+        self.fetch_from(round, 0).await.0
+    }
+
+    async fn fetch_from(&self, round: u64, skip: usize) -> (Fetched, Option<String>) {
         let mut failures = Vec::new();
-        for relay in &self.relays {
+        for relay in self.relays.iter().skip(skip) {
             match self.ask(relay, round).await {
                 Fetched::SourceError { relay, reason } => {
                     failures.push(RelayFailure { relay, reason })
                 }
-                answered => return answered,
+                answered => return (answered, Some(relay.clone())),
             }
         }
-        Fetched::Exhausted { failures }
+        (Fetched::Exhausted { failures }, None)
     }
 }
