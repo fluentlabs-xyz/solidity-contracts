@@ -47,8 +47,11 @@ contract DrandOracle is Ownable, IDrandOracle {
     uint64 public constant MIN_FUTURE_ROUNDS_FLOOR = 2;
 
     /**
-     * @dev Largest commit offset: past the retention window the ring may no longer hold
-     *      the committed round by the time the consumer reads it.
+     * @dev Ceiling for {minFutureRounds}: a default offset as long as the whole retention
+     *      window already sits past any plausible commit horizon. It does not bound
+     *      {commitTo}, which enforces the floor alone — retention runs from the committed
+     *      round rather than from the commit, so a distant target is still served for the
+     *      full window once its beacon lands.
      */
     uint64 public constant MAX_FUTURE_ROUNDS = RING_ROUNDS;
 
@@ -58,7 +61,7 @@ contract DrandOracle is Ownable, IDrandOracle {
     // ============ Storage ============
 
     /// @dev Published rounds, keyed by `round % RING_ROUNDS` and tagged with the round
-    RoundSlot[8192] internal _ring;
+    RoundSlot[RING_ROUNDS] internal _ring;
 
     /**
      * @dev Never the storage default: the constructor sets it to MIN_FUTURE_ROUNDS_FLOOR
@@ -101,7 +104,7 @@ contract DrandOracle is Ownable, IDrandOracle {
         // Upper bound: without it a chain clock lagging drand lets `C + k` be published
         // while the chain says `C`, overwriting the live round `C + k - RING_ROUNDS`.
         uint64 current = currentRound();
-        uint64 oldest = current > RING_ROUNDS ? current - RING_ROUNDS + 1 : 1;
+        uint64 oldest = _oldestRetained(current);
         if (round < oldest) revert RoundTooOld(round, oldest);
         if (round > current) revert RoundInFuture(round, current);
 
@@ -190,8 +193,18 @@ contract DrandOracle is Ownable, IDrandOracle {
 
     /// @inheritdoc IDrandOracle
     function oldestRetainedRound() public view override returns (uint64) {
-        uint64 c = currentRound();
-        return c > RING_ROUNDS ? c - RING_ROUNDS + 1 : 1;
+        return _oldestRetained(currentRound());
+    }
+
+    /**
+     * @dev The retention window's lower bound for a given clock round. {publish} and
+     *      {oldestRetainedRound} share it because the window being exactly RING_ROUNDS
+     *      wide is what keeps a write from ever landing on a slot that is still readable:
+     *      a slot can only be reused by `round + RING_ROUNDS`, which is publishable only
+     *      once `round` has already dropped below this bound.
+     */
+    function _oldestRetained(uint64 current) private pure returns (uint64) {
+        return current > RING_ROUNDS ? current - RING_ROUNDS + 1 : 1;
     }
 
     /**

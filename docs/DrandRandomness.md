@@ -320,6 +320,15 @@ timestamp manipulation implausibly large.
 | `InvalidRound(round)` | round 0; drand rounds start at 1 | use a real round |
 | `TimestampBeforeGenesis(timestamp, genesis)` | chain clock predates drand genesis | only reachable in tests under `vm.warp` |
 
+The three below come from `DrandQuicknetVerifier`, not `IDrandOracle`. They are in the deployed
+ABI all the same, so a `catch` that matches on `IDrandOracle` selectors alone will miss them.
+
+| Error | Meaning | What to do |
+|---|---|---|
+| `InfinityPoint()` | the signature — or, with negligible probability, the hashed message — is the point at infinity | send the real 128-byte beacon; all-zero bytes land here, not on `InvalidSignature` |
+| `InvalidPointLength()` | point reached the verifier at a width other than EIP-2537's | decompress to 128 bytes; `publish` and `verifyRound` screen this first with `InvalidSignatureLength` |
+| `PrecompileFailed()` | an EIP-2537 or MODEXP precompile rejected the call | the chain is not Prague-enabled, or the call was starved of gas |
+
 ---
 
 ## Deployment

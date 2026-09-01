@@ -112,6 +112,10 @@ interface IDrandOracle {
 
     /**
      * @notice Publishes a round's drand beacon. Permissionless.
+     * @dev A signature that is well-formed in length but not a usable G1 point surfaces the
+     *      verifier's own errors rather than the ones below: `InfinityPoint`,
+     *      `InvalidPointLength` or `PrecompileFailed`. They are declared in
+     *      {DrandQuicknetVerifier} and reach the deployed ABI from there, not from here.
      * @param round The drand round the signature belongs to
      * @param signature The round's beacon as a 128-byte EIP-2537 uncompressed G1 point
      */
@@ -134,6 +138,7 @@ interface IDrandOracle {
      * @notice Recovers any round's randomness from its beacon without touching storage
      * @dev Advanced path, for rounds outside the retention window. The caller must have
      *      committed to `round` before its beacon was public; this function cannot check that.
+     *      Carries the same verifier-side errors as {IDrandOracle-publish}.
      */
     function verifyRound(uint64 round, bytes calldata signature) external view returns (bytes32);
 

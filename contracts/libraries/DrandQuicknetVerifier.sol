@@ -14,8 +14,6 @@ pragma solidity ^0.8.30;
 ///      All functions are `internal`, so the library is inlined into its importer
 ///      and never deployed on its own.
 library DrandQuicknetVerifier {
-    // precompiles
-    address private constant SHA256 = address(0x02);
     address private constant MODEXP = address(0x05);
     address private constant G1ADD = address(0x0b);
     address private constant MAP_FP_TO_G1 = address(0x10);
