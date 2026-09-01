@@ -2,3 +2,14 @@
 name = "drand-publisher"
 version = "0.1.0"
 edition = "2021"
+
+[dependencies]
+drand-beacon = { path = "../beacon" }
+alloy = "2.4"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+alloy = { version = "2.4", features = ["node-bindings"] }
+serde_json = "1"
