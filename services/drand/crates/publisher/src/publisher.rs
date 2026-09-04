@@ -1,6 +1,6 @@
 use std::error::Error;
 use std::fmt::{self, Display};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use alloy::consensus::Transaction as _;
 use alloy::contract::Error as ContractError;
@@ -8,6 +8,7 @@ use alloy::hex;
 use alloy::network::{Ethereum, ReceiptResponse as _};
 use alloy::primitives::{Address, Bytes, TxHash};
 use alloy::providers::{DynProvider, PendingTransactionBuilder, Provider, ProviderBuilder};
+use alloy::rpc::client::ClientBuilder;
 use alloy::rpc::types::{TransactionReceipt, TransactionRequest};
 use alloy::sol_types::SolInterface;
 use alloy::transports::TransportError;
@@ -22,6 +23,22 @@ use crate::oracle::DrandOracle::{DrandOracleErrors, DrandOracleInstance};
 /// A link failure that outlasts this cap is an interruption rather than a hiccup, and the
 /// counter is re-derived from the chain on the way out of it instead of resumed.
 const BACKOFF_CAP: Duration = Duration::from_secs(60);
+
+/// How often the node is asked whether the one outstanding transaction has landed. Kept
+/// well inside drand's period so a receipt costs the loop a fraction of a round rather
+/// than a multiple of one; the chain's own inclusion time is what should bound a cycle.
+const RECEIPT_POLL_INTERVAL: Duration = Duration::from_millis(500);
+
+/// How far past a round's scheduled second the loop aims when it waits for one that is
+/// not due yet. A relay needs a moment to have the beacon in hand, and arriving exactly
+/// on the second spends the round's one request on a `425`.
+const EMISSION_MARGIN: Duration = Duration::from_millis(250);
+
+/// The wait after a round that is already due comes back not ready, doubled per further
+/// attempt up to the poll interval. drand serves a round it has not emitted with
+/// `cache-control: max-age=3`, which is the relay asking not to be re-asked inside its
+/// period; a late beacon must not turn into a request every quarter second.
+const NOT_READY_RETRY: Duration = Duration::from_millis(250);
 
 /// What a source that does not distinguish relays is called in the log that charges one
 /// for a body: it served the body, it just has no name to be charged under.
@@ -74,6 +91,10 @@ pub struct Publisher<S> {
     next: u64,
     halted: Option<Halt>,
     resync_due: bool,
+    /// The round the last `NotReady` was for, and how many have come back for it in a
+    /// row. Held as a pair so a new round resets the count without anything else having
+    /// to remember to.
+    not_ready: (u64, u32),
     counters: Counters,
 }
 
@@ -90,6 +111,15 @@ impl<S: BeaconSource + Sync> Publisher<S> {
             pending_timeout,
         } = config;
 
+        // `connect_http` would build this client itself, at a poll interval alloy picks
+        // from the URL alone: 250 ms for a host it reads as local, 7 s for everything
+        // else. Seven seconds is longer than two drand rounds, so the loop would spend
+        // most of a cycle waiting on a receipt for a transaction already in a block, and
+        // the counter would fall a round further behind roughly every other round —
+        // until it left the retention window and had to resync past everything it
+        // skipped. The interval belongs to the beacon's period, not to the hostname.
+        let client = ClientBuilder::default().http(rpc_url).with_poll_interval(RECEIPT_POLL_INTERVAL);
+
         // The nonce is read from the node per transaction rather than cached: a cached
         // nonce advances before broadcast, and this loop's routine failure — a gas
         // estimate that reverts `RoundInFuture` because the chain clock has not reached
@@ -100,7 +130,7 @@ impl<S: BeaconSource + Sync> Publisher<S> {
             .with_simple_nonce_management()
             .fetch_chain_id()
             .wallet(signer)
-            .connect_http(rpc_url)
+            .connect_client(client)
             .erased();
         let oracle = DrandOracleInstance::new(address, provider.clone());
 
@@ -140,6 +170,7 @@ impl<S: BeaconSource + Sync> Publisher<S> {
             next,
             halted: None,
             resync_due: false,
+            not_ready: (0, 0),
             counters: Counters::default(),
         })
     }
@@ -198,8 +229,16 @@ impl<S: BeaconSource + Sync> Publisher<S> {
                     }
                 },
                 Fetched::NotReady => {
-                    debug!(round, "drand has not published this round yet");
-                    self.wait().await;
+                    let attempts = self.count_not_ready(round);
+                    let delay =
+                        wait_before_retry(unix_now(), self.emission_of(round), attempts, self.poll_interval);
+                    debug!(
+                        round,
+                        attempts,
+                        delay_ms = delay.as_millis() as u64,
+                        "drand has not published this round yet"
+                    );
+                    time::sleep(delay).await;
                     return Ok(());
                 }
                 Fetched::SourceError { relay, reason } => {
@@ -595,6 +634,21 @@ impl<S: BeaconSource + Sync> Publisher<S> {
         self.next = next_after(self.next, Disposition::Advance, self.next);
     }
 
+    /// How many `NotReady` answers this round has produced in a row. A different round
+    /// starts the count over, which is the only reset the pacing needs.
+    fn count_not_ready(&mut self, round: u64) -> u32 {
+        let (last, attempts) = self.not_ready;
+        self.not_ready = if last == round { (round, attempts + 1) } else { (round, 0) };
+        self.not_ready.1
+    }
+
+    /// The wall-clock second drand emits `round` at, from the genesis and period the
+    /// oracle itself reported at startup. Real time rather than the chain's clock: it is
+    /// the beacon's schedule being waited on, not the chain's.
+    fn emission_of(&self, round: u64) -> u64 {
+        self.genesis_timestamp + round.saturating_sub(1) * self.period_seconds
+    }
+
     async fn wait(&self) {
         time::sleep(self.poll_interval).await;
     }
@@ -672,6 +726,35 @@ fn classify_transport_error(error: &TransportError) -> Failure {
         }
     }
     Failure::Link(error.to_string())
+}
+
+/// How long to hold before asking for a round that came back not ready.
+///
+/// Before its scheduled second there is nothing to ask for, and the wait is the remainder
+/// of it: the round then costs exactly one request, made once the beacon exists. That is
+/// both the shortest honest wait and the lightest one on the relay, which serves a round
+/// it has not emitted with a three-second `max-age` — a request sent early buys a `425`
+/// and nothing else.
+///
+/// Past that second drand is late rather than silent, so the wait starts short and
+/// doubles, up to `cap`. Waiting the full interval from the start is what put a sawtooth
+/// of up to one period into the publishing cadence; retrying without the ceiling would
+/// answer a stalled beacon with a request every quarter second.
+pub fn wait_before_retry(now_secs: u64, emission_secs: u64, attempts: u32, cap: Duration) -> Duration {
+    if now_secs < emission_secs {
+        return Duration::from_secs(emission_secs - now_secs) + EMISSION_MARGIN;
+    }
+    NOT_READY_RETRY
+        .saturating_mul(1u32 << attempts.min(16))
+        .min(cap)
+}
+
+/// The wall clock in whole seconds, which is the unit drand's schedule is expressed in.
+/// A clock before the epoch is not a state this service can reason about, and reads as
+/// zero — every round is then already due, which is the safe direction: it retries with
+/// a ceiling instead of sleeping on a wrong remainder.
+fn unix_now() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs())
 }
 
 /// A replacement transaction has to outbid the one it replaces by a margin no node

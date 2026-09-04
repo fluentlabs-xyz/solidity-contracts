@@ -9,4 +9,4 @@ mod publisher;
 pub use crate::config::{Config, ConfigError};
 pub use crate::disposition::{classify_revert, next_after, Disposition, Probe};
 pub use crate::oracle::DrandOracle;
-pub use crate::publisher::{Publisher, PublisherError};
+pub use crate::publisher::{wait_before_retry, Publisher, PublisherError};

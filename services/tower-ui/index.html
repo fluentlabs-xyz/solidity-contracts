@@ -1,0 +1,2279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Drand Tower — a climb decided by a public random beacon</title>
+<meta name="description" content="Every floor of this climb is settled by a drand beacon that did not exist when you committed to it. Play it on Fluent testnet and check any outcome against api.drand.sh yourself." />
+<meta name="color-scheme" content="light dark" />
+<meta name="theme-color" content="#f4f6f9" media="(prefers-color-scheme: light)" />
+<meta name="theme-color" content="#0d1016" media="(prefers-color-scheme: dark)" />
+
+<meta property="og:type" content="website" />
+<meta property="og:title" content="Drand Tower" />
+<meta property="og:description" content="A climb whose every floor is decided by a public random beacon nobody can predict — and that anybody can verify afterwards." />
+<meta property="og:site_name" content="Drand Tower" />
+<meta name="twitter:card" content="summary" />
+
+<!-- Inline so the page stays a single file and stops asking for a favicon that is not there. -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20width='32'%20height='32'%20rx='7'%20fill='%233b5bdb'/%3E%3Crect%20x='7'%20y='21'%20width='18'%20height='5'%20rx='1.5'%20fill='%23fff'/%3E%3Crect%20x='9'%20y='13'%20width='14'%20height='5'%20rx='1.5'%20fill='%23fff'/%3E%3Crect%20x='11'%20y='5'%20width='10'%20height='5'%20rx='1.5'%20fill='%23fff'/%3E%3C/svg%3E" />
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f4f6f9;
+    --panel: #ffffff;
+    --panel-2: #eef1f6;
+    --text: #10141b;
+    --muted: #5c6472;
+    --line: #dde2ea;
+    --line-strong: #c6ceda;
+    --accent: #3b5bdb;
+    --accent-fg: #ffffff;
+    --accent-soft: #e6ebfc;
+    --ok: #12735a;
+    --ok-soft: #e0f2ea;
+    --bad: #b3261e;
+    --bad-soft: #fbe7e5;
+    --warn: #8a5a00;
+    --warn-soft: #fbf0da;
+    --shadow: 0 1px 2px rgba(16, 20, 28, .06), 0 10px 28px rgba(16, 20, 28, .07);
+    --radius: 12px;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1016;
+      --panel: #161b23;
+      --panel-2: #1d232d;
+      --text: #e8ecf3;
+      --muted: #9aa4b4;
+      --line: #262d38;
+      --line-strong: #38414f;
+      --accent: #7d92f5;
+      --accent-fg: #0d1016;
+      --accent-soft: #1e2540;
+      --ok: #58d0a3;
+      --ok-soft: #122b23;
+      --bad: #f08a80;
+      --bad-soft: #2e1917;
+      --warn: #e2b45f;
+      --warn-soft: #2c2415;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 10px 28px rgba(0, 0, 0, .35);
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body { max-width: 100%; overflow-x: hidden; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  a { color: var(--accent); }
+  a:hover { text-decoration: none; }
+
+  .wrap {
+    max-width: 1060px;
+    margin: 0 auto;
+    padding: 20px 16px 64px;
+  }
+
+  /* ---------- header ---------- */
+
+  header.top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 12px;
+    padding-bottom: 18px;
+    margin-bottom: 18px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .brand { flex: 1 1 260px; min-width: 0; }
+
+  .brand h1 {
+    margin: 0;
+    font-size: 22px;
+    letter-spacing: -.02em;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .brand h1 .mark {
+    width: 20px;
+    height: 24px;
+    flex: none;
+    border-radius: 3px;
+    background:
+      linear-gradient(var(--accent), var(--accent)) center bottom / 100% 6px no-repeat,
+      linear-gradient(var(--accent), var(--accent)) center 9px / 76% 5px no-repeat,
+      linear-gradient(var(--accent), var(--accent)) center 1px / 52% 5px no-repeat;
+    opacity: .9;
+  }
+
+  .brand p {
+    margin: 6px 0 0;
+    color: var(--muted);
+    font-size: 13.5px;
+    max-width: 62ch;
+  }
+
+  .top-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+
+  /* ---------- primitives ---------- */
+
+  button {
+    font: inherit;
+    font-size: 14px;
+    font-weight: 550;
+    border-radius: 9px;
+    border: 1px solid var(--line-strong);
+    background: var(--panel);
+    color: var(--text);
+    padding: 8px 14px;
+    cursor: pointer;
+    transition: background .12s ease, border-color .12s ease, opacity .12s ease, transform .06s ease;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:active:not(:disabled) { transform: translateY(1px); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  input:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+    border-color: var(--accent);
+  }
+  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+
+  button.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-fg);
+  }
+  button.primary:hover:not(:disabled) { filter: brightness(1.06); }
+
+  button.small { padding: 5px 10px; font-size: 12.5px; }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12.5px;
+    font-weight: 550;
+    padding: 6px 11px;
+    border-radius: 999px;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .pill .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--muted);
+    flex: none;
+  }
+  .pill.good { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 35%, var(--line)); background: var(--ok-soft); }
+  .pill.good .dot { background: var(--ok); }
+  .pill.bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 35%, var(--line)); background: var(--bad-soft); }
+  .pill.bad .dot { background: var(--bad); }
+  .pill.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 35%, var(--line)); background: var(--warn-soft); }
+  .pill.warn .dot { background: var(--warn); }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    padding: 18px;
+    margin-bottom: 16px;
+  }
+
+  /* Not `>`: the run card's heading sits inside .run-head, and with a child selector it
+     was the one card title on the page rendered as a plain browser h2. */
+  .card h2 {
+    margin: 0 0 2px;
+    font-size: 13px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 650;
+  }
+
+  .card .sub {
+    margin: 0 0 14px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .run-head .sub { margin: 0; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
+  }
+
+  @media (max-width: 820px) {
+    .grid { grid-template-columns: minmax(0, 1fr); }
+  }
+
+  .mono { font-family: var(--mono); font-size: 12.5px; word-break: break-all; }
+
+  .banner {
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    margin-bottom: 16px;
+    border: 1px solid;
+    font-size: 13.5px;
+  }
+  .banner.warn { background: var(--warn-soft); border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); color: var(--warn); }
+  .banner strong { color: inherit; }
+  .banner .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .banner input {
+    flex: 1 1 260px;
+    min-width: 0;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--line-strong);
+    background: var(--panel);
+    color: var(--text);
+  }
+
+  /* ---------- run / tower ---------- */
+
+  .run-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+  }
+
+  .watching {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12.5px;
+    color: var(--muted);
+    flex-wrap: wrap;
+  }
+  .watching input {
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 5px 8px;
+    width: 150px;
+    max-width: 45vw;
+    border-radius: 7px;
+    border: 1px solid var(--line-strong);
+    background: var(--panel-2);
+    color: var(--text);
+  }
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .stat {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+    min-width: 0;
+  }
+  .stat .k {
+    font-size: 11px;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  .stat .v {
+    font-size: 21px;
+    font-weight: 650;
+    letter-spacing: -.02em;
+    margin-top: 2px;
+    font-variant-numeric: tabular-nums;
+    /* A score is a uint256: it has to wrap inside its tile rather than run out of it. */
+    overflow-wrap: anywhere;
+    line-height: 1.15;
+  }
+  .stat .n { font-size: 11.5px; color: var(--muted); overflow-wrap: anywhere; }
+
+  /* Below this the three tiles are too narrow for a number of any length. */
+  @media (max-width: 430px) {
+    .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .stat:last-child { grid-column: 1 / -1; }
+    .stat .v { font-size: 19px; }
+  }
+
+  .tower-area {
+    display: flex;
+    gap: 16px;
+    align-items: stretch;
+  }
+
+  .tower {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column-reverse;
+    justify-content: flex-start;
+    gap: 4px;
+    padding: 12px;
+    min-height: 150px;
+    max-height: 320px;
+    overflow-y: auto;
+    border-radius: 10px;
+    background:
+      linear-gradient(var(--line) 1px, transparent 1px) top left / 100% 22px repeat-y,
+      var(--panel-2);
+    border: 1px solid var(--line);
+  }
+
+  .floor {
+    position: relative;
+    height: 26px;
+    flex: none;
+    border-radius: 6px;
+    /* The accent itself, not a wash of it: mixed 82% into white the label came out at
+       4.0:1, under the 4.5:1 this 12px bold text needs. */
+    background: var(--accent);
+    color: var(--accent-fg);
+    display: flex;
+    align-items: center;
+    padding: 0 10px;
+    font-size: 12px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    box-shadow: inset 0 -2px 0 rgba(0, 0, 0, .12);
+    animation: rise .28s cubic-bezier(.2, .9, .3, 1.2) both;
+  }
+  .floor .fl-n { opacity: .85; }
+  .floor .fl-w { margin-left: auto; opacity: .8; font-weight: 500; }
+
+  .floor.ghost {
+    background: transparent;
+    color: var(--muted);
+    border: 1px dashed var(--line-strong);
+    box-shadow: none;
+    animation: pulse 1.8s ease-in-out infinite;
+  }
+  .floor.ghost.ready-hold { border-color: var(--ok); color: var(--ok); animation: none; }
+  .floor.ghost.ready-fall { border-color: var(--bad); color: var(--bad); animation: none; }
+
+  .tower.falling .floor { animation: collapse .5s ease-in forwards; }
+
+  .tower-empty {
+    color: var(--muted);
+    font-size: 13px;
+    text-align: center;
+    align-self: center;
+    margin: auto;
+    padding: 12px;
+  }
+
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(10px) scaleY(.6); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: .55; }
+    50% { opacity: 1; }
+  }
+  @keyframes collapse {
+    to { opacity: 0; transform: translateY(18px) scaleY(.2) rotate(1.5deg); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .floor, .tower.falling .floor, .toast { animation: none !important; }
+    .spinner { animation-duration: 2.4s; }   /* still shows progress, without the whirl */
+    button:active:not(:disabled) { transform: none; }
+    * { transition-duration: .01ms !important; }
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 16px;
+  }
+
+  .hint {
+    margin-top: 10px;
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+  .hint .retry { margin-left: 8px; vertical-align: baseline; }
+
+  /* ---------- step / countdown ---------- */
+
+  .step-box {
+    margin-top: 16px;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    background: var(--panel-2);
+    padding: 14px;
+  }
+  .step-box.waiting { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); background: var(--accent-soft); }
+  .step-box.hold { border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); background: var(--ok-soft); }
+  .step-box.fall { border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); background: var(--bad-soft); }
+
+  .step-title {
+    font-size: 15px;
+    font-weight: 650;
+    letter-spacing: -.01em;
+    margin: 0 0 4px;
+  }
+  .step-box.hold .step-title { color: var(--ok); }
+  .step-box.fall .step-title { color: var(--bad); }
+
+  .step-box p { margin: 0; font-size: 13px; color: var(--muted); }
+  .step-box .countdown {
+    font-family: var(--mono);
+    font-size: 26px;
+    font-weight: 600;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+    margin: 8px 0 2px;
+    color: var(--text);
+  }
+  .countdown-note {
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 400;
+    letter-spacing: 0;
+    color: var(--muted);
+    margin-left: 8px;
+    vertical-align: 3px;
+  }
+
+  /* ---------- verify ---------- */
+
+  .vrow {
+    display: grid;
+    grid-template-columns: 130px minmax(0, 1fr);
+    gap: 4px 14px;
+    padding: 10px 0;
+    border-top: 1px solid var(--line);
+    align-items: start;
+  }
+  .vrow:first-of-type { border-top: 0; }
+  .vrow .vk {
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 600;
+    letter-spacing: .02em;
+    padding-top: 2px;
+  }
+  .vrow .vv { min-width: 0; }
+  .vrow .note { font-size: 12px; color: var(--muted); margin-top: 4px; }
+
+  @media (max-width: 560px) {
+    .vrow { grid-template-columns: minmax(0, 1fr); }
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11.5px;
+    font-weight: 650;
+    padding: 3px 8px;
+    border-radius: 6px;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    color: var(--muted);
+    margin-top: 6px;
+  }
+  .badge.ok { color: var(--ok); background: var(--ok-soft); border-color: color-mix(in srgb, var(--ok) 35%, var(--line)); }
+  .badge.no { color: var(--bad); background: var(--bad-soft); border-color: color-mix(in srgb, var(--bad) 35%, var(--line)); }
+
+  .formula {
+    font-family: var(--mono);
+    font-size: 12px;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 8px 10px;
+    overflow-x: auto;
+    white-space: pre;
+    color: var(--muted);
+  }
+
+  /* ---------- leaderboard / info ---------- */
+
+  .lb-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 9px 0;
+    border-top: 1px solid var(--line);
+  }
+  .lb-row:first-of-type { border-top: 0; }
+  .lb-row .who { font-family: var(--mono); font-size: 12.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .lb-row .what { font-size: 12px; color: var(--muted); }
+  .lb-row .score {
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+    /* Same reason as the stat tiles: the score is unbounded. */
+    min-width: 0;
+    overflow-wrap: anywhere;
+    text-align: right;
+  }
+  .lb-row.you { color: var(--accent); }
+
+  .info p { font-size: 13px; color: var(--muted); margin: 0 0 10px; }
+  .info p:last-child { margin-bottom: 0; }
+  .info code {
+    font-family: var(--mono);
+    font-size: 12px;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 1px 5px;
+  }
+  .kv {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    font-size: 12.5px;
+    padding: 5px 0;
+    border-top: 1px solid var(--line);
+  }
+  .kv:first-child { border-top: 0; }
+  .kv .k { color: var(--muted); }
+  .kv .v { font-family: var(--mono); font-size: 12px; text-align: right; word-break: break-all; }
+
+  /* ---------- toasts ---------- */
+
+  #toasts {
+    position: fixed;
+    right: 12px;
+    bottom: 12px;
+    left: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+    pointer-events: none;
+    z-index: 50;
+  }
+  .toast {
+    pointer-events: auto;
+    max-width: min(420px, 100%);
+    background: var(--panel);
+    border: 1px solid var(--line-strong);
+    border-left: 3px solid var(--accent);
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+    padding: 10px 12px;
+    font-size: 13px;
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    animation: toastin .2s ease both;
+  }
+  .toast.ok { border-left-color: var(--ok); }
+  .toast.err { border-left-color: var(--bad); }
+  .toast .tx { min-width: 0; }
+  .toast .tt { font-weight: 650; margin-bottom: 1px; }
+  .toast .tb { color: var(--muted); font-size: 12.5px; word-break: break-word; }
+  .toast .close {
+    border: 0; background: transparent; color: var(--muted);
+    padding: 0 2px; font-size: 16px; line-height: 1; cursor: pointer;
+  }
+  @keyframes toastin { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+  .spinner {
+    display: inline-block;
+    width: 12px; height: 12px;
+    border: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin .7s linear infinite;
+    vertical-align: -1px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  footer.foot {
+    margin-top: 22px;
+    font-size: 12px;
+    color: var(--muted);
+    text-align: center;
+  }
+  footer.foot span { white-space: nowrap; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="top">
+    <div class="brand">
+      <h1><span class="mark" aria-hidden="true"></span> Drand Tower</h1>
+      <p>
+        Every floor of this climb is decided by a <strong>drand</strong> beacon &mdash; a public random
+        value produced every 3&nbsp;seconds by an independent committee that nobody can predict or
+        influence. You commit to a round <em>before</em> its number exists.
+      </p>
+    </div>
+    <div class="top-actions">
+      <span class="pill" id="net-pill" role="status" aria-live="polite"><span class="dot" aria-hidden="true"></span><span id="net-text">connecting&hellip;</span></span>
+      <button id="btn-network" class="small">Add Fluent testnet</button>
+      <button id="btn-connect" class="primary">Connect wallet</button>
+    </div>
+  </header>
+
+  <div id="setup-banner" class="banner warn" hidden>
+    <strong>Tower address is not set.</strong>
+    <span id="setup-text">The demo contract has not been wired into this page yet. Paste a deployed
+    DrandTower address to use it now (kept in this browser only).</span>
+    <div class="row">
+      <input id="setup-input" placeholder="0x…" spellcheck="false" autocomplete="off"
+             aria-label="DrandTower contract address" />
+      <button id="setup-apply" class="primary small">Use this address</button>
+    </div>
+  </div>
+
+  <main class="grid">
+
+    <!-- ============ left column ============ -->
+    <div>
+
+      <section class="card" id="run-card">
+        <div class="run-head">
+          <div>
+            <h2>Your run</h2>
+            <p class="sub">Floors are worth nothing until you bank them.</p>
+          </div>
+          <div class="watching">
+            <label for="watch-input">watching</label>
+            <input id="watch-input" placeholder="0x… any climber" spellcheck="false" autocomplete="off" />
+            <button id="watch-apply" class="small">Watch</button>
+            <button id="watch-me" class="small" hidden>Me</button>
+          </div>
+        </div>
+
+        <div class="stats">
+          <div class="stat">
+            <div class="k">Floors standing</div>
+            <div class="v" id="s-floors">&mdash;</div>
+            <div class="n" id="s-floors-n">nothing at risk</div>
+          </div>
+          <div class="stat">
+            <div class="k">Worth if banked</div>
+            <div class="v" id="s-points">&mdash;</div>
+            <div class="n">N&times;(N+1)/2 points</div>
+          </div>
+          <div class="stat">
+            <div class="k">Banked score</div>
+            <div class="v" id="s-score">&mdash;</div>
+            <div class="n" id="s-best">total across runs</div>
+          </div>
+        </div>
+
+        <div class="tower-area">
+          <!-- A picture of the run, rebuilt on every poll: announcing it would repeat the
+               whole tower every few seconds. The step box below carries the words. -->
+          <div class="tower" id="tower" role="img" aria-label="The run, drawn as stacked floors">
+            <div class="tower-empty" id="tower-empty">No floors standing. Climb to start a run.</div>
+          </div>
+        </div>
+
+        <div class="actions">
+          <button id="btn-climb" class="primary" aria-describedby="run-hint" disabled>Climb one floor</button>
+          <button id="btn-resolve" aria-describedby="run-hint" disabled>Resolve</button>
+          <button id="btn-bank" aria-describedby="run-hint" disabled>Bank run</button>
+        </div>
+        <div class="hint" id="run-hint" role="status" aria-live="polite">Reading the chain&hellip;</div>
+
+        <div class="step-box" id="step-box" aria-live="polite" hidden>
+          <div class="step-title" id="step-title"></div>
+          <div class="countdown" id="step-countdown" aria-hidden="true" hidden></div>
+          <p id="step-text"></p>
+        </div>
+      </section>
+
+      <section class="card" id="verify-card">
+        <h2>Verify it yourself</h2>
+        <p class="sub">
+          The whole point of the demo: this outcome came from a number that a stranger can fetch from
+          drand and re-derive in their own browser. Nothing here is taken on trust from the contract.
+        </p>
+        <div id="verify-body">
+          <p class="sub" id="verify-empty" style="margin:0">
+            Nothing to verify yet &mdash; climb a floor, and the round that decides it appears here the
+            moment its beacon lands on chain.
+          </p>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- ============ right column ============ -->
+    <div>
+
+      <section class="card">
+        <h2>Leaderboard</h2>
+        <p class="sub">Only banked runs count.</p>
+        <div class="lb-row">
+          <div class="who" id="lb-champ">&mdash;</div>
+          <div class="score" id="lb-champ-score">&mdash;</div>
+        </div>
+        <div class="lb-row you">
+          <div class="who" id="lb-you">&mdash;</div>
+          <div class="score" id="lb-you-score">&mdash;</div>
+        </div>
+        <div class="lb-row">
+          <div class="what">Longest banked run</div>
+          <div class="score" id="lb-you-best">&mdash;</div>
+        </div>
+      </section>
+
+      <section class="card info">
+        <h2>How a floor is decided</h2>
+        <p>
+          <strong>1.</strong> <code>climb()</code> binds you to a drand round whose beacon
+          <em>does not exist yet</em> &mdash; the oracle refuses to hand out a round that is already
+          public.
+        </p>
+        <p>
+          <strong>2.</strong> About 6&nbsp;seconds later drand emits that beacon and a publisher puts
+          it on chain, signature-checked against drand quicknet's key.
+        </p>
+        <p>
+          <strong>3.</strong> The beacon is folded with your own address, so every climber waiting
+          on that round gets a different <code>value</code> &mdash; one can fall while another holds.
+        </p>
+        <p>
+          <strong>4.</strong> <code>resolve()</code> settles the floor:
+          <code>value % 4 != 0</code> holds &mdash; 3 chances in 4. Otherwise the whole run is lost.
+        </p>
+        <p>
+          <strong>5.</strong> <code>bank()</code> turns N standing floors into N&times;(N+1)/2 points.
+          Break-even is the sixth floor: banking six is worth 21, and risking it for a seventh is
+          worth 0.75&nbsp;&times;&nbsp;28 &mdash; the same 21.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>Chain facts</h2>
+        <div class="kv"><span class="k">drand round now</span><span class="v" id="f-round">&mdash;</span></div>
+        <div class="kv"><span class="k">drand chain</span><span class="v">quicknet, 3s period</span></div>
+        <div class="kv"><span class="k">Oracle</span><span class="v" id="f-oracle">&mdash;</span></div>
+        <div class="kv"><span class="k">Tower</span><span class="v" id="f-tower">&mdash;</span></div>
+        <div class="kv"><span class="k">Network</span><span class="v" id="f-network">&mdash;</span></div>
+        <div class="kv"><span class="k">Retention</span><span class="v">8192 rounds &middot; 6h49m36s</span></div>
+      </section>
+
+    </div>
+  </main>
+
+  <footer class="foot">
+    Reads work without a wallet, straight from <span id="f-rpc-host">the public RPC</span>.
+    Beacons: <span>api.drand.sh</span>.
+  </footer>
+</div>
+
+<div id="toasts" role="status" aria-live="polite" aria-atomic="false"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  /* ======================================================================
+   * Deployment configuration. Every environment-specific value lives here and
+   * nowhere else in the file. A host page can override any of it by defining
+   * `window.TOWER_CONFIG` before this script, so pointing the page at another
+   * network or another DrandTower needs no edit to the code below:
+   *
+   *   <script>window.TOWER_CONFIG = { towerAddress: "0x…", rpcUrl: "https://…" };<\/script>
+   *
+   * (that closing tag is escaped because an HTML parser ends this script at a
+   * literal one, comment or not)
+   *
+   * Deliberately not read from the URL. A link that could repoint the RPC or
+   * the contract would let whoever sent it choose what the visitor is talking
+   * to, and the page would still look like this one.
+   * ==================================================================== */
+
+  const CFG = (typeof window.TOWER_CONFIG === "object" && window.TOWER_CONFIG) || {};
+
+  const TOWER_ADDRESS = CFG.towerAddress || "0x7bEB3dEE19E37Ed8D6BEA977e7bA81503860d4Ff";
+  const ORACLE_ADDRESS = CFG.oracleAddress || "0xFaf73E6bc241f133498D453146cbcc27415eB907";
+
+  const RPC_URL = CFG.rpcUrl || "https://rpc.testnet.fluent.xyz";
+  const CHAIN_ID = CFG.chainId || 20994;
+  const CHAIN_ID_HEX = "0x" + CHAIN_ID.toString(16);   // derived, so the two cannot drift
+  const CHAIN_NAME = CFG.chainName || "Fluent Testnet";
+  const EXPLORER_URL = CFG.explorerUrl || "https://testnet.fluentscan.xyz";
+
+  // drand quicknet
+  const DRAND_CHAIN_HASH = "52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971";
+  const DRAND_GENESIS = 1692803367;
+  const DRAND_PERIOD = 3;
+  const DOMAIN_STRING = "tower";          // DrandTower.DOMAIN == bytes32("tower")
+
+  const POLL_PENDING_MS = 2000;
+  const POLL_IDLE_MS = 8000;
+
+  /* ======================================================================
+   * ABI — every signature and error name comes from DrandTower.sol and
+   * IDrandOracle.sol; the oracle's errors are included so ethers decodes
+   * the reverts the tower bubbles up.
+   * ==================================================================== */
+
+  const TOWER_ABI = [
+    "function climb() returns (uint64 round)",
+    "function resolve(address climber) returns (bool held)",
+    "function resolveWith(address climber, bytes signature) returns (bool held)",
+    "function bank() returns (uint256 points)",
+    "function holds(bytes32 value) pure returns (bool)",
+    "function valueFor(bytes32 gameValue, address climber) pure returns (bytes32)",
+    "function pointsFor(uint32 floors) pure returns (uint256)",
+    "function runOf(address climber) view returns (uint32 floor, uint64 pendingRound)",
+    "function scoreOf(address climber) view returns (uint256 points, uint32 bestRun)",
+    "function stepOf(address climber) view returns (uint64 round, uint256 readyAt, bool ready, bytes32 raw, bytes32 value, bool held)",
+    "function champion() view returns (address)",
+    "function championScore() view returns (uint256)",
+    "function ORACLE() view returns (address)",
+    "event Climbed(address indexed climber, uint32 indexed floor, uint64 indexed round, uint256 readyAt)",
+    "event Resolved(address indexed climber, uint32 indexed floor, uint64 indexed round, bytes32 value, bool held)",
+    "event Banked(address indexed climber, uint32 floors, uint256 points, uint256 total)",
+    "event ChampionChanged(address indexed climber, uint256 score)",
+    // DrandTower errors
+    "error StepPending(uint64 round)",
+    "error NoStepPending()",
+    "error NothingToBank()",
+    // IDrandOracle errors, reachable through the tower
+    "error ZeroAddressNotAllowed(string field)",
+    "error TimestampBeforeGenesis(uint256 timestamp, uint64 genesis)",
+    "error InvalidRound(uint64 round)",
+    "error RoundTooSoon(uint64 round, uint64 earliestAllowed)",
+    "error RoundTooOld(uint64 round, uint64 oldestRetained)",
+    "error RoundInFuture(uint64 round, uint64 currentRound)",
+    "error RoundEvicted(uint64 round, uint64 oldestRetained)",
+    "error RoundNotPublished(uint64 round)",
+    "error RoundAlreadyPublished(uint64 round)",
+    "error InvalidSignatureLength(uint256 provided, uint256 expected)",
+    "error InvalidSignature(uint64 round)",
+    // DrandQuicknetVerifier errors, reachable through resolveWith
+    "error InfinityPoint()",
+    "error InvalidPointLength()",
+    "error PrecompileFailed()"
+  ];
+
+  const ERROR_TEXT = {
+    StepPending: function (a) {
+      return "A floor is already waiting on round " + a[0] + " — settle that one before you climb or bank.";
+    },
+    NoStepPending: function () {
+      return "There is no floor waiting on a beacon right now.";
+    },
+    NothingToBank: function () {
+      return "Nothing is standing — climb at least one floor before banking.";
+    },
+    RoundNotPublished: function (a) {
+      return "The beacon for round " + a[0] + " has not been published yet — wait a few seconds and try again.";
+    },
+    RoundEvicted: function (a) {
+      return "This run is older than the oracle's 6h49m window: round " + a[0] +
+        " has aged out (the oracle now keeps round " + a[1] + " and newer). It can only be settled with " +
+        "resolveWith and the round's own signature.";
+    },
+    RoundTooOld: function (a) {
+      return "Round " + a[0] + " is too old to publish; the oracle keeps round " + a[1] + " and newer.";
+    },
+    RoundTooSoon: function (a) {
+      return "Round " + a[0] + " is too close to now — the oracle only commits to round " + a[1] + " or later.";
+    },
+    RoundInFuture: function (a) {
+      return "Round " + a[0] + " has not happened yet; drand is at round " + a[1] + ".";
+    },
+    RoundAlreadyPublished: function (a) {
+      return "Round " + a[0] + " already has a published beacon, and a published value never changes.";
+    },
+    InvalidRound: function (a) {
+      return "Round " + a[0] + " is not a valid drand round — rounds start at 1.";
+    },
+    InvalidSignature: function (a) {
+      return "That signature does not verify against drand quicknet's key for round " + a[0] + ".";
+    },
+    InvalidSignatureLength: function (a) {
+      return "The signature is " + a[0] + " bytes; drand beacons are " + a[1] + " bytes in the EIP-2537 encoding.";
+    },
+    TimestampBeforeGenesis: function (a) {
+      return "The chain's clock (" + a[0] + ") is before drand genesis (" + a[1] + "), so no round exists yet.";
+    },
+    ZeroAddressNotAllowed: function (a) {
+      return "The zero address is not allowed for " + a[0] + ".";
+    },
+    InfinityPoint: function () {
+      return "That signature decodes to the point at infinity, which is not a usable beacon.";
+    },
+    InvalidPointLength: function () {
+      return "The signature is not a 128-byte EIP-2537 G1 point.";
+    },
+    PrecompileFailed: function () {
+      return "The BLS pairing precompile rejected the input.";
+    }
+  };
+
+  /* ======================================================================
+   * State
+   * ==================================================================== */
+
+  const state = {
+    tower: null,            // address in use (constant, or one supplied at runtime)
+    readProvider: null,
+    readTower: null,
+    account: null,
+    walletChainId: null,
+    viewed: null,           // address whose run is on screen
+    run: null,              // { floor, pendingRound }
+    step: null,             // { round, readyAt, ready, raw, value, held }
+    score: null,            // { points, bestRun }
+    champion: null,
+    championScore: null,
+    verify: null,           // last step worth showing in the verify panel
+    drandFetch: {},         // round -> { status, randomness }
+    busy: false,
+    lastError: null,
+    towerMissing: false,
+    pollTimer: null,
+    tickTimer: null,
+    refreshing: false,
+    refreshSeq: 0,          // only the newest read is allowed to write to the screen
+    loaded: false,          // a first successful read has painted real numbers
+    towerKey: null,         // what the tower was last drawn from, so a poll that changes
+    verifyKey: null,        // nothing does not rebuild it — see renderTower/renderVerify
+    countdownMode: null,    // ditto for the countdown, ten times a second
+    lastResolved: null      // { floor, round, held, value } from the most recent Resolved event
+  };
+
+  const iface = new ethers.Interface(TOWER_ABI);
+  const coder = ethers.AbiCoder.defaultAbiCoder();
+  const DOMAIN_BYTES32 = ethers.encodeBytes32String(DOMAIN_STRING);
+  const ZERO = "0x0000000000000000000000000000000000000000";
+
+  const $ = function (id) { return document.getElementById(id); };
+
+  /* ======================================================================
+   * Small helpers
+   * ==================================================================== */
+
+  function shortAddr(a) {
+    if (!a) return "—";
+    return a.slice(0, 6) + "…" + a.slice(-4);
+  }
+
+  function isAddress(a) {
+    try { return ethers.isAddress(a); } catch (e) { return false; }
+  }
+
+  function pointsFor(n) {
+    const f = BigInt(n);
+    return (f * (f + 1n)) / 2n;
+  }
+
+  /** Host of the configured RPC, for the footer — the URL itself may carry an API key. */
+  function rpcHost() {
+    try { return new URL(RPC_URL).host; } catch (e) { return "the public RPC"; }
+  }
+
+  function drandUrl(round) {
+    return "https://api.drand.sh/" + DRAND_CHAIN_HASH + "/public/" + round;
+  }
+
+  function currentDrandRound() {
+    const now = Math.floor(Date.now() / 1000);
+    if (now < DRAND_GENESIS) return 0;
+    return Math.floor((now - DRAND_GENESIS) / DRAND_PERIOD) + 1;
+  }
+
+  function txt(el, s) { if (el) el.textContent = s; }
+
+  function store(key, value) {
+    try {
+      if (value === null) window.localStorage.removeItem(key);
+      else window.localStorage.setItem(key, value);
+    } catch (e) { /* private mode, blocked storage — not important */ }
+  }
+
+  function load(key) {
+    try { return window.localStorage.getItem(key); } catch (e) { return null; }
+  }
+
+  /* ======================================================================
+   * Toasts — every message the user sees, no alert() anywhere
+   * ==================================================================== */
+
+  function toast(title, body, kind, sticky) {
+    const host = $("toasts");
+    const el = document.createElement("div");
+    el.className = "toast" + (kind ? " " + kind : "");
+    const box = document.createElement("div");
+    box.className = "tx";
+    const t = document.createElement("div");
+    t.className = "tt";
+    t.textContent = title;
+    box.appendChild(t);
+    if (body) {
+      const b = document.createElement("div");
+      b.className = "tb";
+      b.textContent = body;
+      box.appendChild(b);
+    }
+    el.appendChild(box);
+    const close = document.createElement("button");
+    close.className = "close";
+    close.setAttribute("aria-label", "Dismiss");
+    close.textContent = "×";
+    close.onclick = function () { el.remove(); };
+    el.appendChild(close);
+    host.appendChild(el);
+    const life = sticky ? 20000 : (kind === "err" ? 14000 : 6000);
+    setTimeout(function () { el.remove(); }, life);
+    return el;
+  }
+
+  /* ======================================================================
+   * Error decoding — custom errors as plain sentences
+   * ==================================================================== */
+
+  function findRevertData(e) {
+    const seen = new Set();
+    const stack = [e];
+    while (stack.length) {
+      const node = stack.pop();
+      if (!node || typeof node !== "object" || seen.has(node)) continue;
+      seen.add(node);
+      const keys = ["data", "error", "info", "cause", "value", "originalError"];
+      for (let i = 0; i < keys.length; i++) {
+        const v = node[keys[i]];
+        if (typeof v === "string" && v.startsWith("0x") && v.length >= 10) return v;
+        if (v && typeof v === "object") stack.push(v);
+      }
+    }
+    return null;
+  }
+
+  function describeError(e) {
+    if (!e) return "Something went wrong.";
+    if (e.wrongChain !== undefined) {
+      return "Your wallet is on chain " + e.wrongChain + ", not " + CHAIN_NAME + " (chain " +
+        CHAIN_ID + "). Nothing was sent — switch the network and try again.";
+    }
+    if (e.code === "ACTION_REJECTED" || e.code === 4001 ||
+        (e.info && e.info.error && e.info.error.code === 4001)) {
+      return "You rejected the transaction in your wallet.";
+    }
+
+    let name = null;
+    let args = null;
+
+    if (e.revert && e.revert.name) {
+      name = e.revert.name;
+      args = e.revert.args;
+    } else {
+      const data = findRevertData(e);
+      if (data) {
+        try {
+          const parsed = iface.parseError(data);
+          if (parsed) { name = parsed.name; args = parsed.args; }
+        } catch (err) { /* not one of ours */ }
+      }
+    }
+
+    if (name) {
+      const fmt = ERROR_TEXT[name];
+      if (fmt) {
+        try { return fmt(Array.from(args || []).map(String)); } catch (err) { /* fall through */ }
+      }
+      return "The contract rejected this: " + name + ".";
+    }
+
+    if (e.reason) return String(e.reason);
+
+    // Everything below would otherwise reach the player as an ethers or JSON-RPC string.
+    // Those name internals nobody can act on ("missing revert data", "Failed to fetch"),
+    // so each shape we recognise gets a sentence that says what happened and what to do.
+    const raw = String(e.shortMessage || e.message || "").toLowerCase();
+    const code = e.code;
+    if (raw.indexOf("missing revert data") !== -1 || raw.indexOf("cannot estimate gas") !== -1 ||
+        code === "CALL_EXCEPTION" || code === "UNPREDICTABLE_GAS_LIMIT") {
+      return "The contract refused this call while your wallet was estimating it, so nothing was " +
+        "sent and nothing was spent. The run has most likely moved on — the screen reloads in a " +
+        "moment, and the buttons will match it.";
+    }
+    if (raw.indexOf("failed to fetch") !== -1 || raw.indexOf("network error") !== -1 ||
+        raw.indexOf("could not coalesce") !== -1 || raw.indexOf("timeout") !== -1 ||
+        code === "NETWORK_ERROR" || code === "SERVER_ERROR" || code === "TIMEOUT") {
+      return "The RPC node did not answer. Check your connection — reads keep retrying on their own.";
+    }
+    if (raw.indexOf("insufficient funds") !== -1) {
+      return "This account has no ETH left to pay for gas on " + CHAIN_NAME + ".";
+    }
+    if (raw.indexOf("replacement") !== -1 && raw.indexOf("underpriced") !== -1) {
+      return "A transaction from this account is already in flight. Wait for it to land, or speed " +
+        "it up in your wallet.";
+    }
+    if (raw.indexOf("nonce") !== -1) {
+      return "Your wallet's transaction count is out of step with the node. Wait for anything " +
+        "pending to land, or reset the account in your wallet's advanced settings.";
+    }
+    if (raw.indexOf("intrinsic gas") !== -1 || raw.indexOf("gas required exceeds") !== -1) {
+      return "The wallet did not offer enough gas for this call.";
+    }
+    return "Something went wrong, and the wallet did not say what. Try again in a moment.";
+  }
+
+  /* ======================================================================
+   * Providers
+   * ==================================================================== */
+
+  function makeReadProvider() {
+    const net = new ethers.Network(CHAIN_NAME, CHAIN_ID);
+    return new ethers.JsonRpcProvider(RPC_URL, net, { staticNetwork: net, batchMaxCount: 1 });
+  }
+
+  function hasWallet() {
+    return typeof window.ethereum !== "undefined" && window.ethereum !== null;
+  }
+
+  async function walletChainId() {
+    if (!hasWallet()) return null;
+    try {
+      const id = await window.ethereum.request({ method: "eth_chainId" });
+      return parseInt(id, 16);
+    } catch (e) { return null; }
+  }
+
+  function onCorrectChain() {
+    return state.account !== null && state.walletChainId === CHAIN_ID;
+  }
+
+  async function getSignerTower() {
+    if (!hasWallet()) throw new Error("No wallet found in this browser.");
+    const bp = new ethers.BrowserProvider(window.ethereum);
+    // Ask the wallet again instead of trusting the cached chain id. `send` checked it a
+    // moment ago, but a wallet can be switched between the click and the signature, and a
+    // call built for this tower would then be signed for whatever chain it moved to.
+    const net = await bp.getNetwork();
+    if (Number(net.chainId) !== CHAIN_ID) {
+      const e = new Error("wallet is on the wrong chain");
+      e.wrongChain = Number(net.chainId);
+      throw e;
+    }
+    const signer = await bp.getSigner();
+    return new ethers.Contract(state.tower, TOWER_ABI, signer);
+  }
+
+  /* ======================================================================
+   * Wallet wiring
+   * ==================================================================== */
+
+  async function connect() {
+    if (!hasWallet()) {
+      toast("No wallet detected",
+        "Install MetaMask to climb. Reading the tower works without one — the leaderboard and any run " +
+        "on screen are read straight from the public RPC.", "err");
+      return;
+    }
+    try {
+      const accounts = await window.ethereum.request({ method: "eth_requestAccounts" });
+      state.account = accounts && accounts.length ? ethers.getAddress(accounts[0]) : null;
+      state.walletChainId = await walletChainId();
+      if (state.account) {
+        state.viewed = state.account;
+        $("watch-input").value = "";
+      }
+      renderChrome();
+      refresh(true);
+    } catch (e) {
+      toast("Could not connect", describeError(e), "err");
+    }
+  }
+
+  async function switchNetwork() {
+    if (!hasWallet()) {
+      toast("No wallet detected", "Install MetaMask to add the network.", "err");
+      return;
+    }
+    const params = {
+      chainId: CHAIN_ID_HEX,
+      chainName: CHAIN_NAME,
+      nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+      rpcUrls: [RPC_URL],
+      blockExplorerUrls: [EXPLORER_URL]
+    };
+    try {
+      await window.ethereum.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: CHAIN_ID_HEX }]
+      });
+      toast("Switched to " + CHAIN_NAME, null, "ok");
+    } catch (e) {
+      const code = (e && (e.code !== undefined ? e.code : (e.data && e.data.originalError && e.data.originalError.code)));
+      // 4902: unknown chain. Some wallets wrap it as -32603.
+      if (code === 4902 || code === -32603) {
+        try {
+          await window.ethereum.request({ method: "wallet_addEthereumChain", params: [params] });
+          toast("Added " + CHAIN_NAME, null, "ok");
+        } catch (addErr) {
+          if (addErr && (addErr.code === 4001 || addErr.code === "ACTION_REJECTED")) {
+            toast("Network not added", "You dismissed the wallet prompt.", "err");
+          } else {
+            toast("Could not add the network", describeError(addErr), "err");
+          }
+        }
+      } else if (code === 4001) {
+        toast("Network not switched", "You dismissed the wallet prompt.", "err");
+      } else {
+        toast("Could not switch network", describeError(e), "err");
+      }
+    }
+    state.walletChainId = await walletChainId();
+    renderChrome();
+    render();
+  }
+
+  function wireWalletEvents() {
+    if (!hasWallet() || !window.ethereum.on) return;
+    window.ethereum.on("accountsChanged", function (accounts) {
+      const next = accounts && accounts.length ? ethers.getAddress(accounts[0]) : null;
+      const wasViewingSelf = state.viewed && state.account &&
+        state.viewed.toLowerCase() === state.account.toLowerCase();
+      state.account = next;
+      if (!next) {
+        toast("Wallet disconnected", "Reads keep working from the public RPC.");
+      } else if (wasViewingSelf || !state.viewed) {
+        state.viewed = next;
+      }
+      state.lastResolved = null;
+      renderChrome();
+      refresh(true);
+    });
+    window.ethereum.on("chainChanged", function (id) {
+      state.walletChainId = parseInt(id, 16);
+      renderChrome();
+      render();
+      refresh(true);
+    });
+  }
+
+  /* ======================================================================
+   * Reading the chain
+   * ==================================================================== */
+
+  async function refresh(force) {
+    if (!state.readTower || state.towerMissing) return;
+    if (state.refreshing && !force) return;
+    // Reads are concurrent — `force` deliberately overtakes an in-flight one, and the
+    // watched address can change while answers are in the air. Only the newest read may
+    // write, or a slow answer about a previous climber lands on the current screen.
+    const seq = ++state.refreshSeq;
+    state.refreshing = true;
+    const who = state.viewed;
+    try {
+      const jobs = [
+        state.readTower.champion(),
+        state.readTower.championScore()
+      ];
+      if (who) {
+        jobs.push(state.readTower.runOf(who));
+        jobs.push(state.readTower.stepOf(who));
+        jobs.push(state.readTower.scoreOf(who));
+      }
+      const out = await Promise.all(jobs);
+      if (seq !== state.refreshSeq || who !== state.viewed) return;
+
+      state.champion = out[0];
+      state.championScore = out[1];
+
+      if (who) {
+        const run = out[2];
+        const step = out[3];
+        const score = out[4];
+        state.run = { floor: Number(run[0]), pendingRound: BigInt(run[1]) };
+        state.step = {
+          round: BigInt(step[0]),
+          readyAt: Number(step[1]),
+          ready: Boolean(step[2]),
+          raw: step[3],
+          value: step[4],
+          held: Boolean(step[5])
+        };
+        state.score = { points: BigInt(score[0]), bestRun: Number(score[1]) };
+
+        if (state.step.round !== 0n && state.step.ready) {
+          setVerify({
+            round: state.step.round,
+            raw: state.step.raw,
+            value: state.step.value,
+            held: state.step.held,
+            settled: false,
+            climber: who
+          });
+        }
+      } else {
+        state.run = null;
+        state.step = null;
+        state.score = null;
+      }
+      state.lastError = null;
+      state.loaded = true;
+    } catch (e) {
+      if (seq !== state.refreshSeq) return;
+      state.lastError = describeError(e);
+    } finally {
+      // A read that has been overtaken owns none of this: the newer one clears the flag,
+      // paints the screen and schedules the next poll.
+      if (seq === state.refreshSeq) {
+        state.refreshing = false;
+        render();
+        schedulePoll();
+      }
+    }
+  }
+
+  function schedulePoll() {
+    if (state.pollTimer) clearTimeout(state.pollTimer);
+    // A hidden tab shows nothing and has no reason to keep asking the node; the
+    // visibilitychange handler refreshes once as soon as it comes back.
+    if (document.hidden) { state.pollTimer = null; return; }
+    const pending = state.step && state.step.round !== 0n;
+    const delay = pending ? POLL_PENDING_MS : POLL_IDLE_MS;
+    state.pollTimer = setTimeout(function () { refresh(); }, delay);
+  }
+
+  function setVerify(v) {
+    const prev = state.verify;
+    if (prev && prev.round === v.round && prev.settled && !v.settled) return;
+    v.tower = state.tower;
+    v.live = true;              // set in this session, from a read or a receipt
+    state.verify = v;
+    if (v && v.round) {
+      store("tower.verify", JSON.stringify({
+        round: String(v.round), raw: v.raw, value: v.value, held: v.held,
+        settled: !!v.settled, climber: v.climber || null, tower: state.tower || null
+      }));
+    }
+  }
+
+  function restoreVerify() {
+    const s = load("tower.verify");
+    if (!s) return;
+    try {
+      const v = JSON.parse(s);
+      if (v && v.round) {
+        state.verify = {
+          round: BigInt(v.round), raw: v.raw, value: v.value,
+          held: !!v.held, settled: !!v.settled, climber: v.climber, tower: v.tower || null,
+          live: false           // from a previous session, until a read confirms it
+        };
+      }
+    } catch (e) { /* ignore a corrupt entry */ }
+  }
+
+  /**
+   * The stored panel belongs to one climber on one tower. Watching somebody else — or
+   * pointing the page at another deployment — must not leave the previous climber's
+   * round on screen under the new heading, which reads as if it were theirs.
+   */
+  function verifyForScreen() {
+    const v = state.verify;
+    if (!v || !v.round) return null;
+    if (v.tower && state.tower && v.tower.toLowerCase() !== state.tower.toLowerCase()) return null;
+    if (!state.viewed) return null;
+    if (v.climber && v.climber.toLowerCase() !== state.viewed.toLowerCase()) return null;
+    // An entry carried over from a previous session describes a floor that may long since
+    // have been resolved or abandoned; without a live step to match, the panel would be
+    // narrating it in the present tense. An entry produced in this session is kept even
+    // once the step clears — that is precisely the moment a floor is resolved, and
+    // blanking the panel between the poll that sees the step go and the receipt that
+    // marks it settled is a flicker in the one place the demo asks to be read.
+    if (!v.live && !v.settled) {
+      const pending = state.step && state.step.round !== 0n ? state.step.round : null;
+      if (pending === null || pending !== v.round) return null;
+    }
+    return v;
+  }
+
+  /* ======================================================================
+   * Transactions
+   * ==================================================================== */
+
+  async function send(label, build, onReceipt) {
+    if (state.busy) return;
+    if (!onCorrectChain()) {
+      if (!state.account) {
+        toast("Connect a wallet first", "Reading is open to everyone; climbing needs an account.", "err");
+      } else {
+        toast("Wrong network", "Switch your wallet to " + CHAIN_NAME + " (chain 20994) first.", "err");
+      }
+      return;
+    }
+    state.busy = true;
+    render();
+    let pendingToast = null;
+    try {
+      const contract = await getSignerTower();
+      const tx = await build(contract);
+      pendingToast = toast(label + " submitted", "Waiting for the block… " + tx.hash.slice(0, 10) + "…");
+      rememberPending(label, tx.hash);
+      const receipt = await tx.wait();
+      if (pendingToast) pendingToast.remove();
+      const logs = [];
+      for (let i = 0; i < receipt.logs.length; i++) {
+        try {
+          const parsed = iface.parseLog({
+            topics: Array.from(receipt.logs[i].topics),
+            data: receipt.logs[i].data
+          });
+          if (parsed) logs.push(parsed);
+        } catch (e) { /* a log from another contract */ }
+      }
+      if (onReceipt) onReceipt(logs, receipt);
+    } catch (e) {
+      if (pendingToast) pendingToast.remove();
+      toast(label + " failed", describeError(e), "err");
+    } finally {
+      forgetPending();
+      state.busy = false;
+      await refresh(true);
+    }
+  }
+
+  /* --- a transaction that outlives the tab -------------------------------- */
+
+  const PENDING_KEY = "tower.pendingTx";
+  const PENDING_MAX_AGE_MS = 15 * 60 * 1000;
+
+  function rememberPending(label, hash) {
+    store(PENDING_KEY, JSON.stringify({
+      hash: hash, label: label, chainId: CHAIN_ID, at: Date.now()
+    }));
+  }
+
+  function forgetPending() { store(PENDING_KEY, null); }
+
+  /**
+   * Reloading the page in the middle of a climb used to lose the transaction: the tab
+   * that was waiting on it is gone, so nothing ever reported whether the floor landed.
+   * The hash is written down before the wait, so a fresh page can pick the wait back up.
+   */
+  async function recoverPendingTx() {
+    const saved = load(PENDING_KEY);
+    if (!saved) return;
+    let p = null;
+    try { p = JSON.parse(saved); } catch (e) { p = null; }
+    if (!p || !p.hash || p.chainId !== CHAIN_ID || (Date.now() - (p.at || 0)) > PENDING_MAX_AGE_MS) {
+      forgetPending();
+      return;
+    }
+    const label = p.label || "Transaction";
+    const note = toast(label + " was still in flight", "Picking it back up: " + p.hash.slice(0, 10) + "…");
+    try {
+      const receipt = await state.readProvider.waitForTransaction(p.hash, 1, 90000);
+      if (note) note.remove();
+      if (!receipt) {
+        toast(label + " is still pending", "The node has not mined " + p.hash.slice(0, 10) +
+          "… yet. It will show up here once it does.", "err");
+        return;                       // leave the record; the next load tries again
+      }
+      toast(receipt.status ? label + " landed" : label + " failed on chain",
+        receipt.status ? "It was mined while the page was away." :
+          "The transaction was mined but reverted; nothing changed except the gas.",
+        receipt.status ? "ok" : "err");
+      forgetPending();
+    } catch (e) {
+      if (note) note.remove();
+      toast("Could not follow " + label.toLowerCase(), describeError(e), "err");
+    }
+    await refresh(true);
+  }
+
+  function doClimb() {
+    send("Climb", function (c) { return c.climb(); }, function (logs) {
+      const ev = logs.find(function (l) { return l.name === "Climbed"; });
+      if (ev) {
+        const round = ev.args[2];
+        const readyAt = Number(ev.args[3]);
+        const secs = Math.max(0, readyAt - Math.floor(Date.now() / 1000));
+        toast("Floor " + ev.args[1] + " committed to round " + round,
+          "That beacon does not exist yet — drand emits it in about " + secs + "s.", "ok");
+        // Hold the button down from this side too. The refresh that follows can fail on a
+        // node hiccup and repaint with the pre-climb run, re-enabling Climb while the
+        // chain already carries a pending floor — a second climb would only burn gas on a
+        // StepPending revert. The next successful read overwrites this.
+        state.run = { floor: state.run ? state.run.floor : 0, pendingRound: BigInt(round) };
+        state.step = {
+          round: BigInt(round), readyAt: readyAt, ready: false,
+          raw: ethers.ZeroHash, value: ethers.ZeroHash, held: false
+        };
+      } else {
+        toast("Climbed", "Committed to a future round.", "ok");
+      }
+      state.lastResolved = null;
+    });
+  }
+
+  function doResolve() {
+    const who = state.viewed;
+    if (!who) return;
+    send("Resolve", function (c) { return c.resolve(who); }, function (logs) {
+      const ev = logs.find(function (l) { return l.name === "Resolved"; });
+      if (ev) {
+        const floor = Number(ev.args[1]);
+        const round = ev.args[2];
+        const value = ev.args[3];
+        const held = Boolean(ev.args[4]);
+        state.lastResolved = { floor: floor, round: round, held: held, value: value };
+        // Same reasoning as the climb: the step is settled on chain, so clear it here
+        // rather than leaving Resolve live until a read confirms it.
+        state.step = null;
+        if (state.run) state.run = { floor: held ? floor : 0, pendingRound: 0n };
+        setVerify({
+          round: BigInt(round),
+          raw: state.verify && BigInt(state.verify.round) === BigInt(round) ? state.verify.raw : null,
+          value: value,
+          held: held,
+          settled: true,
+          climber: who
+        });
+        if (held) {
+          toast("Floor " + floor + " holds", "The run is now " + floor + " floor" + (floor === 1 ? "" : "s") +
+            " tall, worth " + pointsFor(floor) + " points if you bank it.", "ok");
+        } else {
+          toast("Floor " + floor + " fell",
+            "The value derived from round " + round + " is divisible by 4. The run is gone — " +
+            pointsFor(floor - 1) + " points were on the table.", "err");
+          playFall();
+        }
+      } else {
+        toast("Resolved", null, "ok");
+      }
+    });
+  }
+
+  function doBank() {
+    send("Bank", function (c) { return c.bank(); }, function (logs) {
+      const ev = logs.find(function (l) { return l.name === "Banked"; });
+      if (ev) {
+        toast("Banked " + ev.args[2] + " points",
+          "A run of " + ev.args[1] + " floor" + (Number(ev.args[1]) === 1 ? "" : "s") +
+          " — your total is now " + ev.args[3] + ".", "ok");
+      } else {
+        toast("Banked", null, "ok");
+      }
+      const champ = logs.find(function (l) { return l.name === "ChampionChanged"; });
+      if (champ) toast("You are the champion", "Top score: " + champ.args[1] + ".", "ok");
+      // The run is spent; don't leave Bank live on a stale read if the refresh fails.
+      state.run = { floor: 0, pendingRound: 0n };
+      if (ev) state.score = { points: BigInt(ev.args[3]), bestRun: state.score ? state.score.bestRun : 0 };
+      state.lastResolved = null;
+    });
+  }
+
+  function playFall() {
+    const tower = $("tower");
+    tower.classList.add("falling");
+    setTimeout(function () { tower.classList.remove("falling"); }, 600);
+  }
+
+  /* ======================================================================
+   * drand cross-check
+   * ==================================================================== */
+
+  async function fetchDrand(round) {
+    const key = String(round);
+    state.drandFetch[key] = { status: "loading" };
+    render();
+    try {
+      const res = await fetch(drandUrl(round), { cache: "no-store" });
+      if (!res.ok) throw new Error("api.drand.sh answered " + res.status);
+      const json = await res.json();
+      if (!json || typeof json.randomness !== "string") throw new Error("no randomness field in the response");
+      state.drandFetch[key] = { status: "ok", randomness: "0x" + json.randomness.replace(/^0x/, "").toLowerCase() };
+    } catch (e) {
+      state.drandFetch[key] = { status: "error", message: e && e.message ? e.message : String(e) };
+    }
+    render();
+  }
+
+  /* ======================================================================
+   * Rendering — chrome
+   * ==================================================================== */
+
+  function renderChrome() {
+    const pill = $("net-pill");
+    const text = $("net-text");
+    pill.className = "pill";
+    if (!hasWallet()) {
+      text.textContent = "read-only · no wallet";
+    } else if (!state.account) {
+      text.textContent = "read-only · not connected";
+    } else if (state.walletChainId !== CHAIN_ID) {
+      pill.className = "pill warn";
+      text.textContent = "wrong network · chain " + (state.walletChainId === null ? "?" : state.walletChainId);
+    } else {
+      pill.className = "pill good";
+      text.textContent = shortAddr(state.account);
+    }
+    $("btn-connect").textContent = state.account ? "Change account" : "Connect wallet";
+    $("btn-network").textContent = (state.walletChainId === CHAIN_ID)
+      ? CHAIN_NAME + " ✓" : "Add " + CHAIN_NAME;
+    $("watch-me").hidden = !state.account;
+  }
+
+  /* ======================================================================
+   * Rendering — run and tower
+   * ==================================================================== */
+
+  /**
+   * Everything the tower is drawn from. Floors carry a `rise` animation, so rebuilding
+   * them on a poll that changed nothing replays it — the tower blinks every few seconds.
+   */
+  function towerKey() {
+    const s = state.step;
+    return [
+      state.run ? state.run.floor : -1,
+      s ? String(s.round) : "0", s ? s.ready : "", s ? s.held : "",
+      state.viewed || "", state.account || "", state.loaded, state.lastError ? 1 : 0
+    ].join("|");
+  }
+
+  function renderTower() {
+    const key = towerKey();
+    if (key === state.towerKey) return;
+    state.towerKey = key;
+
+    const tower = $("tower");
+    const floors = state.run ? state.run.floor : 0;
+    const pending = state.step && state.step.round !== 0n;
+    tower.innerHTML = "";
+
+    if (!floors && !pending) {
+      const empty = document.createElement("div");
+      empty.className = "tower-empty";
+      const own = state.viewed && state.account &&
+        state.viewed.toLowerCase() === state.account.toLowerCase();
+      empty.textContent = !state.viewed
+        ? "Connect a wallet, or type any climber's address above to watch their run."
+        : !state.loaded && !state.lastError ? "Reading this climber's run…"
+        : state.lastError ? "The run could not be read — the chain did not answer."
+        : own ? "No floors standing. Climb to start a run."
+        : "This climber has nothing standing right now.";
+      tower.appendChild(empty);
+      return;
+    }
+
+    const shown = Math.min(floors, 40);
+    for (let i = 1; i <= shown; i++) {
+      const el = document.createElement("div");
+      el.className = "floor";
+      const n = document.createElement("span");
+      n.className = "fl-n";
+      n.textContent = "floor " + i;
+      const w = document.createElement("span");
+      w.className = "fl-w";
+      // The whole run's worth at this height, not the floor's own — spelled out on hover,
+      // because the bare number beside a floor reads as that floor's price.
+      w.textContent = pointsFor(i) + " pts";
+      el.title = "Stop at floor " + i + " and bank " + pointsFor(i) + " points";
+      el.appendChild(n);
+      el.appendChild(w);
+      tower.appendChild(el);
+    }
+    if (floors > shown) {
+      const more = document.createElement("div");
+      more.className = "tower-empty";
+      more.textContent = "+ " + (floors - shown) + " more floors below";
+      tower.appendChild(more);
+    }
+
+    if (pending) {
+      const g = document.createElement("div");
+      const ready = state.step.ready;
+      g.className = "floor ghost" + (ready ? (state.step.held ? " ready-hold" : " ready-fall") : "");
+      const n = document.createElement("span");
+      n.className = "fl-n";
+      n.textContent = "floor " + (floors + 1);
+      const w = document.createElement("span");
+      w.className = "fl-w";
+      w.textContent = ready ? (state.step.held ? "holds — resolve it" : "falls") : "undecided · round " + state.step.round;
+      g.appendChild(n);
+      g.appendChild(w);
+      tower.appendChild(g);
+    }
+  }
+
+  function renderStepBox() {
+    const box = $("step-box");
+    const title = $("step-title");
+    const count = $("step-countdown");
+    const text = $("step-text");
+    const pending = state.step && state.step.round !== 0n;
+
+    if (!pending) {
+      if (state.lastResolved && !state.lastResolved.held) {
+        box.hidden = false;
+        box.className = "step-box fall";
+        count.hidden = true;
+        title.textContent = "Floor " + state.lastResolved.floor + " fell.";
+        text.textContent = "Round " + state.lastResolved.round + " derived a value divisible by 4, and the run " +
+          "was lost with it — " + pointsFor(state.lastResolved.floor - 1) + " points that were never banked. " +
+          "Climb again to start over.";
+      } else if (state.lastResolved && state.lastResolved.held) {
+        box.hidden = false;
+        box.className = "step-box hold";
+        count.hidden = true;
+        title.textContent = "Floor " + state.lastResolved.floor + " held.";
+        text.textContent = "Bank it for " + pointsFor(state.lastResolved.floor) + " points, or climb one more and " +
+          "risk all of it on a beacon that does not exist yet.";
+      } else {
+        box.hidden = true;
+      }
+      return;
+    }
+
+    box.hidden = false;
+    const round = state.step.round;
+    if (!state.step.ready) {
+      box.className = "step-box waiting";
+      count.hidden = false;
+      title.textContent = "Floor " + ((state.run ? state.run.floor : 0) + 1) + " is bound to round " + round + ".";
+      text.textContent = "Nobody knows this floor's outcome — not you, not the contract, not the sequencer. " +
+        "The number that decides it has not been produced yet. drand emits it, then a publisher posts it on " +
+        "chain a few seconds later.";
+      renderCountdown();
+    } else {
+      box.className = "step-box " + (state.step.held ? "hold" : "fall");
+      count.hidden = true;
+      title.textContent = state.step.held
+        ? "The beacon is on chain: floor " + ((state.run ? state.run.floor : 0) + 1) + " holds."
+        : "The beacon is on chain: floor " + ((state.run ? state.run.floor : 0) + 1) + " falls.";
+      text.textContent = state.step.held
+        ? "Round " + round + " is published and already decided this floor. Resolving only writes down what the " +
+          "beacon says — the outcome cannot change now."
+        : "The value derived from round " + round + " — the keccak below, not the round number — is divisible " +
+          "by 4. Resolving records it and the run ends; refusing to resolve " +
+          "changes nothing, and anybody may settle it for you.";
+    }
+  }
+
+  function renderCountdown() {
+    const count = $("step-countdown");
+    if (!state.step || state.step.round === 0n || state.step.ready) return;
+    const now = Date.now() / 1000;
+    const left = state.step.readyAt - now;
+    // This runs ten times a second. Rebuilding the contents each time restarts the
+    // spinner's animation from zero, so it twitches in place instead of turning; the
+    // contents are therefore built once per mode and only the digits are rewritten.
+    const mode = (left > 0 ? "left:" : "wait:") + state.step.round;
+
+    if (left > 0) {
+      if (state.countdownMode !== mode) {
+        count.innerHTML = "";
+        state.countdownMode = mode;
+      }
+      count.textContent = left.toFixed(1) + "s";
+      count.title = "until drand emits round " + state.step.round;
+      return;
+    }
+
+    // The beacon's second has passed but it is not on chain yet. A bare spinner does not
+    // say which of the two halves is outstanding, so name it.
+    if (state.countdownMode === mode) return;
+    state.countdownMode = mode;
+    count.innerHTML = "";
+    const sp = document.createElement("span");
+    sp.className = "spinner";
+    count.appendChild(sp);
+    const label = document.createElement("span");
+    label.className = "countdown-note";
+    label.textContent = "drand has emitted it — waiting for a publisher to post it";
+    count.appendChild(label);
+    count.title = "";
+  }
+
+  function renderRun() {
+    const floors = state.run ? state.run.floor : null;
+    const pending = state.step && state.step.round !== 0n;
+    // Three different reasons for a tile to hold no number, and they should not look the
+    // same: still reading, read and failed, or read fine and there is nothing to show.
+    const blank = state.loaded ? "—" : (state.lastError ? "?" : "…");
+
+    txt($("s-floors"), floors === null ? blank : String(floors));
+    txt($("s-floors-n"), floors ? (pending ? "one more floor in play" : "at risk if you climb on") : "nothing at risk");
+    txt($("s-points"), floors === null ? blank : String(pointsFor(floors)));
+    txt($("s-score"), state.score ? String(state.score.points) : blank);
+    // "best run 7 floors" under a big 50 reads as "7 floors are worth 50". Say what the
+    // number is: a total across every banked run, with the longest of them beside it.
+    txt($("s-best"), state.score
+      ? "total across runs · longest was " + state.score.bestRun
+      : "total across runs");
+    $("run-card").setAttribute("aria-busy", state.busy || (!state.loaded && !state.lastError) ? "true" : "false");
+
+    renderTower();
+    renderStepBox();
+
+    const canAct = onCorrectChain() && !state.busy && !state.towerMissing &&
+      state.viewed && state.account &&
+      state.viewed.toLowerCase() === state.account.toLowerCase();
+    const viewingOther = state.viewed && state.account &&
+      state.viewed.toLowerCase() !== state.account.toLowerCase();
+
+    $("btn-climb").disabled = !canAct || pending;
+    $("btn-bank").disabled = !canAct || pending || !floors;
+    // resolve() takes the climber as an argument: anybody may settle anybody's floor.
+    $("btn-resolve").disabled = !(onCorrectChain() && !state.busy && !state.towerMissing) ||
+      !pending || !state.step.ready;
+    $("btn-resolve").textContent = viewingOther ? "Resolve for them" : "Resolve";
+
+    let hint;
+    if (state.towerMissing) {
+      hint = "No tower contract to read.";
+    } else if (state.lastError) {
+      hint = "Could not read the chain: " + state.lastError;
+    } else if (state.busy) {
+      hint = "Waiting for the wallet and the block…";
+    } else if (!state.viewed) {
+      hint = "Connect a wallet to climb, or watch any climber's address.";
+    } else if (!state.account) {
+      hint = "Watching " + shortAddr(state.viewed) + " read-only. Connect a wallet to climb yourself.";
+    } else if (!onCorrectChain()) {
+      hint = "Your wallet is on another network — switch to " + CHAIN_NAME + " to climb.";
+    } else if (viewingOther) {
+      hint = "You are watching " + shortAddr(state.viewed) + ". You can settle their pending floor for them, " +
+        "but climbing and banking act on your own run.";
+    } else if (pending && !state.step.ready) {
+      hint = "Round " + state.step.round + " has not been produced yet. Nothing to do but wait.";
+    } else if (pending) {
+      hint = "The beacon is on chain. Resolve to record the floor.";
+    } else if (floors) {
+      hint = "Bank " + pointsFor(floors) + " points, or climb the next floor — it holds 3 times in 4.";
+    } else {
+      hint = "Climb your first floor. Break-even is the sixth.";
+    }
+    const hintEl = $("run-hint");
+    hintEl.textContent = hint;
+    // A failed read otherwise leaves nothing to do but wait out the poll. Say so, and
+    // offer the retry rather than making the player reload the page.
+    if (state.lastError && !state.towerMissing) {
+      const retry = el("button", "small retry", "Try again");
+      retry.onclick = function () { state.lastError = null; render(); refresh(true); };
+      hintEl.appendChild(retry);
+    }
+
+    // No address in the heading: the card title is uppercased, and an EIP-55 address
+    // uppercased is no longer a checksum. The watched address is shown beside the input
+    // and in the leaderboard row, in its own case.
+    const h2 = $("run-card").querySelector("h2");
+    h2.textContent = !state.viewed || (state.account &&
+      state.viewed.toLowerCase() === state.account.toLowerCase())
+      ? "Your run" : "Another climber's run";
+  }
+
+  /* ======================================================================
+   * Rendering — verify panel
+   * ==================================================================== */
+
+  function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined && text !== null) e.textContent = text;
+    return e;
+  }
+
+  function vrow(key, buildValue) {
+    const row = el("div", "vrow");
+    row.appendChild(el("div", "vk", key));
+    const v = el("div", "vv");
+    buildValue(v);
+    row.appendChild(v);
+    return row;
+  }
+
+  /**
+   * The same guard as the tower, for a different reason: this panel is rebuilt from
+   * scratch, so a poll that changed nothing would drop the "Fetch from api.drand.sh"
+   * button out from under a click and take the keyboard focus with it.
+   */
+  function verifyKey(v) {
+    if (!v || !v.round) return "none";
+    const f = state.drandFetch[String(v.round)];
+    return [
+      String(v.round), v.raw || "", v.value || "", !!v.settled,
+      v.climber || "", state.tower || "",
+      f ? f.status : "-", f && f.randomness ? f.randomness : "", f && f.message ? f.message : ""
+    ].join("|");
+  }
+
+  function renderVerify() {
+    const body = $("verify-body");
+    const v = verifyForScreen();
+    const key = verifyKey(v);
+    if (key === state.verifyKey) return;
+    state.verifyKey = key;
+    body.innerHTML = "";
+
+    if (!v || !v.round) {
+      body.appendChild(el("p", "sub",
+        "Nothing to verify yet — climb a floor, and the round that decides it appears here the moment its " +
+        "beacon lands on chain."));
+      return;
+    }
+
+    const round = v.round;
+    const raw = v.raw && v.raw !== ethers.ZeroHash ? v.raw : null;
+
+    // The derivation the contract runs, redone here so the panel proves the chain rather
+    // than repeating it: the beacon is narrowed to this game, then that is split per
+    // climber. Both halves are shown, because the second is what decides the floor.
+    let gameValue = null, derived = null;
+    if (raw && state.tower) {
+      try {
+        gameValue = ethers.keccak256(coder.encode(
+          ["bytes32", "address", "bytes32"],
+          [raw, state.tower, DOMAIN_BYTES32]
+        ));
+        if (v.climber) {
+          derived = ethers.keccak256(coder.encode(["bytes32", "address"], [gameValue, v.climber]));
+        }
+      } catch (e) { gameValue = null; derived = null; }
+    }
+
+    // 1. round + the URL that settles any dispute
+    body.appendChild(vrow("Round", function (c) {
+      c.appendChild(el("div", "mono", String(round)));
+      const a = document.createElement("a");
+      a.href = drandUrl(round);
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.className = "mono";
+      a.textContent = drandUrl(round);
+      const wrap = el("div");
+      wrap.style.marginTop = "4px";
+      wrap.appendChild(a);
+      c.appendChild(wrap);
+      c.appendChild(el("div", "note",
+        v.settled ? "The round this settled floor was bound to." : "The round this floor is bound to."));
+    }));
+
+    // 2. raw value on chain vs. what drand serves
+    body.appendChild(vrow("Beacon value", function (c) {
+      if (!raw) {
+        c.appendChild(el("div", "note",
+          "The beacon is not on chain yet, so the tower has nothing to show. It appears the moment a " +
+          "publisher posts round " + round + "."));
+        return;
+      }
+      c.appendChild(el("div", "mono", raw));
+      c.appendChild(el("div", "note", "on chain, from stepOf(). Byte-identical to drand's randomness field."));
+
+      const fetched = state.drandFetch[String(round)];
+      const line = el("div");
+      line.style.marginTop = "8px";
+      if (!fetched) {
+        const b = el("button", "small", "Fetch from api.drand.sh");
+        b.onclick = function () { fetchDrand(round); };
+        line.appendChild(b);
+      } else if (fetched.status === "loading") {
+        const s = el("span", "badge");
+        s.appendChild(el("span", "spinner"));
+        s.appendChild(document.createTextNode(" asking api.drand.sh…"));
+        line.appendChild(s);
+      } else if (fetched.status === "error") {
+        line.appendChild(el("div", "badge no", "could not reach api.drand.sh: " + fetched.message));
+        const b = el("button", "small", "Try again");
+        b.style.marginLeft = "8px";
+        b.onclick = function () { fetchDrand(round); };
+        line.appendChild(b);
+      } else {
+        c.appendChild(el("div", "mono", fetched.randomness));
+        const match = fetched.randomness.toLowerCase() === raw.toLowerCase();
+        c.appendChild(el("div", "note", "fetched from api.drand.sh just now, in your browser."));
+        line.appendChild(el("div", "badge " + (match ? "ok" : "no"),
+          match ? "✓ identical to the on-chain value" : "✗ MISMATCH — do not trust this outcome"));
+      }
+      c.appendChild(line);
+    }));
+
+    // 3. the derivation, recomputed here
+    // 3a. the beacon narrowed to this game — one value per round, shared by every climber
+    body.appendChild(vrow("This game's value", function (c) {
+      c.appendChild(el("div", "formula",
+        "keccak256(abi.encode(\n  raw,\n  " + (state.tower || TOWER_ADDRESS) + ",\n  bytes32(\"tower\")\n))"));
+
+      if (gameValue) {
+        c.appendChild(el("div", "mono", gameValue));
+        c.appendChild(el("div", "note",
+          "recomputed here from the raw value above. The same for every climber on this round — " +
+          "another game reading the same beacon gets a different number, because its own address goes in."));
+      } else {
+        c.appendChild(el("div", "note", "Available once the beacon is published."));
+      }
+    }));
+
+    // 3b. that value split per climber — the number the floor is actually decided by
+    body.appendChild(vrow("This climber's value", function (c) {
+      c.appendChild(el("div", "formula",
+        "keccak256(abi.encode(\n  gameValue,\n  " + (v.climber || "climber") + "\n))"));
+
+      if (v.value && v.value !== ethers.ZeroHash) {
+        c.appendChild(el("div", "mono", v.value));
+        c.appendChild(el("div", "note", "reported on chain by stepOf()."));
+      }
+
+      if (derived) {
+        c.appendChild(el("div", "mono", derived));
+        c.appendChild(el("div", "note",
+          "recomputed in this page with ethers. Two climbers waiting on this same round get " +
+          "two different numbers here, so one can fall while the other holds."));
+        if (v.value && v.value !== ethers.ZeroHash) {
+          const ok = derived.toLowerCase() === v.value.toLowerCase();
+          c.appendChild(el("div", "badge " + (ok ? "ok" : "no"),
+            ok ? "✓ matches the on-chain value" : "✗ MISMATCH — do not trust this outcome"));
+        }
+      } else if (!v.value || v.value === ethers.ZeroHash) {
+        c.appendChild(el("div", "note", "Available once the beacon is published."));
+      }
+    }));
+
+    // 4. the rule
+    body.appendChild(vrow("The rule", function (c) {
+      c.appendChild(el("div", "formula", "holds  ⟺  uint256(value) % 4 != 0"));
+      if (v.value && v.value !== ethers.ZeroHash) {
+        let rem = null;
+        try { rem = BigInt(v.value) % 4n; } catch (e) { rem = null; }
+        if (rem !== null) {
+          c.appendChild(el("div", "mono", "value % 4 = " + rem));
+          const holds = rem !== 0n;
+          c.appendChild(el("div", "badge " + (holds ? "ok" : "no"),
+            holds ? "the floor holds" : "the floor falls"));
+          c.appendChild(el("div", "note",
+            "Three values in four hold. " +
+            (v.settled ? "This floor is already settled on chain." :
+              "This is exactly what resolve() will write — the beacon decided it before anyone called anything.")));
+        }
+      } else {
+        c.appendChild(el("div", "note", "Applied once the beacon is published."));
+      }
+    }));
+  }
+
+  /* ======================================================================
+   * Rendering — leaderboard and facts
+   * ==================================================================== */
+
+  function renderLeaderboard() {
+    const champ = state.champion;
+    const hasChamp = champ && champ !== ZERO;
+    const isYou = hasChamp && state.account && champ.toLowerCase() === state.account.toLowerCase();
+    txt($("lb-champ"), hasChamp ? (isYou ? shortAddr(champ) + "  (you)" : shortAddr(champ)) : "no champion yet");
+    if (hasChamp) $("lb-champ").title = champ;
+    txt($("lb-champ-score"), state.championScore !== null && state.championScore !== undefined
+      ? String(state.championScore) : "—");
+
+    txt($("lb-you"), state.viewed ? shortAddr(state.viewed) : "connect to see your score");
+    if (state.viewed) $("lb-you").title = state.viewed;
+    txt($("lb-you-score"), state.score ? String(state.score.points) : "—");
+    txt($("lb-you-best"), state.score ? state.score.bestRun + " floors" : "—");
+  }
+
+  function renderFacts() {
+    txt($("f-round"), String(currentDrandRound()));
+    txt($("f-network"), CHAIN_NAME + " · " + CHAIN_ID);
+    txt($("f-rpc-host"), rpcHost());
+    txt($("f-oracle"), shortAddr(ORACLE_ADDRESS));
+    $("f-oracle").title = ORACLE_ADDRESS;
+    txt($("f-tower"), state.tower ? shortAddr(state.tower) : "not set");
+    if (state.tower) $("f-tower").title = state.tower;
+  }
+
+  function render() {
+    renderRun();
+    renderVerify();
+    renderLeaderboard();
+    renderFacts();
+  }
+
+  /* ======================================================================
+   * Boot
+   * ==================================================================== */
+
+  function resolveTowerAddress() {
+    if (isAddress(TOWER_ADDRESS) && TOWER_ADDRESS !== ZERO) return ethers.getAddress(TOWER_ADDRESS);
+    const saved = load("tower.address");
+    if (saved && isAddress(saved) && saved !== ZERO) return ethers.getAddress(saved);
+    return null;
+  }
+
+  async function initTower() {
+    const addr = resolveTowerAddress();
+    state.tower = addr;
+    if (!addr) {
+      state.towerMissing = true;
+      $("setup-banner").hidden = false;
+      txt($("setup-text"),
+        " The demo contract has not been wired into this page yet. Paste a deployed DrandTower address to " +
+        "use it now (kept in this browser only).");
+      render();
+      return;
+    }
+    state.readTower = new ethers.Contract(addr, TOWER_ABI, state.readProvider);
+    try {
+      const code = await state.readProvider.getCode(addr);
+      if (!code || code === "0x") {
+        state.towerMissing = true;
+        $("setup-banner").hidden = false;
+        txt($("setup-text"),
+          " There is no contract at " + addr + " on " + CHAIN_NAME + ". Paste the right DrandTower address " +
+          "to use it now (kept in this browser only).");
+        render();
+        return;
+      }
+    } catch (e) {
+      toast("Could not reach the RPC", describeError(e), "err");
+    }
+    state.towerMissing = false;
+    $("setup-banner").hidden = true;
+    await refresh(true);
+  }
+
+  function wireUi() {
+    $("btn-connect").onclick = connect;
+    $("btn-network").onclick = switchNetwork;
+    $("btn-climb").onclick = doClimb;
+    $("btn-resolve").onclick = doResolve;
+    $("btn-bank").onclick = doBank;
+
+    $("watch-apply").onclick = function () {
+      const raw = $("watch-input").value.trim();
+      if (!raw) {
+        state.viewed = state.account;
+        render();
+        refresh(true);
+        return;
+      }
+      if (!isAddress(raw)) {
+        toast("Not an address", "Paste a 0x… address to watch that climber's run.", "err");
+        return;
+      }
+      state.viewed = ethers.getAddress(raw);
+      state.lastResolved = null;
+      state.verify = null;
+      render();
+      refresh(true);
+    };
+    $("watch-input").addEventListener("keydown", function (e) {
+      if (e.key === "Enter") $("watch-apply").click();
+    });
+    $("watch-me").onclick = function () {
+      if (!state.account) return;
+      $("watch-input").value = "";
+      state.viewed = state.account;
+      state.lastResolved = null;
+      render();
+      refresh(true);
+    };
+
+    $("setup-apply").onclick = async function () {
+      const raw = $("setup-input").value.trim();
+      if (!isAddress(raw) || raw === ZERO) {
+        toast("Not an address", "Paste the deployed DrandTower address.", "err");
+        return;
+      }
+      store("tower.address", ethers.getAddress(raw));
+      state.towerMissing = false;
+      await initTower();
+      if (!state.towerMissing) toast("Tower address set", shortAddr(state.tower), "ok");
+    };
+  }
+
+  async function boot() {
+    state.readProvider = makeReadProvider();
+    restoreVerify();
+    wireUi();
+    wireWalletEvents();
+
+    if (hasWallet()) {
+      try {
+        const accounts = await window.ethereum.request({ method: "eth_accounts" });
+        if (accounts && accounts.length) state.account = ethers.getAddress(accounts[0]);
+        state.walletChainId = await walletChainId();
+      } catch (e) { /* wallet refused a silent read; the connect button still works */ }
+    }
+    if (state.account) state.viewed = state.account;
+    renderChrome();
+    render();
+
+    await initTower();
+    if (!state.towerMissing) recoverPendingTx();   // not awaited: it may wait on a block
+
+    // Only the countdown needs a tenth of a second. The chain facts move once a round, and
+    // repainting them ten times a second was churn for nothing.
+    let ticks = 0;
+    state.tickTimer = setInterval(function () {
+      renderCountdown();
+      if (ticks++ % 10 === 0) renderFacts();
+    }, 100);
+
+    document.addEventListener("visibilitychange", function () {
+      if (document.hidden) {
+        if (state.pollTimer) { clearTimeout(state.pollTimer); state.pollTimer = null; }
+      } else {
+        refresh(true);
+      }
+    });
+    // A page put into the back/forward cache keeps its timers, so a tab nobody is looking
+    // at would go on polling. Stop on the way out and re-arm if it is restored.
+    window.addEventListener("pagehide", function () {
+      if (state.pollTimer) { clearTimeout(state.pollTimer); state.pollTimer = null; }
+      if (state.tickTimer) { clearInterval(state.tickTimer); state.tickTimer = null; }
+    });
+    window.addEventListener("pageshow", function (e) {
+      if (!e.persisted) return;
+      if (!state.tickTimer) {
+        state.tickTimer = setInterval(function () {
+          renderCountdown();
+          if (ticks++ % 10 === 0) renderFacts();
+        }, 100);
+      }
+      refresh(true);
+    });
+  }
+
+  if (typeof ethers === "undefined") {
+    document.getElementById("run-hint").textContent =
+      "ethers.js could not be loaded from cdnjs — check the network and reload.";
+  } else {
+    boot();
+  }
+})();
+</script>
+</body>
+</html>
