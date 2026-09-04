@@ -1,0 +1,27 @@
+[
+  {
+    "round": 1000,
+    "randomness": "fe290beca10872ef2fb164d2aa4442de4566183ec51c56ff3cd603d930e54fdd",
+    "signature": "b44679b9a59af2ec876b1a6b1ad52ea9b1615fc3982b19576350f93447cb1125e342b73a8dd2bacbe47e4b6b63ed5e39"
+  },
+  {
+    "round": 1001,
+    "randomness": "b0a591ad1b9002cfc372ac6e30abd3da8d3088d4caae026961743474fb94235f",
+    "signature": "b33bf3667cbd5a82de3a24b4e0e9fe5513cc1a0e840368c6e31f5fcfa79bea03f73896b25883abf2853d10337fb8fa41"
+  },
+  {
+    "round": 1002,
+    "randomness": "339d3f0e702ed27d36966c6ee85a2bc762a24e178e7e5c835d9b5a7509cb920c",
+    "signature": "ab066f9c12dd6de1336fca0f925192fb0c72a771c3e4c82ede1fd362c1a770f9eb05843c6308ce2530b53a99c0281a6e"
+  },
+  {
+    "round": 1003,
+    "randomness": "758f0c906d8c5296a032a66f0d96c6e0eeea4291e8fc9830bbfb19a2ba8610a9",
+    "signature": "b104c82771698f45fd8dcfead083d482694c31ab519bcef077f126f3736fe98c8392fd5d45d88aeb76b56ccfcb0296d7"
+  },
+  {
+    "round": 1004,
+    "randomness": "58af22b3402d77c3a0549dcc8a0ea36445b5c6e09dcdd1868e225c64d190a4f7",
+    "signature": "a40658b820c0f8c10207524179a2031ba9537688a0d04e4851b58026be9a341fee3b96fb48ffad28483d84b40a5864aa"
+  }
+]

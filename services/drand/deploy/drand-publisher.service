@@ -1,0 +1,46 @@
+# drand-publisher: posts each drand quicknet round to DrandOracle.
+#
+# Install:
+#   /usr/local/bin/drand-publisher          the binary
+#   /etc/drand-publisher.env                the config, mode 0600 (holds a signing key)
+#   /etc/systemd/system/drand-publisher.service   this file
+#
+# The service keeps no state on disk. On every start it reads the oracle's
+# currentRound() and continues from there, so a restart — or a move to another
+# machine — needs nothing carried over but the key. It never back-fills.
+
+[Unit]
+Description=drand quicknet publisher for DrandOracle
+Documentation=https://drand.love/
+# Rounds are addressed by wall-clock time, so a machine whose clock has not been
+# disciplined yet would pace its retries against the wrong second.
+After=network-online.target time-sync.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/drand-publisher
+EnvironmentFile=/etc/drand-publisher.env
+Environment=RUST_LOG=drand_publisher=info
+
+# The process is one loop that re-derives everything it needs from the chain, so
+# there is no failure it can be in that a restart does not clear.
+Restart=always
+RestartSec=5s
+
+# No account of its own, no home, no writable path anywhere.
+DynamicUser=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

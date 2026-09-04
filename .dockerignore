@@ -1,0 +1,7 @@
+# The publisher image needs the service and the one forge artifact its `sol!`
+# reads. Everything else — lib/, out/, cache/, node_modules, build outputs — would
+# only make the context bigger and the cache more fragile.
+*
+!services/drand
+!out/DrandOracle.sol/DrandOracle.json
+services/drand/target

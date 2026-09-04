@@ -1,0 +1,30 @@
+# Bring the publisher up on any machine with docker:
+#
+#   cp deploy/drand-publisher.env.example .env && $EDITOR .env && chmod 600 .env
+#   docker compose up -d && docker compose logs -f
+#
+# `build` points at the repository root because the image needs forge's ABI
+# artifact from there; run `forge build` once before the first `compose build`.
+# On a machine without the repository, load a saved image instead and drop the
+# `build` key.
+#
+# The service keeps no state: on every start it reads the oracle's currentRound()
+# and continues from there, so a restart or a move to another host carries nothing
+# over but the key. It never back-fills.
+
+services:
+  publisher:
+    build:
+      context: ../..
+      dockerfile: services/drand/Dockerfile
+    image: drand-publisher:latest
+    container_name: drand-publisher
+    env_file: .env
+    restart: unless-stopped
+    stop_grace_period: 10s
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
