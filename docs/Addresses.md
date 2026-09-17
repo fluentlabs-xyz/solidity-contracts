@@ -45,6 +45,20 @@ Source: `deployments/sepolia.json`, `deployments/fluent_testnet.json`.
 
 ---
 
+## Fluent Connect – AppDeposit
+
+Stateless and ownerless: forwards a deposit into a paymaster's EntryPoint v0.7 deposit
+(`0x0000000071727De22E5E9d8BAf0edAc6f37da032`) and emits `Deposited`, which the Fluent Connect
+settler credits to the App. Deployed with `scripts/deploy/DeployAppDeposit.s.sol`; the address goes
+into the Network row of the Fluent Connect catalogue. Index `Deposited` from the deployment block.
+
+| Chain | AppDeposit | Deployment block | Source |
+|-------|------------|------------------|--------|
+| **Fluent testnet** (20994) | [`0xce0AE7B8F82d6EaCE709e04F21736B1D664CD011`](https://testnet.fluentscan.xyz/address/0xce0AE7B8F82d6EaCE709e04F21736B1D664CD011) | 37674974 | `deployments/testnet/l2.app-deposit.json` |
+| **Fluent mainnet** (25363) | not deployed yet | — | — |
+
+---
+
 ## Pegged token address (L1 → L2)
 
 The L2 pegged token address is computed with CREATE2 using the **L2 chain id** in the salt (L1 gateway) or origin-token-only salt (L2 Universal). The L1 gateway's `otherSideChainId` must equal L2's actual `block.chainid`, or the relayer can hit `WrongPeggedToken` on L2. The deploy scripts set `otherSideChainId` from L2 RPC (`cast chain-id`) so it matches. If you deployed earlier with a wrong chain id, call on L1 gateway (as owner): `setOtherSideUniversal(L2_GATEWAY, L2_PEGGED_IMPL, L2_FACTORY, <L2_CHAIN_ID_FROM_RPC>)` with the real L2 chain id from `cast chain-id --rpc-url <L2_RPC>`.

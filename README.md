@@ -15,9 +15,10 @@ Fluent is a Layer 2 blockchain that settles on Ethereum. This repository contain
 | `contracts/rollup/` | `Rollup`, `RollupStorageLayout` | L1 rollup: batch lifecycle, challenges, finalization, bridge deposit consumption |
 | `contracts/verifier/` | `NitroVerifier` | Nitro enclave signature verification |
 | `contracts/oracles/` | `L1BlockOracle`, `L1GasOracle` | L2-side oracles for L1 block number (deadline enforcement) and gas price (fee calculation) |
+| `contracts/connect/` | `AppDeposit` | Fluent Connect: stateless deposit into a paymaster's EntryPoint v0.7 deposit, naming the App in an event |
 | `contracts/libraries/` | `Heap`, `Queue`, `MerkleTree`, `ExcessivelySafeCall` | Min-heap (challenge queue), FIFO (sent messages), Merkle proofs, safe external calls |
 
-All contracts use **UUPS proxy** pattern with **ERC-7201 namespaced storage**. Interfaces in `contracts/interfaces/` are the source of truth for function signatures, errors, and events.
+All contracts except `AppDeposit` (stateless, ownerless, not upgradeable) use **UUPS proxy** pattern with **ERC-7201 namespaced storage**. Interfaces in `contracts/interfaces/` are the source of truth for function signatures, errors, and events.
 
 ### Message lifecycle
 
@@ -174,6 +175,7 @@ forge coverage --ir-minimum --report lcov
 | `test/Invariant/` | Stateful invariant testing for bridge/gateway (1 test + handler) |
 | `test/Verifier/` | Nitro verifier tests (1 test file) |
 | `test/Oracle/` | L1BlockOracle and L1GasOracle (2 test files) |
+| `test/Connect/` | AppDeposit against a real EntryPoint v0.7 (1 test file) |
 | `test/libraries/` | Heap, Queue, MerkleTree, ExcessivelySafeCall (4 test files) |
 | `test/factories/` | ERC20TokenFactory (1 test file) |
 | `test/tokens/` | ERC20PeggedToken (1 test file) |
