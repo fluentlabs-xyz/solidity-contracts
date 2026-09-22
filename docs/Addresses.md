@@ -38,6 +38,9 @@ Source: `deployments/sepolia.json`, `deployments/fluent_testnet.json`.
 | **PaymentGateway** (proxy) | `0xdC9BF18a1c307ce1A84e2775C7645e57eB373CD4` | [View](https://testnet.fluentscan.xyz/address/0xdC9BF18a1c307ce1A84e2775C7645e57eB373CD4) |
 | PaymentGateway (impl) | `0xdE0079364f24045Fa144CaE722055709d8547b4d` | [View](https://testnet.fluentscan.xyz/address/0xdE0079364f24045Fa144CaE722055709d8547b4d) |
 | Pegged token (precompile) | `0x0000000000000000000000000000000000520008` | — |
+| **DrandOracle** (proxy) | `0x6A98E02bAE6947Dfe6098C7B975d1A06391bbD82` | [View](https://testnet.fluentscan.xyz/address/0x6A98E02bAE6947Dfe6098C7B975d1A06391bbD82) |
+| DrandOracle (impl) | `0x086D7a0C6B55a60Fe24E4b4454b87607a2155AE2` | [View](https://testnet.fluentscan.xyz/address/0x086D7a0C6B55a60Fe24E4b4454b87607a2155AE2) |
+| DrandTower (example consumer) | `0x8aecE80B2aC75e6032f0557ef30D8D8dD1257e57` | [View](https://testnet.fluentscan.xyz/address/0x8aecE80B2aC75e6032f0557ef30D8D8dD1257e57) |
 
 - **Chain ID:** 20994 (confirm at runtime with `cast chain-id --rpc-url <L2_RPC>`)
 - **RPC:** https://rpc.testnet.fluent.xyz/
@@ -66,6 +69,7 @@ Use these as **from-block** when indexing `SentMessage` (and other bridge events
 
 - **L1:** `deployments/sepolia.json`
 - **L2:** `deployments/fluent_testnet.json`
+- **L2 drand:** `deployments/testnet/drand.json`
 
 ## Rollup deployment status
 
