@@ -8,6 +8,7 @@
 - `GenericTokenFactory.sol`, `ERC20TokenFactory.sol`, `UniversalTokenFactory.sol`: deterministic pegged-token deployment and beacon upgrades.
 - `ERC20PeggedToken.sol` and `UniversalToken.sol`: bridged asset representations controlled by the gateway/factory configuration.
 - `NitroVerifier.sol`, `SP1VerifierGroth16.sol`, `L1BlockOracle.sol`: verifier and oracle trust anchors.
+- `AppDeposit.sol` (Fluent Connect): user-facing, stateless and ownerless. Forwards the whole `msg.value` to `EntryPoint.depositTo(paymaster)` in the same call and holds nothing; no role can redirect funds. The paymaster is caller-supplied, so a Deposit is credited only when the Fluent Connect settler matches it to the Network's paymaster.
 
 ## Privileged Roles
 
