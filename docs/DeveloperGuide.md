@@ -113,6 +113,24 @@ cast send $L1_BLOCK_ORACLE "updateL1BlockNumber(uint256)" \
 The ERC721/ERC1155 bridge is deployed independently of `deploy.sh` and has its own
 cross-chain nonce-alignment requirements. See [DeployNFT.md](./DeployNFT.md).
 
+#### 6. Fluent Connect AppDeposit (optional, separate flow)
+
+One stateless CREATE on L2, no setup. The script checks the chain id against `ENV` and that
+EntryPoint v0.7 is deployed, then writes `deployments/<ENV>/l2.app-deposit.json`. Record the address
+in [Addresses.md](./Addresses.md) and commit the broadcast receipt with the manifest.
+
+```bash
+ENV=testnet forge script scripts/deploy/DeployAppDeposit.s.sol:DeployAppDeposit \
+    --rpc-url $L2_RPC --account $ACCOUNT --sender $SENDER --broadcast
+
+# Verify on Blockscout (no key needed; forge only requires the variable to be set)
+ETHERSCAN_API_KEY=blockscout forge verify-contract <address> \
+    contracts/connect/AppDeposit.sol:AppDeposit --chain-id 20994 \
+    --verifier blockscout --verifier-url https://testnet.fluentscan.xyz/api/ --watch
+```
+
+On mainnet, sign with the hardware wallet (`--ledger` instead of `--account`).
+
 ### Deployment order
 
 Deployment scripts use deterministic nonce ordering so that key proxy contracts land at the **same address** on both L1 and L2 (same deployer + same nonce = same `CREATE` address). The deployer nonce **must be zero** when deployment starts.
