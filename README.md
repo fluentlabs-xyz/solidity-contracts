@@ -194,6 +194,7 @@ forge coverage --ir-minimum --report lcov
 | **[`docs/Addresses.md`](docs/Addresses.md)** | Deployed contract addresses for Sepolia (L1) and Fluent testnet (L2), chain IDs, RPC endpoints, explorer links, verification instructions. |
 | **[`docs/DeveloperGuide.md`](docs/DeveloperGuide.md)** | Usage examples (deposit/withdraw scripts), extending the system (new gateways, message paths), troubleshooting common errors. |
 | **[`docs/FluentRuntimeGateway.md`](docs/FluentRuntimeGateway.md)** | Fluent Runtime deploy/invoke gateway flow, native L2 execution, response storage, callback handling, and deployment notes. |
+| **[`docs/DrandRandomness.md`](docs/DrandRandomness.md)** | `DrandOracle`: on-chain verified drand quicknet randomness, the two-call integration (`commit` / `randomnessFor`), retention window, publishing, error reference, and deployment/upgrade procedure. |
 
 ---
 
