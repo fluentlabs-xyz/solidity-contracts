@@ -4,8 +4,16 @@ pragma solidity ^0.8.30;
 /**
  * @title IBlacklist
  * @author Fluent Labs
- * @notice Registry consulted by {FluentBridge} (and optionally other contracts) to block outbound
- *         bridge traffic from sanctioned or abusive addresses on a given chain.
+ * @notice Registry consulted by gateway contracts to block outbound bridge traffic
+ *         from sanctioned or abusive accounts on a given chain.
+ * @dev Keys are stored canonically as `bytes32` so the same registry can express both
+ *      EVM addresses and cross-VM identifiers (e.g. Hyperlane-format `bytes32` recipients
+ *      that may point at non-EVM destinations such as Solana ed25519 keys).
+ *
+ *      EVM addresses are mapped to `bytes32` via the Hyperlane left-pad convention
+ *      `bytes32(uint256(uint160(addr)))`. The `address` overload of {isBlacklisted}
+ *      resolves to the same storage slot as its `bytes32` equivalent, so callers
+ *      may use whichever form is natural without divergence.
  */
 interface IBlacklist {
     /**
@@ -16,11 +24,11 @@ interface IBlacklist {
 
     /**
      * @notice Emitted when the blacklist status of an account is updated.
+     * @param account Canonical bytes32 key (Hyperlane left-padded form for EVM addresses).
      */
-    event BlacklistStatusUpdated(address indexed account, bool blacklisted);
+    event BlacklistStatusUpdated(bytes32 indexed account, bool blacklisted);
 
-    /**
-     * @notice Returns whether `account` is blocked from initiating deposit-style outbound messages.
-     */
+    function isBlacklisted(bytes32 account) external view returns (bool);
+
     function isBlacklisted(address account) external view returns (bool);
 }

@@ -35,6 +35,7 @@ contract PreconfirmedRetryReceiver {
 contract L1FluentBridgeTest is BridgeBase {
     address internal otherBridge = makeAddr("otherBridge");
     address internal user = makeAddr("user");
+    address internal proofCaller = makeAddr("proofCaller");
     /// @dev Must be a contract: {registerGateway} rejects EOAs.
     address internal receiver;
     address internal nonRollup = makeAddr("nonRollup");
@@ -271,7 +272,7 @@ contract L1FluentBridgeTest is BridgeBase {
         rollup.setFinalized(false);
 
         vm.expectRevert(abi.encodeWithSelector(IL1FluentBridge.InvalidBatchStatus.selector, uint256(7), uint8(0)));
-        vm.prank(relayer);
+        vm.prank(proofCaller);
         l1Bridge.receiveMessageWithProof(
             7,
             _dummyHeader(),
@@ -291,7 +292,7 @@ contract L1FluentBridgeTest is BridgeBase {
         rollup.setFinalized(true);
 
         vm.expectRevert(IL1FluentBridge.ForbiddenReceiveRollbackMessage.selector);
-        vm.prank(relayer);
+        vm.prank(proofCaller);
         l1Bridge.receiveMessageWithProof(1, _dummyHeader(), user, payable(receiver), 0, block.chainid, 1, 0, "", _dummyProof(), _dummyProof());
     }
 
@@ -389,10 +390,8 @@ contract L1FluentBridgeTest is BridgeBase {
     }
 
     function _executeReceiveWithProof(ProofFixture memory f) internal {
-        // `receiveMessageWithProof` is gated by RELAYER_ROLE — prank as the relayer the
-        // bridge was initialised with so the role check passes and we exercise the
-        // intended downstream code paths.
-        vm.prank(relayer);
+        // Permissionless proof relay: any account can submit a valid finalized proof.
+        vm.prank(proofCaller);
         l1Bridge.receiveMessageWithProof(
             1,
             f.header,
@@ -474,7 +473,7 @@ contract L1FluentBridgeTest is BridgeBase {
         vm.expectEmit(true, true, true, true, address(l1Bridge));
         emit IFluentBridgeEvents.ReceivedMessage(messageHash, false, expectedReturnData);
 
-        vm.prank(relayer);
+        vm.prank(proofCaller);
         l1Bridge.receiveMessageWithProof(
             1,
             header,
@@ -559,7 +558,7 @@ contract L1FluentBridgeTest is BridgeBase {
             depositCount: 0
         });
         vm.expectRevert(abi.encodeWithSelector(IFluentBridgeErrors.ZeroValueNotAllowed.selector, "blockHeader.blockHash"));
-        vm.prank(relayer);
+        vm.prank(proofCaller);
         l1Bridge.receiveMessageWithProof(1, header, user, payable(receiver), 0, block.chainid + 1, 1, 0, "", _dummyProof(), _dummyProof());
     }
 
@@ -573,7 +572,7 @@ contract L1FluentBridgeTest is BridgeBase {
             depositCount: 0
         });
         vm.expectRevert(abi.encodeWithSelector(IFluentBridgeErrors.ZeroValueNotAllowed.selector, "withdrawalRoot"));
-        vm.prank(relayer);
+        vm.prank(proofCaller);
         l1Bridge.receiveMessageWithProof(1, header, user, payable(receiver), 0, block.chainid + 1, 1, 0, "", _dummyProof(), _dummyProof());
     }
 
@@ -581,7 +580,7 @@ contract L1FluentBridgeTest is BridgeBase {
         rollup.setFinalized(true);
         rollup.setBatchRoot(1, bytes32(uint256(999)));
         vm.expectRevert(IL1FluentBridge.InvalidBlockProof.selector);
-        vm.prank(relayer);
+        vm.prank(proofCaller);
         l1Bridge.receiveMessageWithProof(
             1,
             _dummyHeader(),
@@ -603,7 +602,7 @@ contract L1FluentBridgeTest is BridgeBase {
         bytes32 commitment = keccak256(abi.encodePacked(header.previousBlockHash, header.blockHash, header.withdrawalRoot, header.depositRoot));
         rollup.setBatchRoot(1, commitment);
         vm.expectRevert(IL1FluentBridge.InvalidWithdrawalProof.selector);
-        vm.prank(relayer);
+        vm.prank(proofCaller);
         l1Bridge.receiveMessageWithProof(1, header, user, payable(receiver), 0, block.chainid + 1, 1, 0, "", _dummyProof(), _dummyProof());
     }
 
@@ -654,7 +653,7 @@ contract L1FluentBridgeTest is BridgeBase {
         MerkleTree.MerkleProof memory emptyProof = MerkleTree.MerkleProof(0, "");
 
         vm.expectRevert(IFluentBridgeErrors.ForbiddenSelfCall.selector);
-        vm.prank(relayer);
+        vm.prank(proofCaller);
         l1Bridge.receiveMessageWithProof(1, header, from, to, 0, chainId, 1, 0, "", emptyProof, emptyProof);
     }
 
