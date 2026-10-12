@@ -21,6 +21,10 @@ import {DeployBase} from "./DeployBase.s.sol";
 ///   EMERGENCY_TIMELOCK (required) — address of emergency timelock
 ///   NORMAL_DELAY (required) — target delay for normal timelock (set after migration)
 ///   EMERGENCY_DELAY (required) — target delay for emergency timelock
+///   MIGRATE_DRAND (default: true) — on L2, also migrate the DrandOracle named in
+///     deployments/<ENV>/drand.json when that manifest exists: admin -> normalTL,
+///     emergency -> emergencyTL, then the EOA's roles are renounced. Set false when the
+///     oracle's roles are not held by the account running this script.
 contract MigrateRoles is DeployBase {
     using stdJson for string;
 
@@ -40,6 +44,7 @@ contract MigrateRoles is DeployBase {
 
         require(normalTL != address(0) && emergencyTL != address(0), "timelock addresses required");
 
+        address drandOracle = _drandOracle(env, layer);
         address bridge = _readAddr(manifest, "bridge");
         address erc20Gateway = _readAddr(manifest, "erc20_gateway");
         address nativeGateway = _readAddr(manifest, "native_gateway");
@@ -76,6 +81,13 @@ contract MigrateRoles is DeployBase {
         _transferOwnership2Step(erc20Gateway, normalTL, "ERC20Gateway");
         _transferOwnership2Step(nativeGateway, normalTL, "NativeGateway");
         _transferOwnership2Step(factory, normalTL, "Factory");
+
+        // ── DrandOracle (L2 only): admin -> normalTL, emergency -> emergencyTL ──
+        if (drandOracle != address(0)) {
+            IAccessControl(drandOracle).grantRole(DEFAULT_ADMIN_ROLE, normalTL);
+            IAccessControl(drandOracle).grantRole(EMERGENCY_ROLE, emergencyTL);
+            console2.log("  DrandOracle: admin -> normalTL, emergency -> emergencyTL");
+        }
 
         // ── Ownable oracles (L2 only) → normal timelock ──
         if (keccak256(bytes(layer)) == keccak256("l2")) {
@@ -119,9 +131,30 @@ contract MigrateRoles is DeployBase {
                 IAccessControl(nitroVerifier).renounceRole(DEFAULT_ADMIN_ROLE, msg.sender);
             }
         }
+        if (drandOracle != address(0)) {
+            require(
+                IAccessControl(drandOracle).hasRole(DEFAULT_ADMIN_ROLE, normalTL), "drandOracle: normalTL missing admin"
+            );
+            require(
+                IAccessControl(drandOracle).hasRole(EMERGENCY_ROLE, emergencyTL),
+                "drandOracle: emergencyTL missing emergency"
+            );
+            IAccessControl(drandOracle).renounceRole(DEFAULT_ADMIN_ROLE, msg.sender);
+            IAccessControl(drandOracle).renounceRole(EMERGENCY_ROLE, msg.sender);
+        }
         console2.log("  EOA admin renounced");
 
         vm.stopBroadcast();
+    }
+
+    /// @dev The DrandOracle proxy of this layer's drand manifest, or zero when there is none
+    ///      or MIGRATE_DRAND is false.
+    function _drandOracle(string memory env, string memory layer) internal view returns (address) {
+        if (keccak256(bytes(layer)) != keccak256("l2")) return address(0);
+        if (!vm.envOr("MIGRATE_DRAND", true)) return address(0);
+        string memory path = string.concat("deployments/", env, "/drand.json");
+        if (!vm.exists(path)) return address(0);
+        return _readAddr(vm.readFile(path), "drand_oracle");
     }
 
     function _transferOwnership2Step(address target, address newOwner, string memory name) internal {
