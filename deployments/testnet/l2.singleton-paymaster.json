@@ -1,0 +1,18 @@
+{
+  "chainId": 20994,
+  "compiler": {
+    "solc": "0.8.30",
+    "evm_version": "prague",
+    "optimizer_runs": 80,
+    "via_ir": true
+  },
+  "deployment_block": 40092000,
+  "entry_point": "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
+  "manager": "0xcBbF3a2A1D0Eb93B0817EBD6D028EaE1282F0214",
+  "owner": "0xcBbF3a2A1D0Eb93B0817EBD6D028EaE1282F0214",
+  "runtime_code_hash": "0x20d941487e2a4337ee575ca973db269161cad885a8b735618f5f510e6ea75a95",
+  "signers": [
+    "0x262FEc034C1258c8C4d96C9D43794e05D8d62c13"
+  ],
+  "singleton_paymaster": "0xC1f36BF0B66f8ac4Ac8a7477378fe9C718c57c56"
+}

@@ -17,8 +17,9 @@ Fluent is a Layer 2 blockchain that settles on Ethereum. This repository contain
 | `contracts/oracles/` | `L1BlockOracle`, `L1GasOracle` | L2-side oracles for L1 block number (deadline enforcement) and gas price (fee calculation) |
 | `contracts/connect/` | `AppDeposit` | Fluent Connect: stateless deposit into a paymaster's EntryPoint v0.7 deposit, naming the App in an event |
 | `contracts/libraries/` | `Heap`, `Queue`, `MerkleTree`, `ExcessivelySafeCall` | Min-heap (challenge queue), FIFO (sent messages), Merkle proofs, safe external calls |
+| `scripts/deploy/DeploySingletonPaymaster.s.sol` | `SingletonPaymasterV7` (deployed, not authored here) | Fluent Connect: the ERC-4337 paymaster that sponsors user operations signed by a key in its signer set. The contract is Pimlico's, used as published from the pinned `lib/singleton-paymaster` submodule, so only its deploy script lives in this repo |
 
-All contracts except `AppDeposit` (stateless, ownerless, not upgradeable) use **UUPS proxy** pattern with **ERC-7201 namespaced storage**. Interfaces in `contracts/interfaces/` are the source of truth for function signatures, errors, and events.
+All contracts in `contracts/` except `AppDeposit` (stateless, ownerless, not upgradeable) use **UUPS proxy** pattern with **ERC-7201 namespaced storage**. Interfaces in `contracts/interfaces/` are the source of truth for function signatures, errors, and events.
 
 ### Message lifecycle
 
@@ -127,6 +128,17 @@ cd solidity-contracts
 forge install
 ```
 
+`lib/singleton-paymaster` (Pimlico's `SingletonPaymasterV7`) carries nested submodules of its own.
+`SingletonPaymasterV7` builds against four of its eight; if `forge build` cannot resolve
+`@account-abstraction-v7/`, `@account-abstraction-v6/`, `@openzeppelin-v5.0.2/` or `solady/`, fetch
+exactly those:
+
+```bash
+git -C lib/singleton-paymaster submodule update --init --depth 1 \
+  lib/account-abstraction-v6 lib/account-abstraction-v7 \
+  lib/openzeppelin-contracts-v5.0.2 lib/solady
+```
+
 ### Build
 
 ```bash
@@ -175,7 +187,7 @@ forge coverage --ir-minimum --report lcov
 | `test/Invariant/` | Stateful invariant testing for bridge/gateway (1 test + handler) |
 | `test/Verifier/` | Nitro verifier tests (1 test file) |
 | `test/Oracle/` | L1BlockOracle and L1GasOracle (2 test files) |
-| `test/Connect/` | AppDeposit against a real EntryPoint v0.7 (1 test file) |
+| `test/Connect/` | AppDeposit, and the SingletonPaymasterV7 deploy script and its reference vectors, against a real EntryPoint v0.7 (2 test files) |
 | `test/libraries/` | Heap, Queue, MerkleTree, ExcessivelySafeCall (4 test files) |
 | `test/factories/` | ERC20TokenFactory (1 test file) |
 | `test/tokens/` | ERC20PeggedToken (1 test file) |

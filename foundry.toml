@@ -13,6 +13,9 @@ fs_permissions = [
   {access = "read-write", path = "./scripts/config"},
   {access = "read", path = "./broadcast"},
   {access = "read", path = "./out"},
+  {access = "read", path = "./test/Connect/vectors"},
+  # Scratch space for tests that exercise a deploy script's manifest write. Git-ignored.
+  {access = "read-write", path = "./cache"},
 ]
 libs = ["lib"]
 no_match_coverage = "(test|script|ExcessivelySafeCall)"

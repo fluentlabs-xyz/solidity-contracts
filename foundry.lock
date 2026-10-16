@@ -16,5 +16,8 @@
   },
   "lib/openzeppelin-foundry-upgrades": {
     "rev": "cbce1e00305e943aa1661d43f41e5ac72c662b07"
+  },
+  "lib/singleton-paymaster": {
+    "rev": "1e2305d1102242379b582142f62bd17add12b8c2"
   }
 }
