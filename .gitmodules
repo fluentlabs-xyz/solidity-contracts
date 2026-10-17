@@ -17,3 +17,7 @@
 [submodule "lib/account-abstraction"]
 	path = lib/account-abstraction
 	url = https://github.com/eth-infinitism/account-abstraction
+
+[submodule "lib/singleton-paymaster"]
+	path = lib/singleton-paymaster
+	url = https://github.com/pimlicolabs/singleton-paymaster

@@ -2,3 +2,8 @@
 @openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/
 openzeppelin-foundry-upgrades/=lib/openzeppelin-foundry-upgrades/src/
 account-abstraction/=lib/account-abstraction/contracts/
+singleton-paymaster/=lib/singleton-paymaster/src/
+@account-abstraction-v6/=lib/singleton-paymaster/lib/account-abstraction-v6/contracts/
+@account-abstraction-v7/=lib/singleton-paymaster/lib/account-abstraction-v7/contracts/
+@openzeppelin-v5.0.2/=lib/singleton-paymaster/lib/openzeppelin-contracts-v5.0.2/
+solady/=lib/singleton-paymaster/lib/solady/src/

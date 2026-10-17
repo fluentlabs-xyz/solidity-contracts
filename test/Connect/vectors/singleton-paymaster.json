@@ -1,0 +1,53 @@
+{
+  "schema": 1,
+  "about": "Reference vectors for Pimlico's SingletonPaymasterV7 in verifying mode, the paymaster Fluent Connect sponsors with (pimlicolabs/singleton-paymaster at 1e2305d1102242379b582142f62bd17add12b8c2, lib/singleton-paymaster/src/SingletonPaymasterV7.sol). FLU-1590. Read by test/Connect/SingletonPaymaster.t.sol, and by FLU-1589 to check the service's Go encoder and signer against the contract.",
+  "warning": "signerKey is the publicly known Anvil test account #0 key. It is a test key only: it must never hold funds, and it is never the service's PAYMASTER_SIGNER_KEY.",
+  "selfContained": "Every value below is fixed. The vector does not depend on deployment order: the test sets chainId and places the paymaster at paymaster before it reproduces getHash, because getHash commits to both.",
+  "chainId": 20994,
+  "entryPoint": "0x0000000071727De22E5E9d8BAf0edAc6f37da032",
+  "paymaster": "0x5eE0a4c3b09f26fa4D3B87d9B5a2c1e7F0D84B36",
+  "owner": "0x90F79bf6EB2c4f870365E785982E1f101E93b906",
+  "manager": "0x15d34AAf54267DB7D7c367839AAf71A00a2C6A65",
+  "signer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+  "signerKey": "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
+  "mode": 0,
+  "allowAllBundlers": true,
+  "modeAndAllowAllBundlersByte": "0x01",
+  "modeByteEncoding": "One byte at paymasterAndData[52]: the lowest bit is allowAllBundlers, the remaining bits are the mode (BaseSingletonPaymaster._parsePaymasterAndData). Verifying mode is 0 and allowAllBundlers is 1 here, so the byte is 0x01. With allowAllBundlers = 0 the contract requires isBundlerAllowed[tx.origin]; Fluent Connect does not use the allowlist.",
+  "validUntil": 2000000000,
+  "validAfter": 1700000000,
+  "userOp": {
+    "sender": "0xCaCd34ECFfF05125dbE985BeCACbC18f8D07b987",
+    "nonce": 7,
+    "initCode": "0x",
+    "callData": "0xb61d27f60000000000000000000000004d8bdf0ef645c9b9506539d031c56eaa4d9bc8ca000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000000000",
+    "accountGasLimits": "0x00000000000000000000000000030d40000000000000000000000000000186a0",
+    "preVerificationGas": 60000,
+    "gasFees": "0x0000000000000000000000003b9aca00000000000000000000000004a817c800",
+    "paymasterAndData": "0x5ee0a4c3b09f26fa4d3b87d9b5a2c1e7f0d84b36000000000000000000000000000249f00000000000000000000000000000c3500100007735940000006553f1002461639f06c67ded7af5899600b2f1987cab783930834c130b2b5e3619544a751897fa71f578cf1db72d83ef63b649b29b711ce5e9a5fb44735b87ee16381fc11b",
+    "signature": "0x0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "gasUnpacked": {
+    "verificationGasLimit": 200000,
+    "callGasLimit": 100000,
+    "maxPriorityFeePerGas": 1000000000,
+    "maxFeePerGas": 20000000000,
+    "paymasterVerificationGasLimit": 150000,
+    "paymasterPostOpGasLimit": 50000
+  },
+  "paymasterAndDataEncoding": "paymaster (20 bytes) || paymasterVerificationGasLimit (uint128, 16 bytes) || paymasterPostOpGasLimit (uint128, 16 bytes) || modeAndAllowAllBundlers (1 byte) || validUntil (uint48 big-endian, 6 bytes) || validAfter (uint48 big-endian, 6 bytes) || paymasterSignature (65 bytes). The signed prefix is exactly the first 65 bytes, everything but the signature.",
+  "signedPrefixLength": 65,
+  "getHashPreimage": "getHash(0, userOp) = keccak256(abi.encode(keccak256(abi.encode(sender, nonce, accountGasLimits, preVerificationGas, gasFees, keccak256(initCode), keccak256(callData), keccak256(paymasterAndData[0:65]))), chainId)). Field order is the contract's (SingletonPaymasterV7._getHash): accountGasLimits comes before preVerificationGas and gasFees, and the two keccak256 of initCode and callData come after them. userOp.signature is not covered, so the account's own signature may still be absent when the paymaster signs.",
+  "getHash": "0xbb5b072a68ab4fb141fab58ec8be88a186b43f57503b309ea5db1a6731678c55",
+  "eip191Prefixed": true,
+  "paymasterSignatureEncoding": "secp256k1 signature as r || s || v (65 bytes) by signer over MessageHashUtils.toEthSignedMessageHash(getHash) — the contract applies the EIP-191 personal-sign prefix to the 32 getHash bytes before ECDSA.recover, so the signer must sign the prefixed digest, not getHash itself. The contract also accepts a 64-byte ERC-2098 compact signature; this vector uses the 65-byte form.",
+  "paymasterSignature": "0x2461639f06c67ded7af5899600b2f1987cab783930834c130b2b5e3619544a751897fa71f578cf1db72d83ef63b649b29b711ce5e9a5fb44735b87ee16381fc11b",
+  "accountSignatureNote": "userOp.signature is the account's own signature, 65 placeholder zero bytes here. The paymaster never reads it.",
+  "rotation": {
+    "about": "Signer rotation without a redeploy, the reason this contract replaces the eth-infinitism sample. addSigner and removeSigner are onlyAdminOrManager (MultiSigner, ManagerAccessControl), so either owner or manager may call them.",
+    "otherSignerKey": "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d",
+    "otherSigner": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+    "rotatedSignerKey": "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a",
+    "rotatedSigner": "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"
+  }
+}
