@@ -63,7 +63,9 @@ contract ERC20GatewayTest is GatewayBase {
         originToken.approve(address(gateway), 1 ether);
 
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(IERC20GatewayErrors.BridgingExcludedOriginToken.selector, address(originToken)));
+        vm.expectRevert(
+            abi.encodeWithSelector(IERC20GatewayErrors.BridgingExcludedOriginToken.selector, address(originToken))
+        );
         gateway.sendTokens(address(originToken), recipient, 1 ether);
     }
 
@@ -78,7 +80,9 @@ contract ERC20GatewayTest is GatewayBase {
             (address(originToken), predictedPegged, user, recipient, 1 ether, tokenMetadata)
         );
 
-        vm.expectRevert(abi.encodeWithSelector(IERC20GatewayErrors.BridgingExcludedOriginToken.selector, address(originToken)));
+        vm.expectRevert(
+            abi.encodeWithSelector(IERC20GatewayErrors.BridgingExcludedOriginToken.selector, address(originToken))
+        );
         _relayMessage(remoteGateway, address(gateway), 0, message);
     }
 
@@ -99,7 +103,9 @@ contract ERC20GatewayTest is GatewayBase {
         pegged.approve(address(gateway), 1 ether);
 
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(IERC20GatewayErrors.BridgingExcludedOriginToken.selector, address(originToken)));
+        vm.expectRevert(
+            abi.encodeWithSelector(IERC20GatewayErrors.BridgingExcludedOriginToken.selector, address(originToken))
+        );
         gateway.sendTokens(predictedPegged, recipient, 1 ether);
     }
 
@@ -156,13 +162,31 @@ contract ERC20GatewayTest is GatewayBase {
             (address(originToken), predictedPegged, user, recipient, 1 ether, tokenMetadata)
         );
 
-        (bytes32 messageHash, , ) = _relayMessage(remoteGateway, address(gateway), 0, message);
+        (bytes32 messageHash,,) = _relayMessage(remoteGateway, address(gateway), 0, message);
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
 
         // Bucket is unregistered, so usage stays at zero.
-        (, uint256 hourlyUsed, , uint256 dailyUsed) = fastWithdrawalList.getUsage(address(originToken));
+        (, uint256 hourlyUsed,, uint256 dailyUsed) = fastWithdrawalList.getUsage(address(originToken));
         assertEq(hourlyUsed, 0);
         assertEq(dailyUsed, 0);
+    }
+
+    /// @dev Preconfirmed receives must never bypass the fast-withdrawal policy. If the
+    ///      gateway owner has not enabled the whitelist, the bridge records the receive as
+    ///      failed so the user can retry after finalization or after the policy is enabled.
+    function test_receivePeggedTokens_marksFailedWhenPreconfirmedAndWhitelistDisabled() public {
+        _mockBridgePreconfirmed(true);
+
+        address predictedPegged = _predictedPegged();
+        bytes memory tokenMetadata = abi.encode("MOCK", "Mock Token", uint8(18));
+        bytes memory message = abi.encodeCall(
+            ERC20Gateway.receivePeggedTokens,
+            (address(originToken), predictedPegged, user, recipient, 1 ether, tokenMetadata)
+        );
+
+        (bytes32 messageHash,,) = _relayMessage(remoteGateway, address(gateway), 0, message);
+        assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
+        assertEq(gateway.isWhitelistEnabled(), false);
     }
 
     /// @dev When the whitelist is enabled but the batch is FINALIZED (i.e. not Preconfirmed),
@@ -180,7 +204,7 @@ contract ERC20GatewayTest is GatewayBase {
             (address(originToken), predictedPegged, user, recipient, 100 ether, tokenMetadata)
         );
 
-        (bytes32 messageHash, , ) = _relayMessage(remoteGateway, address(gateway), 0, message);
+        (bytes32 messageHash,,) = _relayMessage(remoteGateway, address(gateway), 0, message);
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Success));
     }
 
@@ -199,12 +223,11 @@ contract ERC20GatewayTest is GatewayBase {
             ERC20Gateway.receivePeggedTokens,
             (address(originToken), predictedPegged, user, recipient, 2 ether, tokenMetadata)
         );
-        (bytes32 okHash, , ) = _relayMessage(remoteGateway, address(gateway), 0, okMsg);
+        (bytes32 okHash,,) = _relayMessage(remoteGateway, address(gateway), 0, okMsg);
         assertEq(uint256(bridge.getReceivedMessage(okHash)), uint256(IFluentBridge.MessageStatus.Success));
 
-        (uint256 currentHourWindow, uint256 hourlyUsed, uint256 currentDayWindow, uint256 dailyUsed) = fastWithdrawalList.getUsage(
-            address(originToken)
-        );
+        (uint256 currentHourWindow, uint256 hourlyUsed, uint256 currentDayWindow, uint256 dailyUsed) =
+            fastWithdrawalList.getUsage(address(originToken));
         assertEq(currentHourWindow, block.timestamp / 1 hours);
         assertEq(hourlyUsed, 2 ether);
         assertEq(currentDayWindow, block.timestamp / 1 days);
@@ -215,10 +238,10 @@ contract ERC20GatewayTest is GatewayBase {
             ERC20Gateway.receivePeggedTokens,
             (address(originToken), predictedPegged, user, recipient, 2 ether, tokenMetadata)
         );
-        (bytes32 overHourlyHash, , ) = _relayMessage(remoteGateway, address(gateway), 0, overHourly);
+        (bytes32 overHourlyHash,,) = _relayMessage(remoteGateway, address(gateway), 0, overHourly);
         assertEq(uint256(bridge.getReceivedMessage(overHourlyHash)), uint256(IFluentBridge.MessageStatus.Failed));
 
-        (, hourlyUsed, , dailyUsed) = fastWithdrawalList.getUsage(address(originToken));
+        (, hourlyUsed,, dailyUsed) = fastWithdrawalList.getUsage(address(originToken));
         assertEq(hourlyUsed, 2 ether);
         assertEq(dailyUsed, 2 ether);
 
@@ -228,10 +251,10 @@ contract ERC20GatewayTest is GatewayBase {
             ERC20Gateway.receivePeggedTokens,
             (address(originToken), predictedPegged, user, recipient, 2 ether, tokenMetadata)
         );
-        (bytes32 nextHash, , ) = _relayMessage(remoteGateway, address(gateway), 0, nextHour);
+        (bytes32 nextHash,,) = _relayMessage(remoteGateway, address(gateway), 0, nextHour);
         assertEq(uint256(bridge.getReceivedMessage(nextHash)), uint256(IFluentBridge.MessageStatus.Success));
 
-        (, hourlyUsed, , dailyUsed) = fastWithdrawalList.getUsage(address(originToken));
+        (, hourlyUsed,, dailyUsed) = fastWithdrawalList.getUsage(address(originToken));
         assertEq(hourlyUsed, 2 ether);
         assertEq(dailyUsed, 4 ether);
 
@@ -243,17 +266,18 @@ contract ERC20GatewayTest is GatewayBase {
             ERC20Gateway.receivePeggedTokens,
             (address(originToken), predictedPegged, user, recipient, 2 ether, tokenMetadata)
         );
-        (bytes32 overDailyHash, , ) = _relayMessage(remoteGateway, address(gateway), 0, overDaily);
+        (bytes32 overDailyHash,,) = _relayMessage(remoteGateway, address(gateway), 0, overDaily);
         assertEq(uint256(bridge.getReceivedMessage(overDailyHash)), uint256(IFluentBridge.MessageStatus.Failed));
 
-        (, hourlyUsed, , dailyUsed) = fastWithdrawalList.getUsage(address(originToken));
+        (, hourlyUsed,, dailyUsed) = fastWithdrawalList.getUsage(address(originToken));
         assertEq(hourlyUsed, 2 ether);
         assertEq(dailyUsed, 4 ether);
     }
 
     function test_receiveOriginTokens_withZeroRecipient_marksFailed() public {
-        bytes memory message = abi.encodeCall(ERC20Gateway.receiveOriginTokens, (address(originToken), user, address(0), 1 ether));
-        (bytes32 messageHash, , ) = _relayMessage(remoteGateway, address(gateway), 0, message);
+        bytes memory message =
+            abi.encodeCall(ERC20Gateway.receiveOriginTokens, (address(originToken), user, address(0), 1 ether));
+        (bytes32 messageHash,,) = _relayMessage(remoteGateway, address(gateway), 0, message);
 
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
     }
@@ -281,7 +305,7 @@ contract ERC20GatewayTest is GatewayBase {
             (address(originToken), predictedPegged, user, recipient, 1 ether, tokenMetadata)
         );
 
-        (bytes32 messageHash, , ) = _relayMessage(makeAddr("wrong-remote-gateway"), address(gateway), 0, message);
+        (bytes32 messageHash,,) = _relayMessage(makeAddr("wrong-remote-gateway"), address(gateway), 0, message);
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
     }
 
@@ -292,7 +316,7 @@ contract ERC20GatewayTest is GatewayBase {
             (address(originToken), makeAddr("wrong-pegged-token"), user, recipient, 1 ether, tokenMetadata)
         );
 
-        (bytes32 messageHash, , ) = _relayMessage(remoteGateway, address(gateway), 0, message);
+        (bytes32 messageHash,,) = _relayMessage(remoteGateway, address(gateway), 0, message);
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
     }
 
@@ -311,21 +335,22 @@ contract ERC20GatewayTest is GatewayBase {
             ERC20Gateway.receivePeggedTokens,
             (address(otherOrigin), predictedPegged, user, recipient, 1 ether, tokenMetadata)
         );
-        (bytes32 messageHash, , ) = _relayMessage(remoteGateway, address(gateway), 0, secondMessage);
+        (bytes32 messageHash,,) = _relayMessage(remoteGateway, address(gateway), 0, secondMessage);
 
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
     }
 
     function test_receiveOriginTokens_wrongGatewaySender_marksFailed() public {
-        bytes memory message = abi.encodeCall(ERC20Gateway.receiveOriginTokens, (address(originToken), user, recipient, 1 ether));
-        (bytes32 messageHash, , ) = _relayMessage(makeAddr("wrong-remote-gateway"), address(gateway), 0, message);
+        bytes memory message =
+            abi.encodeCall(ERC20Gateway.receiveOriginTokens, (address(originToken), user, recipient, 1 ether));
+        (bytes32 messageHash,,) = _relayMessage(makeAddr("wrong-remote-gateway"), address(gateway), 0, message);
 
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
     }
 
     function test_receiveOriginTokens_originTokenZero_marksFailed() public {
         bytes memory message = abi.encodeCall(ERC20Gateway.receiveOriginTokens, (address(0), user, recipient, 1 ether));
-        (bytes32 messageHash, , ) = _relayMessage(remoteGateway, address(gateway), 0, message);
+        (bytes32 messageHash,,) = _relayMessage(remoteGateway, address(gateway), 0, message);
 
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
     }
@@ -333,10 +358,9 @@ contract ERC20GatewayTest is GatewayBase {
     function test_receivePeggedTokens_originTokenZero_marksFailed() public {
         bytes memory tokenMetadata = abi.encode("MOCK", "Mock Token", uint8(18));
         bytes memory message = abi.encodeCall(
-            ERC20Gateway.receivePeggedTokens,
-            (address(0), _predictedPegged(), user, recipient, 1 ether, tokenMetadata)
+            ERC20Gateway.receivePeggedTokens, (address(0), _predictedPegged(), user, recipient, 1 ether, tokenMetadata)
         );
-        (bytes32 messageHash, , ) = _relayMessage(remoteGateway, address(gateway), 0, message);
+        (bytes32 messageHash,,) = _relayMessage(remoteGateway, address(gateway), 0, message);
 
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
     }
@@ -382,8 +406,9 @@ contract ERC20GatewayTest is GatewayBase {
         vm.prank(user);
         require(originToken.transfer(address(gateway), amount), "originToken transfer failed");
 
-        bytes memory message = abi.encodeCall(ERC20Gateway.receiveOriginTokens, (address(originToken), user, recipient, amount));
-        (bytes32 messageHash, , ) = _relayMessage(remoteGateway, address(gateway), 0, message);
+        bytes memory message =
+            abi.encodeCall(ERC20Gateway.receiveOriginTokens, (address(originToken), user, recipient, amount));
+        (bytes32 messageHash,,) = _relayMessage(remoteGateway, address(gateway), 0, message);
 
         assertEq(originToken.balanceOf(recipient), amount);
         assertEq(originToken.balanceOf(address(gateway)), 0);
@@ -410,8 +435,7 @@ contract ERC20GatewayTest is GatewayBase {
     function test_sendTokens_revertsWhenOtherSideGatewayUnset() public {
         ERC20Gateway impl = new ERC20Gateway();
         ERC1967Proxy proxy = new ERC1967Proxy(
-            address(impl),
-            abi.encodeCall(ERC20Gateway.initialize, (admin, address(bridge), address(factory)))
+            address(impl), abi.encodeCall(ERC20Gateway.initialize, (admin, address(bridge), address(factory)))
         );
         ERC20Gateway gw = ERC20Gateway(payable(address(proxy)));
 
@@ -421,7 +445,9 @@ contract ERC20GatewayTest is GatewayBase {
         vm.prank(user);
         originToken.approve(address(gw), 1 ether);
         vm.prank(user);
-        vm.expectRevert(abi.encodeWithSelector(IGatewayBaseErrors.ZeroAddressNotAllowed.selector, "getOtherSideGateway"));
+        vm.expectRevert(
+            abi.encodeWithSelector(IGatewayBaseErrors.ZeroAddressNotAllowed.selector, "getOtherSideGateway")
+        );
         gw.sendTokens(address(originToken), recipient, 1 ether);
     }
 
@@ -458,7 +484,9 @@ contract ERC20GatewayTest is GatewayBase {
 
     function test_setOtherSideTokenImplementation_revertsOnZero() public {
         vm.prank(admin);
-        vm.expectRevert(abi.encodeWithSelector(IGatewayBaseErrors.ZeroAddressNotAllowed.selector, "otherSideTokenImplementation"));
+        vm.expectRevert(
+            abi.encodeWithSelector(IGatewayBaseErrors.ZeroAddressNotAllowed.selector, "otherSideTokenImplementation")
+        );
         gateway.setOtherSideTokenImplementation(address(0));
     }
 
@@ -484,7 +512,7 @@ contract ERC20GatewayTest is GatewayBase {
             (address(originToken), predictedPegged, user, address(0), 1 ether, tokenMetadata)
         );
 
-        (bytes32 messageHash, , ) = _relayMessage(remoteGateway, address(gateway), 0, message);
+        (bytes32 messageHash,,) = _relayMessage(remoteGateway, address(gateway), 0, message);
         assertEq(uint256(bridge.getReceivedMessage(messageHash)), uint256(IFluentBridge.MessageStatus.Failed));
     }
 
@@ -556,16 +584,14 @@ contract ERC20GatewayTest is GatewayBase {
             Vm.Log memory log = logs[i - 1];
             if (log.topics.length > 0 && log.topics[0] == topic) {
                 // `data` = abi.encode(value, fee, chainId, validUntilBlockNumber, nonce, messageHash, data(bytes)).
-                (, , , , , , bytes memory message) = abi.decode(
-                    log.data,
-                    (uint256, uint256, uint256, uint256, uint256, bytes32, bytes)
-                );
+                (,,,,,, bytes memory message) =
+                    abi.decode(log.data, (uint256, uint256, uint256, uint256, uint256, bytes32, bytes));
                 // Strip the 4-byte selector and decode `(originToken, peggedToken, from, to, amount, tokenMetadata)`.
                 bytes memory args = new bytes(message.length - 4);
                 for (uint256 j = 0; j < args.length; j++) {
                     args[j] = message[j + 4];
                 }
-                (, address peggedToken, , , , ) = abi.decode(args, (address, address, address, address, uint256, bytes));
+                (, address peggedToken,,,,) = abi.decode(args, (address, address, address, address, uint256, bytes));
                 return peggedToken;
             }
         }
@@ -600,6 +626,10 @@ contract ERC20GatewayTest is GatewayBase {
 
         // Gateway should hold exactly the post-fee amount
         uint256 gatewayBalAfter = fotToken.balanceOf(address(gateway));
-        assertEq(gatewayBalAfter - gatewayBalBefore, expectedReceived, "gateway should escrow actual received amount, not requested amount");
+        assertEq(
+            gatewayBalAfter - gatewayBalBefore,
+            expectedReceived,
+            "gateway should escrow actual received amount, not requested amount"
+        );
     }
 }

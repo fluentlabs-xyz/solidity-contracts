@@ -30,7 +30,9 @@ import {IFluentBridgeRead} from "../interfaces/bridge/IFluentBridge.sol";
  *
  * @notice Optimistic-withdrawal policy (`_consumeLimit`):
  *
- *  whitelistEnabled == false  →  no enforcement (legacy / unprotected mode)
+ *  whitelistEnabled == false:
+ *      batch is FINALIZED (or no batch context)  →  unrestricted, no limits
+ *      batch is PRECONFIRMED                    →  revert FastWithdrawalWhitelistDisabled
  *
  *  whitelistEnabled == true:
  *      batch is FINALIZED (or no batch context)  →  unrestricted, no limits
@@ -42,11 +44,18 @@ import {IFluentBridgeRead} from "../interfaces/bridge/IFluentBridge.sol";
  *  This keeps optimistic withdrawals available for a curated set of tokens with explicit caps,
  *  while preserving the safer slow path for everything else.
  */
-abstract contract GatewayBase is Initializable, UUPSUpgradeable, Ownable2StepUpgradeable, ReentrancyGuardUpgradeable, IGatewayBase {
+abstract contract GatewayBase is
+    Initializable,
+    UUPSUpgradeable,
+    Ownable2StepUpgradeable,
+    ReentrancyGuardUpgradeable,
+    IGatewayBase
+{
     // ============ Constants ============
 
     /// @dev keccak256(abi.encode(uint256(keccak256("Fluent.storage.GatewayBaseStorage")) - 1)) & ~bytes32(uint256(0xff))
-    bytes32 private constant GATEWAY_BASE_STORAGE_LOCATION = 0x96d2d562565fa04c409a57bcf4eeb472b5eafb489b00a26ae2441efb4f4ecc00;
+    bytes32 private constant GATEWAY_BASE_STORAGE_LOCATION =
+        0x96d2d562565fa04c409a57bcf4eeb472b5eafb489b00a26ae2441efb4f4ecc00;
 
     /// @custom:storage-location erc7201:Fluent.storage.GatewayBaseStorage
     struct GatewayBaseStorage {
@@ -59,8 +68,9 @@ abstract contract GatewayBase is Initializable, UUPSUpgradeable, Ownable2StepUpg
         /// @dev Optional {IBlacklist}; address(0) disables deposit blacklist checks.
         address _blacklistRegistry;
         /// @dev Master switch for the optimistic-withdrawal safety policy. While `false`,
-        ///      {_consumeLimit} is a no-op. While `true`, the policy described in the
-        ///      contract NatSpec applies. Cannot be turned on without {_fastWithdrawalList}.
+        ///      finalized receives are unrestricted but Preconfirmed receives are refused.
+        ///      While `true`, the policy described in the contract NatSpec applies.
+        ///      Cannot be turned on without {_fastWithdrawalList}.
         bool _whitelistEnabled;
         /// @dev Shared {IFastWithdrawalList} address. Required to be non-zero whenever
         ///      `_whitelistEnabled` is `true` — enforced atomically at the toggle setter.
@@ -90,7 +100,10 @@ abstract contract GatewayBase is Initializable, UUPSUpgradeable, Ownable2StepUpg
      */
     function __GatewayBase_init(address initialOwner, address bridgeContract) internal onlyInitializing {
         // fail fast on zero addresses to prevent bricked proxies
-        require(initialOwner != address(0) && bridgeContract != address(0), ZeroAddressNotAllowed("initialOwner or bridgeContract"));
+        require(
+            initialOwner != address(0) && bridgeContract != address(0),
+            ZeroAddressNotAllowed("initialOwner or bridgeContract")
+        );
 
         // two-step ownership prevents accidental transfers to wrong addresses
         __Ownable_init(initialOwner);
@@ -250,8 +263,8 @@ abstract contract GatewayBase is Initializable, UUPSUpgradeable, Ownable2StepUpg
      * @dev Optimistic-withdrawal safety gate, called by every receive function on every
      *      derived gateway. Behaviour matrix:
      *
-     *      whitelistEnabled == false                                                 → no-op
-     *      whitelistEnabled == true && batch is NOT Preconfirmed                     → no-op
+     *      batch is NOT Preconfirmed                                                 → no-op
+     *      whitelistEnabled == false && batch IS Preconfirmed                        → revert
      *      whitelistEnabled == true && batch IS Preconfirmed && token NOT in list    → revert
      *      whitelistEnabled == true && batch IS Preconfirmed && token IN list        → consume
      *
@@ -269,8 +282,8 @@ abstract contract GatewayBase is Initializable, UUPSUpgradeable, Ownable2StepUpg
      */
     function _consumeLimit(address tokenKey, uint256 amount) internal {
         GatewayBaseStorage storage $ = _getGatewayBaseStorage();
-        if (!$._whitelistEnabled) return;
         if (!_isFromPreconfirmedBatch()) return;
+        require($._whitelistEnabled, FastWithdrawalWhitelistDisabled());
 
         address list = $._fastWithdrawalList;
         // Defence in depth: the toggle setter already prevents this state, but assert it here

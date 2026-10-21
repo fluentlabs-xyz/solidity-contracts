@@ -51,6 +51,7 @@ struct FastWithdrawalTokenConfig {
  *             * upgrade ERC20Gateway (UUPS gated by `Ownable`),
  *             * upgrade NativeGateway (UUPS gated by `Ownable`),
  *             * setFastWithdrawalList(list) on both gateways,
+ *             * setWhitelistEnabled(true) on both gateways,
  *             * setBlacklistRegistry(blacklist) on both gateways (if `WIRE_GATEWAYS=true`).
  *
  *      The script switches signer per phase via `vm.startBroadcast(address)`. Foundry
@@ -71,10 +72,6 @@ struct FastWithdrawalTokenConfig {
  *             `scripts/config/blacklist/black_list_eth.txt`.
  *        `WIRE_GATEWAYS` (optional, default `true`) — when `false`, skips blacklist gateway wiring
  *             only (fastlist gateway wiring still runs; use only if you know you need it).
- *
- * @dev This script does **not** enable fast-withdrawal whitelist mode on gateways. After the run,
- *      enable separately: `erc20Gateway.setWhitelistEnabled(true)` and
- *      `nativeGateway.setWhitelistEnabled(true)`.
  *
  * @dev Does not update deployment manifests; operator copies logged proxy / impl addresses into
  *      `deployments/<ENV>/l1.json` (`fast_withdrawal_list_*`, `blacklist_*`, and upgraded `*_impl`
@@ -124,9 +121,8 @@ contract MigrateL1_FastlistAndBlacklist is DeployBase {
         vm.startBroadcast(addrs.bridgeAdmin);
 
         FastWithdrawalList listImpl = new FastWithdrawalList();
-        ERC1967Proxy listProxy = new ERC1967Proxy(
-            address(listImpl), abi.encodeCall(FastWithdrawalList.initialize, (addrs.listOwner))
-        );
+        ERC1967Proxy listProxy =
+            new ERC1967Proxy(address(listImpl), abi.encodeCall(FastWithdrawalList.initialize, (addrs.listOwner)));
         FastWithdrawalList list = FastWithdrawalList(address(listProxy));
         console2.log("FastWithdrawalList proxy:", address(list));
         console2.log("FastWithdrawalList impl :", address(listImpl));
@@ -188,9 +184,8 @@ contract MigrateL1_FastlistAndBlacklist is DeployBase {
         _registerFastWithdrawalTokens(list, addrs.weth, addrs.mockToken);
 
         Blacklist blImpl = new Blacklist();
-        ERC1967Proxy blProxy = new ERC1967Proxy(
-            address(blImpl), abi.encodeCall(Blacklist.initialize, (addrs.listOwner))
-        );
+        ERC1967Proxy blProxy =
+            new ERC1967Proxy(address(blImpl), abi.encodeCall(Blacklist.initialize, (addrs.listOwner)));
         Blacklist blacklist = Blacklist(address(blProxy));
         console2.log("Blacklist proxy:", address(blacklist));
         console2.log("Blacklist impl :", address(blImpl));
@@ -201,22 +196,25 @@ contract MigrateL1_FastlistAndBlacklist is DeployBase {
         vm.stopBroadcast();
 
         // ===================================================================
-        // Phase 4 — GATEWAY_OWNER: setBlacklistRegistry on both gateways.
-        // Owner-gated; skipped when WIRE_GATEWAYS=false (operator does it
-        // separately, e.g. via timelock).
+        // Phase 4 — GATEWAY_OWNER: enable fast-withdrawal whitelist enforcement
+        // and optionally setBlacklistRegistry on both gateways. Owner-gated.
         // ===================================================================
+        vm.startBroadcast(addrs.gatewayOwner);
+        ERC20Gateway(addrs.erc20Gateway).setWhitelistEnabled(true);
+        console2.log("ERC20Gateway.setWhitelistEnabled(true):  ", addrs.erc20Gateway);
+        NativeGateway(addrs.nativeGateway).setWhitelistEnabled(true);
+        console2.log("NativeGateway.setWhitelistEnabled(true): ", addrs.nativeGateway);
         if (wireBlacklistOnGateways) {
-            vm.startBroadcast(addrs.gatewayOwner);
             ERC20Gateway(addrs.erc20Gateway).setBlacklistRegistry(address(blacklist));
             console2.log("ERC20Gateway.setBlacklistRegistry:  ", addrs.erc20Gateway);
             NativeGateway(addrs.nativeGateway).setBlacklistRegistry(address(blacklist));
             console2.log("NativeGateway.setBlacklistRegistry: ", addrs.nativeGateway);
-            vm.stopBroadcast();
         }
+        vm.stopBroadcast();
 
         console2.log("");
         console2.log("== Migration complete ==");
-        console2.log("Fast-withdrawal whitelist is NOT enabled yet (setWhitelistEnabled on gateways).");
+        console2.log("Fast-withdrawal whitelist policy is enabled on both gateways.");
         if (!wireBlacklistOnGateways) {
             console2.log("Blacklist gateway wiring skipped (WIRE_GATEWAYS=false).");
             console2.log("  Call setBlacklistRegistry(", address(blacklist), ") from each gateway owner.");
@@ -247,7 +245,9 @@ contract MigrateL1_FastlistAndBlacklist is DeployBase {
         });
 
         require(weth != address(0), "weth_token missing in l1 manifest");
-        configs[1] = FastWithdrawalTokenConfig({token: weth, symbol: "WETH", hourlyLimit: 0, dailyLimit: 0, aliasOf: NATIVE_LIMIT_KEY});
+        configs[1] = FastWithdrawalTokenConfig({
+            token: weth, symbol: "WETH", hourlyLimit: 0, dailyLimit: 0, aliasOf: NATIVE_LIMIT_KEY
+        });
 
         if (mockToken != address(0)) {
             configs[2] = FastWithdrawalTokenConfig({
@@ -270,7 +270,10 @@ contract MigrateL1_FastlistAndBlacklist is DeployBase {
                 list.registerToken(cfg.token, cfg.hourlyLimit, cfg.dailyLimit);
                 console2.log("registerToken:", cfg.symbol, cfg.token);
             } else {
-                require(cfg.hourlyLimit == 0 && cfg.dailyLimit == 0, string.concat("alias row must not carry limits: ", cfg.symbol));
+                require(
+                    cfg.hourlyLimit == 0 && cfg.dailyLimit == 0,
+                    string.concat("alias row must not carry limits: ", cfg.symbol)
+                );
                 list.setAlias(cfg.token, cfg.aliasOf);
                 console2.log("setAlias:", cfg.symbol, cfg.token);
                 console2.log("  -> bucket:", cfg.aliasOf);
