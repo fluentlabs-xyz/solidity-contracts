@@ -40,7 +40,6 @@ Source: `deployments/sepolia.json`, `deployments/fluent_testnet.json`.
 | Pegged token (precompile) | `0x0000000000000000000000000000000000520008` | — |
 | **DrandOracle** (proxy) | `0x6A98E02bAE6947Dfe6098C7B975d1A06391bbD82` | [View](https://testnet.fluentscan.xyz/address/0x6A98E02bAE6947Dfe6098C7B975d1A06391bbD82) |
 | DrandOracle (impl) | `0xf39CCC71Cd74052f1a566D9F0DcCB19198FDe7bb` | [View](https://testnet.fluentscan.xyz/address/0xf39CCC71Cd74052f1a566D9F0DcCB19198FDe7bb) |
-| DrandTower (example consumer) | `0xa7D11c6BC6d291cfE2Be1BA94B405776bf267426` | [View](https://testnet.fluentscan.xyz/address/0xa7D11c6BC6d291cfE2Be1BA94B405776bf267426) |
 
 - **Chain ID:** 20994 (confirm at runtime with `cast chain-id --rpc-url <L2_RPC>`)
 - **RPC:** https://rpc.testnet.fluent.xyz/
