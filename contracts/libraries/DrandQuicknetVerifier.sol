@@ -154,7 +154,7 @@ library DrandQuicknetVerifier {
         bytes memory input = bytes.concat(sig, NEG_G2_GENERATOR, h, PUBLIC_KEY);
         _requireGas(PAIRING_PER_PAIR_GAS * 2 + PAIRING_BASE_GAS);
         (bool ok, bytes memory out) = PAIRING.staticcall(input);
-        return ok && out.length == 32 && bytes32(out) == bytes32(uint256(1));
+        return ok && out.length == 32 && abi.decode(out, (uint256)) == 1;
     }
 
     /// G1MSM(k × (point ‖ scalar)) -> 128 B G1, or empty when the precompile refuses the

@@ -11,6 +11,9 @@ import {DrandQuicknetVectors} from "../bls/DrandQuicknetVectors.sol";
 /// does at the ends of `uint64`, and what a clock that steps backwards can and cannot do
 /// to the ring.
 contract DrandOracleWindowTest is DrandOracleFixture {
+    /// Far beyond any real chain, yet well inside `uint64` and `vm.warp`'s range.
+    uint64 internal constant FUZZ_ROUND_MAX = 1e15;
+
     DrandOracle internal oracle;
 
     function setUp() public {
@@ -83,5 +86,76 @@ contract DrandOracleWindowTest is DrandOracleFixture {
         vm.warp(oracle.publishTimeOf(later.round));
         vm.expectRevert(abi.encodeWithSelector(IDrandOracle.RoundTooOld.selector, one.round, 2));
         oracle.publish(one.round, one.uncompressed);
+    }
+
+    /// The clock and the publish time invert each other: round `r` is current from its
+    /// publish time for exactly one period, and its successor takes over after that.
+    function testFuzz_currentRound_isTheRoundWhosePeriodContainsTheTimestamp(uint64 round, uint256 offset) public {
+        round = uint64(bound(round, 1, FUZZ_ROUND_MAX));
+        offset = bound(offset, 0, oracle.PERIOD_SECONDS() - 1);
+
+        vm.warp(oracle.publishTimeOf(round) + offset);
+        assertEq(oracle.currentRound(), round, "the round is current throughout its period");
+        vm.warp(oracle.publishTimeOf(round) + oracle.PERIOD_SECONDS());
+        assertEq(oracle.currentRound(), round + 1, "and its successor once the period ends");
+    }
+
+    /// The window is the last RING_ROUNDS rounds up to the clock, or every round when the
+    /// clock has not yet reached RING_ROUNDS.
+    function testFuzz_oldestRetainedRound_spansTheRingUpToTheClock(uint64 clock) public {
+        clock = uint64(bound(clock, 1, FUZZ_ROUND_MAX));
+        vm.warp(oracle.publishTimeOf(clock));
+
+        uint64 oldest = oracle.oldestRetainedRound();
+        uint64 ring = oracle.RING_ROUNDS();
+        assertGe(oldest, 1, "the floor never reaches round 0");
+        assertEq(clock - oldest + 1, clock < ring ? clock : ring, "the window is the ring, clipped at round 1");
+    }
+
+    /// Every round below the floor is refused by publish and reads as evicted.
+    function testFuzz_RevertIf_roundBelowTheWindow(uint64 clock, uint64 round) public {
+        clock = uint64(bound(clock, oracle.RING_ROUNDS() + 1, FUZZ_ROUND_MAX));
+        vm.warp(oracle.publishTimeOf(clock));
+        uint64 oldest = oracle.oldestRetainedRound();
+        round = uint64(bound(round, 0, oldest - 1));
+
+        vm.expectRevert(abi.encodeWithSelector(IDrandOracle.RoundTooOld.selector, round, oldest));
+        oracle.publish(round, new bytes(128));
+        vm.expectRevert(abi.encodeWithSelector(IDrandOracle.RoundEvicted.selector, round, oldest));
+        oracle.randomnessOf(round);
+        assertFalse(oracle.isPublished(round));
+    }
+
+    /// Every round past the clock is refused by publish, so no write can land ahead of it.
+    function testFuzz_RevertIf_publish_roundPastTheClock(uint64 clock, uint64 round) public {
+        clock = uint64(bound(clock, 1, FUZZ_ROUND_MAX));
+        vm.warp(oracle.publishTimeOf(clock));
+        round = uint64(bound(round, uint256(clock) + 1, type(uint64).max));
+
+        vm.expectRevert(abi.encodeWithSelector(IDrandOracle.RoundInFuture.selector, round, clock));
+        oracle.publish(round, new bytes(128));
+    }
+
+    /// A round inside the window that nobody published reads as not published, never as
+    /// the zero value of its untouched slot.
+    function testFuzz_RevertIf_randomnessOf_roundInsideTheWindowUnpublished(uint64 clock, uint64 round) public {
+        clock = uint64(bound(clock, 1, FUZZ_ROUND_MAX));
+        vm.warp(oracle.publishTimeOf(clock));
+        round = uint64(bound(round, oracle.oldestRetainedRound(), clock));
+
+        vm.expectRevert(abi.encodeWithSelector(IDrandOracle.RoundNotPublished.selector, round));
+        oracle.randomnessOf(round);
+        assertFalse(oracle.isPublished(round));
+    }
+
+    /// Before drand's genesis there is no current round: the clock reverts by name.
+    function testFuzz_RevertIf_currentRound_beforeGenesis(uint256 timestamp) public {
+        timestamp = bound(timestamp, 0, oracle.GENESIS_TIMESTAMP() - 1);
+        vm.warp(timestamp);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(IDrandOracle.TimestampBeforeGenesis.selector, timestamp, oracle.GENESIS_TIMESTAMP())
+        );
+        oracle.currentRound();
     }
 }

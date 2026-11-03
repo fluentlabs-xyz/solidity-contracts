@@ -26,36 +26,6 @@ contract DrandOracleCommitTest is DrandOracleFixture {
         assertGt(oracle.publishTimeOf(round), block.timestamp, "committed round must still be unpublished");
     }
 
-    /// `commitTo` records the caller's round as given, from the very next round on the chain's
-    /// clock to one far ahead.
-    function test_commitTo_recordsTheRoundAsGiven() public {
-        uint64 current = oracle.currentRound();
-
-        vm.expectEmit(true, true, false, false, address(oracle));
-        emit IDrandOracle.RoundCommitted(current + 1, consumer);
-        vm.prank(consumer);
-        oracle.commitTo(current + 1);
-
-        vm.expectEmit(true, true, false, false, address(oracle));
-        emit IDrandOracle.RoundCommitted(current + 1_000_000, consumer);
-        vm.prank(consumer);
-        oracle.commitTo(current + 1_000_000);
-    }
-
-    /// A round whose beacon drand has already emitted by the chain's clock is refused: its
-    /// value is public before the commit lands.
-    function test_RevertIf_commitTo_roundAlreadyEmitted() public {
-        uint64 current = oracle.currentRound();
-
-        vm.expectRevert(abi.encodeWithSelector(IDrandOracle.RoundAlreadyEmitted.selector, current, current));
-        vm.prank(consumer);
-        oracle.commitTo(current);
-
-        vm.expectRevert(abi.encodeWithSelector(IDrandOracle.RoundAlreadyEmitted.selector, current - 1, current));
-        vm.prank(consumer);
-        oracle.commitTo(current - 1);
-    }
-
     /// Round 0 is not a drand round: a commit to it could never be served, so it is refused
     /// by name rather than recorded and silently left behind.
     function test_RevertIf_commitTo_roundIsZero() public {
@@ -88,5 +58,37 @@ contract DrandOracleCommitTest is DrandOracleFixture {
         uint256 spent = before - gasleft();
 
         assertLt(spent, 20_000, "a repeat commit must not write state");
+    }
+
+    /// Any round after the chain's clock is accepted and recorded for its caller as given,
+    /// from the very next round on.
+    function testFuzz_commitTo_acceptsEveryRoundAfterTheClock(uint64 round) public {
+        uint64 next = oracle.currentRound() + 1;
+        round = uint64(bound(round, next, type(uint64).max));
+
+        vm.expectEmit(true, true, false, false, address(oracle));
+        emit IDrandOracle.RoundCommitted(next, consumer);
+        vm.prank(consumer);
+        oracle.commitTo(next);
+
+        vm.expectEmit(true, true, false, false, address(oracle));
+        emit IDrandOracle.RoundCommitted(round, consumer);
+        vm.prank(consumer);
+        oracle.commitTo(round);
+    }
+
+    /// Any round up to and including the chain's clock is refused: its beacon is public
+    /// before the commit lands.
+    function testFuzz_RevertIf_commitTo_roundNotAfterTheClock(uint64 round) public {
+        uint64 current = oracle.currentRound();
+        round = uint64(bound(round, 1, current));
+
+        vm.expectRevert(abi.encodeWithSelector(IDrandOracle.RoundAlreadyEmitted.selector, current, current));
+        vm.prank(consumer);
+        oracle.commitTo(current);
+
+        vm.expectRevert(abi.encodeWithSelector(IDrandOracle.RoundAlreadyEmitted.selector, round, current));
+        vm.prank(consumer);
+        oracle.commitTo(round);
     }
 }

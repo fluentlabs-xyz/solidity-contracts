@@ -22,6 +22,8 @@ function negateG1(bytes memory point) pure returns (bytes memory out) {
     }
     uint256 lo;
     uint256 hi;
+    // y < p, so the high limb never underflows; the low limb wraps by design and its borrow
+    // is taken from the high limb.
     unchecked {
         lo = P_LO - yLo;
         hi = P_HI - yHi - (P_LO < yLo ? 1 : 0);
@@ -69,6 +71,36 @@ contract DrandQuicknetVerifierTest is Test {
             assertEq(compressed, vectors[i].compressed, "compressed form must match drand");
             assertEq(sha256(compressed), vectors[i].randomness, "randomness must match drand");
         }
+    }
+
+    /// For any field element x and any nonzero y, the compressed form carries x unchanged
+    /// under the compressed/not-infinity flags, and P and -P differ only in the y-sign bit.
+    function testFuzz_compressG1_keepsXAndFlipsOnlyTheSignBitUnderNegation(
+        uint256 xHi,
+        uint256 xLo,
+        uint256 yHi,
+        uint256 yLo
+    ) public view {
+        xHi = bound(xHi, 0, P_HI - 1);
+        yHi = bound(yHi, 0, P_HI - 1);
+        if (yHi == 0) yLo = bound(yLo, 1, type(uint256).max);
+        // xHi, yHi < 2^128, so each 32-byte word is 16 bytes of padding and the high limb.
+        bytes memory point = abi.encodePacked(xHi, xLo, yHi, yLo);
+        bytes memory x = new bytes(48);
+        for (uint256 i = 0; i < 48; ++i) {
+            x[i] = point[16 + i];
+        }
+
+        bytes memory compressed = this.compressExternal(point);
+        bytes memory negated = this.compressExternal(negateG1(point));
+
+        assertEq(compressed.length, 48);
+        assertEq(uint8(compressed[0]) & 0xc0, 0x80, "compressed, not infinity");
+        assertEq((uint8(compressed[0]) ^ uint8(negated[0])), 0x20, "P and -P differ in the sign bit");
+        compressed[0] &= 0x1f;
+        negated[0] &= 0x1f;
+        assertEq(compressed, x, "x is carried unchanged");
+        assertEq(negated, compressed, "and nothing else differs");
     }
 }
 

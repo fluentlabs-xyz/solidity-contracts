@@ -23,10 +23,12 @@ contract DrandOracleUpgradeTest is DrandOracleFixture {
 
     DrandOracle internal oracle;
     address internal stranger = makeAddr("stranger");
+    address internal next;
 
     function setUp() public {
         vm.warp(NOW);
         oracle = _deployOracle();
+        next = address(new DrandOracleV2Mock());
     }
 
     function test_initialize_seatsBothRolesOnce() public {
@@ -110,14 +112,6 @@ contract DrandOracleUpgradeTest is DrandOracleFixture {
     }
 
     function test_upgrade_isTheAdminsAlone() public {
-        address next = address(new DrandOracleV2Mock());
-
-        vm.prank(stranger);
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, stranger, bytes32(0))
-        );
-        oracle.upgradeToAndCall(next, "");
-
         vm.prank(oracleEmergency);
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -127,10 +121,20 @@ contract DrandOracleUpgradeTest is DrandOracleFixture {
         oracle.upgradeToAndCall(next, "");
     }
 
+    /// No account without the admin role can upgrade.
+    function testFuzz_RevertIf_upgrade_callerLacksTheAdminRole(address caller) public {
+        vm.assume(caller != oracleAdmin);
+
+        vm.prank(caller);
+        vm.expectRevert(
+            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, caller, bytes32(0))
+        );
+        oracle.upgradeToAndCall(next, "");
+    }
+
     function test_upgrade_keepsThePublishedRingAndTheRoles() public {
         DrandQuicknetVectors.Vector memory v = DrandQuicknetVectors.round1();
         oracle.publish(v.round, v.uncompressed);
-        address next = address(new DrandOracleV2Mock());
 
         vm.prank(oracleAdmin);
         oracle.upgradeToAndCall(next, "");

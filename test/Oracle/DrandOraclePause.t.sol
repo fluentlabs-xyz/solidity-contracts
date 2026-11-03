@@ -53,12 +53,6 @@ contract DrandOraclePauseTest is DrandOracleFixture {
     function test_pause_isTheEmergencyRolesAlone() public {
         bytes32 role = oracle.EMERGENCY_ROLE();
 
-        vm.prank(stranger);
-        vm.expectRevert(
-            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, stranger, role)
-        );
-        oracle.pause();
-
         vm.prank(oracleAdmin);
         vm.expectRevert(
             abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, oracleAdmin, role)
@@ -91,6 +85,22 @@ contract DrandOraclePauseTest is DrandOracleFixture {
         vm.expectRevert(
             abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, oracleEmergency, role)
         );
+        oracle.unpause();
+    }
+
+    /// No account without the emergency role can pause or unpause.
+    function testFuzz_RevertIf_pauseOrUnpause_callerLacksTheEmergencyRole(address caller) public {
+        vm.assume(caller != oracleEmergency);
+        bytes32 role = oracle.EMERGENCY_ROLE();
+
+        vm.prank(caller);
+        vm.expectRevert(abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, caller, role));
+        oracle.pause();
+
+        vm.prank(oracleEmergency);
+        oracle.pause();
+        vm.prank(caller);
+        vm.expectRevert(abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, caller, role));
         oracle.unpause();
     }
 }

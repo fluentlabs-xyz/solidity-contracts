@@ -179,6 +179,8 @@ interface IDrandOracle {
     /**
      * @notice Returns a published round's randomness, as drand publishes it
      * @dev Reverts rather than returning zero for an unpublished or evicted round.
+     * @param round The round to read
+     * @return The round's randomness: sha256 of its compressed beacon
      */
     function randomnessOf(uint64 round) external view returns (bytes32);
 
@@ -186,6 +188,7 @@ interface IDrandOracle {
      * @notice Returns a round's randomness scoped to the calling consumer and a domain
      * @param round The published round to read
      * @param domain Caller-chosen separator between its own uses of the same round
+     * @return {deriveRandomness} of the round's randomness, the caller and `domain`
      */
     function randomnessFor(uint64 round, bytes32 domain) external view returns (bytes32);
 
@@ -194,36 +197,50 @@ interface IDrandOracle {
      * @dev Advanced path, for rounds outside the retention window. The caller must have
      *      committed to `round` before its beacon was public; this function cannot check that.
      *      Carries the same verifier-side errors as {IDrandOracle-publish}.
+     * @param round The drand round the signature belongs to
+     * @param signature The round's beacon as a 128-byte EIP-2537 uncompressed G1 point
+     * @return The round's randomness: sha256 of its compressed beacon
      */
     function verifyRound(uint64 round, bytes calldata signature) external view returns (bytes32);
 
     /**
      * @notice Reproduces {randomnessFor} off-chain from a round's published value
+     * @param roundRandomness The round's value, as {randomnessOf} returns it
+     * @param consumer The contract that calls {randomnessFor}
+     * @param domain The separator that consumer passes
+     * @return The value {randomnessFor} returns to `consumer` for `domain`
      */
     function deriveRandomness(bytes32 roundRandomness, address consumer, bytes32 domain) external pure returns (bytes32);
 
     /**
      * @notice Whether a round is currently readable from the ring
+     * @param round The round to look up
+     * @return True when {randomnessOf} would return the round's value now
      */
     function isPublished(uint64 round) external view returns (bool);
 
     /**
      * @notice The oldest round the ring still retains
+     * @return The lowest round {randomnessOf} can still serve, never below 1
      */
     function oldestRetainedRound() external view returns (uint64);
 
     /**
      * @notice The drand round matching the current block timestamp
+     * @return The latest round whose publish time is at or before `block.timestamp`
      */
     function currentRound() external view returns (uint64);
 
     /**
      * @notice The timestamp at which drand publishes a round's beacon
+     * @param round The drand round, from 1
+     * @return The round's publish time in Unix seconds
      */
     function publishTimeOf(uint64 round) external pure returns (uint256);
 
     /**
      * @notice How many rounds past the chain's clock {commit} binds to
+     * @return The offset added to {currentRound}
      */
     function minFutureRounds() external pure returns (uint64);
 }

@@ -238,7 +238,7 @@ contract DrandOracle is Initializable, UUPSUpgradeable, AccessControlUpgradeable
         if (published == 0) revert NothingToPublish();
         assembly ("memory-safe") {
             mstore(fresh, published)
-            mstore(freshSignatures, mul(published, 128))
+            mstore(freshSignatures, mul(published, SIGNATURE_LENGTH))
         }
         if (!DrandQuicknetVerifier.verifyBatch(fresh, freshSignatures)) revert InvalidBatchSignature();
 
@@ -259,7 +259,11 @@ contract DrandOracle is Initializable, UUPSUpgradeable, AccessControlUpgradeable
         pure
     {
         assembly ("memory-safe") {
-            calldatacopy(add(add(dest, 32), mul(destIndex, 128)), add(source.offset, mul(sourceIndex, 128)), 128)
+            calldatacopy(
+                add(add(dest, 32), mul(destIndex, SIGNATURE_LENGTH)),
+                add(source.offset, mul(sourceIndex, SIGNATURE_LENGTH)),
+                SIGNATURE_LENGTH
+            )
         }
     }
 
@@ -332,6 +336,8 @@ contract DrandOracle is Initializable, UUPSUpgradeable, AccessControlUpgradeable
      *      `vm.warp` in tests, and a named error beats a panic either way.
      */
     function currentRound() public view override returns (uint64) {
+        // The chain's timestamp is the oracle's clock by design; see the @dev above.
+        // forge-lint: disable-next-line(block-timestamp)
         if (block.timestamp < GENESIS_TIMESTAMP) {
             revert TimestampBeforeGenesis(block.timestamp, GENESIS_TIMESTAMP);
         }

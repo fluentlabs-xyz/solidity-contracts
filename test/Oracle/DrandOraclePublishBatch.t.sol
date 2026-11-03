@@ -50,18 +50,36 @@ contract DrandOraclePublishBatchTest is DrandOracleFixture {
         }
     }
 
-    /// A round somebody already published is passed over, and its value does not change.
-    function test_publishBatch_skipsRoundsAlreadyPublished() public {
-        DrandQuicknetVectors.Vector[] memory vectors = DrandQuicknetVectors.consecutive();
-        DrandQuicknetVectors.Vector memory early = vectors[2];
-        oracle.publish(early.round, early.uncompressed);
+    /// Any ascending subset of rounds, with any of its members already published, writes
+    /// exactly the rest, each with its own beacon's value: the skip bookkeeping never pairs
+    /// a round with another round's signature, and an already-published value does not change.
+    function testFuzz_publishBatch_writesExactlyTheRoundsNotYetPublished(uint256 batchMask, uint256 publishedMask)
+        public
+    {
+        DrandQuicknetVectors.Vector[] memory all = DrandQuicknetVectors.consecutive();
+        uint256 full = 2 ** all.length - 1;
+        batchMask = bound(batchMask, 1, full);
+        publishedMask = bound(publishedMask, 0, full) & batchMask;
+        if (publishedMask == batchMask) publishedMask &= publishedMask - 1;
+
+        uint256 count;
+        for (uint256 i = 0; i < all.length; ++i) {
+            if ((batchMask >> i) & 1 == 1) ++count;
+        }
+        DrandQuicknetVectors.Vector[] memory vectors = new DrandQuicknetVectors.Vector[](count);
+        uint256 expected;
+        count = 0;
+        for (uint256 i = 0; i < all.length; ++i) {
+            if ((batchMask >> i) & 1 == 0) continue;
+            vectors[count++] = all[i];
+            if ((publishedMask >> i) & 1 == 1) oracle.publish(all[i].round, all[i].uncompressed);
+            else ++expected;
+        }
 
         (uint64[] memory rounds, bytes memory signatures) = _batch(vectors);
-        uint256 published = oracle.publishBatch(rounds, signatures);
-
-        assertEq(published, vectors.length - 1, "the published round is skipped");
+        assertEq(oracle.publishBatch(rounds, signatures), expected, "only the unpublished rounds are written");
         for (uint256 i = 0; i < vectors.length; ++i) {
-            assertEq(oracle.randomnessOf(vectors[i].round), vectors[i].randomness, "every round reads back");
+            assertEq(oracle.randomnessOf(vectors[i].round), vectors[i].randomness, "every round reads its own value");
         }
     }
 
@@ -126,8 +144,8 @@ contract DrandOraclePublishBatchTest is DrandOracleFixture {
     function test_RevertIf_publishBatch_isTooLarge() public {
         uint256 tooMany = oracle.MAX_BATCH_ROUNDS() + 1;
         uint64[] memory rounds = new uint64[](tooMany);
-        for (uint256 i = 0; i < tooMany; ++i) {
-            rounds[i] = uint64(1000 + i);
+        for (uint64 i = 0; i < tooMany; ++i) {
+            rounds[i] = 1000 + i;
         }
         vm.expectRevert(abi.encodeWithSelector(IDrandOracle.BatchTooLarge.selector, tooMany, tooMany - 1));
         oracle.publishBatch(rounds, new bytes(tooMany * 128));
