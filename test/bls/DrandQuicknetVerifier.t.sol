@@ -6,6 +6,32 @@ import {Test} from "forge-std/Test.sol";
 import {DrandQuicknetVerifier} from "../../contracts/libraries/DrandQuicknetVerifier.sol";
 import {DrandQuicknetVectors} from "./DrandQuicknetVectors.sol";
 
+// BLS12-381 base field prime as two words: top 16 bytes, low 32.
+uint256 constant P_HI = 0x1a0111ea397fe69a4b1ba7b6434bacd7;
+uint256 constant P_LO = 0x64774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab;
+
+/// -P: the same x with y replaced by p - y, in the 128-byte EIP-2537 layout where
+/// y occupies bytes 80..128 as 16 bytes of padding-free high word and a 32-byte low word.
+function negateG1(bytes memory point) pure returns (bytes memory out) {
+    out = bytes.concat(point);
+    uint256 yHi;
+    uint256 yLo;
+    assembly ("memory-safe") {
+        yHi := shr(128, mload(add(out, 112)))
+        yLo := mload(add(out, 128))
+    }
+    uint256 lo;
+    uint256 hi;
+    unchecked {
+        lo = P_LO - yLo;
+        hi = P_HI - yHi - (P_LO < yLo ? 1 : 0);
+    }
+    assembly ("memory-safe") {
+        mstore(add(out, 112), or(shl(128, hi), shr(128, lo)))
+        mstore(add(out, 128), lo)
+    }
+}
+
 /// @dev The library's surface is `internal` and takes `calldata`, so the suite
 ///      reaches it through external wrappers on itself — no harness contract.
 contract DrandQuicknetVerifierTest is Test {
@@ -51,10 +77,6 @@ contract DrandQuicknetVerifierTest is Test {
 contract DrandQuicknetVerifierBatchTest is Test {
     address internal constant G1ADD = address(0x0b);
 
-    /// BLS12-381 base field prime as two words: top 16 bytes, low 32.
-    uint256 internal constant P_HI = 0x1a0111ea397fe69a4b1ba7b6434bacd7;
-    uint256 internal constant P_LO = 0x64774b84f38512bf6730d2a0f6b0f6241eabfffeb153ffffb9feffffffffaaab;
-
     function verifyBatchExternal(uint64[] memory rounds, bytes memory signatures) external view returns (bool) {
         return DrandQuicknetVerifier.verifyBatch(rounds, signatures);
     }
@@ -80,28 +102,6 @@ contract DrandQuicknetVerifierBatchTest is Test {
         bool ok;
         (ok, out) = G1ADD.staticcall(bytes.concat(a, b));
         assertTrue(ok && out.length == 128, "G1ADD must answer");
-    }
-
-    /// -P: the same x with y replaced by p - y, in the 128-byte EIP-2537 layout where
-    /// y occupies bytes 80..128 as 16 bytes of padding-free high word and a 32-byte low word.
-    function _negate(bytes memory point) internal pure returns (bytes memory out) {
-        out = bytes.concat(point);
-        uint256 yHi;
-        uint256 yLo;
-        assembly ("memory-safe") {
-            yHi := shr(128, mload(add(out, 112)))
-            yLo := mload(add(out, 128))
-        }
-        uint256 lo;
-        uint256 hi;
-        unchecked {
-            lo = P_LO - yLo;
-            hi = P_HI - yHi - (P_LO < yLo ? 1 : 0);
-        }
-        assembly ("memory-safe") {
-            mstore(add(out, 112), or(shl(128, hi), shr(128, lo)))
-            mstore(add(out, 128), lo)
-        }
     }
 
     /// Consecutive rounds — the shape a publisher sends — verify under one pairing.
@@ -145,7 +145,7 @@ contract DrandQuicknetVerifierBatchTest is Test {
         bytes memory delta = DrandQuicknetVectors.round10M().uncompressed;
 
         bytes memory forgedA = _add(a.uncompressed, delta);
-        bytes memory forgedB = _add(b.uncompressed, _negate(delta));
+        bytes memory forgedB = _add(b.uncompressed, negateG1(delta));
 
         assertEq(_add(forgedA, forgedB), _add(a.uncompressed, b.uncompressed), "the naive sum is unchanged");
         assertFalse(this.verifyExternal(a.round, forgedA), "the forged point is not drand's");
